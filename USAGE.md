@@ -13,8 +13,9 @@ update/removal**. (The internals of *how* the plugin works are in the developer-
 2. [Settings in detail](#2-settings-in-detail)
 3. [Skills in detail](#3-skills-in-detail)
 4. [Teams notifications](#4-teams-notifications)
-5. [Troubleshooting](#5-troubleshooting)
-6. [Update & removal](#6-update--removal)
+5. [Release token write permission](#release-token-write-permission)
+6. [Troubleshooting](#6-troubleshooting)
+7. [Update & removal](#7-update--removal)
 
 ---
 
@@ -188,7 +189,7 @@ The **inverse of `/flow-init`**. Unregisters the commit gate and marketplace, st
 hooks carry too much destruction risk, so it only **reports** them and guides manual removal.
 
 > ⚠️ **Run it before `/plugin uninstall`** — the cleanup tool lives inside the plugin, so if
-> you remove the plugin first you can't use this skill (manual cleanup in §6).
+> you remove the plugin first you can't use this skill (manual cleanup in §7).
 
 ### 3.4 `/harness-init` — generate the project harness
 
@@ -316,7 +317,28 @@ python3 "${ROOT}/.claude/harness-tier/scripts/teams_alert.py" --channel personal
 
 ---
 
-## 5. Troubleshooting
+## Release token write permission
+
+The release workflow pushes the version bump/tag, so its token needs **write**.
+
+1. **Primary** — Settings → Actions → General → **Workflow permissions** → **Read and
+   write permissions** → Save.
+2. **Organization override** — if an org caps Actions permissions to read-only, an org
+   admin must relax it (or allow repos to configure their own).
+3. **Protected branch / ruleset** — if the release branch restricts pushes, add the
+   Actions bot/token to the bypass list, or use a token that can bypass.
+4. **PAT / `RELEASE_TOKEN` (escalation)** — when `GITHUB_TOKEN` is insufficient (bypass
+   protection, trigger downstream workflows): create a fine-grained PAT with
+   `Contents: Read and write` (+ `Workflows: Read and write` if the release touches
+   workflow files), store it as the repo secret `RELEASE_TOKEN`, and reference it in
+   `actions/checkout` `token:` and the release step's `GH_TOKEN`.
+
+The release preflight (`check-token-write.sh`) fails fast with this pointer when the
+token is read-only.
+
+---
+
+## 6. Troubleshooting
 
 ### My commit is blocked — "python3 / PyYAML required"
 
@@ -358,7 +380,7 @@ The gate checker is itself bash, so it can't detect a missing `bash`/coreutils o
 
 ---
 
-## 6. Update & removal
+## 7. Update & removal
 
 ### Re-run `/flow-init` — sync after a plugin update
 
