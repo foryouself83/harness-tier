@@ -1,7 +1,14 @@
 # Semantic release (Python/python-semantic-release) — rendered by /flow-init from flow-config.versioning.
 # Standard semantic-release: version bump + tag + GitHub Release. The release commit is [skip ci].
 # Prerequisite: repo Settings → Actions → Workflow permissions = "Read and write".
+# Auth: default uses GITHUB_TOKEN (ensure Settings → Actions → Workflow permissions =
+# Read and write). To bypass branch protection / trigger downstream, add a PAT secret
+# RELEASE_TOKEN (Contents+Workflows: RW) and set checkout `token:` + step `GH_TOKEN` to it.
+# How to grant: see the generated docs/operations/commit-versioning-guide.md.
 # The detailed semantic-release config ([tool.semantic_release]) lives in the project's pyproject (see commit-versioning-guide).
+# Prerelease branch pushes force the bump level from a `Release-Level: major|minor|patch` commit trailer (fallback: auto-derive).
+# Stable branch pushes rc-strip via the shipped .claude/harness-tier/scripts/finalize_prerelease.py, which targets
+# pyproject.toml + plugin.json; other stacks fall back to plain compute on the stable branch.
 name: release
 
 on:
@@ -33,15 +40,47 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-      - name: Semantic release
-        id: sr
+      - name: Semantic release — prerelease rc (forced level from trailer)
+        id: sr_pre
+        if: ${{ github.ref_name == '__HARNESS_PRERELEASE__' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           BEFORE="$(git rev-parse HEAD)"
-          semantic-release version --commit --tag --push --changelog
+          LEVEL="$(git log -1 --pretty=%B | sed -nE 's/^Release-Level:[[:space:]]*(major|minor|patch)[[:space:]]*$/\1/p' | head -1)"
+          if [ -n "$LEVEL" ]; then
+            semantic-release version --"$LEVEL" --as-prerelease --commit --tag --push --changelog
+          else
+            semantic-release version --commit --tag --push --changelog
+          fi
           AFTER="$(git rev-parse HEAD)"
           if [ "$BEFORE" != "$AFTER" ]; then echo "released=true" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Release — stable finalize (rc-strip) or hotfix compute
+        id: sr_stable
+        if: ${{ github.ref_name == '__HARNESS_STABLE__' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BEFORE="$(git rev-parse HEAD)"
+          FINALIZE=".claude/harness-tier/scripts/finalize_prerelease.py"
+          if [ -f "$FINALIZE" ] && STABLE="$(python "$FINALIZE")"; then
+            git add pyproject.toml .claude-plugin/plugin.json 2>/dev/null || git add -A
+            git commit -m "chore(release): $STABLE [skip ci]"
+            git tag "v$STABLE"; git push origin HEAD:__HARNESS_STABLE__; git push origin "v$STABLE"
+          else
+            semantic-release version --commit --tag --push --changelog
+          fi
+          AFTER="$(git rev-parse HEAD)"
+          if [ "$BEFORE" != "$AFTER" ]; then echo "released=true" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Aggregate release result
+        id: sr
+        run: |
+          if [ "${{ steps.sr_pre.outputs.released }}" = "true" ] || [ "${{ steps.sr_stable.outputs.released }}" = "true" ]; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create GitHub Release
         if: ${{ steps.sr.outputs.released == 'true' }}
         env:

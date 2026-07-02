@@ -151,9 +151,21 @@ Promotions are gated at the **commit on the target branch** (no tier marker
 needed — the branch drives it). Record each gate before committing the promotion:
 
 - **Staging** (integration → staging): regression `review` (independent
-  `general-purpose` agent).
-  `touch .claude/harness-tier/.flow/{review}.done`, then commit on the
-  staging branch.
+  `general-purpose` agent) **and bump-level selection**:
+  1. Compute the commit-derived level as the default: `semantic-release version --print`
+     (best-effort) — compare to the current version to suggest major/minor/patch.
+  2. `AskUserQuestion`: **major / minor / patch** (default = the derived level).
+     **If the choice is `major` while the current version is `0.x`, warn that it jumps
+     to `1.0.0`** (explicit `--major` overrides `major_on_zero=false`).
+  3. Before committing the staging promotion, **best-effort** warn if the release token
+     lacks write: if `gh`/a token is available, run
+     `.claude/harness-tier/scripts/check-token-write.sh` (exit 10 → warn with the
+     Settings/PAT how-to; exit 20/no tool → skip silently, never block).
+  4. `touch .claude/harness-tier/.flow/{review,bump}.done`.
+  5. Commit on the staging branch **with a trailer** `Release-Level: <level>` (blank
+     line before the trailer). CI reads it to force
+     `semantic-release version --<level> --as-prerelease`. main needs no level — it
+     finalizes the rc deterministically.
 - **Release** (staging → production): Staging gates **plus** `/code-review` at
   `ultra` effort (extra independent layer) and `/security-review` →
   `touch .claude/harness-tier/.flow/security.done`, then commit on the production branch.

@@ -48,6 +48,13 @@ If the stack is confirmed, describe the corresponding tool. **If unconfirmed, le
 - proposed value for the `flow-config.versioning.release_tool` slot
 - proposed value for the `flow-config.versioning.version_files` slot (file list)
 
+### 3b. CI Token Write Permission — how to grant
+- The release CI pushes tags/commits, so its token needs **write**. Document, in order:
+  primary (Settings → Actions → Workflow permissions = Read and write), org override,
+  protected-branch bypass, and PAT/`RELEASE_TOKEN` escalation (Contents+Workflows: RW,
+  repo secret, `actions/checkout` token + step `GH_TOKEN`).
+- This is the single canonical location; guard messages link here.
+
 ### 4. Version Check Commands
 ```bash
 # Check the current tag-based version (common to all stacks)
@@ -75,3 +82,5 @@ git describe --tags --abbrev=0
 4. **No duplicate flow generation** — do not generate in this doc the actual CI workflow·release hook files that `/flow-init` renders when flow is detected.
 5. **Unconfirmed stack — "needs confirmation"** — if the release tool·version file is uncertain, do not fabricate (harness-rules 4).
 6. **Concise** — 1-3 lines per item. Concrete commands/config values over verbose explanation.
+7. **Emit the token-write-permission section** — always include §3b (single canonical
+   location); the rendered release workflow's guard message links to it.

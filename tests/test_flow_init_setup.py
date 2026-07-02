@@ -373,6 +373,13 @@ def test_copy_artifacts(tmp_path: Path):
     assert not (vd / "scripts" / "flow-tiers.yaml").exists()
 
 
+def test_copy_files_includes_new_scripts():
+    from scripts.flow_init_setup import COPY_FILES
+
+    assert "scripts/check-token-write.sh" in COPY_FILES
+    assert "scripts/finalize_prerelease.py" in COPY_FILES
+
+
 def _write_flow_config(host: Path, contract: dict) -> None:
     cfg_dir = host / ".claude" / "harness-tier" / "config"
     cfg_dir.mkdir(parents=True, exist_ok=True)

@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-python@v6
         with:
@@ -38,18 +38,70 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Semantic release (bump + tag + push)
-        id: sr
+      - name: Preflight — token write permission
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          bash scripts/check-token-write.sh
+          rc=$?
+          if [ "$rc" = "10" ]; then
+            {
+              echo "## ❌ Release blocked — token lacks write permission"
+              echo "Grant it: **Settings → Actions → General → Workflow permissions → Read and write**,"
+              echo "or use a PAT secret \`RELEASE_TOKEN\` with Contents+Workflows: Read and write."
+              echo "See USAGE.md → \"Release token write permission\"."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::token lacks write permission (see job summary / USAGE.md)"
+            exit 1
+          fi
+          echo "token write preflight: rc=$rc (0=ok; 20=undetermined → continue; a later failure step surfaces the how-to)"
+
+      - name: Semantic release — stage rc (forced level from trailer)
+        id: sr_stage
+        if: ${{ github.ref_name == 'stage' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           BEFORE="$(git rev-parse HEAD)"
-          semantic-release version --commit --tag --push --changelog
-          AFTER="$(git rev-parse HEAD)"
-          if [ "$BEFORE" != "$AFTER" ]; then
-            echo "released=true" >> "$GITHUB_OUTPUT"
+          LEVEL="$(git log -1 --pretty=%B | sed -nE 's/^Release-Level:[[:space:]]*(major|minor|patch)[[:space:]]*$/\1/p' | head -1)"
+          if [ -n "$LEVEL" ]; then
+            echo "forcing $LEVEL (from Release-Level trailer)"
+            semantic-release version --"$LEVEL" --as-prerelease --commit --tag --push --changelog
           else
-            echo "no release (no version-bumping commits since last tag)"
+            echo "no Release-Level trailer — auto-deriving"
+            semantic-release version --commit --tag --push --changelog
+          fi
+          AFTER="$(git rev-parse HEAD)"
+          [ "$BEFORE" != "$AFTER" ] && echo "released=true" >> "$GITHUB_OUTPUT" || echo "no release"
+
+      - name: Release — main finalize (rc-strip) or hotfix compute
+        id: sr_main
+        if: ${{ github.ref_name == 'main' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          BEFORE="$(git rev-parse HEAD)"
+          if STABLE="$(python scripts/finalize_prerelease.py)"; then
+            echo "finalizing prerelease -> $STABLE (deterministic rc-strip)"
+            git add pyproject.toml .claude-plugin/plugin.json
+            git commit -m "chore(release): $STABLE [skip ci]"
+            git tag "v$STABLE"
+            git push origin HEAD:main
+            git push origin "v$STABLE"
+          else
+            echo "no prerelease to finalize (hotfix) — plain compute"
+            semantic-release version --commit --tag --push --changelog
+          fi
+          AFTER="$(git rev-parse HEAD)"
+          [ "$BEFORE" != "$AFTER" ] && echo "released=true" >> "$GITHUB_OUTPUT" || echo "no release"
+
+      - name: Aggregate release result
+        id: sr
+        run: |
+          if [ "${{ steps.sr_stage.outputs.released }}" = "true" ] || [ "${{ steps.sr_main.outputs.released }}" = "true" ]; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Pin marketplace sha to release commit (main only)
@@ -83,7 +135,7 @@ jobs:
       - name: Create GitHub Release
         if: ${{ steps.sr.outputs.released == 'true' }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
           REF_NAME: ${{ github.ref_name }}
         run: |
           TAG="$(git describe --tags --abbrev=0)"
@@ -93,3 +145,14 @@ jobs:
           PRERELEASE=""
           [ "$REF_NAME" = "stage" ] && PRERELEASE="--prerelease"
           gh release create "$TAG" --title "$TAG" --generate-notes $PRERELEASE
+
+      - name: On failure — release token hint
+        if: ${{ failure() }}
+        run: |
+          {
+            echo "## ⚠️ A release step failed"
+            echo "If this was a push/tag/release permission error, the token likely lacks write access."
+            echo "Grant it: **Settings → Actions → General → Workflow permissions → Read and write**,"
+            echo "or set a PAT secret \`RELEASE_TOKEN\` (Contents + Workflows: Read and write)."
+            echo "See USAGE.md → \"Release token write permission\"."
+          } >> "$GITHUB_STEP_SUMMARY"
