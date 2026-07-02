@@ -1,11 +1,11 @@
-# 의미기반 릴리스 (Node/semantic-release) — /vdev-init 이 vdev-config.versioning 으로 렌더.
-# 표준 semantic-release(@semantic-release/*). 상세 설정은 프로젝트 .releaserc 에 둔다.
-# 전제: repo Settings → Actions → Workflow permissions = "Read and write".
+# Semantic release (Node/semantic-release) — rendered by /flow-init from flow-config.versioning.
+# Standard semantic-release (@semantic-release/*). The detailed config lives in the project's .releaserc.
+# Prerequisite: repo Settings → Actions → Workflow permissions = "Read and write".
 name: release
 
 on:
   push:
-    branches: [__VWAY_STABLE__, __VWAY_PRERELEASE__]
+    branches: [__HARNESS_STABLE__, __HARNESS_PRERELEASE__]
 
 concurrency:
   group: release-${{ github.ref }}

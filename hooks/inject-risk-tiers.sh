@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# SessionStart hook — risk-tiers 룰을 세션 컨텍스트에 주입한다.
+# SessionStart hook — injects the risk-tiers rule into the session context.
 #
-# 플러그인 rules/ 는 자동 로드되지 않으므로(ras_llm 의 .claude/rules 자동 로드와
-# 달리), 이 hook 이 always-on rule 역할을 대신해 매 세션 risk-tiers.md 를 주입한다.
-# 파일 부재·읽기 실패 시 빈 주입으로 조용히 통과한다(FAIL-OPEN).
+# Since the plugin's rules/ is not auto-loaded (unlike ras_llm's .claude/rules auto-load),
+# this hook stands in for an always-on rule and injects risk-tiers.md every session.
+# On missing file / read failure, it passes quietly with an empty injection (FAIL-OPEN).
 #
-# 출력 규약(superpowers session-start 패턴):
+# Output convention (superpowers session-start pattern):
 #   - Cursor      : additional_context (snake_case, top-level)
 #   - Claude Code : hookSpecificOutput.additionalContext (nested)
-#   - 그 외(SDK)  : additionalContext (top-level)
-# heredoc 은 bash 5.3+ 에서 hang 이슈가 있어 printf 로 출력한다.
+#   - others (SDK): additionalContext (top-level)
+# heredoc has a hang issue on bash 5.3+, so we output via printf.
 
 set -uo pipefail
 
@@ -17,11 +17,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 RULE_FILE="${PLUGIN_ROOT}/rules/risk-tiers.md"
 
-# 룰 파일이 없으면 주입할 것이 없으므로 조용히 종료(FAIL-OPEN).
+# If the rule file is absent there is nothing to inject, so exit quietly (FAIL-OPEN).
 [ -f "$RULE_FILE" ] || exit 0
 rule_content="$(cat "$RULE_FILE" 2>/dev/null)" || exit 0
 
-# bash 파라미터 치환으로 JSON 문자열 escape (문자 단위 루프보다 빠름).
+# Escape the JSON string via bash parameter substitution (faster than a per-character loop).
 escape_for_json() {
   local s="$1"
   s="${s//\\/\\\\}"
@@ -33,7 +33,7 @@ escape_for_json() {
 }
 
 rule_escaped="$(escape_for_json "$rule_content")"
-session_context="<vway-kit-risk-tiers>\nThis project enforces the vway-kit risk-tiered workflow AT COMMIT TIME. The commit gate is fail-closed: it blocks any commit whose task was not classified by /vdev. So before starting ANY code change, feature, fix, or dev request — and at the latest before you commit — your action MUST be to invoke the /vdev skill (via the Skill tool). /vdev is what classifies the task, confirms the tier, runs the matching gates, and records the marker the commit gate requires. Do NOT judge the tier yourself and skip the skill; without /vdev's marker the commit is rejected.\n\n${rule_escaped}\n</vway-kit-risk-tiers>"
+session_context="<harness-tier-risk-tiers>\nThis project enforces the harness-tier risk-tiered workflow AT COMMIT TIME. The commit gate is fail-closed: it blocks any commit whose task was not classified by /flow. So before starting ANY code change, feature, fix, or dev request — and at the latest before you commit — your action MUST be to invoke the /flow skill (via the Skill tool). /flow is what classifies the task, confirms the tier, runs the matching gates, and records the marker the commit gate requires. Do NOT judge the tier yourself and skip the skill; without /flow's marker the commit is rejected.\n\n${rule_escaped}\n</harness-tier-risk-tiers>"
 
 if [ -n "${CURSOR_PLUGIN_ROOT:-}" ]; then
   printf '{\n  "additional_context": "%s"\n}\n' "$session_context"

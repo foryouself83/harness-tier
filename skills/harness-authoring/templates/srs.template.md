@@ -1,73 +1,73 @@
-# {{PROJECT_NAME}} 소프트웨어 요구사항 명세 (SRS)
+# {{PROJECT_NAME}} Software Requirements Specification (SRS)
 
-> greenfield 전용 — 시스템이 무엇을 해야 하는가(요구사항)의 SSOT. 가장 먼저 작성한다. 출처: {{SOURCES}}
+> Greenfield only — the SSOT for what the system must do (requirements). Write this first. Sources: {{SOURCES}}
 >
-> **두 레벨로 분리**: 고객 요구(§4)는 측정가능하진 않아도 무엇을 원하는지 명확해야 한다
-> ("편했으면" ✗ → "카드·간편결제 지원" ✓). 기능 요구사항(§5, FR)은 측정 가능·단일 해석이어야 한다
-> ("빠르게" ✗ → "p95 < 200ms" ✓). 모호하거나 미상이면 지어내지 말고 `확인 필요`로 명시한다(harness-rules 8-1).
+> **Split into two levels**: customer requirements (§4) need not be measurable, but must clearly state what is wanted
+> ("would be nice if it were convenient" ✗ → "supports cards and simple/express payment" ✓). Functional requirements (§5, FR) must be measurable and single-interpretation
+> ("fast" ✗ → "p95 < 200ms" ✓). If something is ambiguous or unknown, do not invent it — mark it `needs confirmation` (harness-rules 8-1).
 
-## 1. 개요 / 목적
+## 1. Overview / Purpose
 {{PRODUCT_PURPOSE}}
 
-## 2. 목표 / 비목표
-- 목표: {{GOALS}}
-- 비목표(YAGNI): {{NON_GOALS}}
+## 2. Goals / Non-goals
+- Goals: {{GOALS}}
+- Non-goals (YAGNI): {{NON_GOALS}}
 
-## 3. 사용자 / 시나리오
-{{USERS_AND_SCENARIOS}}  <!-- 사용자 권한(role)별로 분류해 나열한다(§5 권한 축과 연결).
-                              단일 권한이면 "해당 없음 — 단일 사용자"로 명시. -->
+## 3. Users / Scenarios
+{{USERS_AND_SCENARIOS}}  <!-- List classified by user role (linked to the permission axis in §5).
+                              If there is a single role, state "N/A — single user". -->
 
-### 3.1 사용자 권한(role) 분류
-{{USER_ROLES}}  <!-- 예: 관리자 / 일반 사용자 / 게스트. 각 role 의 책임·접근 범위 한 줄씩.
-                     권한 구분이 없으면 "해당 없음 — 사유". -->
+### 3.1 User Role Classification
+{{USER_ROLES}}  <!-- e.g. admin / regular user / guest. One line per role covering its responsibilities and access scope.
+                     If there is no role distinction, state "N/A — reason". -->
 
-## 4. 고객 요구 (C, 비측정)
-<!-- 고객/이해관계자가 원하는 것을 명확하게 — 측정가능 수용기준·구현방법은 §5 FR·SDS 몫.
-     모호한 감상("편했으면") 금지, 무엇을 제공할지는 분명히. 각 C 에 `<a id="c-xxx">` 앵커를 달아
-     §5 FR 이 `(← [C-x])` 로 역참조한다(고객요구→FR 추적 원천).
-     외부 고객/이해관계자가 없으면(개인·내부 도구) "해당 없음 — 단일 이해관계자"로 두고 §5 로 바로 간다(빈 의례 금지). -->
+## 4. Customer Requirements (C, non-measurable)
+<!-- State clearly what the customer/stakeholder wants — measurable acceptance criteria and implementation approach belong to §5 FR and the SDS.
+     No vague sentiments ("would be nice if it were convenient"); be explicit about what will be provided. Give each C an `<a id="c-xxx">` anchor
+     so §5 FR can back-reference it with `(← [C-x])` (the origin of customer-requirement→FR traceability).
+     If there is no external customer/stakeholder (personal/internal tool), leave "N/A — single stakeholder" and go straight to §5 (no empty ceremony). -->
 {{CUSTOMER_REQUIREMENTS}}
-<!-- 형식 — - <a id="c-1"></a>**C-1** 결제는 카드·간편결제를 지원한다. -->
+<!-- Format — - <a id="c-1"></a>**C-1** Payment supports cards and simple/express payment. -->
 
-## 5. 기능 요구사항
-<!-- 계층 분류(고정 스키마): 도메인(1차) > 사용자권한/하위영역(2차) > 개별 FR(3차).
-     프로젝트 성격에 맞는 1차 축(도메인)을 쓰되, 적용 안 되는 축은 삭제하지 말고
-     "해당 없음 — 사유"로 남긴다(누락과 구분). 각 FR 은 측정 가능한 수용 기준을 갖는다. -->
+## 5. Functional Requirements
+<!-- Hierarchical classification (fixed schema): domain (level 1) > user role/sub-area (level 2) > individual FR (level 3).
+     Use level-1 axes (domains) that fit the nature of the project, but do not delete an axis that does not apply —
+     leave "N/A — reason" (to distinguish it from an omission). Each FR has measurable acceptance criteria. -->
 
-### 5.1 {{DOMAIN_A}}  <!-- 1차: 도메인/기능 영역 -->
-#### 5.1.1 {{ROLE_OR_SUBAREA_A}}  <!-- 2차: 사용자권한 또는 하위영역 -->
+### 5.1 {{DOMAIN_A}}  <!-- Level 1: domain/functional area -->
+#### 5.1.1 {{ROLE_OR_SUBAREA_A}}  <!-- Level 2: user role or sub-area -->
 {{FR_LIST_A}}
-<!-- 3차: 요구사항 항목. 각 FR 에 `<a id="fr-xxx">` 앵커를 달아 SDS 가 링크로 역추적하게 한다(필수). 형식 —
-     - <a id="fr-001"></a>**FR-001** [P0/P1/P2] (← [C-1](#c-1)) 설명. 수용 기준: <측정 가능·검증 가능한 조건>.
-     출처 고객 요구가 있으면 `(← [C-x])` 로 역참조(없으면 생략). 모호/미상이면 수용 기준에 "확인 필요"를 명시. -->
+<!-- Level 3: requirement items. Give each FR an `<a id="fr-xxx">` anchor so the SDS can trace back to it via a link (required). Format —
+     - <a id="fr-001"></a>**FR-001** [P0/P1/P2] (← [C-1](#c-1)) Description. Acceptance criteria: <measurable, verifiable condition>.
+     If there is a source customer requirement, back-reference it with `(← [C-x])` (omit if none). If ambiguous/unknown, state "needs confirmation" in the acceptance criteria. -->
 
 ### 5.2 {{DOMAIN_B}}
 {{FR_LIST_B}}
 
-## 6. 비기능 요구사항
-<!-- 고정 하위축(ISO/IEC 25010 정렬). 각 축은 정량 기준으로 채우거나,
-     이 프로젝트에 해당 없으면 "해당 없음 — 사유"로 남긴다(빈칸 금지). -->
+## 6. Non-functional Requirements
+<!-- Fixed sub-axes (aligned to ISO/IEC 25010). Fill each axis with quantitative criteria, or,
+     if it does not apply to this project, leave "N/A — reason" (no blanks). -->
 
-### 6.1 성능
-{{NFR_PERFORMANCE}}  <!-- 처리량·지연(p50/p95)·동시성 등 수치. -->
+### 6.1 Performance
+{{NFR_PERFORMANCE}}  <!-- Figures for throughput, latency (p50/p95), concurrency, etc. -->
 
-### 6.2 보안
-{{NFR_SECURITY}}  <!-- 인증/인가·암호화·시크릿·취약점 기준. -->
+### 6.2 Security
+{{NFR_SECURITY}}  <!-- Authentication/authorization, encryption, secrets, vulnerability criteria. -->
 
-### 6.3 가용성 / 안정성
-{{NFR_AVAILABILITY}}  <!-- SLA·복구목표(RTO/RPO)·장애 허용. -->
+### 6.3 Availability / Reliability
+{{NFR_AVAILABILITY}}  <!-- SLA, recovery objectives (RTO/RPO), fault tolerance. -->
 
-### 6.4 확장성
-{{NFR_SCALABILITY}}  <!-- 부하 증가 대응·수평/수직 확장 기준. -->
+### 6.4 Scalability
+{{NFR_SCALABILITY}}  <!-- Response to increased load, horizontal/vertical scaling criteria. -->
 
-### 6.5 접근성
-{{NFR_ACCESSIBILITY}}  <!-- WCAG 등급 등. UI 없으면 "해당 없음". -->
+### 6.5 Accessibility
+{{NFR_ACCESSIBILITY}}  <!-- WCAG level, etc. If there is no UI, "N/A". -->
 
-### 6.6 유지보수성
-{{NFR_MAINTAINABILITY}}  <!-- 테스트 커버리지·문서·모듈 경계 기준. -->
+### 6.6 Maintainability
+{{NFR_MAINTAINABILITY}}  <!-- Test coverage, documentation, module boundary criteria. -->
 
-### 6.7 호환성
-{{NFR_COMPATIBILITY}}  <!-- 지원 OS/브라우저/런타임·API 버전 정책. -->
+### 6.7 Compatibility
+{{NFR_COMPATIBILITY}}  <!-- Supported OS/browser/runtime, API version policy. -->
 
-## 7. 제약 / 가정
+## 7. Constraints / Assumptions
 {{CONSTRAINTS_ASSUMPTIONS}}

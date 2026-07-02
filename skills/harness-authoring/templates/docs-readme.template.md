@@ -1,12 +1,12 @@
-# {{PROJECT_NAME}} 문서
+# {{PROJECT_NAME}} Documentation
 
-프로젝트 문서 전체 구조. 처음이라면 [온보딩](onboarding/README.md)부터 본다.
+The full structure of the project documentation. If you are new, start with [Onboarding](onboarding/README.md).
 
-## 구조
+## Structure
 {{SRS_INDEX_LINE_IF_GREENFIELD}}
-- [설계(SDS)](sds/README.md) — 구조 + Mermaid 다이어그램
-- [코드 스타일](code-style/README.md) — 스택별 컨벤션·BP·안티패턴·툴체인 설정
-- [리서치](research/README.md) — 프레임워크 컨벤션·설정·기성 솔루션 조사
-- [온보딩](onboarding/README.md) — 실행·디버그·문서 안내
+- [Design (SDS)](sds/README.md) — structure + Mermaid diagram
+- [Code Style](code-style/README.md) — per-stack conventions, best practices, anti-patterns, toolchain config
+- [Research](research/README.md) — framework conventions, configuration, off-the-shelf solution survey
+- [Onboarding](onboarding/README.md) — run, debug, documentation guide
 
-<!-- 출처: {{SOURCES}} -->
+<!-- Sources: {{SOURCES}} -->

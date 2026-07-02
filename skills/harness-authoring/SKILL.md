@@ -1,54 +1,60 @@
 ---
 name: harness-authoring
-description: "프레임워크에 맞는 AI 하네스(.md 컴포넌트)를 생성하는 작성 규율과 템플릿. /harness-init 가 호출. 3종(skill/agent/rule)+CLAUDE.md+기술문서(분류별 폴더) 골격을 references 의 작성법·필수룰로 채운다. 커맨드는 생성하지 않는다."
+description: "Authoring discipline and templates for generating framework-appropriate AI harnesses (.md components). Invoked by /harness-init. Fills the skeletons of 3 component types (skill/agent/rule) + CLAUDE.md + technical docs (folders by category) using the authoring guides and mandatory rules in references. Does not generate commands."
 ---
 
 # harness-authoring
 
-`/harness-init` 의 생성 엔진. `templates/`(골격)을 `references/`(작성법·필수룰)와
-research 결과로 채워 호스트 하네스를 만든다.
+The generation engine of `/harness-init`. It fills `templates/` (skeletons) with `references/`
+(authoring guides and mandatory rules) plus research results to produce the host harness.
 
-## 원칙
-- **간결·lean** — 생성 .md 는 짧게. 사실은 SSOT 한 곳, 나머지는 링크.
-- **필수 룰 5종 항상 주입** — `references/karpathy-principles.md`·`rule-dry-constants.md`·
-  `rule-version-pinning.md`·`security-rule.md`·`rule-reuse-first.md` 를 CLAUDE.md `harness:baseline`
-  블록에 넣는다. 각 룰의 앵커(`<!-- rule:<key> -->`)를 보존한다(로드경로 보장 — `.claude/rules/` 단독 배치 금지).
-- **작성 품질** — `references/skill-writing-guide.md`(pushy desc·Why-first·일반화)·`agent-design-guide.md`
-  (분리·재사용·팀 프로토콜)·`tech-doc-guide.md`(기술문서) 를 로드해 따른다. 공식 frontmatter 는
-  `references/authoring-spec.md`(공식문서 SSOT) 준수.
-- **SSOT 분리** — 구조적 컨벤션은 룰(`<framework>-conventions.md`), 행위적 스타일·BP·안티패턴은
-  문서(`docs/code-style/<stack>.md`). 같은 사실을 두 곳에 중복하지 않는다.
-- **라이브러리 단정 금지** — 산출물(스킬·에이전트·문서)은 특정 라이브러리/도구를 research·
-  code-analyzer 근거 없이 박지 않는다. greenfield 면 카테고리로 일반화하거나 질문(reuse 후보는
-  `docs/code-style/<stack>.md` reuse 절). 예: "Zod 스키마" → "프로젝트 검증 라이브러리(없으면 후보 중 택1)".
-- **커맨드 미생성** — 어떤 산출물도 `.claude/commands/` 에 만들지 않는다.
-- **중복 생성 금지** — detect 의 name+description 으로 기능 중복 시 스킵/질문.
-- **vdev 감지 시** 프로세스 규율은 risk-tiers 로 defer, 하네스는 코드스타일+컨벤션만.
+## Principles
+- **Concise and lean** — keep generated .md short. State a fact in one SSOT, link the rest.
+- **Always inject the 5 mandatory rules** — put `references/karpathy-principles.md`, `rule-dry-constants.md`,
+  `rule-version-pinning.md`, `security-rule.md`, and `rule-reuse-first.md` into the CLAUDE.md `harness:baseline`
+  block. Preserve each rule's anchor (`<!-- rule:<key> -->`) (guarantees the load path — do not place them
+  standalone in `.claude/rules/`).
+- **Authoring quality** — load and follow `references/skill-writing-guide.md` (pushy desc, Why-first, generalization),
+  `agent-design-guide.md` (separation, reuse, team protocol), and `tech-doc-guide.md` (technical docs). For official
+  frontmatter, follow `references/authoring-spec.md` (official-docs SSOT).
+- **SSOT separation** — structural conventions go in a rule (`<framework>-conventions.md`); behavioral style, best
+  practices, and anti-patterns go in a doc (`docs/code-style/<stack>.md`). Do not duplicate the same fact in two places.
+- **No library assertions** — outputs (skills, agents, docs) must not hardcode a specific library/tool without evidence
+  from research or code-analyzer. For greenfield, generalize to a category or ask (reuse candidates go in the reuse
+  section of `docs/code-style/<stack>.md`). Example: "Zod schema" → "the project's validation library (pick one from
+  the candidates if none exists)".
+- **No command generation** — never create any output under `.claude/commands/`.
+- **No duplicate generation** — if a feature overlaps by name+description from detect, skip or ask.
+- **When flow is detected**, defer process discipline to risk-tiers; the harness covers only code style + conventions.
 
-## 산출물
-- `CLAUDE.md`(baseline 마커블록 + 프레임워크 컨벤션 요약) · 룰(baseline 5종 +
-  `<framework>-conventions.md` — 그 안에 `<!-- ops-conventions -->` 앵커 절로 운영 directive 1~3줄씩,
-  살은 docs/code-style 링크. **새 마커블록 만들지 않는다**)
-- 필요 시 skill / agent (작성가이드 강제, 보조폴더 references/examples 동반) — **command 제외**
-- 기술문서(분류별 폴더, `tech-doc-guide.md` 규율):
-  `docs/README.md` · `docs/srs/README.md`(greenfield) · `docs/sds/README.md`(Mermaid) ·
-  `docs/code-style/README.md` + `docs/code-style/<stack>.md` · `docs/research/`(편입) · `docs/onboarding/README.md` ·
-  `docs/performance.md`(확정 스택별 성능 SSOT — 스택 절 + 공통 API 부하 절, 빈 스택 절 금지) ·
-  `docs/integration.md`(확정 스택별 통합 검증 SSOT — 스택 절 + 공통 E2E 절, 빈 스택 절 금지) ·
-  `docs/operations/commit-versioning-guide.md`(Conventional Commits + SemVer + 감지 스택 릴리스 도구 설정·0.x 정책 — vdev 감지 여부 무관 항상 생성; 작성 지침: `references/commit-versioning-guide.md`)
+## Outputs
+- `CLAUDE.md` (baseline marker block + framework conventions summary) · rules (the 5 baseline +
+  `<framework>-conventions.md` — inside it, put operational directives 1-3 lines each under the `<!-- ops-conventions -->`
+  anchor section, with the flesh linked to docs/code-style. **Do not create new marker blocks**)
+- If needed, a skill / agent (authoring guide enforced, with companion folders references/examples) — **command excluded**
+- Technical docs (folders by category, `tech-doc-guide.md` discipline):
+  `docs/README.md` · `docs/srs/README.md` (greenfield) · `docs/sds/README.md` (Mermaid) ·
+  `docs/code-style/README.md` + `docs/code-style/<stack>.md` · `docs/research/` (incorporated) · `docs/onboarding/README.md` ·
+  `docs/verification/performance.md` (performance SSOT per confirmed stack — stack section + shared API load section, no empty stack sections) ·
+  `docs/verification/integration.md` (integration-verification SSOT per confirmed stack — stack section + shared E2E section, no empty stack sections) ·
+  `docs/operations/commit-versioning-guide.md` (Conventional Commits + SemVer + release-tool setup for the detected stack · 0.x policy —
+  always generated regardless of whether flow is detected; authoring guidance: `references/commit-versioning-guide.md`)
 
-## 생성 절차
-1. detect 결과 + research 결과(`.harness/research/*.md`) + 사용자 선택을 받는다.
-2. 산출물별로 해당 `templates/*.template.md` 를 복제하고 플레이스홀더를 채운다(커맨드 템플릿 없음).
-3. 필수 룰 5블록을 `references/` 에서 읽어 CLAUDE.md 블록에 합친다(앵커 보존). marker_upsert
-   content 에는 `harness:baseline` BEGIN/END 줄을 **넣지 않는다** — body 만(apply 가 래핑).
-4. 기술문서를 `tech-doc-guide.md` 의 폴더 구조·작성 순서(SRS→research편입→SDS→code-style
-   →onboarding→docs/README)대로 채운다. 출처 링크 의무, 추측 금지. SRS 는 greenfield 만.
-   스킬을 생성하면 보조폴더(references/examples)를 `skill-writing-guide.md` 규율대로 동반한다.
-   `commit-versioning-guide` 는 `references/commit-versioning-guide.md` 지침으로 `docs/operations/`
-   에 생성한다(harness-rules 13-1·13-2 — vdev 감지 여부 무관, 티어/커밋 규율은 risk-tiers defer).
-5. **운영 directive/표준 분리(9-3·9-4)**: research 운영 축 섹션을 받아, 룰
-   `<framework>-conventions.md` 에 `<!-- ops-conventions -->` 앵커를 두고 그 아래 축별 directive 를
-   **항목당 ≤ 3줄**(카테고리 지시 + `docs/code-style/<stack>.md#<axis>` 링크)로 쓴다. 구체 표준명·
-   상세·출처·대안은 룰이 아니라 docs/code-style 운영 관심사 섹션에. greenfield 는 룰엔 카테고리만.
-6. `plan`(files[]) 으로 모아 `harness_scaffold.py validate` 로 검증한 뒤 `apply` 에 넘긴다(미리보기 후).
+## Generation Procedure
+1. Take the detect results + research results (`.harness/research/*.md`) + user choices.
+2. For each output, clone the corresponding `templates/*.template.md` and fill placeholders (there is no command template).
+3. Read the 5 mandatory rule blocks from `references/` and merge them into the CLAUDE.md block (preserve anchors). Do
+   **not** put the `harness:baseline` BEGIN/END lines into the marker_upsert content — body only (apply wraps it).
+4. Fill the technical docs following the folder structure and authoring order of `tech-doc-guide.md`
+   (SRS → research incorporation → SDS → code-style → onboarding → docs/README). Source links are mandatory; no
+   speculation. SRS is greenfield only. If you generate a skill, add companion folders (references/examples) per the
+   `skill-writing-guide.md` discipline. Generate `commit-versioning-guide` under `docs/operations/` using the
+   `references/commit-versioning-guide.md` guidance (harness-rules 13-1 · 13-2 — regardless of whether flow is detected;
+   defer tier/commit discipline to risk-tiers).
+5. **Operational directive/standard separation (9-3 · 9-4)**: take the research operational-axes section, place a
+   `<!-- ops-conventions -->` anchor in the rule `<framework>-conventions.md`, and under it write per-axis directives at
+   **≤ 3 lines each** (a category instruction + a `docs/code-style/<stack>.md#<axis>` link). Concrete standard names,
+   details, sources, and alternatives go in the operational-concerns section of docs/code-style, not in the rule. For
+   greenfield, the rule carries only the category.
+6. Collect everything into a `plan` (files[]), validate with `harness_scaffold.py validate`, then pass it to `apply`
+   (after preview).

@@ -1,165 +1,165 @@
-# 비웹 통합 테스트 — human-in-the-loop + 참고 OSS
+# Non-Web Integration Testing — human-in-the-loop + Reference OSS
 
-> 비웹 프로젝트에서는 통합 테스트 자동화를 **강제하지 않는다**.
-> 이 문서는 타입별 감지 신호, human-in-the-loop 절차, 그리고 자유롭게 선택 가능한
-> 참고 OSS(모두 Apache-2.0)를 안내한다.
+> For non-web projects, integration-test automation is **not enforced**.
+> This document covers per-type detection signals, the human-in-the-loop procedure, and freely
+> choosable reference OSS (all Apache-2.0).
 
 ---
 
-## 1. 비웹 타입별 신호
+## 1. Per-Type Non-Web Signals
 
-| 타입 | 감지 신호 | 비고 |
+| Type | Detection signal | Notes |
 |---|---|---|
-| **CLI 도구** | `package.json` 내 `"bin"` 필드 존재 | Node.js CLI |
-| | `main.go` + `cobra`/`urfave/cli` 의존성 | Go CLI |
-| | `pyproject.toml` 내 `[project.scripts]` 또는 `setup.py`의 `entry_points` | Python CLI |
-| **React Native** | `"react-native"` 의존성 | iOS/Android 앱 |
-| | `metro.config.js` 존재 | RN 번들러 신호 |
-| **Flutter** | `pubspec.yaml` 존재 | iOS/Android/Desktop |
-| **Electron** | `"electron"` 의존성 | 데스크톱 앱 (예외 있음) |
-| **Go 서비스/CLI** | `go.mod` + 웹 프레임워크 의존성 없음 | HTTP 서버가 있어도 프론트 없으면 비웹 |
-| **Python 서비스** | `pyproject.toml`/`requirements.txt` + 웹 프레임워크 의존성 없음 | FastAPI·Django는 백엔드 — 웹 프론트와 구분 |
+| **CLI tool** | A `"bin"` field in `package.json` | Node.js CLI |
+| | `main.go` + a `cobra`/`urfave/cli` dependency | Go CLI |
+| | `[project.scripts]` in `pyproject.toml` or `entry_points` in `setup.py` | Python CLI |
+| **React Native** | `"react-native"` dependency | iOS/Android app |
+| | `metro.config.js` present | RN bundler signal |
+| **Flutter** | `pubspec.yaml` present | iOS/Android/Desktop |
+| **Electron** | `"electron"` dependency | Desktop app (has an exception) |
+| **Go service/CLI** | `go.mod` + no web-framework dependency | Non-web if there is no frontend, even with an HTTP server |
+| **Python service** | `pyproject.toml`/`requirements.txt` + no web-framework dependency | FastAPI/Django are backends — distinguish from a web frontend |
 
-> **Electron 예외**: `"electron"` 의존성이 있더라도, Chromium 렌더러 프로세스는
-> `playwright chromium`으로 부분 자동화가 가능하다.
-> Electron 앱의 통합 테스트는 [`web-playwright.md`](web-playwright.md) "Electron 예외" 절을 참조하고,
-> 주 프로세스(IPC·파일시스템·네이티브 API) 관련 시나리오만 human-in-the-loop으로 처리한다.
+> **Electron exception**: even with an `"electron"` dependency, the Chromium renderer process can be
+> partially automated with `playwright chromium`.
+> For Electron app integration testing, see the "Electron exception" section of [`web-playwright.md`](web-playwright.md),
+> and handle only the main-process scenarios (IPC, filesystem, native APIs) human-in-the-loop.
 
 ---
 
-## 2. human-in-the-loop 절차
+## 2. human-in-the-loop Procedure
 
-비웹으로 판정된 경우, `AskUserQuestion`으로 아래 항목을 수집한다.
+When classified as non-web, collect the following via `AskUserQuestion`.
 
-### 2.1 수집 항목
+### 2.1 Items to Collect
 
 ```
-이 프로젝트는 비웹(<타입>)으로 감지되었습니다.
-통합 테스트 자동화 도구를 강제하지 않습니다.
+This project was detected as non-web (<type>).
+No integration-test automation tool is enforced.
 
-아래 항목을 알려주세요:
+Please provide the following:
 
-1. 검증할 핵심 시나리오
-   예: "사용자 로그인 후 데이터 조회", "파일 업로드 후 변환 결과 확인"
+1. The core scenarios to verify
+   e.g., "look up data after user login", "check the conversion result after a file upload"
 
-2. 각 시나리오의 통과 기준
-   예: "응답 코드 200 + body에 id 필드 포함", "변환 파일이 ./output/에 생성됨"
+2. The pass criteria for each scenario
+   e.g., "response code 200 + an id field in the body", "the converted file is created in ./output/"
 
-3. 현재 사용 중인 테스트 도구 (있다면)
-   예: "Newman으로 Postman 컬렉션 실행 중", "없음"
+3. The test tool you are currently using (if any)
+   e.g., "running a Postman collection with Newman", "none"
 
-4. 자동화 우선순위
-   예: "API 엔드포인트 계약 테스트 먼저", "수동 체크리스트로 충분"
+4. Automation priority
+   e.g., "API endpoint contract tests first", "a manual checklist is enough"
 ```
 
-### 2.2 수집 후 처리
+### 2.2 Handling After Collection
 
-수집한 시나리오를 기반으로 **수동 검증 체크리스트**를 작성한다:
+Based on the collected scenarios, write a **manual verification checklist**:
 
 ```markdown
-## 통합 검증 체크리스트 — <날짜>
+## Integration Verification Checklist — <date>
 
-### 시나리오 1: <시나리오명>
-- [ ] 전제 조건: ...
-- [ ] 실행 단계: ...
-- [ ] 통과 기준: ...
-- [ ] 실제 결과: (수동 입력)
-- [ ] 판정: PASS / FAIL
+### Scenario 1: <scenario name>
+- [ ] Preconditions: ...
+- [ ] Execution steps: ...
+- [ ] Pass criteria: ...
+- [ ] Actual result: (manual entry)
+- [ ] Verdict: PASS / FAIL
 
-### 판정 요약
-| 시나리오 | 판정 |
+### Verdict Summary
+| Scenario | Verdict |
 |---|---|
-| <시나리오 1> | PASS |
-| <시나리오 2> | FAIL |
+| <Scenario 1> | PASS |
+| <Scenario 2> | FAIL |
 
-**전체 판정**: FAIL (1건 실패)
+**Overall verdict**: FAIL (1 failure)
 ```
 
 ---
 
-## 3. 참고 OSS (자동 강제 안 함)
+## 3. Reference OSS (not automatically enforced)
 
-아래 도구는 비웹 통합 테스트에 활용할 수 있는 무료·상용가능 OSS다.
-이 스킬은 도구를 **자동으로 설치·실행하지 않는다** — 안내만 제공한다.
+The tools below are free, commercially usable OSS you can leverage for non-web integration testing.
+This skill does **not automatically install or run** the tools — it only provides guidance.
 
-### 3.1 Newman (API 계약 테스트)
+### 3.1 Newman (API contract testing)
 
-출처: https://github.com/postmanlabs/newman (Apache-2.0)
+Source: https://github.com/postmanlabs/newman (Apache-2.0)
 
-Postman 컬렉션을 CLI로 실행하는 도구다. REST API 계약 테스트에 적합하다.
+A tool that runs Postman collections from the CLI. Well suited to REST API contract testing.
 
 ```bash
-# 설치
+# Install
 npm install -g newman
 
-# Postman 컬렉션 실행
+# Run a Postman collection
 newman run collection.json -e environment.json --reporters cli,junit --reporter-junit-export results.xml
 ```
 
-**적합 시나리오**: REST API 엔드포인트 계약 검증, CI 파이프라인 통합.
+**Suitable scenarios**: REST API endpoint contract verification, CI pipeline integration.
 
-### 3.2 Maestro (모바일 UI 테스트)
+### 3.2 Maestro (mobile UI testing)
 
-출처: https://maestro.dev/ · https://github.com/mobile-dev-inc/maestro (Apache-2.0)
+Source: https://maestro.dev/ · https://github.com/mobile-dev-inc/maestro (Apache-2.0)
 
-React Native·Flutter·iOS·Android 앱의 UI 흐름을 YAML로 정의해 실행한다.
+Define and run the UI flows of React Native/Flutter/iOS/Android apps in YAML.
 
 ```yaml
 # example: login-flow.yaml
 appId: com.example.myapp
 ---
 - launchApp
-- tapOn: "이메일 입력"
+- tapOn: "Email input"
 - inputText: "test@example.com"
-- tapOn: "로그인"
-- assertVisible: "홈 화면"
+- tapOn: "Log in"
+- assertVisible: "Home screen"
 ```
 
 ```bash
-# 실행
+# Run
 maestro test login-flow.yaml
 ```
 
-**적합 시나리오**: React Native·Flutter 앱 핵심 UI 흐름 검증.
+**Suitable scenarios**: verifying core UI flows of React Native/Flutter apps.
 
-### 3.3 Appium (크로스플랫폼 모바일 자동화)
+### 3.3 Appium (cross-platform mobile automation)
 
-출처: https://github.com/appium/appium (Apache-2.0)
+Source: https://github.com/appium/appium (Apache-2.0)
 
-iOS·Android·Windows·macOS를 WebDriver 프로토콜로 자동화한다. 러닝커브가 높지만
-범용성이 가장 높다.
+Automates iOS/Android/Windows/macOS via the WebDriver protocol. It has a steep learning curve but
+the broadest applicability.
 
 ```bash
-# 설치
+# Install
 npm install -g appium
 appium driver install uiautomator2   # Android
 appium driver install xcuitest       # iOS
 
-# 서버 시작
+# Start the server
 appium
 ```
 
-**적합 시나리오**: 플랫폼 간 통합이 필요한 모바일 앱, 네이티브 요소 제어가 필요한 경우.
+**Suitable scenarios**: mobile apps needing cross-platform integration, or cases requiring control of native elements.
 
 ---
 
-## 4. 비웹 타입별 권장 접근
+## 4. Recommended Approach by Non-Web Type
 
-| 타입 | 권장 접근 | 참고 도구 |
+| Type | Recommended approach | Reference tool |
 |---|---|---|
-| CLI 도구 | 표준 입출력·종료 코드 테스트 | `pytest`·Go `testing`·Jest |
-| REST API 서비스 (프론트 없음) | Postman 컬렉션 → Newman CI 실행 | Newman (Apache-2.0) |
-| React Native | Maestro YAML 흐름 정의 | Maestro (Apache-2.0) |
-| Flutter | `flutter test` 통합 테스트 + Maestro | Maestro (Apache-2.0) |
-| Electron (렌더러) | Playwright chromium 채널 | [`web-playwright.md`](web-playwright.md) |
-| Electron (주 프로세스·IPC) | human-in-the-loop 수동 체크리스트 | — |
-| iOS/Android 네이티브 | Appium WebDriver | Appium (Apache-2.0) |
+| CLI tool | Test stdin/stdout and exit codes | `pytest`, Go `testing`, Jest |
+| REST API service (no frontend) | Postman collection → run with Newman in CI | Newman (Apache-2.0) |
+| React Native | Define flows in Maestro YAML | Maestro (Apache-2.0) |
+| Flutter | `flutter test` integration tests + Maestro | Maestro (Apache-2.0) |
+| Electron (renderer) | Playwright chromium channel | [`web-playwright.md`](web-playwright.md) |
+| Electron (main process, IPC) | human-in-the-loop manual checklist | — |
+| iOS/Android native | Appium WebDriver | Appium (Apache-2.0) |
 
 ---
 
-## 5. SSOT URL 요약
+## 5. SSOT URL Summary
 
-| 항목 | URL | 라이선스 |
+| Item | URL | License |
 |---|---|---|
 | Newman | https://github.com/postmanlabs/newman | Apache-2.0 |
 | Maestro | https://maestro.dev/ | Apache-2.0 |

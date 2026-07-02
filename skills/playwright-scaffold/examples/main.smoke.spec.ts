@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test';
 
-// 메인화면 smoke — "앱이 뜨는가"의 결정적 검증(임의 시나리오 아님).
-// baseURL 은 playwright.config 의 use.baseURL 로 주입된다(여기선 '/' 상대경로만 사용).
+// Main-screen smoke — a deterministic check of "does the app come up" (not an arbitrary scenario).
+// baseURL is injected via use.baseURL in playwright.config (here we only use the '/' relative path).
 test('main screen loads', async ({ page }) => {
   const response = await page.goto('/');
-  expect(response, '메인화면 응답이 있어야 한다').toBeTruthy();
-  expect(response!.status(), '메인화면이 4xx/5xx 가 아니어야 한다').toBeLessThan(400);
-  await expect(page, 'document title 이 비어있지 않아야 한다').toHaveTitle(/.+/);
+  expect(response, 'the main screen should return a response').toBeTruthy();
+  expect(response!.status(), 'the main screen should not be a 4xx/5xx').toBeLessThan(400);
+  await expect(page, 'the document title should not be empty').toHaveTitle(/.+/);
 });

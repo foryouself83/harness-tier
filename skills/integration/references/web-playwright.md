@@ -1,17 +1,18 @@
-# 웹 프론트 감지 + Playwright 통합 테스트 SSOT
+# Web-Frontend Detection + Playwright Integration Testing SSOT
 
-> **주의**: 웹 프론트 감지는 **휴리스틱**이며 단정 SSOT가 아니다. 신호 목록은 일반적인 관례 기반이고,
-> 비표준 설정이나 모노레포 구조에서 오탐이 발생할 수 있다. 감지 결과는 항상 맥락으로 검증한다.
+> **Note**: Web-frontend detection is a **heuristic**, not a definitive SSOT. The signal list is based on common
+> conventions, and non-standard setups or monorepo structures can produce false positives. Always validate the
+> detection result against context.
 
 ---
 
-## 1. 웹 프론트 감지 신호
+## 1. Web-Frontend Detection Signals
 
-### 1.1 주 신호 — package.json 의존성 화이트리스트
+### 1.1 Primary signal — package.json dependency allowlist
 
-`package.json`의 `dependencies` 또는 `devDependencies`에 아래 패키지 중 하나 이상이 존재하면 웹 프론트로 판정한다:
+If `package.json`'s `dependencies` or `devDependencies` contains one or more of the packages below, classify it as a web frontend:
 
-| 패키지 | 프레임워크 |
+| Package | Framework |
 |---|---|
 | `react` | React |
 | `vue` | Vue.js |
@@ -22,64 +23,64 @@
 | `solid-js` | SolidJS |
 | `astro` | Astro |
 
-### 1.2 보조 신호
+### 1.2 Supporting signals
 
-주 신호와 함께 존재하면 웹 판정을 강화한다:
+When present alongside the primary signal, they strengthen the web verdict:
 
-| 신호 파일/경로 | 의미 |
+| Signal file/path | Meaning |
 |---|---|
-| `vite.config.ts` / `vite.config.js` | Vite 기반 빌드 |
-| `index.html` (루트 또는 `public/`) | SPA 엔트리 |
-| `public/` 디렉터리 | 정적 에셋 서빙 |
-| `webpack.config.js` | Webpack 번들러 |
-| `next.config.js` / `nuxt.config.ts` | 프레임워크 설정 |
+| `vite.config.ts` / `vite.config.js` | Vite-based build |
+| `index.html` (root or `public/`) | SPA entry point |
+| `public/` directory | Static asset serving |
+| `webpack.config.js` | Webpack bundler |
+| `next.config.js` / `nuxt.config.ts` | Framework config |
 
-### 1.3 비웹 신호 (존재 시 비웹 판정 우선)
+### 1.3 Non-web signals (if present, the non-web verdict takes precedence)
 
-| 신호 | 판정 |
+| Signal | Verdict |
 |---|---|
-| `package.json` 내 `"bin"` 필드 | CLI 도구 |
-| `"react-native"` 의존성 | React Native (모바일) |
-| `metro.config.js` | React Native 번들러 |
+| `"bin"` field in `package.json` | CLI tool |
+| `"react-native"` dependency | React Native (mobile) |
+| `metro.config.js` | React Native bundler |
 | `pubspec.yaml` | Flutter |
-| `"electron"` 의존성 | Electron 데스크톱 |
-| `main.go` / `go.mod` (+ 웹 신호 없음) | Go CLI/서비스 |
+| `"electron"` dependency | Electron desktop |
+| `main.go` / `go.mod` (+ no web signals) | Go CLI/service |
 
-> **Electron 예외**: `"electron"` 의존성이 있더라도, 내부적으로 Chromium을 사용하므로
-> `playwright chromium`으로 렌더러 프로세스 부분 자동화가 가능하다.
-> 단, 주 프로세스(Node.js IPC·파일시스템 접근)는 Playwright로 제어 불가 —
-> 해당 부분은 human-in-the-loop으로 처리한다.
+> **Electron exception**: even with an `"electron"` dependency, since it uses Chromium internally,
+> partial automation of the renderer process is possible with `playwright chromium`.
+> However, the main process (Node.js IPC, filesystem access) cannot be controlled with Playwright —
+> handle those parts human-in-the-loop.
 
 ---
 
-## 2. Playwright 설정 파싱
+## 2. Parsing Playwright Config
 
-### 2.1 설정 파일 탐지 순서
+### 2.1 Config-file detection order
 
 ```bash
 ls playwright.config.ts playwright.config.js \
    playwright.config.mjs playwright.config.cjs 2>/dev/null | head -1
 ```
 
-### 2.2 testDir / testMatch 기본값
+### 2.2 testDir / testMatch defaults
 
-출처: [Playwright TestConfig API](https://playwright.dev/docs/api/class-testconfig)
+Source: [Playwright TestConfig API](https://playwright.dev/docs/api/class-testconfig)
 
-| 설정 키 | 기본값 | 설명 |
+| Config key | Default | Description |
 |---|---|---|
-| `testDir` | `./tests` | 케이스 파일 루트 디렉터리 |
-| `testMatch` | `**/*.@(spec\|test).?(c\|m)[jt]s?(x)` | 케이스 파일 글로브 패턴 |
+| `testDir` | `./tests` | Root directory for case files |
+| `testMatch` | `**/*.@(spec\|test).?(c\|m)[jt]s?(x)` | Glob pattern for case files |
 
-설정 파일에 명시된 값이 있으면 해당 값을 우선 사용한다.
+If a value is specified in the config file, use that value.
 
 ---
 
-## 3. 케이스 발견 및 실행
+## 3. Discovering and Running Cases
 
-### 3.1 케이스 파일 발견
+### 3.1 Discovering case files
 
 ```bash
-# testDir 기본값(./tests) 기준, testMatch 패턴 적용
+# Based on the testDir default (./tests), applying the testMatch pattern
 find ./tests \( \
   -name "*.spec.ts" -o -name "*.spec.js" -o \
   -name "*.spec.mts" -o -name "*.spec.mjs" -o \
@@ -87,30 +88,31 @@ find ./tests \( \
 \) 2>/dev/null
 ```
 
-**케이스 0개 시 처리**: `playwright-scaffold` 스킬로 **메인화면 smoke**("앱이 뜨는가" 결정적 검증)를
-생성해 바로 실행한다(임의 사용자 시나리오는 생성하지 않음). 더 풍부한 실제 케이스는 codegen으로 확장:
+**Handling zero cases**: use the `playwright-scaffold` skill to generate a **main-screen smoke** (a deterministic
+"does the app come up?" check) and run it immediately (it does not generate arbitrary user scenarios). Extend it into
+richer real cases with codegen:
 
 ```bash
-# 스타터 smoke 이후, 실제 시나리오는 codegen으로 녹화해 tests/ 에 저장
+# After the starter smoke, record real scenarios with codegen and save them under tests/
 npx playwright codegen https://your-app.example.com
 ```
 
-### 3.2 결정적 실행 — `--reporter=json`(+junit)
+### 3.2 Deterministic run — `--reporter=json` (+junit)
 
-출처: [Playwright 리포터](https://playwright.dev/docs/test-reporters) · [Playwright CLI](https://playwright.dev/docs/test-cli)
+Source: [Playwright reporters](https://playwright.dev/docs/test-reporters) · [Playwright CLI](https://playwright.dev/docs/test-cli)
 
 ```bash
-# JSON + JUnit 리포터 동시 출력. 파일로 받으려면 OUTPUT_NAME 지정(미지정 시 JSON은 stdout).
+# Emit JSON + JUnit reporters together. To capture to files, set OUTPUT_NAME (otherwise JSON goes to stdout).
 PLAYWRIGHT_JSON_OUTPUT_NAME=results.json \
 PLAYWRIGHT_JUNIT_OUTPUT_NAME=results.xml \
   npx playwright test --reporter=json,junit
 ```
 
-`--reporter=json`은 `PLAYWRIGHT_JSON_OUTPUT_NAME` 지정 시 그 파일로, 미지정 시 stdout 으로 출력한다.
+`--reporter=json` outputs to the file named by `PLAYWRIGHT_JSON_OUTPUT_NAME` when it is set, and to stdout when it is not.
 
-### 3.3 결과 JSON 파싱
+### 3.3 Parsing the result JSON
 
-`results.json` 최상위 구조:
+Top-level structure of `results.json`:
 
 ```json
 {
@@ -125,7 +127,7 @@ PLAYWRIGHT_JUNIT_OUTPUT_NAME=results.xml \
 }
 ```
 
-파싱 예시:
+Parsing example:
 
 ```bash
 node -e "
@@ -138,15 +140,15 @@ node -e "
 
 ---
 
-## 4. Playwright MCP (보조 경로)
+## 4. Playwright MCP (auxiliary path)
 
-출처: [Playwright MCP 시작하기](https://playwright.dev/docs/getting-started-mcp) · [playwright-mcp GitHub](https://github.com/microsoft/playwright-mcp) (Apache-2.0)
+Source: [Getting started with Playwright MCP](https://playwright.dev/docs/getting-started-mcp) · [playwright-mcp GitHub](https://github.com/microsoft/playwright-mcp) (Apache-2.0)
 
-세션의 playwright MCP는 **케이스 부재 시 탐색 보조** 또는 **수동 확인**에만 활용한다.
-회귀 테스트의 SSOT는 아니며, 결정적 재현을 보장하지 않는다.
+Use the session's playwright MCP only for **exploration when cases are absent** or for **manual confirmation**.
+It is not the SSOT for regression testing and does not guarantee deterministic reproduction.
 
 ```bash
-# MCP 없이 헤드리스 브라우저로 스크린샷 확인
+# Take a screenshot with a headless browser, without MCP
 npx playwright screenshot --browser chromium https://your-app.example.com screenshot.png
 ```
 
@@ -154,28 +156,28 @@ npx playwright screenshot --browser chromium https://your-app.example.com screen
 
 ## 5. Best Practices
 
-출처: [Playwright Best Practices](https://playwright.dev/docs/best-practices) · [테스트 작성](https://playwright.dev/docs/writing-tests) · [테스트 설정](https://playwright.dev/docs/test-configuration)
+Source: [Playwright Best Practices](https://playwright.dev/docs/best-practices) · [Writing tests](https://playwright.dev/docs/writing-tests) · [Test configuration](https://playwright.dev/docs/test-configuration)
 
-| 원칙 | 내용 |
+| Principle | Content |
 |---|---|
-| 로케이터 우선순위 | `getByRole` > `getByLabel` > `getByText` > `getByTestId` 순 |
-| 독립적 테스트 | 각 테스트는 독립 상태에서 시작 (`beforeEach`로 초기화) |
-| `waitForSelector` 지양 | `expect(locator).toBeVisible()` 자동 대기 사용 |
-| 병렬 실행 | `fullyParallel: true` 로 속도 향상 (상태 공유 없는 경우) |
-| 환경 분리 | `baseURL`을 환경변수로 주입 (`process.env.BASE_URL`) |
-| 리포터 고정 | CI에서는 `--reporter=json,junit` 고정 (CI 파싱 표준화) |
+| Locator priority | `getByRole` > `getByLabel` > `getByText` > `getByTestId` order |
+| Independent tests | Each test starts from an independent state (initialize with `beforeEach`) |
+| Avoid `waitForSelector` | Use the auto-waiting `expect(locator).toBeVisible()` |
+| Parallel execution | Speed up with `fullyParallel: true` (when no shared state) |
+| Environment isolation | Inject `baseURL` via an environment variable (`process.env.BASE_URL`) |
+| Fixed reporter | Fix `--reporter=json,junit` in CI (standardize CI parsing) |
 
 ---
 
-## 6. SSOT URL 요약
+## 6. SSOT URL Summary
 
-| 항목 | URL | 라이선스 |
+| Item | URL | License |
 |---|---|---|
 | Best Practices | https://playwright.dev/docs/best-practices | Apache-2.0 |
-| 테스트 작성 | https://playwright.dev/docs/writing-tests | Apache-2.0 |
-| 테스트 설정 | https://playwright.dev/docs/test-configuration | Apache-2.0 |
+| Writing tests | https://playwright.dev/docs/writing-tests | Apache-2.0 |
+| Test configuration | https://playwright.dev/docs/test-configuration | Apache-2.0 |
 | TestConfig API (testDir/testMatch) | https://playwright.dev/docs/api/class-testconfig | Apache-2.0 |
-| 리포터(json/junit) | https://playwright.dev/docs/test-reporters | Apache-2.0 |
+| Reporters (json/junit) | https://playwright.dev/docs/test-reporters | Apache-2.0 |
 | CLI | https://playwright.dev/docs/test-cli | Apache-2.0 |
-| MCP 시작하기 | https://playwright.dev/docs/getting-started-mcp | Apache-2.0 |
+| Getting started with MCP | https://playwright.dev/docs/getting-started-mcp | Apache-2.0 |
 | playwright-mcp GitHub | https://github.com/microsoft/playwright-mcp | Apache-2.0 |

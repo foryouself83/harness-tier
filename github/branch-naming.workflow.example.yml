@@ -1,4 +1,4 @@
-# 브랜치 네이밍 검증 (Git-flow). /vdev-init 이 렌더. push 트리거(PR 미사용 프로젝트 호환).
+# Branch naming validation (Git-flow). Rendered by /flow-init. push trigger (compatible with projects not using PRs).
 name: branch-naming
 
 on:
@@ -14,7 +14,7 @@ jobs:
         run: |
           echo "Checking: $BRANCH"
           PATTERNS=(
-            "^__VWAY_STABLE__$" "^__VWAY_PRERELEASE__$" "^dev$"
+            "^__HARNESS_STABLE__$" "^__HARNESS_PRERELEASE__$" "^dev$"
             "^feature/[a-zA-Z0-9][a-zA-Z0-9._/-]*$"
             "^fix/[a-zA-Z0-9][a-zA-Z0-9._/-]*$"
             "^docs/[a-zA-Z0-9][a-zA-Z0-9._/-]*$"

@@ -1,30 +1,31 @@
 #!/usr/bin/env python3
-"""Power Automate 웹훅으로 Teams 알림을 보낸다. hook·스크립트에서 재사용한다.
+"""Send Teams notifications via a Power Automate webhook. Reused by hooks and scripts.
 
-채널별 웹훅 URL은 두 파일을 병합해 쓴다(local 이 tracked 를 덮어씀).
-호스트 측 vway-kit 산출물은 .claude/vway-kit/ 아래 용도별로 모이고, 웹훅은
-config/ 에 둔다(호스트 루트 = CLAUDE_PROJECT_DIR, 없으면 git toplevel, 그다음
-이 스크립트 위치 기준):
-  - .claude/vway-kit/config/teams-webhooks.json        (git 추적: 브랜치 채널, 팀 공용)
-  - .claude/vway-kit/config/.teams-webhooks.local.json (git 제외: personal, 사용자별)
+Per-channel webhook URLs are read by merging two files (local overrides tracked).
+Host-side harness-tier artifacts are collected by purpose under .claude/harness-tier/,
+and webhooks live in config/ (host root = CLAUDE_PROJECT_DIR, else git toplevel, then
+relative to this script's location):
+  - .claude/harness-tier/config/teams-webhooks.json        (git-tracked: branch channels)
+  - .claude/harness-tier/config/.teams-webhooks.local.json (git-excluded: personal, per-user)
 
-채널 용도:
-  - personal        -> 응답 대기 / 중지 (사용자별, local 파일)
-  - 그 외(브랜치명)  -> 같은 이름의 브랜치 push 시 (팀 공용, tracked 파일).
-                       teams-webhooks.json 에 키를 추가하면 코드 수정 없이
-                       알림 대상 브랜치를 늘릴 수 있다.
+Channel purposes:
+  - personal        -> waiting for response / stop (per-user, local file)
+  - others (branch name) -> on push of a branch with the same name (team-shared, tracked file).
+                       Adding a key to teams-webhooks.json lets you add notification
+                       target branches without editing code.
 
-채널의 URL 이 비었거나 없으면 조용히 skip 하므로 채널을 점진적으로 켤 수 있다.
-알림 실패는 호출측으로 전파하지 않는다 — 깨진 웹훅이 hook 을 막으면 안 된다.
-personal 이 미설정이면 send() 가 stderr 로 등록 안내를 출력해 등록을 유도한다.
+If a channel's URL is empty or missing it is silently skipped, so channels can be
+enabled incrementally. Notification failures are not propagated to the caller — a
+broken webhook must not block the hook. If personal is unconfigured, send() prints
+registration guidance to stderr to prompt registration.
 
-사용법 (CLI):
+Usage (CLI):
   python teams_alert.py --channel personal --title "..." --text "..."
-  python teams_alert.py --set personal https://...   # URL만 넣으면 자동 저장
+  python teams_alert.py --set personal https://...   # passing just the URL auto-saves it
 
-사용법 (import):
+Usage (import):
   from teams_alert import send
-  send("personal", "제목", "내용")
+  send("personal", "title", "body")
 """
 
 from __future__ import annotations
@@ -36,26 +37,28 @@ import sys
 import urllib.request
 from pathlib import Path
 
-# 호스트 루트 폴백·config 경로는 공용 SSOT(_vway_paths)에서 가져온다(중복 정의 금지).
-# teams_alert 는 COPY_FILES 로 호스트에 복사돼 직접 실행되거나(형제 import) 테스트에서
-# 패키지로 import 된다 — _vway_paths 모듈 docstring 의 양립 관용구 참조.
+# The host-root fallback and config paths come from the shared SSOT (_harness_paths)
+# (no duplicate definitions). teams_alert is copied to the host via COPY_FILES and run
+# directly (sibling import) or imported as a package in tests — see the compatibility
+# idiom in the _harness_paths module docstring.
 try:
-    from _vway_paths import config_dir, host_root
+    from _harness_paths import config_dir, host_root
 except ImportError:
-    from scripts._vway_paths import config_dir, host_root
+    from scripts._harness_paths import config_dir, host_root
 
-# _host_root 는 이전 함수명. 하위호환(테스트·외부 참조)을 위해 공용 host_root 의 alias 로
-# 노출한다. 폴백 로직(env → git toplevel → .claude 마커 → cwd)은 host_root 에 통합됐다.
+# _host_root is the former function name. It is exposed as an alias of the shared host_root for
+# backward compatibility (tests·external references). The fallback logic
+# (env → git toplevel → .claude marker → cwd) was merged into host_root.
 _host_root = host_root
 
-# 호스트 측 vway-kit config(웹훅)는 .claude/vway-kit/config/ 에 모인다.
+# Host-side harness-tier config (webhooks) is collected under .claude/harness-tier/config/.
 ROOT = host_root()
 CONFIG_DIR = config_dir(ROOT)
 TRACKED_FILE = CONFIG_DIR / "teams-webhooks.json"
 LOCAL_FILE = CONFIG_DIR / ".teams-webhooks.local.json"
-LOCAL_CHANNELS = {"personal"}  # gitignored local 파일에 저장하는 채널
+LOCAL_CHANNELS = {"personal"}  # channels stored in the gitignored local file
 
-# 이벤트별 내장 메시지(제목, 본문). hook command 를 ASCII 로 유지하려고 여기 둔다.
+# Per-event built-in messages (title, body). Kept here to keep the hook command ASCII.
 EVENT_MESSAGES = {
     "waiting": ("입력 대기", "Claude 가 입력 또는 권한 승인을 기다립니다."),
     "done": ("작업 완료", "Claude 가 응답을 마쳤습니다."),
@@ -73,26 +76,26 @@ def _load(path: Path) -> dict[str, str]:
 
 
 def resolve_webhook(channel: str) -> str | None:
-    """채널의 웹훅 URL 을 반환(없으면 None). local 이 tracked 를 덮어쓴다."""
+    """Return the channel's webhook URL (None if absent). local overrides tracked."""
     merged = {**_load(TRACKED_FILE), **_load(LOCAL_FILE)}
     return merged.get(channel, "").strip() or None
 
 
 def push_channels() -> list[str]:
-    """push 알림 대상 채널(=브랜치명) 목록. tracked 파일의 키에서 동적으로 읽는다.
+    """List of push notification target channels (= branch names), from the tracked file's keys.
 
-    notify-push.sh 가 호출해 "어떤 브랜치를 push 했을 때 알릴지"를 결정한다.
-    브랜치명을 코드에 하드코딩하지 않으므로, teams-webhooks.json 에 키를
-    추가/삭제하는 것만으로 대상 브랜치를 바꿀 수 있다. personal 등 local
-    전용 채널(LOCAL_CHANNELS)은 push 대상이 아니므로 제외한다.
+    Called by notify-push.sh to decide "which branch push should trigger a notification".
+    Branch names are not hardcoded, so simply adding/removing a key in teams-webhooks.json
+    is enough to change the target branches. Local-only channels such as personal
+    (LOCAL_CHANNELS) are not push targets, so they are excluded.
     """
     return [k for k in _load(TRACKED_FILE) if k not in LOCAL_CHANNELS]
 
 
 def set_webhook(channel: str, url: str) -> Path:
-    """채널 URL 자동 저장: personal 은 local(git 제외), 그 외는 tracked 파일."""
+    """Auto-save the channel URL: personal to local (git-excluded), others to the tracked file."""
     target = LOCAL_FILE if channel in LOCAL_CHANNELS else TRACKED_FILE
-    target.parent.mkdir(parents=True, exist_ok=True)  # .claude/vway-kit/ 보장
+    target.parent.mkdir(parents=True, exist_ok=True)  # ensure .claude/harness-tier/
     data = _load(target)
     data[channel] = url.strip()
     target.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -100,7 +103,7 @@ def set_webhook(channel: str, url: str) -> Path:
 
 
 def _context_label() -> str:
-    """알림 출처 식별용 라벨(프로젝트명 @ git 브랜치). 세션/작업 구별에 쓴다."""
+    """Notification-source label (project name @ git branch); distinguishes sessions/tasks."""
     label = ROOT.name
     try:
         out = subprocess.run(
@@ -118,7 +121,7 @@ def _context_label() -> str:
 
 
 def send(channel: str, title: str, text: str) -> bool:
-    """채널 웹훅으로 알림을 POST 한다. skip/실패 시 예외 없이 False 반환."""
+    """POST a notification to the channel webhook. Returns False without raising on skip/failure."""
     url = resolve_webhook(channel)
     if not url:
         if channel == "personal":
@@ -132,7 +135,8 @@ def send(channel: str, title: str, text: str) -> bool:
                 "     'send webhook` 검색 '채널에 웹후크 알림 보내기' 템플릿을 추가하고\n"
                 "     생성된 HTTP POST URL 을 복사하세요.\n"
                 "  2) 등록(URL만 넣으면 자동 저장됩니다):\n"
-                "     python .claude/vway-kit/scripts/teams_alert.py --set personal <복사한_URL>",
+                "     python .claude/harness-tier/scripts/teams_alert.py"
+                " --set personal <복사한_URL>",
                 file=sys.stderr,
             )
         return False
@@ -207,7 +211,7 @@ def main() -> None:
         send(args.channel, title, text)
     else:
         send(args.channel, args.title, args.text)
-    sys.exit(0)  # 알림은 절대 호출측 hook 을 실패시키지 않는다
+    sys.exit(0)  # a notification must never fail the caller's hook
 
 
 if __name__ == "__main__":

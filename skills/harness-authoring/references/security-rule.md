@@ -1,7 +1,7 @@
-# 기본 보안 (주입 블록)
+# Baseline Security (injection block)
 
-- **시크릿·키·토큰·비밀번호를 코드/커밋에 넣지 않는다.** `.env`·시크릿 매니저로
-  분리하고 `.env`·자격증명 파일은 `.gitignore` 에 둔다.
-- 사용자 입력은 **신뢰하지 않는다** — 경계에서 검증·이스케이프(인젝션/XSS/경로탐색).
-- 디버그/관대한 기본값(`debug=true`, `CORS *`, 와일드카드 권한)을 운영에 남기지 않는다.
-- 의존성은 알려진 취약 버전을 피하고(§버전 고정) 보안 스캐너를 CI에 둔다(opt-in).
+- **Never put secrets, keys, tokens, or passwords in code or commits.** Separate them out via `.env` or a secrets manager,
+  and keep `.env` and credential files in `.gitignore`.
+- **Do not trust** user input — validate and escape it at the boundary (injection / XSS / path traversal).
+- Do not leave debug or permissive defaults (`debug=true`, `CORS *`, wildcard permissions) in production.
+- Keep dependencies off known-vulnerable versions (§Version Pinning) and put a security scanner in CI (opt-in).

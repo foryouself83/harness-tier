@@ -1,89 +1,89 @@
-# harness-insight 리포트 형식 (SSOT)
+# harness-insight report format (SSOT)
 
-`/harness-insight` Step 4 가 따르는 **권위 형식**. 형식 변경은 이 파일에서만 한다
-(SKILL.md 본문은 실행 요약 — 중복 시 이 파일이 우선).
+The **authoritative format** that `/harness-insight` Step 4 follows. Change the format only in this file
+(the SKILL.md body is an execution summary — this file wins on conflict).
 
-리포트는 **두 임시 txt(`prompts.txt`·`activity.txt`)만 근거로** 작성하고 **대화로 출력**한다.
-파일로 저장하지 않는다(`<ISO주차>.md` 등 금지).
-
----
-
-## 작성 규율 (강제)
-
-1. **이모티콘 금지** — 제목·본문 어디에도 쓰지 않는다.
-2. **평가어 금지** — 프롬프트·행동의 잘잘못을 매기지 않는다("좋은 습관"·"헤맸다"·"잘함"·
-   "비효율적" 등 금지). **사실·빈도·패턴**과 거기서 도출되는 **액션**만 적는다.
-3. **데이터 한정** — 두 txt 에 없는 내용은 지어내지 않고 생략한다. 수치 인용은 `activity.txt`
-   값을 그대로 쓴다.
-4. **정확히 4섹션** — 아래 골격을 유지한다(섹션 추가/삭제 금지).
+The report is written **based only on the two temporary txt files (`prompts.txt` · `activity.txt`)** and **output into the conversation**.
+It is not saved as a file (no `<ISO-week>.md`, etc.).
 
 ---
 
-## 템플릿 (골격)
+## Authoring discipline (enforced)
+
+1. **No emoji** — do not use it anywhere in the title or body.
+2. **No evaluative language** — do not grade prompts/actions as right or wrong (no "good habit" · "struggled" · "did well" ·
+   "inefficient", etc.). Write only **facts, frequencies, patterns** and the **actions** derived from them.
+3. **Data-limited** — do not fabricate anything not in the two txt files; omit it. Quote numbers exactly as the `activity.txt`
+   values.
+4. **Exactly 4 sections** — keep the skeleton below (no adding/removing sections).
+
+---
+
+## Template (skeleton)
 
 ```markdown
-# 개발 인사이트 — <프로젝트명> (지난 <DAYS>일)
-**<기간 시작>~<기간 끝> · <N>세션 · <M>프롬프트**   (N·M은 activity.txt 의 sessions·prompts 인용)
+# Development Insights — <project name> (last <DAYS> days)
+**<period start>~<period end> · <N> sessions · <M> prompts**   (N·M quote activity.txt's sessions·prompts)
 
-## 1. 한 일 분포
-- prompts.txt 의 주제를 비중 큰 순서로 4~6개 클러스터로 나열.
-- 각 줄은 "영역: 구체 내용". 비중이 큰 항목을 맨 위에.
+## 1. Distribution of work done
+- List the topics from prompts.txt as 4–6 clusters, ordered by weight.
+- Each line is "area: specific content". Put the highest-weight items at the top.
 
-## 2. 하네스 후보
-- 같은 취지의 지시가 2회 이상 반복된 것만 추린다(1회성은 제외).
-- 박제 위치 = CLAUDE.md / rules / agents / skills / commands 중 그 반복 지시를
-  사라지게 할 곳(프로젝트에 존재하는 종류만 — Step 3 에서 확인한 것).
-- 기존 하네스에 이미 있는 항목은 박제 위치에 "(기존)" 표기, 신규 증분만 해결방안에 적는다.
-- 환경의 "현재 상태/이력"(서버·인프라 상태 등)은 이 스킬 대상이 아니므로 다루지 않는다.
-- 아래 4컬럼 표로만 작성한다:
+## 2. Harness candidates
+- Include only instructions of the same intent repeated 2 or more times (exclude one-offs).
+- Pin location = the place among CLAUDE.md / rules / agents / skills / commands that would make the repeated instruction
+  disappear (only kinds that exist in the project — those confirmed in Step 3).
+- For items already present in the existing harness, mark "(existing)" in the pin location and write only the new increment in the resolution.
+- The environment's "current state/history" (server/infra status, etc.) is not in scope for this skill and is not covered.
+- Write only as the 4-column table below:
 
-| 반복 지시 | 빈도 | 박제 위치 | 해결방안 |
+| Repeated instruction | Frequency | Pin location | Resolution |
 |---|---|---|---|
-| … | …회 | … | … |
+| … | … times | … | … |
 
-## 3. 활동 핫스팟
-- activity.txt 기반으로 각각 한 줄씩:
-  - 자주 실행한 명령 Top (빈도) — `## top commands`
-  - 자주 수정한 디렉터리·파일 Top (빈도) — `## most-edited directories` / `## most-edited files`
-  - 도구 비율 (Bash·Read·Edit 등) — `## tool_use distribution`
-- 이어서 "판독:" 으로 위 수치에서만 읽히는 사실 2~3개. 수치 근거 없는 해석은 쓰지 않는다.
+## 3. Activity hotspots
+- Based on activity.txt, one line each:
+  - Top commands run most often (frequency) — `## top commands`
+  - Top directories/files edited most often (frequency) — `## most-edited directories` / `## most-edited files`
+  - Tool ratios (Bash · Read · Edit, etc.) — `## tool_use distribution`
+- Then, with "Interpretation:", 2–3 facts read only from the numbers above. Do not write interpretations with no numerical basis.
 
-## 4. 다음 주 제언
-- 섹션 2·3 에서 직접 도출되는 구체 액션 3~5개.
-- 각 줄은 "실행 가능한 동작 + 대상 파일/위치" 형식.
+## 4. Recommendations for next week
+- 3–5 concrete actions derived directly from sections 2 and 3.
+- Each line is in the form "actionable operation + target file/location".
 ```
 
 ---
 
-## 예시 (채워진 형태 — 형식 참고용, 수치는 가상)
+## Example (filled form — for format reference; numbers are fictional)
 
 ```markdown
-# 개발 인사이트 — myapp (지난 7일)
-**2026-06-23~2026-06-30 · 18세션 · 142프롬프트**
+# Development Insights — myapp (last 7 days)
+**2026-06-23~2026-06-30 · 18 sessions · 142 prompts**
 
-## 1. 한 일 분포
-- 인증: OAuth 토큰 만료 처리·리프레시 플로우 디버깅
-- API: /orders 엔드포인트 페이지네이션 추가, 응답 스키마 정리
-- 테스트: pytest 픽스처 재구성, 커버리지 게이트 조정
-- 문서: README 셋업 절차 갱신
+## 1. Distribution of work done
+- Auth: OAuth token expiry handling · refresh flow debugging
+- API: added pagination to the /orders endpoint, tidied the response schema
+- Tests: restructured pytest fixtures, adjusted the coverage gate
+- Docs: updated the README setup procedure
 
-## 2. 하네스 후보
+## 2. Harness candidates
 
-| 반복 지시 | 빈도 | 박제 위치 | 해결방안 |
+| Repeated instruction | Frequency | Pin location | Resolution |
 |---|---|---|---|
-| "커밋 메시지는 conventional commits 로" | 5회 | CLAUDE.md | 커밋 컨벤션 1줄 명시 |
-| "응답은 한국어로" | 4회 | CLAUDE.md (기존) | — |
-| "테스트 먼저 작성" | 3회 | rules/tdd.md | TDD 룰 신설 |
+| "Use conventional commits for commit messages" | 5 times | CLAUDE.md | State the commit convention in 1 line |
+| "Respond in Korean" | 4 times | CLAUDE.md (existing) | — |
+| "Write tests first" | 3 times | rules/tdd.md | Create a new TDD rule |
 
-## 3. 활동 핫스팟
-- 자주 실행한 명령: pytest(31) · git add(22) · ruff check(14)
-- 자주 수정한 위치: src/api(27) · tests(19) · routes.py(11)
-- 도구 비율: Read 34% · Edit 28% · Bash 22% · Grep 9%
-- 판독: Edit 대비 Bash 비율이 높아 수동 검증 루프가 잦다. tests 디렉터리 수정 빈도가
-  src/api 의 70% 로, 변경마다 테스트가 동반된다.
+## 3. Activity hotspots
+- Commands run most often: pytest(31) · git add(22) · ruff check(14)
+- Locations edited most often: src/api(27) · tests(19) · routes.py(11)
+- Tool ratios: Read 34% · Edit 28% · Bash 22% · Grep 9%
+- Interpretation: The Bash-to-Edit ratio is high, so manual verification loops are frequent. The tests directory is edited at
+  70% of src/api's frequency, so tests accompany each change.
 
-## 4. 다음 주 제언
-- conventional commits 규칙을 CLAUDE.md 에 1줄 추가 (반복 지시 5회 제거)
-- TDD 룰을 rules/tdd.md 로 신설 (반복 지시 3회 제거)
-- src/api 핫스팟에 대한 통합 테스트 보강 (tests/api/)
+## 4. Recommendations for next week
+- Add the conventional commits rule to CLAUDE.md in 1 line (removes 5 repeated instructions)
+- Create a new TDD rule at rules/tdd.md (removes 3 repeated instructions)
+- Reinforce integration tests for the src/api hotspot (tests/api/)
 ```

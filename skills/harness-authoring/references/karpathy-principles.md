@@ -1,13 +1,13 @@
-# Karpathy CLAUDE.md 원칙 (주입 블록)
+# Karpathy CLAUDE.md Principles (injection block)
 
-> 구현 시 실제 원전을 fetch해 최신 문구로 갱신할 것(추측 금지). 원전: Forrest Chang의
-> `andrej-karpathy-skills`(Karpathy의 LLM 코딩 관찰 distill). 아래는 검증된 4원칙 요지.
+> When implementing, fetch the actual source and refresh with its latest wording (do not guess). Source: Forrest Chang's
+> `andrej-karpathy-skills` (a distillation of Karpathy's observations on LLM coding). Below is the gist of the four verified principles.
 
-1. **Think Before Coding** — 가정을 명시하고, 모호하면 추측하지 말고 질문한다.
-   복수 해석이 가능하면 임의로 고르지 말고 제시한다. 더 단순한 길이 있으면 반박한다.
-2. **Simplicity First** — 요청한 것만, 최소 코드로. 요청 안 한 추상화·기능·설정·
-   과방어 코드 금지. 50줄로 될 일을 200줄로 쓰지 않는다.
-3. **Surgical Changes** — 변경된 모든 줄이 요청에 직결되어야 한다. 건드릴 것만
-   건드리고, 내가 만든 것만 정리한다.
-4. **Goal-Driven Execution** — 명령을 검증 가능한 성공기준으로 바꾼다. 다단계 작업은
-   검증 체크포인트가 있는 짧은 계획을 먼저 세운다.
+1. **Think Before Coding** — State your assumptions, and when something is ambiguous, ask instead of guessing.
+   When multiple interpretations are possible, present them rather than picking one arbitrarily. If a simpler path exists, push back.
+2. **Simplicity First** — Only what was asked, with minimal code. No unrequested abstractions, features, configuration, or
+   over-defensive code. Don't write in 200 lines what fits in 50.
+3. **Surgical Changes** — Every line you change must be directly tied to the request. Touch only what needs touching,
+   and clean up only what you created.
+4. **Goal-Driven Execution** — Turn the instruction into verifiable success criteria. For multi-step work, first draft a
+   short plan with verification checkpoints.

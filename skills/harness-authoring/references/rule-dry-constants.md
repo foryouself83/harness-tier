@@ -1,6 +1,6 @@
-# DRY / 매직값 상수화 (주입 블록)
+# DRY / Extract Magic Values into Constants (injection block)
 
-- **매직 넘버·매직 문자열·매직 코드를 반복하지 않는다.** 의미 있는 이름의 상수로
-  추출하고 한 곳에서 정의한다.
-- **같은 로직·같은 값을 복붙하지 않는다(DRY).** 두 번 이상 나타나면 공통화한다.
-- 단, YAGNI 위배 금지 — 한 번만 쓰는 일회성 코드를 미리 추상화하지 않는다.
+- **Do not repeat magic numbers, magic strings, or magic codes.** Extract them into
+  meaningfully named constants defined in a single place.
+- **Do not copy-paste the same logic or the same value (DRY).** If it appears more than once, factor it out.
+- However, do not violate YAGNI — do not pre-abstract one-off code that is used only once.

@@ -66,7 +66,7 @@ def test_detect_frameworks_requirements_dedup_with_pyproject(tmp_path):
     )
     (tmp_path / "requirements.txt").write_text("flask==3.0.0\n", encoding="utf-8")
     names = [f["name"] for f in hs.detect_frameworks(tmp_path)]
-    assert names.count("flask") == 1  # 매니페스트 둘에 걸쳐도 name 기준 dedup
+    assert names.count("flask") == 1  # dedup by name even across two manifests
 
 
 def test_detect_frameworks_dedup_same_label(tmp_path):
@@ -167,7 +167,7 @@ def test_apply_never_overwrites_existing_create(tmp_path):
     report = hs.apply_plan(tmp_path, plan)
     assert report["conflicts"] == ["CLAUDE.md"]
     assert report["created"] == []
-    assert target.read_text(encoding="utf-8") == "ORIGINAL"  # 불변식
+    assert target.read_text(encoding="utf-8") == "ORIGINAL"  # invariant
 
 
 def test_apply_marker_upsert_updates(tmp_path):
@@ -203,7 +203,7 @@ def test_apply_idempotent_rerun(tmp_path):
     report2 = hs.apply_plan(tmp_path, plan)
     assert report2["created"] == [] and report2["conflicts"] == [".claude/rules/baseline.md"]
     after = {p: p.read_text(encoding="utf-8") for p in tmp_path.rglob("*") if p.is_file()}
-    assert snapshot == after  # 재실행해도 내용 동일
+    assert snapshot == after  # same content on re-run
 
 
 def test_main_detect_outputs_json(tmp_path, capsys):
@@ -340,13 +340,14 @@ def test_main_validate_outputs_json_exit0(tmp_path, capsys):
     plan_file = tmp_path / "plan.json"
     plan_file.write_text(json.dumps({"files": [_baseline_entry()]}), encoding="utf-8")
     rc = hs.main(["validate", "--root", str(tmp_path), "--plan", str(plan_file)])
-    assert rc == 0  # FAIL-OPEN: 진단이지 게이트 아님
+    assert rc == 0  # FAIL-OPEN: a diagnostic, not a gate
     out = json.loads(capsys.readouterr().out)
     assert "ok" in out and "issues" in out
 
 
 def test_validate_name_non_string_no_crash(tmp_path):
-    # name 이 YAML 리스트/딕트여도 add() TypeError 로 죽지 않고 frontmatter 누락 처리(FAIL-OPEN).
+    # even if name is a YAML list/dict, do not die with an add() TypeError; treat it as
+    # missing frontmatter (FAIL-OPEN).
     plan = {
         "files": [
             _baseline_entry(),
@@ -357,12 +358,12 @@ def test_validate_name_non_string_no_crash(tmp_path):
             },
         ]
     }
-    rep = hs.validate_plan(tmp_path, plan)  # 예외 없이 반환되어야 함
+    rep = hs.validate_plan(tmp_path, plan)  # must return without exception
     assert any(i["kind"] == "frontmatter" for i in rep["issues"])
 
 
 def test_validate_nested_component_path_checked(tmp_path):
-    # 하위 디렉터리 컴포넌트도 frontmatter 검증 대상이어야 한다.
+    # subdirectory components must also be subject to frontmatter validation.
     plan = {
         "files": [
             _baseline_entry(),
@@ -378,7 +379,8 @@ def test_validate_nested_component_path_checked(tmp_path):
 
 
 def test_validate_dead_link_satisfied_by_noncanonical_plan_path(tmp_path):
-    # plan path 가 비정규('./')여도 정규화 후 매칭되어 dead-link 오탐이 없어야 한다.
+    # even if the plan path is non-canonical ('./'), it must match after normalization so
+    # there is no dead-link false positive.
     plan = {
         "files": [
             _baseline_entry(),
@@ -399,7 +401,7 @@ def test_validate_dead_link_satisfied_by_noncanonical_plan_path(tmp_path):
 
 
 def test_validate_flags_command_with_dot_prefix(tmp_path):
-    # './' 접두가 붙은 커맨드 경로도 정규화 후 가드에 걸려야 한다.
+    # a command path prefixed with './' must also be caught by the guard after normalization.
     plan = {
         "files": [
             _baseline_entry(),
@@ -411,7 +413,8 @@ def test_validate_flags_command_with_dot_prefix(tmp_path):
 
 
 def test_validate_flags_marker_lines_in_content(tmp_path):
-    # 템플릿 BEGIN/END 를 통째로 복사한 content 는 apply 재래핑으로 중첩되므로 high.
+    # content that copies the template BEGIN/END wholesale gets nested by apply re-wrapping,
+    # so it is high.
     e = _baseline_entry()
     begin, end = hs._marker_begin("harness:baseline"), hs._marker_end("harness:baseline")
     e["content"] = begin + "\n" + e["content"] + "\n" + end
@@ -421,7 +424,7 @@ def test_validate_flags_marker_lines_in_content(tmp_path):
 
 
 def test_validate_dedup_allows_same_path_update(tmp_path):
-    # 기존 컴포넌트를 같은 경로로 재emit(갱신)하는 것은 충돌이 아니다.
+    # re-emitting (updating) an existing component at the same path is not a conflict.
     _write_component(tmp_path / ".claude" / "agents" / "reviewer.md", "reviewer", "Old")
     plan = {
         "files": [
@@ -438,7 +441,7 @@ def test_validate_dedup_allows_same_path_update(tmp_path):
 
 
 def test_validate_anchor_whitespace_tolerant(tmp_path):
-    # HTML 주석 공백 변형(<!--rule:x-->)도 앵커로 인정해야 한다.
+    # HTML-comment whitespace variants (<!--rule:x-->) must also be recognized as anchors.
     e = _baseline_entry()
     e["content"] = e["content"].replace("<!-- rule:karpathy -->", "<!--rule:karpathy-->")
     rep = hs.validate_plan(tmp_path, {"files": [e]})
@@ -486,7 +489,7 @@ def test_ops_blocks_collects_wrapped_continuation():
 
 
 def test_validate_dead_link_ignores_image(tmp_path):
-    # 이미지 임베드 ![..](..) 는 dead-link 검사 대상이 아니다.
+    # image embeds ![..](..) are not subject to the dead-link check.
     plan = {
         "files": [
             _baseline_entry(),
@@ -502,7 +505,7 @@ def test_validate_dead_link_ignores_image(tmp_path):
 
 
 def test_validate_dead_link_ignores_frontmatter(tmp_path):
-    # frontmatter(description) 안의 링크는 본문 스캔 대상이 아니다.
+    # links inside frontmatter (description) are not subject to the body scan.
     plan = {
         "files": [
             _baseline_entry(),
@@ -518,17 +521,18 @@ def test_validate_dead_link_ignores_frontmatter(tmp_path):
 
 
 def test_validate_corrupt_marker_detected_despite_bad_encoding(tmp_path):
-    # cp949 호스트의 기존 파일이 utf-8 디코드 불가여도 마커(ASCII) corrupt 는 검출해야 한다.
+    # even if an existing file on a cp949 host cannot be utf-8 decoded, marker (ASCII)
+    # corruption must be detected.
     cm = tmp_path / "CLAUDE.md"
     begin = hs._marker_begin("harness:baseline").encode("utf-8")
-    bad = "필수 룰\n".encode("cp949")  # utf-8 로는 디코드 불가한 바이트
-    cm.write_bytes(begin + b"\n" + bad)  # BEGIN 만 있고 END 없음 → corrupt
+    bad = "필수 룰\n".encode("cp949")  # bytes that cannot be decoded as utf-8
+    cm.write_bytes(begin + b"\n" + bad)  # only BEGIN, no END → corrupt
     rep = hs.validate_plan(tmp_path, {"files": [_baseline_entry()]})
     assert any(i["kind"] == "marker" and "corrupt" in i["detail"] for i in rep["issues"])
 
 
 def test_validate_dead_link_ignores_inline_code(tmp_path):
-    # 인라인 코드 안의 링크 예시는 dead-link 가 아니다.
+    # a link example inside inline code is not a dead-link.
     plan = {
         "files": [
             _baseline_entry(),
@@ -544,7 +548,7 @@ def test_validate_dead_link_ignores_inline_code(tmp_path):
 
 
 def test_validate_dead_link_ignores_code_fence(tmp_path):
-    # 코드 펜스 블록 안의 링크는 dead-link 가 아니다.
+    # a link inside a code-fence block is not a dead-link.
     plan = {
         "files": [
             _baseline_entry(),
@@ -560,7 +564,7 @@ def test_validate_dead_link_ignores_code_fence(tmp_path):
 
 
 def test_parse_frontmatter_block_scalar_fallback(monkeypatch):
-    # yaml 부재 폴백에서도 블록 스칼라(>) 멀티라인 description 을 보존한다.
+    # even in the yaml-absent fallback, preserve a block-scalar (>) multi-line description.
     monkeypatch.setattr(hs, "yaml", None)
     text = "---\nname: a\ndescription: >\n  line one\n  line two\n---\nbody"
     fm = hs._parse_frontmatter(text)
@@ -569,22 +573,22 @@ def test_parse_frontmatter_block_scalar_fallback(monkeypatch):
 
 
 def test_cleanup_removes_research_copies_but_preserves_evidence(tmp_path):
-    harness = tmp_path / ".claude" / "vway-kit" / ".harness"
+    harness = tmp_path / ".claude" / "harness-tier" / ".harness"
     research = harness / "research"
     research.mkdir(parents=True)
     (research / "researcher_nextjs.md").write_text("조사 내용", encoding="utf-8")
     (research / "code-analyzer.md").write_text("스캔 내용", encoding="utf-8")
-    # 보존돼야 하는 감사용 증거
+    # audit evidence that must be preserved
     for name in ("plan.json", "manifest.json", "critic-report.json", "rationale.md"):
         (harness / name).write_text("{}", encoding="utf-8")
 
     report = hs.cleanup_harness(harness, tmp_path)
 
-    # research 사본은 제거(docs가 .harness를 참조하지 않으므로)
+    # research copies are removed (since docs do not reference .harness)
     assert not research.exists() or not any(research.iterdir())
     assert any("researcher_nextjs.md" in r for r in report["removed"])
     assert report["link_warnings"] == []
-    # 증거 메타는 보존
+    # evidence metadata is preserved
     for name in ("plan.json", "manifest.json", "critic-report.json", "rationale.md"):
         assert (harness / name).exists()
     assert sorted(report["preserved"]) == sorted(
@@ -593,7 +597,7 @@ def test_cleanup_removes_research_copies_but_preserves_evidence(tmp_path):
 
 
 def test_cleanup_is_safe_when_no_research_dir(tmp_path):
-    harness = tmp_path / ".claude" / "vway-kit" / ".harness"
+    harness = tmp_path / ".claude" / "harness-tier" / ".harness"
     harness.mkdir(parents=True)
     (harness / "plan.json").write_text("{}", encoding="utf-8")
     report = hs.cleanup_harness(harness, tmp_path)
@@ -602,8 +606,9 @@ def test_cleanup_is_safe_when_no_research_dir(tmp_path):
 
 
 def test_cleanup_does_not_touch_non_research_non_preserve(tmp_path):
-    # 보존 화이트리스트도 아니고 research/ 도 아닌 파일은 건드리지 않는다(보수적).
-    harness = tmp_path / ".claude" / "vway-kit" / ".harness"
+    # files that are neither on the preserve whitelist nor in research/ are not touched
+    # (conservative).
+    harness = tmp_path / ".claude" / "harness-tier" / ".harness"
     harness.mkdir(parents=True)
     (harness / "stray.txt").write_text("x", encoding="utf-8")
     hs.cleanup_harness(harness, tmp_path)
@@ -611,18 +616,18 @@ def test_cleanup_does_not_touch_non_research_non_preserve(tmp_path):
 
 
 def test_cleanup_holds_when_docs_link_into_harness(tmp_path):
-    # 링크 가드(FAIL-SAFE): docs가 .harness/research 를 참조하면 제거를 보류한다.
-    harness = tmp_path / ".claude" / "vway-kit" / ".harness"
+    # link guard (FAIL-SAFE): if docs reference .harness/research, hold off on removal.
+    harness = tmp_path / ".claude" / "harness-tier" / ".harness"
     research = harness / "research"
     research.mkdir(parents=True)
     (research / "researcher_nextjs.md").write_text("조사", encoding="utf-8")
     arch = tmp_path / "docs" / "sds"
     arch.mkdir(parents=True)
     (arch / "README.md").write_text(
-        "출처: [조사](../../.claude/vway-kit/.harness/research/researcher_nextjs.md)",
+        "출처: [조사](../../.claude/harness-tier/.harness/research/researcher_nextjs.md)",
         encoding="utf-8",
     )
     report = hs.cleanup_harness(harness, tmp_path)
-    assert (research / "researcher_nextjs.md").exists()  # 보류로 보존
+    assert (research / "researcher_nextjs.md").exists()  # preserved due to hold
     assert report["removed"] == []
     assert any("sds/README.md" in w for w in report["link_warnings"])

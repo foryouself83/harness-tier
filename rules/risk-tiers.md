@@ -1,6 +1,6 @@
 # Risk-Tiered Workflow
 
-> This rule is injected into every session context via the vway-kit
+> This rule is injected into every session context via the harness-tier
 > SessionStart hook — it is always active without a `paths` trigger.
 
 Always-on rule. Core idea: **do not apply the heaviest AI process to
@@ -9,8 +9,8 @@ in decides **which skills run** (notably whether the heavy `superpowers`
 pipeline engages) and **which gates are mandatory and enforced**.
 
 This file is the single source of truth for tier classification and
-the per-tier workflow. [`/vdev`](../skills/vdev/SKILL.md),
-[`vdev-tiers.yaml`](../vdev-tiers.yaml), and the `warn-risk-tier` hook
+the per-tier workflow. [`/flow`](../skills/flow/SKILL.md),
+[`flow-tiers.yaml`](../flow-tiers.yaml), and the `warn-risk-tier` hook
 all defer to it.
 
 There are four tiers across two axes:
@@ -18,26 +18,26 @@ There are four tiers across two axes:
 - **Day-to-day tasks** (on `feature/*` / `fix/*`): **Docs** or
   **Dev**.
 - **Promotion events** (git-flow gates): **Staging**
-  (`vdev-config.branches.integration → staging`) and **Release**
-  (`vdev-config.branches.staging → production` / prod deploy).
+  (`flow-config.branches.integration → staging`) and **Release**
+  (`flow-config.branches.staging → production` / prod deploy).
 
 ## Principle
 
-Every code-change request is classified **by `/vdev` before** work
+Every code-change request is classified **by `/flow` before** work
 starts — you do not judge the tier on your own and proceed. Higher
-tier = more skills engaged + more mandatory gates. Running `/vdev` is
+tier = more skills engaged + more mandatory gates. Running `/flow` is
 non-negotiable; the *depth* of process its verdict selects is what
-varies. When the tier is ambiguous, `/vdev` escalates one tier (bias
+varies. When the tier is ambiguous, `/flow` escalates one tier (bias
 to safety).
 
-**You do not classify free-form — enter `/vdev` (via the Skill tool) as
+**You do not classify free-form — enter `/flow` (via the Skill tool) as
 your FIRST action** on any code change, feature, fix, or development
-request, *before* reading code, planning, or editing. `/vdev` runs the
+request, *before* reading code, planning, or editing. `/flow` runs the
 classification, confirms the tier with the user, and writes the marker
-the commit gate reads. This is not optional: skipping `/vdev` leaves the
+the commit gate reads. This is not optional: skipping `/flow` leaves the
 commit **unclassified**, and the commit gate **blocks it** (fail-closed
 — a commit with no tier marker is refused). If the workflow is genuinely
-unwanted, the user removes the gate with `/vdev-uninstall` — you never
+unwanted, the user removes the gate with `/flow-uninstall` — you never
 work around it.
 
 ## Step 1 — Classify the task (Docs or Dev)
@@ -82,10 +82,11 @@ promotion gates run once over the accumulated work.
 ### Staging — integration → staging branch (QA / rc cut)
 
 The release candidate enters QA/staging. Gates:
-`precommit, review, security-scan` (`security-scan` = 전체 모듈 보안 도구 사전검사).
-(`precommit` = 모듈 lint/static/import_lint/test, 레이어2 vdev 게이트가 일상 커밋(변경 모듈)
-에서 담당한다. Performance·integration 은 독립 스킬. `/security-review` LLM 리뷰는 Release 에서
-추가.)
+`precommit, review, security-scan` (`security-scan` = a pre-check across all modules with the
+security tools).
+(`precommit` = per-module lint/static/import_lint/test, which the layer-2 flow gate handles on
+day-to-day commits (changed modules). Performance and integration are independent skills. The
+`/security-review` LLM review is added at Release.)
 
 ### Release — staging → production branch
 
@@ -109,14 +110,14 @@ Two entry points:
 
 ## When each tier applies (git-flow mapping)
 
-Branch names in this doc are `vdev-config.branches` **keys** —
+Branch names in this doc are `flow-config.branches` **keys** —
 `integration` / `staging` / `production` are roles, each resolving to
 your project's actual branch (e.g. integration→dev, staging→stage,
 production→main). No branch is literally named `integration`.
 
 | Moment | Tier | Gates |
 |--------|------|-------|
-| Work on `feature/*` / `fix/*` → integration branch | **Docs** (no code) / **Dev** (any code) | Docs: doc-sync · Dev: precommit, review, doc-sync (precommit = 모듈 lint/static/import_lint/test, 변경 모듈에 실행) |
+| Work on `feature/*` / `fix/*` → integration branch | **Docs** (no code) / **Dev** (any code) | Docs: doc-sync · Dev: precommit, review, doc-sync (precommit = per-module lint/static/import_lint/test, run on changed modules) |
 | integration → staging (QA / rc cut) | **Staging** | precommit, review, security-scan |
 | staging → production, or prod deploy | **Release** | + security |
 | A feature-branch change that is irreversible / prod-critical / security | escalate to **Release** | — |
@@ -143,20 +144,20 @@ work, not new implementation.
 
 **Precondition** — Dev/Staging/Release require the `superpowers`
 plugin (`superpowers@claude-plugins-official`). If it is not installed,
-`/vdev` **stops** and asks the user to install it — no manual fallback.
+`/flow` **stops** and asks the user to install it — no manual fallback.
 
 ## Step 2b — Ensure a work branch
 
 Both Docs and Dev day-to-day work happens on `feature/*` / `fix/*` —
 never directly on an integration/staging/production branch
-(`vdev-config.branches`). `/vdev` ensures this **after** confirming the
+(`flow-config.branches`). `/flow` ensures this **after** confirming the
 tier and **before** writing the tier marker:
 
 - Already on `feature/*` / `fix/*` / `hotfix/*` → stay (idempotent).
 - On an integration/staging/production branch → cut a work branch and
   switch to it. The prefix follows the Conventional type (`feat` →
   `feature/`, `fix` → `fix/`); derive a short English `<slug>` from the
-  task (or ALM task-id) and confirm it with the user. A **clean** tree
+  task and confirm it with the user. A **clean** tree
   branches off freshly fetched `origin/<integration>` (see Feature
   branch base); with **uncommitted changes**, branch off the current
   `HEAD` to carry them along and rebase onto `origin/<integration>` at
@@ -214,10 +215,10 @@ work started on. `hotfix/*` off the production branch is the exception
 ### Staging (integration → staging)
 
 1. Regression review (independent `general-purpose` agent)
-   → record `review`. `precommit`(변경 모듈 lint/static/import_lint/test)과
-   `security-scan`(전체 모듈 보안 도구)은 precommit-runner 가 승격 커밋 시
-   자동 실행한다(둘 다 런타임 게이트 — 마커 불요). 둘 다 `vdev-tiers.yaml`
-   gates 리스트의 항목이므로, 그 tier 의 gates 에서 빼면 그 검사만 꺼진다.
+   → record `review`. `precommit` (changed-module lint/static/import_lint/test) and
+   `security-scan` (full-module security tools) are run automatically by precommit-runner on
+   promotion commits (both are runtime gates — no marker needed). Both are entries in the
+   `flow-tiers.yaml` gates list, so removing either from that tier's gates disables just that check.
 2. Promote integration → staging (rc).
 
 ### Release (staging → production)
@@ -264,14 +265,15 @@ language directive); default to English if unset.
 **Squash** merges pick the **highest-priority type** among bundled
 commits.
 
-> **플러그인 전파 규율** — vway-kit은 강결합(plugin.json `version`) 배포다. `docs`/
-> `chore`는 버전 bump를 트리거하지 않으므로 **소비자에게 전파되지 않는다**. rules·skills
-> 등 **소비자 동작에 영향을 주는 `.md` 변경은 `feat`/`fix`로 커밋**해야 릴리스에 실려
-> 전파된다. 순수 내부 문서(개발자 전용, 소비자 무관)만 `docs`로 둔다.
+> **Plugin propagation discipline** — harness-tier ships as a tightly coupled release (plugin.json
+> `version`). `docs`/`chore` do not trigger a version bump, so they **do not propagate to
+> consumers**. Any `.md` change that affects consumer behavior (rules, skills, etc.) **must be
+> committed as `feat`/`fix`** so it rides along in a release and propagates. Leave only purely
+> internal docs (developer-only, irrelevant to consumers) as `docs`.
 
 ### Merge strategy
 
-Branch names refer to `vdev-config.branches` keys.
+Branch names refer to `flow-config.branches` keys.
 
 | Branch flow | Strategy |
 |-------------|----------|
@@ -365,12 +367,12 @@ which would never drift).
 
 ### PR workflow
 
-**Not used in vway-kit projects.** Direct merge + push. Never propose
+**Not used in harness-tier projects.** Direct merge + push. Never propose
 creating a PR; merge straight to the target branch and push.
 
 ### Feature branch base
 
-`/vdev` cuts this branch in Step 2b. A **clean** tree branches from
+`/flow` cuts this branch in Step 2b. A **clean** tree branches from
 freshly fetched `origin/<integration>`; with **uncommitted changes** it
 branches off the current `HEAD` (carrying them) and rebases onto
 `origin/<integration>` at merge:
@@ -397,23 +399,21 @@ Don't trust your earlier write.
 - **Worker / service-process safety** — Dev+ changes touching
   long-running worker processes: inspect for in-flight tasks and
   require explicit user approval before restarting.
-- **Entry point** — a free-text request or an ALM task-id.
-  A task-id entry ends with `/task-sync` to sync the result back to
-  the ALM.
+- **Entry point** — a free-text request.
 
 ## Hard gates (enforced mechanically)
 
 Gates are enforced at chokepoints, driven by
-[`vdev-tiers.yaml`](../vdev-tiers.yaml) and the evidence markers
-`/vdev` records under `.claude/vway-kit/.vdev/` (gitignored):
+[`flow-tiers.yaml`](../flow-tiers.yaml) and the evidence markers
+`/flow` records under `.claude/harness-tier/.flow/` (gitignored):
 `tier` (`<tier>:<branch>`) plus `<gate>.done` per completed gate.
 
 1. **Commit gate (Docs/Dev)** — the `git commit` hook (via the
-   project's `vdev_gate_check` script) **blocks the commit** if the
+   project's `flow_gate_check` script) **blocks the commit** if the
    active tier's required gate has no `.done` marker. Branch-bound. It
    also **blocks an unclassified commit** — when the policy is intact
-   but no `tier` marker exists (i.e. `/vdev` was skipped), so bypassing
-   `/vdev` cannot silently disable the gate (fail-closed).
+   but no `tier` marker exists (i.e. `/flow` was skipped), so bypassing
+   `/flow` cannot silently disable the gate (fail-closed).
 2. **Promotion gates (Staging / Release)** — enforced purely at
    `git commit` by branch: a commit on the staging branch enforces
    the `staging` gates; a commit on the production branch enforces
@@ -427,16 +427,16 @@ Properties:
   commits or deploys). The test is "the gate works reliably", not "a
   file exists". **Exception — an unclassified commit is fail-CLOSED**:
   when the policy parses and config is intact but no `tier` marker
-  exists, the commit is **blocked** so skipping `/vdev` cannot silently
+  exists, the commit is **blocked** so skipping `/flow` cannot silently
   disable the gate. Promotion gates are likewise fail-*closed* on
   missing evidence, but still fail-open on internal errors.
 - **Branch-bound** — markers carry the branch, so stale state cannot
   block an unrelated task on another branch.
-- `precommit` (모듈 lint/static/import_lint/test, 변경 모듈) and `security-scan`
-  (전체 모듈 보안 도구, 승격 시) are both **executed** by the hook
-  (`precommit-runner.sh`, 레이어2 — 레이어1 pre-commit 아님), not a marker —
+- `precommit` (per-module lint/static/import_lint/test, changed modules) and `security-scan`
+  (full-module security tools, on promotion) are both **executed** by the hook
+  (`precommit-runner.sh`, layer 2 — not the layer-1 pre-commit), not a marker —
   both are `RUNTIME_GATES`. Both are ordinary entries in each tier's
-  `vdev-tiers.yaml` `gates` list, so **removing either from a tier's gates
+  `flow-tiers.yaml` `gates` list, so **removing either from a tier's gates
   disables that check for that tier** (e.g. drop `security-scan` from
   `release` to stop running the full-module security scan on release
   promotions) — the gates list is the single on/off switch, not a hardcoded
@@ -448,12 +448,12 @@ Properties:
   separate host a local hook cannot reach; the staging → production
   commit is the local release-authorization gate.
 
-Clear state with `rm -rf .claude/vway-kit/.vdev` (also done by `/vdev`
+Clear state with `rm -rf .claude/harness-tier/.flow` (also done by `/flow`
 after a successful commit/merge).
 
 ---
 
 *Pilot: Docs & Dev enforced at commit; Staging at integration →
 staging, Release at staging → production / offline deploy. Full
-one-shot `/vdev` automation of the Dev/Staging/Release pipelines
+one-shot `/flow` automation of the Dev/Staging/Release pipelines
 is a follow-up.*

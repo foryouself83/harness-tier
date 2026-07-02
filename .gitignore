@@ -1,7 +1,6 @@
 __pycache__/
 *.pyc
 .venv/
-teamer_account.md
 .teams-webhooks.local.json
-vdev-config.yaml
-.claude/vway-kit/.vdev/
+flow-config.yaml
+.claude/harness-tier/.flow/

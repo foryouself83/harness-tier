@@ -1,89 +1,89 @@
-# 에이전트 설계 가이드
+# Agent Design Guide
 
-`harness-authoring` 이 호스트 프로젝트용 에이전트를 생성할 때 따르는 규율.
-[revfactory/harness](https://github.com/revfactory/harness) agent-design-patterns 를 vway-kit 톤으로 압축 차용.
+The discipline `harness-authoring` follows when generating agents for the host project.
+Condensed and adapted from [revfactory/harness](https://github.com/revfactory/harness) agent-design-patterns into the harness-tier tone.
 
-## 핵심 원칙
+## Core Principle
 
-**한 에이전트, 한 역할.** 집중할수록 재사용성이 높고 중복이 준다. 역할이 둘 이상이면 분리 검토.
+**One agent, one role.** The more focused it is, the higher its reusability and the less duplication. If it has more than one role, consider splitting it.
 
-## 1. 분리 기준
+## 1. Split Criteria
 
-| 기준 | 분리 | 통합 |
+| Criterion | Split | Merge |
 |------|------|------|
-| 전문성 | 영역이 다르면 | 겹치면 |
-| 병렬성 | 독립 실행 가능하면 | 순차 종속이면 |
-| 컨텍스트 | 부담이 크면 | 가볍고 빠르면 |
-| 재사용성 | 다른 팀에서도 쓰면 | 이 팀에서만 쓰면 |
+| Expertise | when domains differ | when they overlap |
+| Parallelism | when they can run independently | when sequentially dependent |
+| Context | when the load is heavy | when light and fast |
+| Reusability | when other teams use it too | when only this team uses it |
 
-## 2. 재사용 설계 (중복 방지)
+## 2. Reuse Design (Avoiding Duplication)
 
-신규 생성 전 기존 에이전트와 중복을 확인한다.
+Before creating a new one, check for overlap with existing agents.
 
-| 상황 | 조치 |
+| Situation | Action |
 |------|------|
-| 기존이 신규를 완전 포함 | 신규 금지 — 기존 재사용 |
-| 부분 포함이고 일반화 가능 | 기존을 일반화·확장 |
-| 의도된 도메인 특화 부분 포함 | 신규 진행(별개 유지) |
-| 범위가 완전히 다름 | 신규 진행 |
+| Existing one fully covers the new one | No new agent — reuse the existing one |
+| Partial overlap and generalizable | Generalize/extend the existing one |
+| Partial overlap that is intentionally domain-specific | Proceed with new (keep separate) |
+| Scope is entirely different | Proceed with new |
 
-기존 일반화 시 의존하는 오케스트레이터 동작이 바뀔 수 있다 — 확장 전 의존성 확인, 후 드라이런.
+Generalizing an existing agent can change the behavior of orchestrators that depend on it — check dependencies before extending, and dry-run afterward.
 
-## 3. 에이전트 정의 구조
+## 3. Agent Definition Structure
 
 ```markdown
 ---
 name: agent-name
-description: "1-2문장 역할 + 트리거 키워드(pushy). <example>…</example> 권장."
-tools: Read, Grep, Glob  # 읽기전용 역할이면 쓰기도구 제외(생략 시 전체 도구). 선언과 실제 권한 일치 필수
-model: opus  # 또는 제거
+description: "1-2 sentence role + trigger keywords (pushy). <example>…</example> recommended."
+tools: Read, Grep, Glob  # exclude write tools for a read-only role (omit for all tools). Declaration must match actual permissions
+model: opus  # or remove
 ---
 
-You are [도메인]의 [역할] 전문가. [단일 책임].
+You are an expert [role] in [domain]. [Single responsibility].
 
-## 핵심 역할
+## Core Role
 1. …
 
-## 작업 원칙
+## Working Principles
 - …
 
-## 입력 / 출력 프로토콜
-- 입력: [어디서 무엇을]
-- 출력: [어디에 무엇을 — 파일경로·형식]
+## Input / Output Protocol
+- Input: [what, from where]
+- Output: [what, to where — file path·format]
 
-## 교차대화 프로토콜 (옵션 — Agent Teams 실험 기능 켜진 경우만, 표준 fan-out 에선 생략)
-- 수신: [누구로부터 어떤 메시지]
-- 발신: [누구에게 어떤 메시지]
+## Cross-Talk Protocol (optional — only when the Agent Teams experimental feature is on; omit for standard fan-out)
+- Receive: [what message, from whom]
+- Send: [what message, to whom]
 
-## 에러 핸들링
-- [실패·타임아웃 시 행동]
+## Error Handling
+- [behavior on failure·timeout]
 ```
 
-**원칙**: 모든 에이전트는 `.claude/agents/{name}.md` 파일로 정의한다(빌트인 타입이라도). 파일로
-존재해야 재사용·협업 프로토콜이 보장된다.
+**Principle**: every agent is defined as a `.claude/agents/{name}.md` file (even a built-in type). Existing
+as a file is what guarantees the reuse and collaboration protocols.
 
-## 4. 빌트인 타입 선택
+## 4. Choosing a Built-in Type
 
-| 상황 | 권장 | 이유 |
+| Situation | Recommended | Reason |
 |------|------|------|
-| 코드 읽기만(분석/리뷰) | `Explore` | 실수로 파일 수정 방지 |
-| 설계/계획만 | `Plan` | 분석 집중, 변경 방지 |
-| 웹조사·범용 | `general-purpose` | WebSearch/WebFetch 포함 전체 도구 |
-| 파일 수정 구현 | 커스텀 타입 | 전체 도구 + 전문 지시 |
+| Read code only (analysis/review) | `Explore` | Prevents accidental file edits |
+| Design/planning only | `Plan` | Focus on analysis, prevent changes |
+| Web research·general-purpose | `general-purpose` | Full toolset including WebSearch/WebFetch |
+| File-editing implementation | Custom type | Full toolset + specialized instructions |
 
-**읽기전용 강제**: 커스텀 타입이라도 분석·리뷰처럼 읽기전용 역할이면 frontmatter `tools` 를
-읽기 도구(`Read, Grep, Glob`)로 **제한한다**. "어떤 파일도 수정하지 않는다"고 본문에 적어도
-`tools` 가 비면 쓰기 권한이 남아 선언과 실제 권한이 어긋난다(critic `tool-fit` 위반). 쓰기가
-필요 없으면 항상 제한하라.
+**Enforce read-only**: even for a custom type, if the role is read-only like analysis or review, **restrict**
+the frontmatter `tools` to read tools (`Read, Grep, Glob`). Even if the body says "does not modify any file," an
+empty `tools` leaves write permissions in place, so the declaration diverges from actual permissions (a critic `tool-fit`
+violation). If writes are not needed, always restrict.
 
-## 5. 스킬 ↔ 에이전트 구분 / 연결
+## 5. Skill ↔ Agent Distinction / Linkage
 
-- **스킬** = "어떻게 하는가"(절차+도구 번들, `.claude/skills/`). **에이전트** = "누가 하는가"(페르소나, `.claude/agents/`).
-- 연결: 재사용성 높으면 **Skill 도구 호출**, 짧고 전용이면 **인라인**, 대용량·조건부면 **레퍼런스 로드**.
+- **Skill** = "how it is done" (procedure + tool bundle, `.claude/skills/`). **Agent** = "who does it" (persona, `.claude/agents/`).
+- Linkage: if highly reusable, **call the Skill tool**; if short and dedicated, **inline it**; if large or conditional, **load a reference**.
 
-## 6. 병렬 fan-out 기본
+## 6. Parallel Fan-out Default
 
-에이전트가 2개 이상이면 **`Agent`(구 `Task`, alias) 서브에이전트 병렬 디스패치(팬아웃/팬인, 생성-검증)가 기본**이다.
-에이전트 간 통신이 품질을 올리는 경우에 한해, Agent Teams 실험 기능(`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`)이
-켜진 빌드에서만 `SendMessage` 교차대화를 **옵션**으로 쓴다(폐기된 `TeamCreate`/`TaskCreate` 등은 금지).
-교차대화가 가능한 경우에만 팀 통신 프로토콜 섹션을 채운다.
+With two or more agents, **parallel dispatch of `Agent` (formerly `Task`, alias) subagents (fan-out/fan-in, generate-verify) is the default**.
+Only when inter-agent communication improves quality, and only on builds where the Agent Teams experimental feature (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`)
+is enabled, use `SendMessage` cross-talk as an **option** (the deprecated `TeamCreate`/`TaskCreate`, etc. are forbidden).
+Fill in the team communication protocol section only when cross-talk is possible.

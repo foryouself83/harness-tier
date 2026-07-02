@@ -1,7 +1,7 @@
-# 버전 고정 (주입 블록)
+# Version Pinning (injection block)
 
-- 참조하는 **패키지·라이브러리·컨테이너 이미지** 버전은 `>=`·`^`·`~`·latest 등
-  범위/부동 지정 금지 → **정확히 `==`(또는 락파일·다이제스트)로 고정**한다.
-- 예: `fastapi==0.118.0`, `node:22.11.0-bookworm`(다이제스트 권장),
-  `react@19.0.0`. 재현 가능한 빌드를 보장한다.
-- 업그레이드는 의도적·개별 변경으로 수행한다(부동 업데이트로 흘려보내지 않는다).
+- For any referenced **package, library, or container image**, do not use range/floating specifiers such as
+  `>=`, `^`, `~`, or latest → **pin to an exact `==` (or a lockfile / digest)**.
+- Examples: `fastapi==0.118.0`, `node:22.11.0-bookworm` (digest recommended),
+  `react@19.0.0`. This guarantees reproducible builds.
+- Perform upgrades as deliberate, individual changes (do not let them drift in via floating updates).

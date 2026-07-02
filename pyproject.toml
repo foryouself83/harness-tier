@@ -1,10 +1,11 @@
 [project]
-name = "vway-kit"
-version = "0.3.0"
-# 플러그인 자체 개발/테스트(ruff·pytest) 환경 floor. 호스트에 배포되는 게이트
-# 스크립트의 런타임 요구는 python 3.8+ (walrus) — 이 줄과 무관하니 혼동 말 것.
+name = "harness-tier"
+version = "0.1.0"
+license = "Apache-2.0"
+# Environment floor for the plugin's own development/testing (ruff·pytest). The gate
+# scripts deployed to the host require python 3.8+ at runtime (walrus) — unrelated to this line, so don't confuse them.
 requires-python = ">=3.12"
-dependencies = ["pyyaml>=6.0", "keyring>=24"]
+dependencies = ["pyyaml>=6.0"]
 
 [dependency-groups]
 dev = ["pytest>=8.0", "ruff>=0.6", "pre-commit>=3.5", "python-semantic-release>=10,<11"]

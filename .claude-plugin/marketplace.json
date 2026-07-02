@@ -1,15 +1,15 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "vway",
-  "description": "vway 사내 Claude Code 플러그인 마켓플레이스",
-  "owner": { "name": "vway" },
+  "name": "harness-tier",
+  "description": "harness-tier Claude Code plugin marketplace",
+  "owner": { "name": "foryouself83", "email": "foryouself83@gmail.com", "url": "https://github.com/foryouself83" },
   "plugins": [
     {
-      "name": "vway-kit",
-      "description": "vway 위험도 티어 워크플로 + Teamer 연동 + Teams 알림 harness",
-      "author": { "name": "vway" },
+      "name": "harness-tier",
+      "description": "harness-tier risk-tiered workflow + Teams notification harness",
+      "author": { "name": "foryouself83" },
       "category": "workflow",
-      "source": { "source": "github", "repo": "Developments-3/vway-kit", "sha": "2f945667fe2ab52dce63caf2e0e4659cc6372c35" }
+      "source": { "source": "github", "repo": "foryouself83/harness-tier", "sha": "2f945667fe2ab52dce63caf2e0e4659cc6372c35" }
     }
   ]
 }

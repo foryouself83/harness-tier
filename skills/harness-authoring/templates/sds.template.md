@@ -1,49 +1,49 @@
-# {{PROJECT_NAME}} 소프트웨어 설계 명세 (SDS)
+# {{PROJECT_NAME}} Software Design Specification (SDS)
 
-## 스택 / 프레임워크
-{{FRAMEWORK}} {{VERSION}} — {{STACK_SUMMARY}}  <!-- 출처: {{SOURCES}} -->
+## Stack / Framework
+{{FRAMEWORK}} {{VERSION}} — {{STACK_SUMMARY}}  <!-- Sources: {{SOURCES}} -->
 
-## 구조 다이어그램
+## Structure Diagram
 ```mermaid
 {{MERMAID_DIAGRAM}}
 ```
-<!-- 컴포넌트/모듈 관계(최소 1개). 확인된 사실만 노드화(추측 노드 금지). 가능하면 데이터 흐름도 추가. -->
+<!-- Component/module relationships (at least 1). Only turn confirmed facts into nodes (no speculative nodes). Add a data-flow diagram if possible. -->
 
-## 폴더 구조
+## Folder Structure
 {{FOLDER_MAP}}
 
-## 모듈 개요
-<!-- 구조도의 각 노드를 구현 단위로 한 단계 내린다(아키텍처=노드, SDS=노드의 계약).
-     확인된 사실만 — 추측 금지. 클래스/타입 상세가 있으면 인터페이스에 함께 적는다(별도 절 X).
-     단일 모듈이면 1개만(YAGNI).
-     **분해 축**: 절차적·데이터 파이프라인·함수형 프로젝트는 모듈 대신 처리 단계(stage)·데이터 흐름을
-     1차 단위로 쓴다(이름을 "처리 단계"로 바꾸고 흐름 순서로 나열). 모듈 경계가 자연스러운 프로젝트만 모듈로. -->
+## Module Overview
+<!-- Take each node in the structure diagram down one level into an implementation unit (architecture = nodes, SDS = the nodes' contracts).
+     Confirmed facts only — no speculation. If there are class/type details, include them in the interface (no separate section).
+     If it is a single module, list only 1 (YAGNI).
+     **Decomposition axis**: for procedural, data-pipeline, or functional projects, use processing stages / data flow
+     as the primary unit instead of modules (rename to "processing stages" and list in flow order). Use modules only for projects where module boundaries are natural. -->
 #### {{MODULE_NAME}}
-- 구현 요구사항: [FR-001](../srs/README.md#fr-001)  <!-- 이 모듈이 충족하는 SRS FR(각 FR 앵커로 링크, 표준 Requirements Matrix 역할). **brownfield(SRS 미생성)는 이 필드 생략. 인프라/횡단 모듈(로깅·설정·DB어댑터)은 "FR 매핑 없음"** — 억지 매핑·죽은 링크 금지. -->
-- 책임: {{MODULE_RESPONSIBILITY}}  <!-- 한 문장. 단일 책임 — "그리고"가 들어가면 분리 검토. -->
-- 제공 인터페이스: {{MODULE_PROVIDED_IF}}  <!-- 외부에 노출하는 공개 API/함수/엔드포인트(입력→출력·에러). 내부 전용은 생략. -->
-- 사용 인터페이스: {{MODULE_REQUIRED_IF}}  <!-- 동작에 필요한 외부 계약(= 의존의 구체화). 내부 다른 모듈 + 외부 시스템(서드파티 API·서비스·DB·메시지 브로커 등) 모두. 없으면 "없음". -->
-- 소유 데이터: {{MODULE_DATA}}  <!-- 소유/변경하는 핵심 데이터 구조·테이블. 해당 없으면 "해당 없음". -->
+- Implemented requirements: [FR-001](../srs/README.md#fr-001)  <!-- The SRS FRs this module satisfies (link via each FR anchor, serving as the standard Requirements Matrix). **For brownfield (no SRS generated), omit this field. Infrastructure/cross-cutting modules (logging, config, DB adapters) get "no FR mapping"** — no forced mappings or dead links. -->
+- Responsibility: {{MODULE_RESPONSIBILITY}}  <!-- One sentence. Single responsibility — if an "and" appears, consider splitting. -->
+- Provided interface: {{MODULE_PROVIDED_IF}}  <!-- The public API/functions/endpoints exposed externally (input→output, errors). Omit internal-only ones. -->
+- Required interface: {{MODULE_REQUIRED_IF}}  <!-- The external contracts needed to operate (= concretization of dependencies). Both other internal modules and external systems (third-party APIs, services, DBs, message brokers, etc.). If none, "none". -->
+- Owned data: {{MODULE_DATA}}  <!-- Core data structures/tables it owns/mutates. If not applicable, "N/A". -->
 
-## 데이터 설계
-<!-- DB/영속 저장소가 있을 때만 작성. 없으면 이 절 생략(YAGNI). 스키마 상세는 코드/마이그레이션이
-     SSOT — 여기선 모듈↔데이터 연계·트랜잭션 경계·핵심 엔티티 관계만(복제 금지). -->
+## Data Design
+<!-- Write only when there is a DB/persistent store. If none, omit this section (YAGNI). Schema details are owned by code/migrations
+     as the SSOT — here, only module↔data linkage, transaction boundaries, and key entity relationships (no duplication). -->
 {{DATA_DESIGN}}
 
-## UI 흐름
-<!-- UI 가 있을 때만 작성. 없으면 이 절 생략(YAGNI). 화면 전이·상태·주요 액션. 스크린샷은 넣지 않는다(흐름만). -->
+## UI Flow
+<!-- Write only when there is a UI. If none, omit this section (YAGNI). Screen transitions, states, key actions. Do not include screenshots (flow only). -->
 {{UI_FLOW}}
 
-## 통합 지점 (컴포넌트 간 계약)
-<!-- 경계(프로세스/오리진/호스트/인증)를 넘어 통신하는 컴포넌트 쌍이 있을 때만 작성. 단일 프로세스면 이 절 생략(YAGNI). -->
+## Integration Points (contracts between components)
+<!-- Write only when there are component pairs that communicate across a boundary (process/origin/host/auth). For a single process, omit this section (YAGNI). -->
 {{INTEGRATION_CONTRACTS}}
-<!-- 각 통신 쌍마다: 도달성(호스트명/라우트가 배포 토폴로지에서 해석되는가) · identity/오리진(issuer·origin 이
-     브라우저 관점과 내부 관점에서 일치하는가) · 정책 연속성(보안 헤더/CSP 가 선언된 흐름을 막지 않고 모든 응답
-     경로에서 유지되는가) · 자격증명 프로비저닝(앱 전용 계정이 생성되는가) · 전역 설정 blast radius(전역 정책이
-     선언된 무거운 경로를 의도와 다르게 제약하지 않는가). 확인된 사실만, 출처 링크. -->
+<!-- For each communicating pair: reachability (does the hostname/route resolve in the deployment topology) · identity/origin (do issuer and origin
+     match from both the browser's and the internal perspective) · policy continuity (do security headers/CSP not block the declared flow, and are they preserved across all response
+     paths) · credential provisioning (is an app-specific account created) · global-config blast radius (does a global policy not constrain the
+     declared heavy path against intent). Confirmed facts only, with source links. -->
 
-## 스택 reconcile 결정
-<!-- 설계 근거의 SSOT(harness-rules 10-1). 리서치에서 승격/기각된 (인프라 포함) 스택과 사유를 한 줄씩 —
-     버전관리되는 결정 출구(gitignored 인 `.harness/rationale.md` 의 중복이 아니라 핵심 결정만 doc 으로).
-     승격/기각이 없으면 이 절 생략. -->
+## Stack Reconcile Decisions
+<!-- The SSOT for design rationale (harness-rules 10-1). One line each for the stacks (including infrastructure) promoted/rejected in research, with reasons —
+     a version-controlled decision outlet (only the core decisions as a doc, not a duplicate of the gitignored `.harness/rationale.md`).
+     If there are no promotions/rejections, omit this section. -->
 {{STACK_RECONCILE}}

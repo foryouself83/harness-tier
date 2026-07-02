@@ -1,12 +1,12 @@
-# 의미기반 릴리스 (Python/python-semantic-release) — /vdev-init 이 vdev-config.versioning 으로 렌더.
-# 표준 semantic-release: version bump + tag + GitHub Release. release 커밋은 [skip ci].
-# 전제: repo Settings → Actions → Workflow permissions = "Read and write".
-# semantic-release 상세 설정([tool.semantic_release])은 프로젝트 pyproject 에 둔다(commit-versioning-guide 참고).
+# Semantic release (Python/python-semantic-release) — rendered by /flow-init from flow-config.versioning.
+# Standard semantic-release: version bump + tag + GitHub Release. The release commit is [skip ci].
+# Prerequisite: repo Settings → Actions → Workflow permissions = "Read and write".
+# The detailed semantic-release config ([tool.semantic_release]) lives in the project's pyproject (see commit-versioning-guide).
 name: release
 
 on:
   push:
-    branches: [__VWAY_STABLE__, __VWAY_PRERELEASE__]
+    branches: [__HARNESS_STABLE__, __HARNESS_PRERELEASE__]
 
 concurrency:
   group: release-${{ github.ref }}
@@ -50,5 +50,5 @@ jobs:
         run: |
           TAG="$(git describe --tags --abbrev=0)"
           PRERELEASE=""
-          [ "$REF_NAME" = "__VWAY_PRERELEASE__" ] && PRERELEASE="--prerelease"
+          [ "$REF_NAME" = "__HARNESS_PRERELEASE__" ] && PRERELEASE="--prerelease"
           gh release create "$TAG" --title "$TAG" --generate-notes $PRERELEASE

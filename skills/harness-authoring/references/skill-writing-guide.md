@@ -1,96 +1,97 @@
-# 스킬 작성 가이드
+# Skill Writing Guide
 
-`harness-authoring` 이 호스트 프로젝트용 스킬을 생성할 때 따르는 품질 규율.
-[revfactory/harness](https://github.com/revfactory/harness) skill-writing-guide 를 vway-kit 톤으로 압축 차용.
+The quality discipline `harness-authoring` follows when generating skills for a host project.
+Adapted from the [revfactory/harness](https://github.com/revfactory/harness) skill-writing-guide, condensed into the harness-tier tone.
 
-## 핵심 원칙
+## Core Principle
 
-**한 스킬, 한 역할.** 역할이 둘 이상이면 분리할 수 있는지 먼저 검토한다.
+**One skill, one role.** If it has more than one role, first check whether it can be split.
 
-## 1. Description — 유일한 트리거 메커니즘
+## 1. Description — the only trigger mechanism
 
-Claude 는 `name`+`description` 만 보고 스킬 사용 여부를 정한다. 단순 작업에는 보수적으로
-트리거하므로, description 은 약간 **pushy** 하게 쓴다(보상).
+Claude decides whether to use a skill based on `name` + `description` alone. It triggers conservatively on simple tasks,
+so write the description slightly **pushy** (to compensate).
 
-작성 원칙:
-1. **하는 일** + **구체적 트리거 상황**을 모두 기술.
-2. 유사하지만 트리거하면 안 되는 **경계 조건**을 명시.
-3. 약어·캐주얼 표현으로도 트리거되게 — "다운로드 폴더의 xlsx" 같은 암시적 표현 포함.
+Authoring principles:
+1. Describe both **what it does** + the **specific trigger situations**.
+2. State the **boundary conditions** that are similar but should not trigger.
+3. Make it trigger on abbreviations and casual phrasing too — include implicit expressions like "the xlsx in my downloads folder".
 
-좋은 예: `"PDF 읽기·추출·병합·분할·OCR 등 모든 PDF 작업. .pdf 를 언급하거나 PDF 산출물을
-요청하면 반드시 사용. 단순 열람이 아닌 변환·편집·분석이 필요할 때 특히."`
+Good example: `"All PDF work — reading, extracting, merging, splitting, OCR, and more. Must be used whenever a .pdf is
+mentioned or a PDF output is requested. Especially when conversion, editing, or analysis is needed rather than simple viewing."`
 
-나쁜 예: `"데이터를 처리하는 스킬"`(모호), `"PDF 관련 작업"`(동작·트리거 미기술).
+Bad example: `"A skill that processes data"` (vague), `"PDF-related work"` (does not describe action or trigger).
 
-## 2. 본문 — Why-First
+## 2. Body — Why-First
 
-LLM 은 **이유를 알면 엣지케이스에서도 옳게 판단**한다. 강압적 규칙보다 맥락이 효과적이다.
+An LLM **judges correctly even in edge cases when it knows the reason**. Context is more effective than coercive rules.
 
-- 나쁨: `ALWAYS use pdfplumber. NEVER use PyPDF2 for tables.`
-- 좋음: `테이블 추출엔 pdfplumber 를 쓴다. PyPDF2 는 텍스트 특화라 행/열 구조를 잃기 때문이다.`
+- Bad: `ALWAYS use pdfplumber. NEVER use PyPDF2 for tables.`
+- Good: `Use pdfplumber for table extraction. PyPDF2 is text-specialized and loses row/column structure.`
 
-**명령형 어조** — "~합니다" 대신 "~한다/~하라". 스킬은 지시서다.
+**Imperative tone** — use "do/shall" rather than polite forms. A skill is an instruction sheet.
 
-## 3. 일반화 — 오버피팅 금지
+## 3. Generalization — no overfitting
 
-테스트/피드백에서 문제가 보이면 특정 예시가 아니라 **원리 수준**에서 고친다.
+When a test or feedback reveals a problem, fix it at the **principle level**, not around the specific example.
 
-- 오버핏: `"Q4 매출" 열이 있으면 숫자로 변환.`
-- 일반화: `열 이름에 "매출·금액·수량" 등 수치 암시 키워드가 있으면 숫자로 변환. 실패 시 원본 유지.`
+- Overfit: `If there is a "Q4 revenue" column, convert to numbers.`
+- Generalized: `If a column name contains numeric-hinting keywords like "revenue, amount, quantity", convert to numbers. On failure, keep the original.`
 
-**라이브러리·도구 단정 금지**: 생성 산출물은 특정 라이브러리(예: Zod·Prisma)를 프로젝트
-컨벤션 확인 없이 박지 않는다. research·code-analyzer 근거가 있으면 그 라이브러리를, greenfield 라
-근거가 없으면 **카테고리("검증 라이브러리")로 일반화하거나 질문**한다(reuse 후보 나열은
-`docs/code-style/<stack>.md` 의 reuse 절로).
+**No library/tool assertions**: generated outputs must not hardcode a specific library (e.g., Zod, Prisma) without
+confirming the project convention. If there is research/code-analyzer evidence, use that library; if it is greenfield
+with no evidence, **generalize to a category ("validation library") or ask** (list reuse candidates in the reuse section
+of `docs/code-style/<stack>.md`).
 
-- 오버핏: `입력 검증은 Zod 스키마로 한다.`
-- 일반화: `입력 검증은 프로젝트의 검증 라이브러리(없으면 무료·상용가능 후보 중 택1, 모호하면 질문)로 서버·클라 공유한다.`
+- Overfit: `Do input validation with a Zod schema.`
+- Generalized: `Do input validation with the project's validation library (if none exists, pick one from free/commercial-OK candidates; ask if ambiguous), shared between server and client.`
 
-## 4. 출력 형식 · 예시
+## 4. Output format · examples
 
-산출물 형식이 중요하면 템플릿을 명시한다. **예시 하나가 긴 설명보다 효과적**이다.
+If the output format matters, specify a template. **One example is more effective than a long explanation.**
 
 ```
-입력: JWT 기반 사용자 인증 추가
-출력: feat(auth): JWT 기반 인증 구현
+Input: Add JWT-based user authentication
+Output: feat(auth): implement JWT-based authentication
 ```
 
 ## 5. Progressive Disclosure
 
-- **도메인 분리**: `references/finance.md`·`sales.md` 로 쪼개 필요한 것만 로드.
-- **조건부 상세**: 본문은 개요, "추적 변경이 필요하면 [REDLINING.md] 참조" 식 포인터.
-- **300줄 초과 reference 는 상단 목차** 포함.
+- **Domain separation**: split into `references/finance.md` · `sales.md` so only what is needed is loaded.
+- **Conditional detail**: the body is an overview, with pointers like "see [REDLINING.md] if change tracking is needed".
+- **A reference over 300 lines gets a table of contents at the top.**
 
-**보조 폴더 동반** — 스킬 생성 시 역할상 분리할 참조/사례가 있으면 `<skill>/references/`(상세
-참조)·`<skill>/examples/`(입력/출력 사례 최소 1개)를 함께 만든다. 본문은 개요+포인터만 두고
-상세는 references 로 내린다. **단순 스킬에 강제하지 않는다**(YAGNI) — 참조/사례가 실제로 있을 때만.
+**Companion folders** — when generating a skill, if there are references/cases that the role warrants splitting out,
+create `<skill>/references/` (detailed references) · `<skill>/examples/` (at least one input/output case) alongside it.
+Keep the body to an overview + pointers and push the detail down into references. **Do not force this on a simple skill**
+(YAGNI) — only when references/cases actually exist.
 
-## 6. 컨텍스트 절약
+## 6. Context economy
 
-컨텍스트는 공공재다. 모든 문장이 토큰 값을 하는지 자문한다.
-- "Claude 가 이미 아는가?" → 삭제. "없으면 실수하는가?" → 유지. "예시가 더 나은가?" → 예시로.
+Context is a shared resource. Ask whether every sentence earns its tokens.
+- "Does Claude already know this?" → delete. "Will it err without this?" → keep. "Would an example be better?" → make it an example.
 
-## 7. 스크립트 번들링 신호
+## 7. Script-bundling signal
 
-테스트에서 매번 같은 헬퍼 생성/같은 설치/같은 회피책이 보이면 `scripts/` 에 번들링하거나
-본문에 표준 절차로 기술한다. 번들 스크립트는 반드시 실행 검증한다.
+If tests keep creating the same helper / the same install / the same workaround, bundle it into `scripts/` or describe
+it as a standard procedure in the body. Bundled scripts must be verified by running them.
 
-## 8. 스킬에 넣지 않을 것
+## 8. What not to put in a skill
 
-- README·CHANGELOG·설치가이드 등 부가 문서.
-- 생성 과정 메타정보(테스트 결과·반복 이력).
-- 사용자 대상 설명서(스킬은 AI 지시서).
-- Claude 가 이미 아는 일반 지식.
+- Ancillary docs like README, CHANGELOG, install guides.
+- Generation-process meta info (test results, iteration history).
+- User-facing manuals (a skill is an AI instruction sheet).
+- General knowledge Claude already has.
 
-## 9. 재사용 설계 (중복 방지)
+## 9. Reuse design (avoid duplication)
 
-신규 생성 전 기존 스킬과 중복을 확인한다.
+Before generating something new, check for overlap with existing skills.
 
-| 상황 | 조치 |
+| Situation | Action |
 |------|------|
-| 기존이 신규를 완전 포함 | 신규 금지 — 기존을 에이전트에 연결 |
-| 부분 포함이고 일반화 가능 | 기존을 일반화·확장 |
-| 의도된 도메인 특화 부분 포함 | 신규 진행(별개 유지) |
-| 범위가 완전히 다름 | 신규 진행 |
+| Existing fully contains the new one | No new one — wire the existing one to the agent |
+| Partial containment and generalizable | Generalize/extend the existing one |
+| Intended domain-specialized partial containment | Proceed with the new one (keep separate) |
+| Scope is entirely different | Proceed with the new one |
 
-일반화는 **의도된 책임 범위**에서 멈춘다. 우연한 종속만 제거하고, 의도된 특화는 유지한다.
+Generalization stops at the **intended responsibility scope**. Remove only accidental coupling; keep intended specialization.

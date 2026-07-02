@@ -1,156 +1,156 @@
 ---
 name: harness-init
-description: 프레임워크를 감지하고 다중 서브에이전트로 최신 컨벤션·무료 기성솔루션을 리서치해 AI 하네스(.md 기본, 실설정 opt-in)를 생성하는 마법사 — 감지→인터뷰→리서치(fan-out)→사유→생성→비판/검증→미리보기→확정→쓰기, 덮어쓰기 없음, 커맨드 미생성
+description: A wizard that detects the framework and, using multiple sub-agents, researches the latest conventions and free off-the-shelf solutions to generate an AI harness (.md by default, real configuration opt-in) — detect → interview → research (fan-out) → rationale → generate → critique/validate → preview → confirm → write, no overwrites, no commands generated
 allowed-tools: Bash, Read, Write, Edit, AskUserQuestion, Glob, Grep, Agent, SendMessage, WebSearch, WebFetch, Skill
 argument-hint: (none)
 disable-model-invocation: true
 ---
 
-# Harness-Init — AI 하네스 생성 마법사
+# Harness-Init — AI Harness Generation Wizard
 
-대상 프로젝트에 맞는 Claude Code 하네스를 다중 에이전트로 생성한다. 산출물은 **.md 기본**이며
-실설정(보안 스캐너·CI·폴더 스캐폴딩 등)은 **물어보고 동의 시에만** 적용한다. **커맨드는 생성하지 않는다.**
-**규율 SSOT**: [harness-rules.md](../../rules/harness-rules.md) — 읽고 따른다(중복 금지).
+Generates a Claude Code harness tailored to the target project using multiple agents. The output is **.md by default**, and real configuration (security scanners, CI, folder scaffolding, etc.) is applied **only after asking and receiving consent**. **No commands are generated.**
+**Discipline SSOT**: [harness-rules.md](../../rules/harness-rules.md) — read and follow it (no duplication).
 
-## 경로
+## Paths
 ```bash
 ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
 PLUGIN="${CLAUDE_PLUGIN_ROOT}"
-HARNESS_DIR="${ROOT}/.claude/vway-kit/.harness"   # 증거(research/rationale/plan/critic/manifest), gitignored
+HARNESS_DIR="${ROOT}/.claude/harness-tier/.harness"   # evidence (research/rationale/plan/critic/manifest), gitignored
 ```
-증거는 vway-kit 규약대로 `.claude/vway-kit/.harness/` 한 곳에 모은다(루트 분산 금지):
+Per the harness-tier convention, evidence is collected in a single place — `.claude/harness-tier/.harness/` (no scattering across the root):
 `research/<agent>_<topic>.md` · `rationale.md` · `plan.json` · `critic-report.json` · `manifest.json`.
-첫 쓰기 전 `.gitignore` 에 `.claude/vway-kit/.harness/` 를 **멱등 추가**(이미 있으면 skip).
-harness-init 은 vdev 와 독립이므로 자기 증거는 자기가 ignore(vdev-init 의존 금지).
+Before the first write, **idempotently add** `.claude/harness-tier/.harness/` to `.gitignore` (skip if already present).
+Because harness-init is independent of flow, it ignores its own evidence itself (no dependence on flow-init).
 
-## Step 0 — 검증/감지 (스크립트)
+## Step 0 — Validation/Detection (script)
 ```bash
 python3 "${PLUGIN}/scripts/harness_scaffold.py" detect --root "${ROOT}"
 ```
-결과(state/frameworks/existing)를 사용자에게 **표로** 보여준다. vdev 설치
-(.claude/vway-kit/config/vdev-config.yaml) 여부도 보고.
+Show the result (state/frameworks/existing) to the user **as a table**. Also report whether flow is installed
+(.claude/harness-tier/config/flow-config.yaml).
 
-## Step 1 — 인터뷰 (AskUserQuestion, 최소하되 범위는 명확히)
-0. **개발 범위 명확화 (greenfield/SRS 게이트 — 추측 금지)**: detect 가 greenfield 이거나 SRS 산출물이
-   선택되면, **Step 2 리서치·Step 4 SRS 작성 전에** 받은 프롬프트를 파싱해 개발 범위를 확정한다.
-   **SRS 필수 슬롯의 공백 + 모호한 항목을 모두** `AskUserQuestion` 으로 묻는다 — **모호 = 측정 불가·복수
-   해석·범위 불분명**(예: "빠르게"·"사용자 친화적"). **측정 가능하고 단일 해석이 될 때까지** 묻되 이미
-   명확한 건 되묻지 않음(과생성·심문 금지). 필수 슬롯 = 목적 · 목표/비목표(YAGNI 경계) ·
-   핵심 기능 요구사항 · 대상 사용자/시나리오 · 핵심 제약(규모·성능·보안·배포 환경). 추가로 **분류 축**
-   (도메인 1차·사용자권한/하위영역 2차)과 **깊이(2~3차)** 가 무엇인지도 확정한다(적용 안 되는 축은 SRS 에
-   "해당 없음 — 사유"로 남김 — 자세한 규율·구조는 harness-rules 8-1·`tech-doc-guide.md` SRS 절·`srs.template.md`).
-   - **게이트**: 범위 공백·모호가 남은 채로 Step 2·Step 4 로 진행하지 않는다. 질문 후에도 미상인 슬롯은
-     SRS 에 **"확인 필요"로 명시**하고 절대 지어내지 않는다(harness-rules 4·8-1).
-   - 산출 = **범위 요약(scope summary)** → research·rationale·SRS 의 단일 입력원(downstream 단일 출처).
-   - **brownfield(SRS 미생성)는 이 게이트를 건너뛴다** — 범위는 code-analyzer 코드 분석으로 삼고, 코드로
-     해소되지 않는 의도(목표/비목표 등)만 선택적으로 묻는다.
-1. **주 개발 언어 확정(hard gate, harness-rules 참고)**: `AskUserQuestion` 으로 주 개발 언어를
-   반드시 확정한다(감지값 무관 항상 질문). 감지 언어가 있으면 첫 옵션(권장), 멀티/미감지면 후보
-   나열. 감지값과 사용자 선택이 다르면 **사용자 선택 우선**. **주 언어 ≠ 전 계층 동일 언어** —
-   프로젝트를 계층(프런트/백/기타)으로 나누고, 각 계층에서 **더 프로덕션 레디·표준에 가까운
-   스택을 권장 1순위**로 제시(가능 시 research 근거), **"전 계층 동일 vs 계층별 분리"를
-   `AskUserQuestion` 으로 확인**한다. 결과 = **계층별 언어/스택 맵**(잠정 — Step 2.5 에서 리서치
-   발견분으로 reconcile 해 **동결**; 사용자 사인오프는 Step 6; downstream 단일 출처). 아직 안 드러난
-   스택을 여기서 추측해 채우지 않는다(인프라가 특히 그렇다 — 모르는 채 일찍 잠그면 누락; 리서치 후
-   reconcile 에서 채운다, harness-rules 10-1).
-2. 감지 프레임워크/버전 확인(틀리면 정정, 미감지면 입력 요청).
-3. 생성 산출물 선택: CLAUDE.md / 룰(baseline 5종 + 프레임워크 컨벤션) / skills / agents /
-   기술문서(SRS greenfield·SDS·스택별 code-style·research·onboarding·**성능/통합 SSOT 문서(`docs/performance.md`·`docs/integration.md`)**, 분류별 폴더). **커맨드 선택지 없음.**
-4. **실설정 opt-in**: 보안 스캐너 설치·CI 추가·실폴더 스캐폴딩·실제 버전핀 — 각각 물어봄.
-   시크릿·인증/인가·입력검증 운영 축은 directive 만으로 끝내지 말고 스캐너 opt-in 을 함께 제안(9-5).
-5. 브라운필드 충돌(existing) 항목별: 스킵 / 사용자선택.
+## Step 1 — Interview (AskUserQuestion, keep it minimal but scope it clearly)
+0. **Clarify the development scope (greenfield/SRS gate — no guessing)**: If detect reports greenfield, or an SRS
+   artifact is selected, parse the received prompt to fix the development scope **before Step 2 research and Step 4 SRS
+   authoring**. Ask **all blank required SRS slots plus every ambiguous item** via `AskUserQuestion` — **ambiguous = not
+   measurable, multiple interpretations, or unclear scope** (e.g., "quickly", "user-friendly"). Keep asking **until each
+   is measurable and single-interpretation**, but do not re-ask what is already clear (no over-generation, no
+   interrogation). Required slots = purpose · goals/non-goals (YAGNI boundary) · core functional requirements · target
+   users/scenarios · key constraints (scale, performance, security, deployment environment). Additionally, fix the
+   **classification axes** (domain as primary; user role/subdomain as secondary) and the **depth (2–3 levels)**. For axes
+   that do not apply, leave the literal "N/A — reason" in the SRS (for the detailed discipline and structure, see
+   harness-rules 8-1, the SRS section of `tech-doc-guide.md`, and `srs.template.md`).
+   - **Gate**: do not proceed to Step 2 or Step 4 while scope blanks or ambiguities remain. For slots still unknown after
+     asking, **explicitly mark them "needs confirmation"** in the SRS and never fabricate them (harness-rules 4, 8-1).
+   - Output = a **scope summary** → the single input source for research, rationale, and the SRS (single downstream source).
+   - **brownfield (no SRS generated) skips this gate** — take scope from the code-analyzer's code analysis, and optionally
+     ask only about intent that the code does not resolve (goals/non-goals, etc.).
+1. **Fix the primary development language (hard gate, see harness-rules)**: Always fix the primary development language via
+   `AskUserQuestion` (ask regardless of the detected value). If a language was detected, offer it as the first option
+   (recommended); if multiple/none were detected, list candidates. If the detected value and the user's choice differ,
+   **the user's choice wins**. **Primary language ≠ the same language across every layer** — split the project into layers
+   (frontend/backend/other) and, for each layer, present the **more production-ready, standard-conforming stack as the top
+   recommendation** (with research backing where possible), then **confirm "same across all layers vs. per-layer split"
+   via `AskUserQuestion`**. The result = a **per-layer language/stack map** (provisional — reconciled and **frozen** with
+   research findings in Step 2.5; user sign-off is Step 6; single downstream source). Do not guess and fill in a stack that
+   has not yet surfaced (infrastructure especially — locking in early without knowing leads to omissions; fill it in during
+   reconcile after research, harness-rules 10-1).
+2. Confirm the detected framework/version (correct it if wrong; request input if not detected).
+3. Select the artifacts to generate: CLAUDE.md / rules (the 5 baseline rules + framework conventions) / skills / agents /
+   technical docs (SRS greenfield · SDS · per-stack code-style · research · onboarding · **performance/integration SSOT docs (`docs/verification/performance.md` · `docs/verification/integration.md`)**, in classified folders). **There is no command option.**
+4. **Opt-in real configuration**: installing a security scanner · adding CI · scaffolding real folders · real version pins — ask about each one.
+   For the operational axes of secrets, authentication/authorization, and input validation, do not stop at a directive alone; also propose opting into a scanner (9-5).
+5. Brownfield conflicts (existing), per item: skip / user's choice.
 
-## Step 2 — 리서치 (서브에이전트 fan-out, 격리)
-**표준**: `Agent`(구 `Task`, alias) 로 `harness-researcher`(웹 컨벤션·BP·안티패턴·무료 기성솔루션) + 브라운필드면
-`harness-code-analyzer`(코드베이스 실제 컨벤션·안티패턴·손수구현) 를 **병렬 서브에이전트로 디스패치**한다.
-각 서브에이전트는 `.harness/research/*.md` 에 저장하고, 리더가 `Read` 로 팬인해 종합한다.
-- **범위 주입**: greenfield/SRS 면 Step 1-0 의 **범위 요약(scope summary)** 을 디스패치 입력에 포함해
-  리서치를 실제 요구사항에 한정한다(범위를 추측으로 확장 금지 — 미상 슬롯은 "확인 필요"로 둔 채 조사).
-- **운영 관심사 주입**: 리서치 디스패치 시 harness-rules 9-1 체크리스트와 **계층별 언어/스택 맵**을
-  전달해, 각 (계층,스택)에서 운영 축별 최신 표준·출처·대안·적용성을 조사하게 한다(9-2~9-4).
-- **버전/릴리스 도구 리서치**: 감지 스택의 표준 릴리스 도구(`release_tool`)·`version_files`·0.x 정책을 조사한다(harness-rules 13·13-1).
-- **성능·통합 차원 주입**: Step 2.5 reconcile 로 스택이 확정된 뒤, harness-researcher 재디스패치 시
-  확정 `stack_map` 을 함께 전달해 절차 9(성능 SSOT·통합 검증 SSOT)를 조사하도록 지시한다.
-  조사 결과는 `.harness/research/` 에 저장하고 Step 4 authoring 에서 소비한다.
-- **교차대화(옵션)**: Agent Teams 실험 기능(`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`)이 켜진 빌드에서만
-  `SendMessage` 로 교차대화 가능(code-analyzer "손수구현 X 발견" → researcher "무료 대체 조사"). 없으면
-  교차대화 없이 병렬 디스패치 → 팬인으로 동작(`TeamCreate`/`TaskCreate` 등은 폐기된 도구라 쓰지 않는다).
-- **FAIL-OPEN**: 네트워크/디스패치 실패 시 지어내지 말고 경고 + 「최소 일반구조로 진행 / 중단」 선택.
+## Step 2 — Research (sub-agent fan-out, isolated)
+**Standard**: Using `Agent` (formerly `Task`, alias), **dispatch as parallel sub-agents** `harness-researcher` (web conventions, best practices, anti-patterns, free off-the-shelf solutions) plus, if brownfield,
+`harness-code-analyzer` (the codebase's actual conventions, anti-patterns, hand-rolled code).
+Each sub-agent saves to `.harness/research/*.md`, and the leader fans in via `Read` to synthesize.
+- **Scope injection**: for greenfield/SRS, include the **scope summary** from Step 1-0 in the dispatch input so that
+  research is confined to the actual requirements (do not expand scope by guessing — investigate while leaving unknown slots as "needs confirmation").
+- **Operational-concern injection**: when dispatching research, pass the harness-rules 9-1 checklist and the **per-layer language/stack map**
+  so that, for each (layer, stack), the sub-agent researches the latest standards, sources, alternatives, and applicability per operational axis (9-2 to 9-4).
+- **Version/release tooling research**: research the standard release tool (`release_tool`), `version_files`, and 0.x policy for the detected stack (harness-rules 13, 13-1).
+- **Performance/integration dimension injection**: after the stack is fixed by the Step 2.5 reconcile, when re-dispatching harness-researcher,
+  pass the finalized `stack_map` as well and instruct it to research procedure 9 (performance SSOT, integration-verification SSOT).
+  Save the findings to `.harness/research/` and consume them in Step 4 authoring.
+- **Cross-talk (optional)**: cross-talk via `SendMessage` is only possible on builds where the Agent Teams experimental feature (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`)
+  is enabled (code-analyzer "found hand-rolled X" → researcher "research a free replacement"). Without it,
+  operate as parallel dispatch → fan-in with no cross-talk (do not use deprecated tools such as `TeamCreate`/`TaskCreate`).
+- **FAIL-OPEN**: on network/dispatch failure, do not fabricate; warn and offer the choice "proceed with a minimal generic structure / abort".
 
-## Step 2.5 — 스택 인벤토리 reconcile (동결 전 수렴, harness-rules 10-1)
-리서치가 드러낸 스택(researcher 자율확장·기성솔루션 후보·스택 호환성 매트릭스 — **인프라 포함**)을
-Step 1 의 *잠정* stack_map 에 병합한다. 컨벤션(BP·안티패턴·운영 축)이 실재하는 스택은 컨벤션 대상으로
-**승격**한다(reuse 아티팩트로만 끝내지 않음 — 9-6). **새로 승격된 스택은 1차 fan-out 에서 (계층,스택)으로
-디스패치되지 않았으므로**, 그 스택만 골라 **타깃 후속 리서치**(researcher 재디스패치, 해당 스택 ops_axes
-전수)를 돌려 컨벤션을 채운다. 스택 집합이 **안정될 때까지 반복**(새 승격이 없으면 종료 — 보통 1회).
-추측으로 스택을 늘리지 않는다(발견 근거만, FAIL-OPEN 은 "스킵+질문"). 승격/기각 결정·사유는
-**authoring(Step 4)이** `docs/sds/README.md` 에 한 줄씩 draft 하고, 다른 산출물과 함께
-Step 6 미리보기에서 사용자 확정한다(draft@4 → confirm@6 → write@7; rationale 중복 아님).
+## Step 2.5 — Stack inventory reconcile (converge before freezing, harness-rules 10-1)
+Merge the stacks surfaced by research (researcher's autonomous expansion, off-the-shelf candidates, the stack-compatibility matrix — **including infrastructure**)
+into the *provisional* stack_map from Step 1. **Promote** stacks that have real conventions (best practices, anti-patterns, operational axes) to convention targets
+(do not stop at reuse artifacts alone — 9-6). **Because a newly promoted stack was not dispatched as a (layer, stack) in the first fan-out**,
+run **targeted follow-up research** for just that stack (re-dispatch researcher, covering that stack's full ops_axes) to fill in its conventions. **Repeat until the stack set stabilizes**
+(terminate when there are no new promotions — usually one pass). Do not grow the stack set by guessing (findings only; FAIL-OPEN is "skip + ask"). The promotion/rejection decisions and rationale are
+**drafted by authoring (Step 4)**, one line each, in `docs/sds/README.md`, and confirmed by the user in the Step 6 preview along with the other artifacts (draft@4 → confirm@6 → write@7; not a duplicate of rationale).
 
-## Step 3 — 사유 작성 (rationale)
-detect + research + **범위 요약(Step 1-0)** 을 종합해 `${HARNESS_DIR}/rationale.md` 작성: 도메인 분석, **산출물별 생성 사유**,
-채택 패턴, BP/안티패턴 요약, **운영 축별 채택 표준+출처+적용성(emit/스킵 사유 포함)**,
-**reuse-before-build 권고**(무료·상용가능, 유료 제외), 출처.
+## Step 3 — Rationale authoring (rationale)
+Synthesize detect + research + the **scope summary (Step 1-0)** to write `${HARNESS_DIR}/rationale.md`: domain analysis, **the reason for generating each artifact**,
+adopted patterns, a best-practice/anti-pattern summary, **the adopted standard + source + applicability per operational axis (including emit/skip rationale)**,
+a **reuse-before-build recommendation** (free / commercially usable, paid excluded), and sources.
 
-## Step 4 — 생성 (authoring 스킬 + scaffold)
-컨벤션 대상은 **Step 2.5 reconcile 로 확정된 스택 집합 전체**(승격 인프라 포함) — 초기 stack_map 이
-아니다. 각 스택의 구조/상세 컨벤션은 9-3 분리대로 룰·`docs/code-style/<stack>.md` 양쪽에 채운다.
-1. `Skill: harness-authoring` 로 templates/ 를 research+rationale+references 로 채운다.
-   - 필수 룰 5블록(`references/karpathy-principles.md`·`rule-dry-constants.md`·
-     `rule-version-pinning.md`·`security-rule.md`·`rule-reuse-first.md`)을 CLAUDE.md `harness:baseline`
-     블록에 주입(각 룰 앵커 `<!-- rule:<key> -->` 보존).
-   - 기술문서를 분류별 폴더로 채운다. **SRS 는 범위 요약(Step 1-0)을 SSOT 로** 채우고 미상 슬롯은
-     "확인 필요"로 둔다(research 로 메우되 추측 금지). (SRS greenfield→research 편입→SDS(Mermaid)→스택별
-     code-style→onboarding→docs/README 순, 출처 링크). research 는 `.harness/research/` 를 정제해
-     `docs/research/` 로 먼저 편입하고(SDS·code-style 의 근거), 이후 문서는 출처를
-     `docs/research/` 로 링크한다(`.harness/` 참조 금지). 스킬 생성 시 references/examples 보조폴더 동반.
-   - vdev 감지 시 프로세스 규율은 risk-tiers defer 노트만 넣고 자체 프로세스 룰 emit 금지.
-   - **성능/통합 SSOT 문서**: 확정 스택이 있는 경우에만 `docs/performance.md`·`docs/integration.md`를
-     authoring 으로 생성한다. 빈 스택 절 생성 금지. 출처는 `docs/research/` 로 링크.
-     (`/performance`·`/integration` 스킬이 이 문서를 우선 소비하고, 부재 시 스킬 내장 references 로 폴백.)
-   - **commit-versioning-guide**: `docs/operations/commit-versioning-guide.md` 를 생성한다(Conventional Commits + SemVer + 감지 스택 릴리스 도구 설정; vdev 감지 여부 무관 — harness-rules 13-1·13-2). vdev 감지 시 릴리스 도구 실설정(CI 워크플로 등)은 중복 생성하지 않는다.
-2. `plan`(files[]) 을 만들어 `${HARNESS_DIR}/plan.json` 에 저장.
+## Step 4 — Generation (authoring skill + scaffold)
+The convention targets are the **entire stack set finalized by the Step 2.5 reconcile** (including promoted infrastructure) — not the initial stack_map.
+Per the 9-3 split, fill each stack's structure/detailed conventions into both the rules and `docs/code-style/<stack>.md`.
+1. Use `Skill: harness-authoring` to fill templates/ from research + rationale + references.
+   - Inject the 5 required rule blocks (`references/karpathy-principles.md` · `rule-dry-constants.md` ·
+     `rule-version-pinning.md` · `security-rule.md` · `rule-reuse-first.md`) into the CLAUDE.md `harness:baseline`
+     block (preserve each rule's anchor `<!-- rule:<key> -->`).
+   - Fill the technical docs into classified folders. **Author the SRS with the scope summary (Step 1-0) as SSOT** and leave unknown slots as
+     "needs confirmation" (fill from research but do not guess). (Order: SRS greenfield → merge into research → SDS (Mermaid) → per-stack
+     code-style → onboarding → docs/README, with source links.) First refine `.harness/research/` and merge it into
+     `docs/research/` (the basis for the SDS and code-style); thereafter docs link their sources to
+     `docs/research/` (do not reference `.harness/`). When generating a skill, include the accompanying references/examples subfolders.
+   - When flow is detected, put only a risk-tiers defer note for process discipline and do not emit your own process rules.
+   - **Performance/integration SSOT docs**: generate `docs/verification/performance.md` · `docs/verification/integration.md` via authoring only when
+     there is a finalized stack. Do not create empty stack sections. Link sources to `docs/research/`.
+     (The `/performance` · `/integration` skills consume these docs first and, when absent, fall back to the skills' built-in references.)
+   - **commit-versioning-guide**: generate `docs/operations/commit-versioning-guide.md` (Conventional Commits + SemVer + the release-tool setup for the detected stack; regardless of whether flow is detected — harness-rules 13-1, 13-2). When flow is detected, do not duplicate the release tool's real configuration (CI workflows, etc.).
+2. Create a `plan` (files[]) and save it to `${HARNESS_DIR}/plan.json`.
 
-## Step 5 — 비판/검증 (경량, FAIL-OPEN)
-1. **결정적 구조검사**:
+## Step 5 — Critique/Validation (lightweight, FAIL-OPEN)
+1. **Deterministic structure check**:
    ```bash
    python3 "${PLUGIN}/scripts/harness_scaffold.py" validate --root "${ROOT}" --plan "${HARNESS_DIR}/plan.json"
    ```
-   (게이트 아님 — high 이슈에도 exit 0. 리포트를 리더가 읽는다.)
-2. **품질·정합성 비판**: `harness-critic` 디스패치 → `${HARNESS_DIR}/critic-report.json`.
-   `verdict: revise` 면 authoring 으로 돌아가 수정 **최대 2회**. 잔여 이슈는 "미해결"로 명시.
+   (Not a gate — exit 0 even on high issues. The leader reads the report.)
+2. **Quality/coherence critique**: dispatch `harness-critic` → `${HARNESS_DIR}/critic-report.json`.
+   If `verdict: revise`, return to authoring and revise **up to 2 times**. Explicitly mark any remaining issues as "unresolved".
 
-## Step 6 — 미리보기·확정
-`plan`(생성/스킵/충돌) + `rationale` + `critic-report` 를 사용자에게 보여주고 확정받는다(확정 전 쓰기 금지).
-적용성이 **불확실한 운영 축**은 여기서 `AskUserQuestion` 으로 "포함할지" 확인하고(9-2), greenfield
-자동채택 표준은 "권장 기본(변경 가능)"으로 노출해 확정받는다.
+## Step 6 — Preview/Confirm
+Show the `plan` (generate/skip/conflict) + `rationale` + `critic-report` to the user and get confirmation (no writing before confirmation).
+For **operational axes whose applicability is uncertain**, confirm "whether to include" here via `AskUserQuestion` (9-2), and expose greenfield
+auto-adopted standards as "recommended default (changeable)" for confirmation.
 
 ## Step 7 — apply (scaffold)
 ```bash
 python3 "${PLUGIN}/scripts/harness_scaffold.py" apply --root "${ROOT}" --plan "${HARNESS_DIR}/plan.json"
 ```
-마커 upsert/부재시 create 만. opt-in 실설정은 기존 파일 자동병합 금지 — 누락분만 안내(.pre-commit-config.yaml 등).
+Marker upsert / create only when absent. Opt-in real configuration is not auto-merged into existing files — only the missing parts are announced (.pre-commit-config.yaml, etc.).
 
-## Step 7.5 — cleanup (편입 사본 정리)
-apply 성공 후, docs 로 편입된 중간 사본을 정리한다(재실행/업데이트 시 혼란 방지).
+## Step 7.5 — cleanup (clean up merged copies)
+After apply succeeds, clean up the intermediate copies that were merged into docs (to avoid confusion on re-run/update).
 ```bash
 python3 "${PLUGIN}/scripts/harness_scaffold.py" cleanup --root "${ROOT}"
 ```
-`.harness/research/` 등 편입 사본만 제거하고 증거 메타(`plan.json`·`manifest.json`·
-`critic-report.json`·`rationale.md`)는 보존한다(감사/재실행용). **링크 가드**: docs 가
-`.harness/research` 를 참조하면 제거를 보류하고 `link_warnings` 로 보고한다(링크 깨짐 방지).
-FAIL-OPEN — 정리 실패는 흐름을 막지 않는다. `link_warnings` 가 있으면 보고에 노출한다.
+Remove only the merged copies such as `.harness/research/`, and preserve the evidence metadata (`plan.json` · `manifest.json` ·
+`critic-report.json` · `rationale.md`) (for audit/re-run). **Link guard**: if docs reference
+`.harness/research`, defer removal and report it via `link_warnings` (to prevent broken links).
+FAIL-OPEN — a cleanup failure does not block the flow. If there are `link_warnings`, surface them in the report.
 
-## Step 8 — 보고
-생성/스킵/사용자보류 + 출처 URL + critic 결과(`version-compat` 포함) + cleanup 결과(제거/보존) +
-후속(스캐너 설치 명령 등)을 **표로** 요약.
-`${HARNESS_DIR}/manifest.json` 에 생성내역·프레임워크·출처·critic 결과를 기록(감사/재실행용).
-**커밋하지 않는다** — 사용자에게 `/vdev` 로 커밋하라고 안내.
+## Step 8 — Report
+Summarize **as a table**: generated/skipped/deferred-by-user + source URLs + critic results (including `version-compat`) + cleanup results (removed/preserved) +
+follow-ups (scanner install commands, etc.).
+Record the generation history, framework, sources, and critic results in `${HARNESS_DIR}/manifest.json` (for audit/re-run).
+**Do not commit** — instruct the user to commit via `/flow`.
 
 ## Critical rules
-1. 덮어쓰기 금지 — 마커 upsert/부재시 create 만.
-2. 미리보기·확정 전 쓰기 금지.
-3. 호스트는 `${CLAUDE_PROJECT_DIR}`, 플러그인은 `${CLAUDE_PLUGIN_ROOT}` 읽기.
-4. 커맨드 미생성 — 어떤 산출물도 `.claude/commands/` 에 만들지 않는다.
-5. 커밋·머지·PR 규율은 risk-tiers 로 defer(vdev 감지 시).
-6. 팀/네트워크 실패는 FAIL-OPEN(경고 + 선택), 지어내지 않는다. 모호하면 질문(Karpathy).
+1. No overwrites — marker upsert / create only when absent.
+2. No writing before preview/confirmation.
+3. The host is `${CLAUDE_PROJECT_DIR}`; read the plugin from `${CLAUDE_PLUGIN_ROOT}`.
+4. No commands generated — do not create any artifact under `.claude/commands/`.
+5. Defer commit/merge/PR discipline to risk-tiers (when flow is detected).
+6. Team/network failures are FAIL-OPEN (warn + offer a choice); do not fabricate. When ambiguous, ask (Karpathy).

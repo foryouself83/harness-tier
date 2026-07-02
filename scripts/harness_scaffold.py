@@ -9,16 +9,17 @@ from collections.abc import Iterator
 from pathlib import Path
 
 try:
-    import yaml  # PyYAML (repo 의존성)
+    import yaml  # PyYAML (repo dependency)
 except Exception:  # pragma: no cover
     yaml = None  # type: ignore[assignment]
 
-# 인코딩 방어는 공용 SSOT(_vway_paths)에서 가져온다(중복 정의 금지). harness_scaffold 는
-# 플러그인 위치에서 실행되므로 형제 import 가 기본이고, 패키지(테스트)에서는 scripts._vway_paths.
+# The encoding defense comes from the shared SSOT (_harness_paths) (no duplicate definitions).
+# harness_scaffold runs from the plugin location, so sibling import is the default; package (test)
+# imports use scripts._harness_paths.
 try:
-    from _vway_paths import force_utf8_io
+    from _harness_paths import force_utf8_io
 except ImportError:
-    from scripts._vway_paths import force_utf8_io
+    from scripts._harness_paths import force_utf8_io
 
 VENDOR_DIRS = {
     ".git",
@@ -56,7 +57,7 @@ SOURCE_EXTS = {
     ".vue",
     ".svelte",
 }
-# 의존성 키 → 프레임워크 라벨
+# dependency key → framework label
 FRAMEWORK_SIGNATURES = {
     "next": "next.js",
     "react": "react",
@@ -88,7 +89,7 @@ def detect_state(root: Path) -> str:
 
 
 def _norm_version(spec: str) -> str:
-    # "==0.118.0", "^15.0.1", ">=2,<3" → 첫 숫자 버전만 추출(없으면 원문)
+    # "==0.118.0", "^15.0.1", ">=2,<3" → extract only the first numeric version (else the original)
     m = re.search(r"\d+(?:\.\d+)*", spec or "")
     return m.group(0) if m else (spec or "").strip()
 
@@ -122,10 +123,10 @@ def detect_frameworks(root: Path) -> list[dict]:
             text = pyproject.read_text(encoding="utf-8")
             for dep, label in FRAMEWORK_SIGNATURES.items():
                 esc = re.escape(dep)
-                # PEP 621: dependencies = ["fastapi==0.118.0"]  (이름이 따옴표 안)
+                # PEP 621: dependencies = ["fastapi==0.118.0"]  (name inside the quotes)
                 m = re.search(rf"['\"]{esc}\s*([=<>!~^]*\s*[\d.]+)?['\"]", text)
                 if not m:
-                    # Poetry: [tool.poetry.dependencies] 의 `fastapi = "^0.118.0"` (이름이 키)
+                    # Poetry: `fastapi = "^0.118.0"` in [tool.poetry.dependencies] (name is the key)
                     m = re.search(rf"(?m)^\s*{esc}\s*=\s*['\"]([^'\"]*)['\"]", text)
                 if m:
                     out.append(
@@ -166,7 +167,7 @@ def detect_frameworks(root: Path) -> list[dict]:
     if gomod.is_file():
         out.append({"name": "go", "version": "", "manifest": "go.mod"})
 
-    # 같은 프레임워크를 가리키는 의존성이 둘 이상이면 name 기준 dedup(첫 등장 유지)
+    # If multiple dependencies point to the same framework, dedup by name (keep first occurrence)
     deduped: list[dict] = []
     seen: set[str] = set()
     for item in out:
@@ -188,7 +189,7 @@ def _parse_frontmatter(text: str) -> dict:
                 return data
         except Exception:
             pass
-    # 폴백(yaml 부재): name/description 라인 파싱 + 블록 스칼라(>, |) 멀티라인 수집
+    # Fallback (yaml absent): parse name/description lines + collect block-scalar (>, |) multilines
     out: dict = {}
     lines = block.splitlines()
     i = 0
@@ -274,10 +275,11 @@ def upsert_marker_block(path: Path, marker_id: str, body: str) -> str:
 
 REQUIRED_RULES = ("karpathy", "dry-constants", "version-pinning", "security", "reuse-first")
 BASELINE_MARKER = "harness:baseline"
-# 하위 디렉터리 컴포넌트도 인식한다(.+ — 단일 세그먼트 가정 금지).
+# Also recognize components in subdirectories (.+ — do not assume a single segment).
 _SKILL_PATH_RE = re.compile(r"(?:^|/)\.claude/skills/.+/SKILL\.md$")
 _AGENT_PATH_RE = re.compile(r"(?:^|/)\.claude/agents/.+\.md$")
-# 인라인 마크다운 링크만(이미지 ![..](..) 제외 — '[' 직전 '!' 차단, 타이틀·공백 패딩 허용).
+# Inline markdown links only (exclude images ![..](..) — block '!' right before '[',
+# allow title·whitespace padding).
 _MD_LINK_RE = re.compile(
     r"(?<!!)\[[^\]]*\]\(\s*([^)\s#]+\.md)(?:#[^)\s]*)?(?:\s+[\"'][^\")]*[\"'])?\s*\)"
 )
@@ -289,10 +291,11 @@ OPS_MAX_LINES = 3
 
 
 def _ops_directive_blocks(body: str) -> list[list[str]]:
-    """`<!-- ops-conventions -->` 앵커 뒤의 최상위 리스트 항목(`- ...`)을 블록으로 나눈다.
+    """Split the top-level list items (`- ...`) after the `<!-- ops-conventions -->` anchor.
 
-    각 블록 = `- ` 줄 + 빈 줄/다음 `- `/헤딩/다음 앵커 전까지의 연속 줄. 헤딩이나 다음
-    앵커를 만나면 절이 끝난 것으로 본다(운영 directive 라인 수 가드의 입력).
+    Each block = the `- ` line + the consecutive lines up to a blank line/next `- `/heading/next
+    anchor. A heading or the next anchor is treated as the end of the section (input to the
+    operations-directive line-count guard).
     """
     m = OPS_ANCHOR_RE.search(body)
     if not m:
@@ -319,9 +322,10 @@ def _ops_directive_blocks(body: str) -> list[list[str]]:
 
 
 def _norm_rel(path: str) -> str:
-    """plan 경로를 POSIX 정규형으로 통일(백슬래시·중복 구분자·'./' 제거).
+    """Normalize a plan path to a POSIX canonical form (remove backslashes·dup separators·'./').
 
-    한쪽만 정규화하면 경로 비교가 어긋나 dead-link 오탐·커맨드 가드 우회가 난다.
+    Normalizing only one side makes path comparison mismatch, causing dead-link false
+    positives·command-guard bypass.
     """
     if not path:
         return ""
@@ -333,30 +337,30 @@ def _is_component_path(rel: str) -> bool:
 
 
 def _has_rule_anchor(body: str, key: str) -> bool:
-    """룰 앵커 검출 — HTML 주석 공백 변형(<!--rule:x-->, <!-- rule:x  -->)에 관대."""
+    """Detect a rule anchor, tolerant of HTML-comment whitespace variants (e.g. <!--rule:x-->)."""
     return re.search(rf"<!--\s*rule:{re.escape(key)}\s*-->", body) is not None
 
 
 def _strip_frontmatter(text: str) -> str:
-    """frontmatter 블록을 제거한 본문만 반환(링크 스캔이 메타데이터를 건드리지 않게)."""
+    """Return only the body with the frontmatter block removed (so link scans skip metadata)."""
     m = re.match(r"^---\s*\n.*?\n---\s*\n", text, re.DOTALL)
     return text[m.end() :] if m else text
 
 
 def _strip_code(text: str) -> str:
-    """코드 펜스·인라인 코드를 제거(링크 스캔이 코드 예시를 dead-link 로 오탐하지 않게)."""
+    """Remove code fences·inline code (so link scans don't flag code examples as dead links)."""
     return _INLINE_CODE_RE.sub("", _CODE_FENCE_RE.sub("", text))
 
 
 def validate_plan(root: Path, plan: dict) -> dict:
-    """생성 plan 의 결정적 구조 검증. 게이트가 아니라 진단(FAIL-OPEN)."""
+    """Deterministic structural validation of the plan. Diagnostic, not a gate (FAIL-OPEN)."""
     issues: list[dict] = []
     files = plan.get("files", [])
-    # 경로는 비교 전 항상 정규화한다 — 한쪽만 정규화하면 매칭이 어긋난다.
+    # Paths are always normalized before comparison — normalizing one side only would mismatch.
     plan_paths = {_norm_rel(e.get("path", "")) for e in files}
 
     existing = scan_components(root / ".claude")
-    existing_by_name: dict = {}  # name → 기존 파일의 root-상대 정규경로
+    existing_by_name: dict = {}  # name → root-relative canonical path of the existing file
     for grp in existing.values():
         for c in grp:
             nm2 = c.get("name")
@@ -367,7 +371,7 @@ def validate_plan(root: Path, plan: dict) -> dict:
             except Exception:
                 rp = ""
             existing_by_name.setdefault(nm2, rp)
-    new_names: dict = {}  # name → plan 내 정규경로
+    new_names: dict = {}  # name → canonical path within the plan
 
     for e in files:
         rel = _norm_rel(e.get("path", ""))
@@ -405,10 +409,12 @@ def validate_plan(root: Path, plan: dict) -> dict:
                         "detail": "description 누락/빈값",
                     }
                 )
-            # name 은 비교·해싱 전 문자열로 보장(YAML 리스트/딕트면 위에서 이미 누락 처리).
+            # Ensure name is a string before comparison·hashing (a YAML list/dict was already
+            # handled as missing above).
             nm = name_val if isinstance(name_val, str) else ""
             if nm:
-                # 같은 name 이 다른 경로면 진짜 중복. 같은 경로면 기존 파일 갱신이므로 허용.
+                # Same name at a different path is a real duplicate. Same path is an update of an
+                # existing file, so allowed.
                 if nm in existing_by_name and existing_by_name[nm] != rel:
                     issues.append(
                         {
@@ -429,7 +435,8 @@ def validate_plan(root: Path, plan: dict) -> dict:
                     )
                 new_names.setdefault(nm, rel)
 
-        # 링크 스캔은 본문만(frontmatter·코드·이미지 제외, root 밖 경로는 검증 범위 밖).
+        # Link scanning covers only the body (excludes frontmatter·code·images; paths outside
+        # root are out of scope).
         for link in _MD_LINK_RE.findall(_strip_code(_strip_frontmatter(content))):
             if link.startswith(("http://", "https://", "/")) or _WIN_ABS_RE.match(link):
                 continue
@@ -464,7 +471,8 @@ def validate_plan(root: Path, plan: dict) -> dict:
 
         if e.get("action") == "marker_upsert":
             mid = e.get("marker_id", "")
-            # plan content 에 마커 라인이 박혀 있으면(템플릿 통째 복사) apply 가 재래핑해 중첩된다.
+            # If a marker line is embedded in plan content (a whole-template copy), apply
+            # re-wraps it and nests.
             if mid and (_marker_begin(mid) in content or _marker_end(mid) in content):
                 issues.append(
                     {
@@ -477,7 +485,8 @@ def validate_plan(root: Path, plan: dict) -> dict:
             target_file = root / rel
             if target_file.exists():
                 try:
-                    # cp949 호스트의 기존 파일도 마커(ASCII)는 읽혀야 한다 → errors='replace'.
+                    # Even an existing file on a cp949 host must have its marker (ASCII) read,
+                    # hence errors='replace'.
                     txt = target_file.read_text(encoding="utf-8", errors="replace")
                 except Exception:
                     txt = ""
@@ -535,7 +544,7 @@ def apply_plan(root: Path, plan: dict) -> dict:
             report["updated"].append(rel)
         elif action == "create":
             if target.exists():
-                report["conflicts"].append(rel)  # 덮어쓰기 금지
+                report["conflicts"].append(rel)  # no overwrite
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(entry.get("content", ""), encoding="utf-8")
@@ -545,17 +554,17 @@ def apply_plan(root: Path, plan: dict) -> dict:
     return report
 
 
-# 편입 완료된 중간 사본을 정리할 때 절대 지우지 않는 감사용 증거(호스트로 복사되지 않음).
+# Audit evidence never deleted when cleaning up incorporated intermediate copies (host-excluded).
 CLEANUP_PRESERVE = ("plan.json", "manifest.json", "critic-report.json", "rationale.md")
 
 
 def cleanup_harness(harness_dir: Path, root: Path | None = None) -> dict:
-    """apply 후 docs로 편입된 중간 사본(research/)을 제거한다.
+    """After apply, remove the intermediate copies (research/) that were incorporated into docs.
 
-    링크 가드(FAIL-SAFE): root가 주어지면 docs/ 의 .md 를 스캔해 ".harness/research" 를
-    참조하는 링크가 있으면 제거를 보류하고 link_warnings 에 기록한다(편입 누락으로 링크가
-    깨질 상황 방지). 감사/재실행용 증거(CLEANUP_PRESERVE)는 항상 보존하고, research/ 와 보존
-    목록 외의 파일은 보수적으로 건드리지 않는다.
+    Link guard (FAIL-SAFE): if root is given, scan the .md files under docs/ and, if any link
+    references ".harness/research", withhold removal and record it in link_warnings (to prevent
+    broken links from missed incorporation). Audit/re-run evidence (CLEANUP_PRESERVE) is always
+    preserved, and files other than research/ and the preserve list are left untouched.
     """
     report: dict = {"removed": [], "preserved": [], "link_warnings": []}
     research_dir = harness_dir / "research"
@@ -580,7 +589,7 @@ def cleanup_harness(harness_dir: Path, root: Path | None = None) -> dict:
                 elif f.is_dir():
                     f.rmdir()
             except OSError:
-                pass  # FAIL-OPEN: 정리는 부가작업, 실패해도 흐름을 막지 않는다
+                pass  # FAIL-OPEN: cleanup is auxiliary; failure must not block the flow
         try:
             research_dir.rmdir()
         except OSError:
@@ -624,9 +633,9 @@ def main(argv: list[str]) -> int:
     if args.cmd == "validate":
         plan = json.loads(Path(args.plan).read_text(encoding="utf-8"))
         print(json.dumps(validate_plan(root, plan), ensure_ascii=False, indent=2))
-        return 0  # FAIL-OPEN: 진단이지 게이트가 아님
+        return 0  # FAIL-OPEN: diagnostic, not a gate
     if args.cmd == "cleanup":
-        harness_dir = root / ".claude" / "vway-kit" / ".harness"
+        harness_dir = root / ".claude" / "harness-tier" / ".harness"
         print(json.dumps(cleanup_harness(harness_dir, root), ensure_ascii=False, indent=2))
         return 0
     return 1

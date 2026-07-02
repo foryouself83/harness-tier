@@ -1,0 +1,98 @@
+# flow risk-tier environment configuration template
+# The project team copies this to the host's .claude/harness-tier/config/flow-config.yaml and fills in the values.
+# (The real file is git-tracked — every developer sharing the repo uses the same settings.)
+# Team-specific configuration template for harness-tier risk-tiered workflow
+
+branches:
+  # Integration branch that features merge into (usually dev or develop)
+  integration: dev
+
+  # QA promotion branch (usually stage or staging)
+  staging: stage
+
+  # Production release branch (typically main)
+  production: main
+
+  # feature branch name prefix (e.g. feature/, feat/)
+  feature_prefix: "feature/"
+
+# Per-module pre-checks (monorepo — when each module uses a different language/toolset). A single-stack project is expressed as one module too.
+# When declared, the layer-2 flow gate (Claude-session commits) runs verification on "all changed modules".
+# checks uses variable keys (lint/static/import_lint/test/security) — only the ones that exist for that language.
+# /flow-init drafts these values by referring to the harness docs SSOT, and a human edits them.
+# Timing: keys other than security (lint/static/import_lint/test) → every commit (changed modules) /
+#         security → staging/release promotion (all modules).
+modules:
+  - name: api
+    path: services/api/
+    checks:
+      lint:        "ruff check services/api"
+      static:      "uv run pyright services/api"
+      import_lint: "uv run lint-imports --config services/api/.importlinter"
+      test:        "uv run pytest services/api"
+      security:    "uv run bandit -r services/api --severity-level medium"
+  - name: web
+    path: services/web/
+    checks:
+      lint:   "npm --prefix services/web run lint"
+      static: "npm --prefix services/web run typecheck"
+      test:   "npm --prefix services/web test"
+
+# Regression / contract / idempotency review checklist
+review_checklist:
+  - "regression / regression tests pass"
+  - "cross-service contract / cross-service contract validity"
+  - "DB transaction / migration / DB transaction & migration safety"
+  - "async task idempotency / async task idempotency"
+
+# Documentation sync (doc-sync)
+doc_sync:
+  # Index document (placed at the project root)
+  index: CLAUDE.md
+
+  # Documentation directories to sync (glob patterns)
+  dirs:
+    - "docs/"
+    - ".claude/rules/"
+
+  # Per-service local CLAUDE.md (glob pattern)
+  service_docs: "services/*/CLAUDE.md"
+
+# REST API contract testing (CI only — GitHub Actions). No REST API → enable:false → not installed.
+# /flow-init reads these values and renders .github/workflows/api-contract.yml.
+contract_test:
+  enable: true
+  # Branches this workflow runs on (both push/PR). List them explicitly — extend freely.
+  # GitHub Actions branch-filter syntax can be used as-is (e.g. 'release/**').
+  # Usually collaboration/promotion branches. Do not include feature/* (exclude heavy verification).
+  branches: [dev, stage, main]
+  # Pinned via a web check at setup time (avoid stale tools). CI runs deterministically with this pinned value.
+  tool: schemathesis
+  action_ref: "schemathesis/action@v3"   # major pin
+  # OpenAPI spec location (server URL path or in-repo file path)
+  schema: "http://localhost:8000/openapi.json"
+  base_url: "http://localhost:8000"
+  # Server startup = docker compose
+  server:
+    compose_file: "docker-compose.yml"
+    health_url: "http://localhost:8000/health"
+    health_timeout: 60                    # seconds
+
+# Semantic versioning/release (downstream = a regular package). /flow-init uses these values to
+# render .github/workflows/ (same pattern as api-contract). If unused, enable:false → not installed.
+# release_tool is filled in by harness-init research to match the stack.
+versioning:
+  enable: true
+  # Release tool per stack. Supported: python-semantic-release | semantic-release(node)
+  release_tool: python-semantic-release
+  # Target file:field for version bump (per stack). python: pyproject.toml:project.version / node: package.json:version
+  version_files: ["pyproject.toml:project.version"]
+  branches:
+    stable: main        # stable release
+    prerelease: stage   # rc prerelease (empty string if none)
+  branch_naming:
+    enable: true
+  entropy:
+    enable: true
+    schedule: "0 0 * * 5"   # weekly cron (UTC)
+    paths: ["src/"]          # paths for complexity/file-size measurement

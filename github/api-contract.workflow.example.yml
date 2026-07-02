@@ -1,13 +1,13 @@
-# vway-kit 계약 테스트 — /vdev-init 이 vdev-config.contract_test 로 렌더링한 산출물.
-# 직접 수정해도 /vdev-init 재실행은 덮어쓰지 않고 "수동 확인"으로 보고만 한다.
-# 트리거 브랜치는 contract_test.branches 에서 옴(협업 브랜치만; feature/* 제외).
+# harness-tier contract test — output rendered by /flow-init from flow-config.contract_test.
+# Even if edited directly, re-running /flow-init does not overwrite it but only reports it as "manual review".
+# Trigger branches come from contract_test.branches (collaboration branches only; feature/* excluded).
 name: api-contract
 
 on:
   push:
-    branches: [__VWAY_BRANCHES__]
+    branches: [__HARNESS_BRANCHES__]
   pull_request:
-    branches: [__VWAY_BRANCHES__]
+    branches: [__HARNESS_BRANCHES__]
 
 jobs:
   api-contract:
@@ -16,19 +16,19 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Start API server (docker compose)
-        run: docker compose -f "__VWAY_COMPOSE_FILE__" up -d
+        run: docker compose -f "__HARNESS_COMPOSE_FILE__" up -d
 
       - name: Wait for health
         run: |
-          timeout __VWAY_HEALTH_TIMEOUT__ sh -c \
-            'until curl -sf "__VWAY_HEALTH_URL__"; do sleep 2; done'
+          timeout __HARNESS_HEALTH_TIMEOUT__ sh -c \
+            'until curl -sf "__HARNESS_HEALTH_URL__"; do sleep 2; done'
 
       - name: Contract test (schemathesis)
-        uses: __VWAY_ACTION_REF__
+        uses: __HARNESS_ACTION_REF__
         with:
-          schema: "__VWAY_SCHEMA__"
-          base-url: "__VWAY_BASE_URL__"
+          schema: "__HARNESS_SCHEMA__"
+          base-url: "__HARNESS_BASE_URL__"
 
       - name: Teardown
         if: always()
-        run: docker compose -f "__VWAY_COMPOSE_FILE__" down
+        run: docker compose -f "__HARNESS_COMPOSE_FILE__" down

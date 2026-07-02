@@ -1,0 +1,34 @@
+# flow risk-tier policy (immutable, owned by the plugin)
+# Risk-tiered workflow tier definitions for harness-tier plugin
+
+tiers:
+  docs:
+    description: "Changes with no code (docs, comments, config values only)"
+    superpowers: false
+    gates:
+      - doc-sync
+
+  dev:
+    description: "Changes that include code (precommit = lint/static/import_lint/test on changed modules)"
+    superpowers: true
+    gates:
+      - precommit
+      - review
+      - doc-sync
+
+  staging:
+    description: "QA/RC promotion (dev → stage) — security-tool pre-check across all modules"
+    superpowers: true
+    gates:
+      - precommit
+      - review
+      - security-scan
+
+  release:
+    description: "Production deployment (stage → main) — security tools + security review"
+    superpowers: true
+    gates:
+      - precommit
+      - review
+      - security-scan
+      - security

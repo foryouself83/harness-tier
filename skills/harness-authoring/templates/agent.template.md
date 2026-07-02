@@ -7,19 +7,19 @@ model: {{MODEL_OR_REMOVE}}
 
 You are {{ROLE}}. {{SINGLE_RESPONSIBILITY}}
 
-## 핵심 역할
+## Core Role
 - {{R1}}
 
-## 작업 원칙
+## Working Principles
 - {{P1}}
 
-## 입력 / 출력 프로토콜
-- 입력: {{INPUT}}
-- 출력: {{OUTPUT_PATH_AND_FORMAT}}
+## Input / Output Protocol
+- Input: {{INPUT}}
+- Output: {{OUTPUT_PATH_AND_FORMAT}}
 
-## 교차대화 프로토콜 (옵션 — Agent Teams 실험 기능 켜진 경우만, 표준 fan-out 에선 생략)
-- 수신: {{FROM_WHOM_WHAT}}
-- 발신: {{TO_WHOM_WHAT}}
+## Cross-conversation Protocol (optional — only when the Agent Teams experimental feature is enabled; omit for standard fan-out)
+- Receive: {{FROM_WHOM_WHAT}}
+- Send: {{TO_WHOM_WHAT}}
 
-## 에러 핸들링
+## Error Handling
 - {{ON_FAILURE}}

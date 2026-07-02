@@ -1,5 +1,5 @@
-# 브랜치 네이밍 검증 (Git-flow). vway-kit 은 PR 미사용 → push 트리거.
-# 보호 브랜치(main/stage/dev)와 작업 브랜치 접두 패턴만 허용.
+# Branch naming validation (Git-flow). harness-tier does not use PRs → push trigger.
+# Only protected branches (main/stage/dev) and working-branch prefix patterns are allowed.
 name: branch-naming
 
 on:
@@ -28,5 +28,5 @@ jobs:
             fi
           done
           echo "❌ Invalid branch name: $BRANCH"
-          echo "허용: main/stage/dev, feature/*, fix/*, docs/*, hotfix/x.y.z, release/x.y.z"
+          echo "Allowed: main/stage/dev, feature/*, fix/*, docs/*, hotfix/x.y.z, release/x.y.z"
           exit 1

@@ -1,8 +1,8 @@
-# semantic 버전 릴리스 — main(정식)/stage(rc) push 시 feat/fix 파싱해 버전 bump.
-# 강결합: plugin.json version 이 업데이트 게이팅 SSOT. main 릴리스는 marketplace
-# source.sha 를 릴리스 커밋으로 불변 핀(pin-to-parent). release 커밋은 [skip ci] 로
-# 루프 방지. pin/Release 스텝은 실제 릴리스가 났을 때만(HEAD 변경) 실행된다.
-# 전제: 레포 Settings → Actions → Workflow permissions = "Read and write".
+# Semantic version release — on main(stable)/stage(rc) push, parse feat/fix to bump the version.
+# Tightly coupled: plugin.json version is the update-gating SSOT. The main release immutably pins
+# the marketplace source.sha to the release commit (pin-to-parent). The release commit uses [skip ci] to
+# prevent loops. The pin/Release steps run only when an actual release occurred (HEAD changed).
+# Prerequisite: repo Settings → Actions → Workflow permissions = "Read and write".
 name: release
 
 on:
@@ -55,7 +55,7 @@ jobs:
       - name: Pin marketplace sha to release commit (main only)
         if: ${{ github.ref_name == 'main' && steps.sr.outputs.released == 'true' }}
         run: |
-          RELEASE_SHA="$(git rev-parse HEAD)"   # semantic-release 가 만든 릴리스 커밋(plugin.json version 포함)
+          RELEASE_SHA="$(git rev-parse HEAD)"   # the release commit semantic-release made (includes the plugin.json version)
           python .github/scripts/pin-marketplace-sha.py "$RELEASE_SHA"
           git add .claude-plugin/marketplace.json
           if git diff --cached --quiet; then
@@ -63,21 +63,21 @@ jobs:
             exit 0
           fi
           git commit -m "chore(release): pin marketplace sha [skip ci]" \
-            -m "source.sha 를 방금 릴리스한 커밋(plugin.json version 반영)으로 핀한다."
+            -m "Pin source.sha to the commit just released (which carries the plugin.json version)."
           git push origin HEAD:main
 
       - name: Sync uv.lock to released version
         if: ${{ steps.sr.outputs.released == 'true' }}
         run: |
           pip install uv
-          uv lock                               # 파생물: bump 된 pyproject 버전으로 재생성
+          uv lock                               # derived artifact: regenerate from the bumped pyproject version
           git add uv.lock
           if git diff --cached --quiet; then
             echo "uv.lock already in sync"
             exit 0
           fi
           git commit -m "chore(release): sync uv.lock [skip ci]" \
-            -m "uv.lock 의 프로젝트 버전을 릴리스 버전에 맞춘다(semantic-release 는 pyproject/plugin.json 만 bump)."
+            -m "Align uv.lock's project version with the released version (semantic-release only bumps pyproject/plugin.json)."
           git push origin "HEAD:${GITHUB_REF_NAME}"
 
       - name: Create GitHub Release

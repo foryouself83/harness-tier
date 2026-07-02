@@ -1,6 +1,6 @@
 {
-  "name": "vway-kit",
-  "version": "0.3.0",
-  "description": "vway 위험도 티어 워크플로 + Teamer 연동 + Teams 알림 harness",
-  "author": { "name": "vway" }
+  "name": "harness-tier",
+  "version": "0.1.0",
+  "description": "harness-tier risk-tiered workflow + Teams notification harness",
+  "author": { "name": "foryouself83" }
 }

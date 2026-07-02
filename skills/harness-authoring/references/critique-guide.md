@@ -1,109 +1,135 @@
-# 비판/검토 체크리스트 (critic defer)
+# Critique/review checklist (critic defer)
 
-`harness-critic` 에이전트가 생성물을 검토할 때 따르는 체크리스트.
-결정적 구조검사는 `harness_scaffold.py validate` 가 담당하고, 이 가이드는 **판단이 필요한 품질·정합성**을 다룬다.
+The checklist the `harness-critic` agent follows when reviewing generated output.
+Deterministic structural checks are handled by `harness_scaffold.py validate`; this guide
+covers the **judgment-based quality and coherence** aspects.
 
-## 출력 형식
+## Output format
 
-검토 결과는 이 스키마로 반환한다(`.harness/critic-report.json`):
+Return the review result in this schema (`.harness/critic-report.json`):
 
 ```json
 {
   "issues": [
     {"severity": "high|med|low", "file": "<rel>",
      "kind": "quality|coherence|reuse|command|version-compat",
-     "evidence": "<근거>", "fix": "<수정 제안>"}
+     "evidence": "<evidence>", "fix": "<fix proposal>"}
   ],
   "summary": {"high": 0, "med": 0, "low": 0, "verdict": "pass|revise"}
 }
 ```
 
-`high` 이슈가 하나라도 있으면 `verdict: revise`. 리더는 **최대 2회** 재작성하고, 잔여는 "미해결"로 보고한다.
+If there is even one `high` issue, `verdict: revise`. The leader rewrites **at most twice**
+and reports any remainder as "unresolved".
 
-## 1. 작성 품질 (`kind: quality`)
+## 1. Authoring quality (`kind: quality`)
 
-- **Description 적극성**: 트리거 상황·경계 조건이 있는가? 모호("~관련 작업")하지 않은가?
-- **Why-First**: 강압 규칙(ALWAYS/NEVER)만 있고 이유가 없는가?
-- **Lean**: Claude 가 이미 아는 내용·부가 문서·메타정보가 섞였는가?
-- **일반화**: 특정 예시에만 맞는 오버피팅 규칙인가?
-- **로드경로**: 필수 룰이 CLAUDE.md baseline 마커블록(본문) 안에 있는가(`.claude/rules/` 단독 금지)?
+- **Description assertiveness**: Are the trigger situations and boundary conditions present?
+  Is it non-vague (not "~related work")?
+- **Why-First**: Are there only coercive rules (ALWAYS/NEVER) with no reasons?
+- **Lean**: Is content Claude already knows, extra docs, or meta-info mixed in?
+- **Generalization**: Is it an overfitted rule that fits only a specific example?
+- **Load path**: Are the required rules inside the CLAUDE.md baseline marker block (the body)
+  (not `.claude/rules/` alone)?
 
-## 2. 경계면 정합성 (`kind: coherence`)
+## 2. Interface coherence (`kind: coherence`)
 
-- CLAUDE.md ↔ 룰 ↔ 문서가 **서로를 올바르게 가리키는가**(상호참조·dead-link).
-- 같은 사실이 **두 곳에 중복**되지 않는가(구조=룰, 행위=문서 SSOT 분리).
-- 마커블록 BEGIN/END 짝이 맞는가.
-- 생성 에이전트의 입출력 프로토콜이 오케스트레이션과 맞물리는가.
-- **운영 컨벤션(9-1~9-5)**: (a) 체크리스트 축 전수 검토 — 누락 시 rationale 에 emit/스킵 사유가
-  있는가, (b) 운영 표준에 출처 URL 이 있는가(없으면 "출처 미확인"인가), (c) directive(룰)↔표준
-  상세(문서)가 같은 사실을 중복하지 않는가, (d) 보안성 축(시크릿·인증·입력검증)이 directive 만으로
-  끝나지 않고 스캐너 opt-in 으로 연결됐는가. 위반은 `high`.
-- **스택 reconcile 커버리지(9-6·10-1)**: researcher 가 보고한 "컨벤션 필요 스택"(인프라 포함)이
-  **모두** (a) 컨벤션(룰+`docs/code-style/<stack>.md`)을 받았거나 (b) SDS reconcile 결정
-  절에 **기각 사유**가 남았는가 — 초기 stack_map 밖에서 발견됐다는 이유로 컨벤션이 통째 누락되지
-  않았는가. 발견됐는데 컨벤션도 기각 사유도 없으면 `high`(이번 변경이 막으려는 누락 그 자체).
-- **런타임 통합 정합**(다중 컴포넌트 토폴로지에서만): SDS 가 선언한 컴포넌트 간 통신이
-  산출물에서 **실제로 배선**되는가 — "개별 설정은 맞는데 함께 안 물림"을 잡는다.
-  (a) **도달성**: issuer/호스트명이 배포 토폴로지(컨테이너 DNS/`extra_hosts`/라우팅)에서 해석되고,
-  리버스 프록시에 선언된 컴포넌트로 가는 경로가 있는가. (b) **identity/오리진**: issuer·origin 이
-  브라우저 관점과 내부(컨테이너) 관점에서 **일치**하는가(JWT `iss` 검증·CORS). (c) **정책 연속성**:
-  보안 헤더/CSP(예: `connect-src`·`frame-src`)가 선언된 교차 오리진 흐름(OIDC 등)을 막지 않고
-  **모든 응답 경로**에서 유지되는가(하위 location 의 헤더 재선언이 상위 상속을 끊지 않는가). (d)
-  **자격증명**: 앱 전용 계정이 프로비저닝되는가(루트만으로 가정 금지). (e) **전역 설정 blast radius**:
-  전역 정책(statement_timeout·preload 등)이 선언된 무거운 경로(마이그레이션·재귀쿼리)를 의도와 다르게
-  제약하지 않는가. 위반은 `high`.
+- Do CLAUDE.md ↔ rules ↔ docs **point to each other correctly** (cross-references, dead links)?
+- Is the same fact not **duplicated in two places** (structure = rule, behavior = doc SSOT separation)?
+- Do the marker-block BEGIN/END pairs match?
+- Does the generating agent's I/O protocol mesh with the orchestration?
+- **Operational conventions (9-1~9-5)**: (a) full review across the checklist axes — if any is
+  missing, does the rationale have an emit/skip reason, (b) do operational standards have a
+  source URL (if not, is it marked "source unverified"), (c) does the directive (rule) ↔
+  standard detail (doc) not duplicate the same fact, (d) is the security axis (secrets/auth/
+  input validation) not ending at directives alone but connected to an opt-in scanner?
+  Violations are `high`.
+- **Stack reconcile coverage (9-6·10-1)**: are **all** the "stacks needing conventions"
+  (infrastructure included) reported by the researcher either (a) given conventions (rule +
+  `docs/code-style/<stack>.md`) or (b) recorded with a **rejection reason** in the SDS
+  reconcile-decision section — i.e. a convention wasn't wholesale dropped just because it was
+  discovered outside the initial stack_map? If it was discovered but has neither a convention
+  nor a rejection reason, `high` (the very omission this change aims to prevent).
+- **Runtime integration coherence** (only in multi-component topologies): is the
+  inter-component communication the SDS declares **actually wired** in the output — catches
+  "each setting is right but they don't mesh". (a) **Reachability**: do issuer/hostnames
+  resolve in the deployment topology (container DNS/`extra_hosts`/routing), and is there a
+  path to the component declared behind the reverse proxy? (b) **identity/origin**: do
+  issuer/origin **match** between the browser's view and the internal (container) view (JWT
+  `iss` validation, CORS)? (c) **policy continuity**: do security headers/CSP (e.g.
+  `connect-src`·`frame-src`) not block the declared cross-origin flow (OIDC, etc.) and stay
+  in effect on **all response paths** (a sub-location's header re-declaration doesn't break
+  parent inheritance)? (d) **credentials**: is an app-specific account provisioned (don't
+  assume root-only)? (e) **global-config blast radius**: does a global policy
+  (statement_timeout, preload, etc.) not unintentionally constrain a declared heavy path
+  (migration, recursive query)? Violations are `high`.
 
-## 3. reuse 위반 (`kind: reuse`)
+## 3. reuse violations (`kind: reuse`)
 
-- 생성 가이드가 **무료·상용가능 기성 솔루션 대신 바퀴 재발명**을 권하는가?
-- **유료 솔루션(유료 매니지드·유료 라이선스·SaaS 구독)을 추천**하는가? → 위반.
-- reuse 후보의 비용·라이선스가 "확인 필요"인데 단정해 추천했는가?
+- Does the generated guide recommend **reinventing the wheel instead of a free,
+  commercial-use-OK off-the-shelf solution**?
+- Does it **recommend a paid solution** (paid managed service, paid license, SaaS
+  subscription)? → violation.
+- Did it assert and recommend a reuse candidate whose cost/license was "needs verification"?
 
-## 4. 커맨드 미생성 (`kind: command`)
+## 4. No commands generated (`kind: command`)
 
-- 어떤 산출물도 `.claude/commands/` 에 생성하지 않았는가(validate 와 2중 확인).
+- Was nothing generated under `.claude/commands/` by any output (double-check with validate)?
 
-## 5. 버전 호환성 (`kind: version-compat`)
+## 5. Version compatibility (`kind: version-compat`)
 
-**두 축**을 본다 — (A) 설정 작성 정합, (B) 런타임 조합 호환. 둘 다 위반은 `high`.
+Look at **two axes** — (A) config-authoring coherence, (B) runtime-combination compatibility.
+A violation on either is `high`.
 
-### (A) 설정 작성 정합
+### (A) Config-authoring coherence
 
-툴체인을 **한 세트**로 본다(빌드러너·컴파일러·번들러·타입체커·린터·테스트러너는 맞물려 있다).
+Treat the toolchain as **one set** (build runner, compiler, bundler, type checker, linter,
+test runner are interlocked).
 
-- 감지된 **실제 패키지 버전**의 공식 작성법과 산출물(특히 실폴더 스캐폴딩 설정파일)이 일치하는가?
-- **툴체인 축 완전성(누락 탐지)**: 빌드·**패키지 매니저**·린트/포맷·테스트 각 축이 **명시 결정 + 출처**를
-  갖는가? 특히 패키지 매니저가 researcher 출력·rationale 어디에도 결정·출처 없이 산출물(Dockerfile
-  `npm ci`·`package.json` 스크립트 등)에서 관성 기본값(npm/pip 등)으로만 굳었으면 → 관성경계(harness-rules
-  9-4 · researcher 규율) 위반. 결정·핀(lockfile·`packageManager`)·출처가 산출물 전반에 일관되지 않으면
-  포함. 누락·무근거 관성값은 `med`(런타임 파손 아님 — 커버리지/근거 갭).
-- **툴체인 상호 정합성**: 빌드 스크립트 ↔ 설정이 어긋나지 않는가? (예: `tsc -b`(project references
-  모드)인데 루트 tsconfig 에 `references` 가 없음; 루트 `vite.config.ts` 가 어느 tsconfig 프로젝트
-  scope 에도 안 잡혀 `include` 밖에 있음.)
-- 메이저 버전에 따라 갈리는 설정 스키마/기본값을 잘못 적용하지 않았는가?
-- 설정을 손으로 추론해 짜맞췄는가? → 감지된 프레임워크의 **공식 스캐폴더 출력 복제**가 권위 baseline.
+- Do the outputs (especially real-folder scaffolding config files) match the official
+  authoring conventions of the detected **actual package versions**?
+- **Toolchain axis completeness (omission detection)**: does each axis — build, **package
+  manager**, lint/format, test — have an **explicit decision + source**? In particular, if
+  the package manager solidified into an inertial default (npm/pip, etc.) in the output
+  (Dockerfile `npm ci`, `package.json` scripts, etc.) with no decision/source anywhere in the
+  researcher output/rationale → an inertia-boundary violation (harness-rules 9-4 · researcher
+  discipline). Include it if the decision/pin (lockfile, `packageManager`) and source aren't
+  consistent across the output. A missing/unsupported inertial value is `med` (not a runtime
+  break — a coverage/evidence gap).
+- **Toolchain mutual consistency**: do the build scripts ↔ config not conflict? (e.g. `tsc -b`
+  (project references mode) but the root tsconfig has no `references`; the root
+  `vite.config.ts` isn't captured by any tsconfig project scope, so it's outside `include`.)
+- Did it misapply a config schema/default that varies by major version?
+- Did it hand-infer and cobble the config together? → cloning the **official scaffolder
+  output** of the detected framework is the authoritative baseline.
 
-### (B) 런타임 조합 호환
+### (B) Runtime-combination compatibility
 
-"각 항목은 맞는데 함께 부팅하면 깨진다"를 본다. **빌드 통과 ≠ 기동 성공.**
+Look for "each item is right but booting them together breaks". **Build passing ≠ boot success.**
 
-- **의존성 함께-GA 호환**: 한 런타임에 같이 올라가는 구성요소(앱 프레임워크 ↔ 플러그인/스타터/엔진)가
-  서로의 메이저를 **GA 로 지원**하는가? 한쪽이 다른 쪽 major 를 아직 미지원이면 위반. (예: Spring Boot 4
-  ↔ 아직 Boot 4 를 GA-지원하지 않는 워크플로 엔진/서킷브레이커 스타터를 함께 묶음; 프리릴리스·미배포
-  버전에 본체를 맞춤 → "최신 ≠ 독립 최신, 천장 우선" 위반. researcher 의 호환성 매트릭스로 대조한다.)
-- **기성 아티팩트 기능 실재**: 추천한 스톡 이미지/패키지가 아키텍처가 가정한 기능을 **실제로 제공**하는가?
-  (예: 스톡 postgres 이미지에 없는 확장을 `shared_preload_libraries` 로 로드해 부팅 실패; 사전 build 없이
-  `--optimized` 실행 모드 가정; 루트 자격증명만 있는데 앱 전용 계정 사용을 가정.) 제공 안 하면 커스텀
-  빌드/프로비저닝 단계가 산출물에 **명시**됐는가 — 가정만 하고 누락이면 위반.
+- **Dependency co-GA compatibility**: do the components running together on one runtime (app
+  framework ↔ plugin/starter/engine) **support each other's major as GA**? If one doesn't yet
+  support the other's major, it's a violation. (e.g. bundling Spring Boot 4 ↔ a workflow
+  engine/circuit-breaker starter that doesn't yet GA-support Boot 4; pinning the core to a
+  prerelease/unreleased version → violates "latest ≠ independently-latest, ceiling first".
+  Cross-check with the researcher's compatibility matrix.)
+- **Off-the-shelf artifact feature reality**: does the recommended stock image/package
+  **actually provide** the feature the architecture assumes? (e.g. loading an extension the
+  stock postgres image lacks via `shared_preload_libraries`, so boot fails; assuming an
+  `--optimized` run mode without a prior build; assuming an app-specific account when only
+  root credentials exist.) If it doesn't provide it, is a custom build/provisioning step
+  **explicitly stated** in the output — if it only assumes and omits it, it's a violation.
 
-## 6. 드라이런 (판단)
+## 6. Dry run (judgment)
 
-- 생성 스킬의 description 으로 실제 의도한 상황에서 **트리거될 것 같은가**? 인접 스킬과 충돌하지 않는가?
-- 생성 룰이 실제 로드 경로에 있어 **세션에 반영될 것인가**?
-- 생성 에이전트가 호출 시 필요한 도구 접근을 갖는가(Explore 인데 쓰기 필요 등 불일치 없는가)?
+- Given the generated skill's description, does it seem **likely to trigger** in the actually
+  intended situation? Does it not conflict with adjacent skills?
+- Is the generated rule on an actual load path so it **will be reflected in the session**?
+- Does the generated agent have the tool access it needs when invoked (no mismatch like an
+  Explore agent that needs write access)?
 
-## 원칙
+## Principles
 
-- **근거(evidence) 없는 이슈 금지** — 파일·라인·인용으로 뒷받침한다.
-- **수정 제안(fix) 필수** — 무엇을 어떻게 고칠지 한 줄로.
-- 주관적 취향이 아니라 **위 객관 기준**으로 판정한다.
+- **No issue without evidence** — back it with file, line, and quote.
+- **Fix proposal required** — one line on what to fix and how.
+- Judge by the **objective criteria above**, not subjective taste.

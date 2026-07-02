@@ -1,6 +1,6 @@
 ---
 name: doc-sync
-description: "Sync documentation with BOTH code and documentation changes via git diff. For code changes, update related markdown. For doc changes, harmonize the whole doc set (the targets declared in vdev-config.doc_sync — index, dirs, service_docs) for consistency, including creating or updating each module's local CLAUDE.md against a best-practice template. Use when docs need updating, when code/doc changes affect docs, or to verify documentation consistency (the /vdev doc-sync gate)."
+description: "Sync documentation with BOTH code and documentation changes via git diff. For code changes, update related markdown. For doc changes, harmonize the whole doc set (the targets declared in flow-config.doc_sync — index, dirs, service_docs) for consistency, including creating or updating each module's local CLAUDE.md against a best-practice template. Use when docs need updating, when code/doc changes affect docs, or to verify documentation consistency (the /flow doc-sync gate)."
 ---
 
 # doc-sync
@@ -10,9 +10,9 @@ harmonize the whole doc set for consistency.
 
 ## When
 
-- Called by `/vdev` at the **Docs gate** (doc-only changes) and the **Dev
+- Called by `/flow` at the **Docs gate** (doc-only changes) and the **Dev
   gate** (after superpowers completes) → on pass, record
-  `.claude/vway-kit/.vdev/doc-sync.done`.
+  `.claude/harness-tier/.flow/doc-sync.done`.
 - Whenever you need to verify documentation consistency after a code/doc change.
 
 ## 1. Determine the change scope
@@ -45,10 +45,10 @@ Reflect code changes into the related docs.
 
 When docs change, harmonize **the consistency of the whole doc set**.
 
-### Reference targets (read from `vdev-config.doc_sync`)
+### Reference targets (read from `flow-config.doc_sync`)
 
 Resolve the targets to check from the project's
-`.claude/vway-kit/config/vdev-config.yaml`, not from a hardcoded list:
+`.claude/harness-tier/config/flow-config.yaml`, not from a hardcoded list:
 
 - **`doc_sync.index`** — the documentation index / SSOT (e.g. the root
   `CLAUDE.md`): the service-map table + the `Auto-loaded Rules` table. Links fan
@@ -72,13 +72,13 @@ Check every target; track the index by following its links.
 4. **Hierarchy consistency** — do the per-service docs contradict the index's
    higher-level rules?
 5. **Module CLAUDE.md template compliance** — take the module dirs from
-   `vdev-config.modules[].path` (the authoritative module list — same one used
+   `flow-config.modules[].path` (the authoritative module list — same one used
    for per-module pre-checks) that fall under the `service_docs` glob's
    directory (e.g. `services/*/`), since the glob itself only matches files
    that already exist and can't surface a *missing* one.
    - If harness is **not** installed for this project (no `docs/code-style/`
      dir and no sibling module already has a local `CLAUDE.md` — the same
-     signal [`vdev-init`](../vdev-init/SKILL.md) uses to decide "harness
+     signal [`flow-init`](../flow-init/SKILL.md) uses to decide "harness
      installed"), do **not** create one — creating it here would falsely trip
      that detection for a project that never ran `/harness-init`. Just note the
      gap in the Report and stop.
@@ -99,12 +99,12 @@ why** in the Report. If a new rule/doc was added but is missing from the index,
 add the index row. A newly generated module `CLAUDE.md` also gets an index row
 (service-map table) if the index doesn't already list that module.
 
-## 2. Gate marker (when called by `/vdev`)
+## 2. Gate marker (when called by `/flow`)
 
 After checking/updating, leave the gate evidence (the commit is blocked without it):
 
 ```bash
-mkdir -p .claude/vway-kit/.vdev && touch .claude/vway-kit/.vdev/doc-sync.done
+mkdir -p .claude/harness-tier/.flow && touch .claude/harness-tier/.flow/doc-sync.done
 ```
 
 ## 3. Report
