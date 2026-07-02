@@ -33,3 +33,16 @@ prerelease_token = "rc"
 
 [tool.semantic_release.changelog]
 default_templates.changelog_file = "CHANGELOG.md"
+# Keep the changelog (and thus the GitHub Release body) signal-only: exclude plumbing
+# commit types. PSR ships no default exclusions — these are its own recommended set.
+exclude_commit_patterns = [
+  'chore(?:\([^)]*?\))?: .+',
+  'ci(?:\([^)]*?\))?: .+',
+  'refactor(?:\([^)]*?\))?: .+',
+  'style(?:\([^)]*?\))?: .+',
+  'test(?:\([^)]*?\))?: .+',
+  'build\((?!deps\): .+)',
+  'Merged? .*',
+  'Initial Commit.*',
+  '^\d+\.\d+\.\d+',
+]

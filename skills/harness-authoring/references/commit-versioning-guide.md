@@ -44,6 +44,11 @@ If the stack is confirmed, describe the corresponding tool. **If unconfirmed, le
 
 #### Configuration Items (fill in per tool from research results)
 - whether a changelog is generated·file location
+- **changelog noise filter** — the rendered release workflow uses the latest changelog
+  section as the GitHub Release body, so exclude plumbing commit types to keep it
+  signal-only (e.g. python-semantic-release `[tool.semantic_release.changelog]
+  exclude_commit_patterns` for `chore`/`ci`/`refactor`/`style`/`test`/`build`-non-deps/merge;
+  PSR ships no defaults). Feed the tool's own recommended patterns; do not fabricate.
 - pre/post-release CI hooks
 - proposed value for the `flow-config.versioning.release_tool` slot
 - proposed value for the `flow-config.versioning.version_files` slot (file list)

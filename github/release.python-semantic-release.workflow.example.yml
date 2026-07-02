@@ -90,4 +90,19 @@ jobs:
           TAG="$(git describe --tags --abbrev=0)"
           PRERELEASE=""
           [ "$REF_NAME" = "__HARNESS_PRERELEASE__" ] && PRERELEASE="--prerelease"
-          gh release create "$TAG" --title "$TAG" --generate-notes $PRERELEASE
+          # Release body = the CHANGELOG.md section(s) for the version being released
+          # (semantic-release default path; grouped by type). For a clean body, exclude
+          # plumbing types via [tool.semantic_release.changelog] exclude_commit_patterns
+          # (chore/ci/refactor/style/test/build-non-deps/merge). awk keeps every LEADING
+          # section whose "## vX.Y.Z" core equals the tag core and drops the headers (merges
+          # multiple rc's into the stable body), then stops at the first older version. A
+          # top-section core mismatch / stale / missing changelog → empty → auto-notes
+          # fallback; `|| true` keeps errexit+pipefail from aborting the step. Custom
+          # changelog_file? adjust the path.
+          TCORE="$(printf '%s' "$TAG" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+          awk -v core="$TCORE" '/^## /{v=""; if (match($0,/[0-9]+\.[0-9]+\.[0-9]+/)) v=substr($0,RSTART,RLENGTH); if (v!=core) exit; seen=1; next} seen{print}' CHANGELOG.md > release-body.md 2>/dev/null || true
+          if [ -n "$TCORE" ] && [ -s release-body.md ] && grep -q '[^[:space:]]' release-body.md; then
+            gh release create "$TAG" --title "$TAG" --notes-file release-body.md $PRERELEASE
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes $PRERELEASE
+          fi

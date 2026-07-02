@@ -96,7 +96,10 @@ asks and renders them):
   `schema` (OpenAPI URL/path) · `base_url` · `server` (compose_file/health_url/health_timeout) ·
   `tool`/`action_ref` (pinned once at setup).
 - **`versioning`** — release automation such as python-semantic-release. With `enable: true`
-  it renders the release / branch-naming / entropy-check workflows.
+  it renders the release / branch-naming / entropy-check workflows. The **GitHub Release
+  body** is the latest grouped `CHANGELOG.md` section (semantic-release output — grouped by
+  type, plumbing commits filtered), falling back to GitHub's auto-generated notes if the
+  changelog is missing/empty.
 
 ### 2.2 `flow-tiers.yaml` — tier→gate policy (do not edit)
 

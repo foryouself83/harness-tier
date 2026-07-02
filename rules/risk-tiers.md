@@ -237,7 +237,8 @@ Staging gates **plus**:
 1. Extra independent review — `/code-review` at `ultra` effort
    (high-risk layer).
 2. Security review — `/security-review` → record `security`.
-3. Release note — Conventional Commits + semantic-release.
+3. Release note — Conventional Commits + semantic-release; the grouped, plumbing-filtered
+   CHANGELOG section becomes the GitHub Release body (auto-notes fallback).
 4. Promote staging → production and/or deploy.
 
 ## Commit Discipline
