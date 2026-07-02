@@ -1,0 +1,95 @@
+# semantic 버전 릴리스 — main(정식)/stage(rc) push 시 feat/fix 파싱해 버전 bump.
+# 강결합: plugin.json version 이 업데이트 게이팅 SSOT. main 릴리스는 marketplace
+# source.sha 를 릴리스 커밋으로 불변 핀(pin-to-parent). release 커밋은 [skip ci] 로
+# 루프 방지. pin/Release 스텝은 실제 릴리스가 났을 때만(HEAD 변경) 실행된다.
+# 전제: 레포 Settings → Actions → Workflow permissions = "Read and write".
+name: release
+
+on:
+  push:
+    branches: [main, stage]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install python-semantic-release
+        run: pip install "python-semantic-release>=10,<11"
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Semantic release (bump + tag + push)
+        id: sr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BEFORE="$(git rev-parse HEAD)"
+          semantic-release version --commit --tag --push --changelog
+          AFTER="$(git rev-parse HEAD)"
+          if [ "$BEFORE" != "$AFTER" ]; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no release (no version-bumping commits since last tag)"
+          fi
+
+      - name: Pin marketplace sha to release commit (main only)
+        if: ${{ github.ref_name == 'main' && steps.sr.outputs.released == 'true' }}
+        run: |
+          RELEASE_SHA="$(git rev-parse HEAD)"   # semantic-release 가 만든 릴리스 커밋(plugin.json version 포함)
+          python .github/scripts/pin-marketplace-sha.py "$RELEASE_SHA"
+          git add .claude-plugin/marketplace.json
+          if git diff --cached --quiet; then
+            echo "marketplace sha already current"
+            exit 0
+          fi
+          git commit -m "chore(release): pin marketplace sha [skip ci]" \
+            -m "source.sha 를 방금 릴리스한 커밋(plugin.json version 반영)으로 핀한다."
+          git push origin HEAD:main
+
+      - name: Sync uv.lock to released version
+        if: ${{ steps.sr.outputs.released == 'true' }}
+        run: |
+          pip install uv
+          uv lock                               # 파생물: bump 된 pyproject 버전으로 재생성
+          git add uv.lock
+          if git diff --cached --quiet; then
+            echo "uv.lock already in sync"
+            exit 0
+          fi
+          git commit -m "chore(release): sync uv.lock [skip ci]" \
+            -m "uv.lock 의 프로젝트 버전을 릴리스 버전에 맞춘다(semantic-release 는 pyproject/plugin.json 만 bump)."
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+      - name: Create GitHub Release
+        if: ${{ steps.sr.outputs.released == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          TAG="$(git describe --tags --abbrev=0)"
+          if gh release view "$TAG" &>/dev/null; then
+            gh release delete "$TAG" --yes
+          fi
+          PRERELEASE=""
+          [ "$REF_NAME" = "stage" ] && PRERELEASE="--prerelease"
+          gh release create "$TAG" --title "$TAG" --generate-notes $PRERELEASE

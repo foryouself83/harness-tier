@@ -1,0 +1,75 @@
+# vway-kit pre-commit 훅 예시 — 없으면 호스트 .pre-commit-config.yaml 로 복사, 있으면 참고용(자동 병합 X).
+#
+# 이 파일은 commit-msg 린트(gitlint)·push 알림(teams-notify-push)·언어무관 위생
+# (파일 위생/shellcheck/hadolint)만 담는다. 언어별 정적분석·모듈 검증(lint/static/
+# test/security)은 레이어2 vdev 게이트(scripts/precommit-runner.sh)가 vdev-config.modules
+# 기반으로 수행한다 — 여기에 두지 않는다.
+#
+# REST API 계약 테스트(schemathesis)는 pre-commit 이 아니라 CI 레이어(.github/workflows/
+# api-contract.yml — /vdev-init 이 vdev-config.contract_test 로 생성)에서 협업/promotion 브랜치만 돈다.
+
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
+
+repos:
+  # 커밋 메시지 린트 — 50/72 + Conventional Commits 강제 (.gitlint 참조)
+  - repo: https://github.com/jorisroovers/gitlint
+    rev: v0.19.1
+    hooks:
+      - id: gitlint
+        stages: [commit-msg]
+
+  # vway-kit 소유 훅 — push 알림(언어별 정적분석/모듈 검증은 레이어2 vdev 게이트로 이동).
+  - repo: local
+    hooks:
+      # Teams push 알림 — push 대상 브랜치가 등록된 채널이면 알림(그 외 skip).
+      # entry 는 호스트 저장소 기준 경로다. /vdev-init 이 notify-push.sh +
+      # teams_alert.py 를 .claude/vway-kit/scripts/ 로 복사하므로 그 경로를 가리킨다.
+      - id: teams-notify-push
+        name: Teams push notification
+        entry: .claude/vway-kit/scripts/notify-push.sh
+        language: script
+        stages: [pre-push]
+        always_run: true
+        pass_filenames: false
+        verbose: true
+
+  # 파일 위생 — 언어 무관 공통 체크
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: check-yaml
+        files: \.(ya?ml)$
+      - id: check-json
+        files: \.json$
+      - id: check-toml
+        files: \.toml$
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # Shell 스크립트 검사
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.9.0.6
+    hooks:
+      - id: shellcheck
+        args: [-e, SC1091, -e, SC2086]
+
+  # (선택) Dockerfile 린트 — Docker 를 쓰는 프로젝트에서만.
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.12.0
+    hooks:
+      - id: hadolint-docker
+        args: [--ignore, DL3008, --ignore, DL3009]
+
+default_language_version:
+  python: python3
+
+# 정적 분석/위생은 commit 시에만 (push 단계는 teams-notify-push 만 stages 로 동작)
+default_stages: [pre-commit]
+
+minimum_pre_commit_version: '3.0.0'

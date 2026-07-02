@@ -1,0 +1,57 @@
+<!--
+  handoff: summary 템플릿. /task-sync 의 AI 요약(field: item_content, append).
+  AI 는 task 문서를 읽고 아래 3섹션 구조로 요약 HTML 을 생성한다.
+
+  규칙:
+  - 최상위 ordered list. 섹션 고정 순서: Implementation, Verification, Notes.
+  - 섹션 라벨은 항상 영어. 본문은 task 문서 언어를 따른다(한글 task → 한글 본문).
+  - Implementation: area 를 <ol>, 구체 변경을 nested <ul>.
+  - Verification: method 를 <ol>, 결과를 nested <ol>(번호 증거).
+  - Notes: caveat 의 flat <ol>. 없으면 섹션 통째로 생략.
+  - atomic <li>: 한 <li> = 한 사실. ':' '→' '/' ',' ';' '+' 로 여러 사실을 묶지 말 것.
+  - self-contained <li>: 앞 <li> 없이도 읽히게. '이/그/이를/따라서' 로 시작 금지.
+  - area/method/Notes 라인은 이름만. 설명·수치·before/after 는 별도 <li> 로.
+  - 개발 과정(TDD 반복·디버깅 이력·dev-server 왕복) 서술 금지 — 최종 형태만.
+  - 최상위 task 제목 포함 금지(Teamer 가 제목을 별도 렌더).
+  - Summarize, do not enumerate: Implementation area 당 대표 bullet 2–4개. 모든 커밋 변경 1:1 매핑 금지. 한 결정의 명백한 부분 단계는 merge. 한 변경이 다른 변경의 자동 결과면 상위 요약만 유지. 요약이지 code-review 체크리스트 아님.
+  - Multi-fact rule: baseline 수치와 신규 수치는 두 사실 → 두 <li>. 증상과 fix 는 두 사실 → 두 <li>.
+-->
+<ol>
+<li>Implementation
+  <ol>
+    <li>[Area name — bare noun phrase, no colon, no detail]
+      <ul>
+        <li>[One atomic change]</li>
+        <li>[Another atomic change]</li>
+      </ul>
+    </li>
+    <li>[Another area name]
+      <ul>
+        <li>[One atomic change]</li>
+        <li>[Another atomic change]</li>
+      </ul>
+    </li>
+  </ol>
+</li>
+<li>Verification
+  <ol>
+    <li>[Verification method name]
+      <ol>
+        <li>[One atomic observed result]</li>
+        <li>[Another atomic observed result]</li>
+      </ol>
+    </li>
+    <li>[Another verification method]
+      <ol>
+        <li>[One atomic observed result]</li>
+      </ol>
+    </li>
+  </ol>
+</li>
+<li>Notes
+  <ol>
+    <li>[One atomic caveat]</li>
+    <li>[Another atomic caveat]</li>
+  </ol>
+</li>
+</ol>

@@ -1,0 +1,45 @@
+# 코드 엔트로피 주간 점검 (informational — 전 step continue-on-error).
+# vway-kit 스택: scripts/*.py 복잡도·파일크기 + *.sh ShellCheck
+# (훅 런타임이 Windows 라 셸 버그가 FAIL-OPEN 으로 숨음 — CLAUDE.md Invariants).
+name: entropy-check
+
+on:
+  schedule:
+    - cron: "0 0 * * 5"  # 매주 금요일 00:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  entropy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: dev
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Sync deps
+        run: uv sync
+
+      - name: Cyclomatic complexity (ruff)
+        continue-on-error: true
+        run: uv run ruff check --extend-select C901,PLR0912,PLR0915 --statistics scripts/
+
+      - name: File size audit (>500 lines)
+        continue-on-error: true
+        run: |
+          echo "## Files exceeding 500 lines"
+          find scripts/ -name "*.py" -not -path "*/__pycache__/*" \
+            | xargs wc -l 2>/dev/null \
+            | awk '$1 > 500 && $2 != "total" { print }' | sort -rn
+
+      - name: ShellCheck (*.sh)
+        continue-on-error: true
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          find scripts/ hooks/ -name "*.sh" -print0 | xargs -0 -r shellcheck

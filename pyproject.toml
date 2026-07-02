@@ -1,0 +1,34 @@
+[project]
+name = "vway-kit"
+version = "0.3.0"
+# 플러그인 자체 개발/테스트(ruff·pytest) 환경 floor. 호스트에 배포되는 게이트
+# 스크립트의 런타임 요구는 python 3.8+ (walrus) — 이 줄과 무관하니 혼동 말 것.
+requires-python = ">=3.12"
+dependencies = ["pyyaml>=6.0", "keyring>=24"]
+
+[dependency-groups]
+dev = ["pytest>=8.0", "ruff>=0.6", "pre-commit>=3.5", "python-semantic-release>=10,<11"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+version_variables = [".claude-plugin/plugin.json:version"]
+commit_message = "chore(release): {version} [skip ci]"
+tag_format = "v{version}"
+commit_parser = "conventional"
+allow_zero_version = true
+major_on_zero = false
+
+[tool.semantic_release.branches.main]
+match = "main"
+prerelease = false
+
+[tool.semantic_release.branches.stage]
+match = "stage"
+prerelease = true
+prerelease_token = "rc"
+
+[tool.semantic_release.changelog]
+default_templates.changelog_file = "CHANGELOG.md"

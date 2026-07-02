@@ -1,0 +1,6 @@
+{{PATHS_FRONTMATTER_OR_REMOVE}}
+# {{RULE_TITLE}}
+
+**Why:** {{WHY_CONTEXT}}
+
+{{RULE_BODY}}

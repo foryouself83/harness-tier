@@ -1,0 +1,8 @@
+[general]
+ignore-merge-commits=true
+
+[title-max-length]
+line-length=50
+
+[body-max-line-length]
+line-length=72

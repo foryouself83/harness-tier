@@ -1,0 +1,6 @@
+{
+  "name": "vway-kit",
+  "version": "0.3.0",
+  "description": "vway 위험도 티어 워크플로 + Teamer 연동 + Teams 알림 harness",
+  "author": { "name": "vway" }
+}

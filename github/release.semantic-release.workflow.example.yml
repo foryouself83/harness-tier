@@ -1,0 +1,34 @@
+# 의미기반 릴리스 (Node/semantic-release) — /vdev-init 이 vdev-config.versioning 으로 렌더.
+# 표준 semantic-release(@semantic-release/*). 상세 설정은 프로젝트 .releaserc 에 둔다.
+# 전제: repo Settings → Actions → Workflow permissions = "Read and write".
+name: release
+
+on:
+  push:
+    branches: [__VWAY_STABLE__, __VWAY_PRERELEASE__]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+      - name: Semantic release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx --yes semantic-release

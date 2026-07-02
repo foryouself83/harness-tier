@@ -1,0 +1,20 @@
+# 코드 엔트로피 주간 점검 (informational — 전 step continue-on-error). /vdev-init 이 렌더.
+name: entropy-check
+
+on:
+  schedule:
+    - cron: "__VWAY_ENTROPY_SCHEDULE__"
+  workflow_dispatch: {}
+
+jobs:
+  entropy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: File size audit (>500 lines)
+        continue-on-error: true
+        run: |
+          echo "## Files exceeding 500 lines"
+          find __VWAY_ENTROPY_PATHS__ -type f -not -path "*/.git/*" \
+            | xargs wc -l 2>/dev/null \
+            | awk '$1 > 500 && $2 != "total" { print }' | sort -rn | head -50
