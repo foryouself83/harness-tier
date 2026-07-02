@@ -1,5 +1,7 @@
 # Semantic release (Node/semantic-release) — rendered by /flow-init from flow-config.versioning.
 # Standard semantic-release (@semantic-release/*). The detailed config lives in the project's .releaserc.
+# Release notes: @semantic-release/github publishes the generated changelog (grouped by
+# type, plumbing filtered) as the GitHub Release body — no extra step needed here.
 # Prerequisite: repo Settings → Actions → Workflow permissions = "Read and write".
 name: release
 

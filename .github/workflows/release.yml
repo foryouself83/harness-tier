@@ -144,7 +144,21 @@ jobs:
           fi
           PRERELEASE=""
           [ "$REF_NAME" = "stage" ] && PRERELEASE="--prerelease"
-          gh release create "$TAG" --title "$TAG" --generate-notes $PRERELEASE
+          # Release body = the CHANGELOG.md section(s) for the version being released (PSR
+          # output: grouped by type, plumbing-filtered via exclude_commit_patterns). awk keeps
+          # every LEADING section whose "## vX.Y.Z" core equals the tag core and drops the
+          # headers — so a stable release that went through multiple rc's on stage (…-rc.1,
+          # …-rc.2) gets them merged — then stops at the first older version. If the top
+          # section's core does not match the tag (drift / stale / missing changelog) the
+          # output is empty → the else-branch uses GitHub's auto notes, so a release never
+          # fails here. `|| true` keeps errexit+pipefail from aborting the step on a no-match.
+          TCORE="$(printf '%s' "$TAG" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+          awk -v core="$TCORE" '/^## /{v=""; if (match($0,/[0-9]+\.[0-9]+\.[0-9]+/)) v=substr($0,RSTART,RLENGTH); if (v!=core) exit; seen=1; next} seen{print}' CHANGELOG.md > release-body.md 2>/dev/null || true
+          if [ -n "$TCORE" ] && [ -s release-body.md ] && grep -q '[^[:space:]]' release-body.md; then
+            gh release create "$TAG" --title "$TAG" --notes-file release-body.md $PRERELEASE
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes $PRERELEASE
+          fi
 
       - name: On failure — release token hint
         if: ${{ failure() }}
