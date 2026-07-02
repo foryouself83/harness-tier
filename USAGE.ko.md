@@ -92,7 +92,9 @@ doc_sync:                    # doc-sync 대상
   `schema`(OpenAPI URL/경로) · `base_url` · `server`(compose_file/health_url/health_timeout) ·
   `tool`/`action_ref`(셋업 시 1회 pin).
 - **`versioning`** — python-semantic-release 등 릴리스 자동화. `enable: true` 이면
-  release / branch-naming / entropy-check 워크플로우를 렌더링합니다.
+  release / branch-naming / entropy-check 워크플로우를 렌더링합니다. **GitHub Release
+  본문**은 `CHANGELOG.md` 의 최신 섹션(semantic-release 산출물 — type별 그룹핑, 배관
+  커밋 필터)을 사용하며, changelog 가 없거나 비어 있으면 GitHub 자동 생성 노트로 폴백합니다.
 
 ### 2.2 `flow-tiers.yaml` — 등급→게이트 정책(편집 금지)
 
