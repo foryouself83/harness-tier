@@ -303,3 +303,29 @@ def test_module_commands_output_empty_when_precommit_gate_removed(
     out = capsys.readouterr()
     assert out.out == ""
     assert out.err == ""
+
+
+def test_bump_is_not_runtime_gate():
+    from scripts._harness_paths import RUNTIME_GATES
+
+    assert "bump" not in RUNTIME_GATES  # bump needs a .done marker (evidence gate)
+
+
+def test_staging_requires_bump_marker(tmp_path: Path):
+    flow = tmp_path / ".flow"
+    flow.mkdir()
+    (flow / "review.done").touch()  # security-scan is runtime; review present
+    gates = ["precommit", "review", "security-scan", "bump"]
+    assert missing_gates(flow, gates) == ["bump"]  # bump blocks until its marker exists
+    (flow / "bump.done").touch()
+    assert missing_gates(flow, gates) == []
+
+
+def test_shipped_policy_staging_has_bump():
+    # the shipped policy is the SSOT the gate reads; staging must carry bump.
+    import yaml
+
+    root = Path(__file__).resolve().parent.parent
+    data = yaml.safe_load((root / "flow-tiers.yaml").read_text(encoding="utf-8"))
+    assert "bump" in data["tiers"]["staging"]["gates"]
+    assert "bump" not in data["tiers"]["release"]["gates"]  # asked at staging only

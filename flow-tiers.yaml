@@ -17,12 +17,13 @@ tiers:
       - doc-sync
 
   staging:
-    description: "QA/RC promotion (dev → stage) — security-tool pre-check across all modules"
+    description: "QA/RC promotion (dev → stage) — security-tool pre-check + human bump-level selection"
     superpowers: true
     gates:
       - precommit
       - review
       - security-scan
+      - bump
 
   release:
     description: "Production deployment (stage → main) — security tools + security review"

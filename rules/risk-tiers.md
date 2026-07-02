@@ -82,11 +82,20 @@ promotion gates run once over the accumulated work.
 ### Staging — integration → staging branch (QA / rc cut)
 
 The release candidate enters QA/staging. Gates:
-`precommit, review, security-scan` (`security-scan` = a pre-check across all modules with the
+`precommit, review, security-scan, bump` (`security-scan` = a pre-check across all modules with the
 security tools).
 (`precommit` = per-module lint/static/import_lint/test, which the layer-2 flow gate handles on
 day-to-day commits (changed modules). Performance and integration are independent skills. The
 `/security-review` LLM review is added at Release.)
+
+Staging also **forces a human bump-level choice**: `/flow` asks major/minor/patch
+(default = commit-derived) and records a `bump` gate marker; the commit gate blocks
+the staging commit until `bump.done` exists (fail-closed). The choice rides the
+staging commit as a `Release-Level:` trailer and CI forces
+`semantic-release version --<level> --as-prerelease`. main finalizes the rc by
+dropping the token deterministically (an overridden level would otherwise be lost —
+python-semantic-release recomputes on the stable branch). `major` on a 0.x project
+jumps to `1.0.0`.
 
 ### Release — staging → production branch
 
@@ -118,7 +127,7 @@ production→main). No branch is literally named `integration`.
 | Moment | Tier | Gates |
 |--------|------|-------|
 | Work on `feature/*` / `fix/*` → integration branch | **Docs** (no code) / **Dev** (any code) | Docs: doc-sync · Dev: precommit, review, doc-sync (precommit = per-module lint/static/import_lint/test, run on changed modules) |
-| integration → staging (QA / rc cut) | **Staging** | precommit, review, security-scan |
+| integration → staging (QA / rc cut) | **Staging** | precommit, review, security-scan, bump |
 | staging → production, or prod deploy | **Release** | + security |
 | A feature-branch change that is irreversible / prod-critical / security | escalate to **Release** | — |
 

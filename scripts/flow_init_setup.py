@@ -76,6 +76,8 @@ COPY_FILES = [
     "scripts/teams_alert.py",
     "scripts/notify-push.sh",
     "scripts/check-deps.sh",
+    "scripts/check-token-write.sh",
+    "scripts/finalize_prerelease.py",
 ]
 
 # Lines to add to .gitignore. The personal webhook is kept as a **bare pattern** (matches at any

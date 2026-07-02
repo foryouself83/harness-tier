@@ -22,6 +22,6 @@ If any one is missing, the background update is silently skipped (no error, no p
 changes (§2). On every main push, `release.yml`'s `pin-marketplace-sha.py`
 automatically updates and commits the sha to the just-released commit.
 
-- **Prerequisite**: repository Settings → Actions → Workflow permissions = **Read and write**.
+- **Prerequisite**: repository Settings → Actions → Workflow permissions = **Read and write** (see [USAGE.md → Release token write permission](../../USAGE.md#release-token-write-permission)).
 - If the Action is off or when updating manually: commit · push the code → confirm the sha with `git rev-parse HEAD` →
   update `marketplace.json`'s `source.sha` to that value · commit · push.
