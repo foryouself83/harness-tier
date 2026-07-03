@@ -2,6 +2,27 @@
 
 <!-- version list -->
 
+## v0.1.3-rc.1 (2026-07-03)
+
+### Bug Fixes
+
+- De-duplicate rule docs and guard authoring
+  ([`30ac9f5`](https://github.com/foryouself83/harness-tier/commit/30ac9f5f51ec69c2ae23c064278f95fc0daa322c))
+
+- Warn to merge post-rc origin/staging on release promotion
+  ([`e6a3690`](https://github.com/foryouself83/harness-tier/commit/e6a3690ebb28a93d76ff50a49f86fc3d842957f3))
+
+### Documentation
+
+- Relabel commands as skills, drop check-deps
+  ([`24fa033`](https://github.com/foryouself83/harness-tier/commit/24fa033c59bb254bf3c346fd51b0f857f8934c34))
+
+### Features
+
+- Release templates fall back to GITHUB_TOKEN
+  ([`a45ac5a`](https://github.com/foryouself83/harness-tier/commit/a45ac5a97e10b9cca3621ed3c3b8ae255c4a8fca))
+
+
 ## v0.1.2-rc.1 (2026-07-02)
 
 ### Documentation
