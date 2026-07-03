@@ -23,7 +23,12 @@
    **Load-path guarantee** — CLAUDE.md body / explicit import (`.claude/rules/` alone is not enough). The anchor `<!-- rule:<key> -->`
    (key: `karpathy`·`dry-constants`·`version-pinning`·`security`·`reuse-first`) is **owned by the claude-md template** and
    placed before each rule slot in the baseline marker block. Do not put anchors in the rule reference body files (no duplication).
-7. **No duplicate generation**: check for functional duplication by name+description.
+7. **No duplication (SSOT for the whole harness)** — two facets: (a) *component* —
+   no duplicate generation (check functional duplication by name+description);
+   (b) *content* — every fact lives in **one SSOT** and other places **link** it,
+   never restate it (rule 8, "one fact, one place"). This governs authored **rules**
+   too: before adding a rule, search the existing rules/docs for the fact and link
+   it instead of repeating. `rule.template.md` and `authoring-spec.md` defer here.
 8. **Technical docs (folders by category)**: `docs/README.md` (overall index, done last) · `docs/srs/` (functional/non-functional
    requirements, greenfield-only, done first) · `docs/sds/` (structure + **Mermaid required**; when a component communicates
    across a boundary (process/origin/host/auth), include an **integration-point contract** section) ·

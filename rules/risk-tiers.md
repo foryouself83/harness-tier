@@ -23,22 +23,49 @@ There are four tiers across two axes:
 
 ## Principle
 
-Every code-change request is classified **by `/flow` before** work
-starts — you do not judge the tier on your own and proceed. Higher
-tier = more skills engaged + more mandatory gates. Running `/flow` is
-non-negotiable; the *depth* of process its verdict selects is what
-varies. When the tier is ambiguous, `/flow` escalates one tier (bias
-to safety).
+Higher tier = more skills engaged + more mandatory gates; the *depth* of
+process the verdict selects is what varies. When the tier is ambiguous,
+`/flow` escalates one tier (bias to safety).
 
-**You do not classify free-form — enter `/flow` (via the Skill tool) as
-your FIRST action** on any code change, feature, fix, or development
-request, *before* reading code, planning, or editing. `/flow` runs the
-classification, confirms the tier with the user, and writes the marker
-the commit gate reads. This is not optional: skipping `/flow` leaves the
-commit **unclassified**, and the commit gate **blocks it** (fail-closed
-— a commit with no tier marker is refused). If the workflow is genuinely
-unwanted, the user removes the gate with `/flow-uninstall` — you never
-work around it.
+**Enter `/flow` (via the Skill tool) as your FIRST action** on any code
+change, feature, fix, or development request — *before* reading code,
+planning, or editing. You do not judge the tier on your own and proceed:
+`/flow` runs the classification, confirms the tier with the user, and
+writes the marker the commit gate reads. Skipping `/flow` leaves the commit
+**unclassified**, and the commit gate **blocks it** (fail-closed — a commit
+with no tier marker is refused; see Hard gates). If the workflow is
+genuinely unwanted, the user removes the gate with `/flow-uninstall` — you
+never work around it.
+
+## Gates (glossary)
+
+Each gate is defined **once here**; every table and step below refers to a
+gate by name only. (For how gates are enforced — chokepoints, markers,
+fail-open/closed — see Hard gates.)
+
+Two kinds:
+
+- **Runtime gates** — executed directly by the commit hook
+  (`precommit-runner.sh`, layer 2), no `.done` marker:
+  - **`precommit`** — lint/static/import_lint/test of the **changed modules**,
+    on every commit.
+  - **`security-scan`** — a full-module scan with the security tools, on
+    staging/release promotion.
+
+  Both are ordinary entries in each tier's `flow-tiers.yaml` `gates` list, so
+  **removing one from a tier's list disables just that check** for that tier
+  (the gates list is the single on/off switch, not a hardcoded branch).
+- **Marker gates** — recorded as `<gate>.done` only after the work genuinely
+  passes (a marker is an audit trail + forcing function, not proof of quality):
+  - **`review`** — an independent `general-purpose` review agent (separate
+    context) against the domain/regression checklist: regression,
+    cross-service contract, DB/migration & transactions, async task
+    idempotency & queue routing, API error conventions.
+  - **`doc-sync`** — `/doc-sync` harmonizes the doc set (root CLAUDE.md,
+    per-service docs, rules) and reconciles code↔doc drift.
+  - **`bump`** (Staging) — the human major/minor/patch choice; fail-closed
+    (the staging commit is blocked until `bump.done` exists). Detail in Step 1b.
+  - **`security`** (Release) — `/security-review`.
 
 ## Step 1 — Classify the task (Docs or Dev)
 
@@ -81,12 +108,9 @@ promotion gates run once over the accumulated work.
 
 ### Staging — integration → staging branch (QA / rc cut)
 
-The release candidate enters QA/staging. Gates:
-`precommit, review, security-scan, bump` (`security-scan` = a pre-check across all modules with the
-security tools).
-(`precommit` = per-module lint/static/import_lint/test, which the layer-2 flow gate handles on
-day-to-day commits (changed modules). Performance and integration are independent skills. The
-`/security-review` LLM review is added at Release.)
+The release candidate enters QA/staging. Gates: `precommit`, `review`,
+`security-scan`, `bump` (see Gate glossary). Performance and integration are
+independent skills; the `/security-review` LLM review is added at Release.
 
 Staging also **forces a human bump-level choice**: `/flow` asks major/minor/patch
 (default = commit-derived) and records a `bump` gate marker; the commit gate blocks
@@ -126,7 +150,7 @@ production→main). No branch is literally named `integration`.
 
 | Moment | Tier | Gates |
 |--------|------|-------|
-| Work on `feature/*` / `fix/*` → integration branch | **Docs** (no code) / **Dev** (any code) | Docs: doc-sync · Dev: precommit, review, doc-sync (precommit = per-module lint/static/import_lint/test, run on changed modules) |
+| Work on `feature/*` / `fix/*` → integration branch | **Docs** (no code) / **Dev** (any code) | Docs: doc-sync · Dev: precommit, review, doc-sync |
 | integration → staging (QA / rc cut) | **Staging** | precommit, review, security-scan, bump |
 | staging → production, or prod deploy | **Release** | + security |
 | A feature-branch change that is irreversible / prod-critical / security | escalate to **Release** | — |
@@ -224,10 +248,8 @@ work started on. `hotfix/*` off the production branch is the exception
 ### Staging (integration → staging)
 
 1. Regression review (independent `general-purpose` agent)
-   → record `review`. `precommit` (changed-module lint/static/import_lint/test) and
-   `security-scan` (full-module security tools) are run automatically by precommit-runner on
-   promotion commits (both are runtime gates — no marker needed). Both are entries in the
-   `flow-tiers.yaml` gates list, so removing either from that tier's gates disables just that check.
+   → record `review`. `precommit` and `security-scan` run automatically on
+   promotion commits (runtime gates — no marker; see Gate glossary).
 2. Promote integration → staging (rc).
 
 ### Release (staging → production)
@@ -429,12 +451,11 @@ Gates are enforced at chokepoints, driven by
 `/flow` records under `.claude/harness-tier/.flow/` (gitignored):
 `tier` (`<tier>:<branch>`) plus `<gate>.done` per completed gate.
 
-1. **Commit gate (Docs/Dev)** — the `git commit` hook (via the
-   project's `flow_gate_check` script) **blocks the commit** if the
-   active tier's required gate has no `.done` marker. Branch-bound. It
-   also **blocks an unclassified commit** — when the policy is intact
-   but no `tier` marker exists (i.e. `/flow` was skipped), so bypassing
-   `/flow` cannot silently disable the gate (fail-closed).
+1. **Commit gate (Docs/Dev)** — the `git commit` hook (via the project's
+   `flow_gate_check` script) **blocks the commit** when the active tier's
+   required marker gate has no `.done` marker, and also **blocks an
+   unclassified commit** (policy intact but no `tier` marker — `/flow` was
+   skipped). Branch-bound; fail-closed (see Properties).
 2. **Promotion gates (Staging / Release)** — enforced purely at
    `git commit` by branch: a commit on the staging branch enforces
    the `staging` gates; a commit on the production branch enforces
@@ -453,15 +474,10 @@ Properties:
   missing evidence, but still fail-open on internal errors.
 - **Branch-bound** — markers carry the branch, so stale state cannot
   block an unrelated task on another branch.
-- `precommit` (per-module lint/static/import_lint/test, changed modules) and `security-scan`
-  (full-module security tools, on promotion) are both **executed** by the hook
-  (`precommit-runner.sh`, layer 2 — not the layer-1 pre-commit), not a marker —
-  both are `RUNTIME_GATES`. Both are ordinary entries in each tier's
-  `flow-tiers.yaml` `gates` list, so **removing either from a tier's gates
-  disables that check for that tier** (e.g. drop `security-scan` from
-  `release` to stop running the full-module security scan on release
-  promotions) — the gates list is the single on/off switch, not a hardcoded
-  tier branch.
+- `precommit` / `security-scan` are runtime gates executed by the hook
+  (`precommit-runner.sh`, layer 2 — not the layer-1 pre-commit), not markers;
+  a tier's `flow-tiers.yaml` `gates` list is the single on/off switch for them
+  (see Gate glossary).
 - Judgment gates (review quality, human integration test) can only be
   *recorded*, not verified — a marker is an audit trail + forcing
   function, not proof.
