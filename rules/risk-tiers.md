@@ -301,6 +301,17 @@ Branch names refer to `flow-config.branches` keys.
 > head and skip the release. (`hotfix/*` → production stays Squash — a
 > single `fix:` commit is still a valid, non-`[skip ci]` release input.)
 
+> ⚠️ **Merge the *post-rc* `origin/<staging>`, never a stale local ref.**
+> The `staging → production` merge must take the **freshly fetched
+> `origin/<staging>`** — the staging state *after* the rc CI ran and
+> semantic-release committed the `X.Y.Z-rc.N` version bump. A local
+> `<staging>` ref from before that bump does not carry the prerelease
+> version into production, so the deterministic rc-strip finalize has
+> nothing to strip and **falls back to plain compute — silently losing
+> the forced bump-level override** (e.g. releasing `0.2.0` instead of the
+> intended `0.1.2`). Always `git fetch origin` first and merge
+> `origin/<staging>`.
+
 ### Merging `feature/*` → integration (integration-test gate)
 
 `feature/*` → integration is NOT a one-shot squash. It is a
