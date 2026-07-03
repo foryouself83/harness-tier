@@ -169,6 +169,10 @@ needed — the branch drives it). Record each gate before committing the promoti
 - **Release** (staging → production): Staging gates **plus** `/code-review` at
   `ultra` effort (extra independent layer) and `/security-review` →
   `touch .claude/harness-tier/.flow/security.done`, then commit on the production branch.
+  ⚠️ **Merge the freshly fetched `origin/<staging>`** (post-rc — it carries the
+  `X.Y.Z-rc.N` bump), not a stale local staging ref: otherwise the rc-strip finalize
+  has no prerelease to strip, falls back to plain compute, and the bump-level override
+  is lost (e.g. `0.2.0` instead of `0.1.2`). Always `git fetch origin` first.
   Deploy (project-specific / offline) — not gated; the production-branch commit
   is the gate.
 

@@ -81,8 +81,6 @@ python3 -m pip install pyyaml pre-commit
 /plugin install superpowers@claude-plugins-official
 ```
 
-> 무엇이 빠졌는지 먼저 점검만 하려면(설치는 안 함): `bash scripts/check-deps.sh`
-
 ### 2. 플러그인 설치
 
 ```
@@ -116,15 +114,15 @@ pre-commit install --hook-type commit-msg --hook-type pre-push
 
 | 종류 | 항목 | 역할 |
 |------|------|------|
-| 커맨드 | `/flow` | 위험도 분류 → 등급별 워크플로 실행 → 게이트 증거 기록 |
-| 커맨드 | `/flow-init` | 설치/갱신 마법사 (최초 설정 + 재실행 시 재동기화·재설정, 설정값 보존) |
-| 커맨드 | `/flow-uninstall` | 호스트에 설치된 harness-tier 배선 제거 |
-| 커맨드 | `/harness-init` | 프레임워크 감지 + 리서치·검증으로 하네스 생성 (`.md` 기본, 덮어쓰기 없음) |
-| 에이전트 | `harness-researcher` · `harness-code-analyzer` · `harness-critic` | 하네스 생성용 리서치 / 코드 분석 / 생성물 검증 |
-| 룰 | `risk-tiers` | 위험도 분류 + 커밋 규율의 단일 기준 |
+| 스킬 | `/flow` | 위험도 분류 → 등급별 워크플로 실행 → 게이트 증거 기록 |
+| 스킬 | `/flow-init` | 설치/갱신 마법사 (최초 설정 + 재실행 시 재동기화·재설정, 설정값 보존) |
+| 스킬 | `/flow-uninstall` | 호스트에 설치된 harness-tier 배선 제거 |
+| 스킬 | `/harness-init` | 프레임워크 감지 + 리서치·검증으로 하네스 생성 (`.md` 기본, 덮어쓰기 없음) |
 | 스킬 | `doc-sync` | 코드 ↔ 문서 동기화 + 문서 집합 일관성 |
 | 스킬 | `harness-insight` | 지정 기간 Claude Code 활동 집계 + 인사이트 리포트 |
 | 스킬 | `playwright-scaffold` · `integration` · `performance` | E2E 스캐폴드 / 통합·성능 검증(비강제 수동 스킬) |
+| 에이전트 | `harness-researcher` · `harness-code-analyzer` · `harness-critic` | 하네스 생성용 리서치 / 코드 분석 / 생성물 검증 |
+| 룰 | `risk-tiers` | 위험도 분류 + 커밋 규율의 단일 기준 |
 | 훅 | SessionStart · Notification · PreToolUse(commit) | 규칙 주입 · Teams 알림 · 커밋 게이트 |
 
 ## 갱신·제거
