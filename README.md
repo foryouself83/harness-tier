@@ -136,6 +136,13 @@ After that, start day-to-day work with **`/flow <task description>`**.
 | Rule | `risk-tiers` | The single source of truth for risk classification + commit discipline |
 | Hooks | SessionStart · Notification · PreToolUse(commit) | Rule injection · Teams alerts · commit gate |
 
+> **Release CI token** — the release workflow that `/flow-init` renders authenticates via
+> `${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}`, so it runs on the default
+> `GITHUB_TOKEN` out of the box (just grant Actions write permission). A `RELEASE_TOKEN`
+> secret is an **opt-in escalation** (bypass branch protection / trigger downstream) and,
+> when unset, falls back to `GITHUB_TOKEN` — see [USAGE.md](USAGE.md) → "Release token
+> write permission".
+
 ## Update & removal
 
 - **Update** — When the plugin updates, the host's copied scripts don't change

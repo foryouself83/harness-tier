@@ -324,6 +324,11 @@ python3 "${ROOT}/.claude/harness-tier/scripts/teams_alert.py" --channel personal
 
 The release workflow pushes the version bump/tag, so its token needs **write**.
 
+> **Default** — the workflow authenticates with the auto-provided `GITHUB_TOKEN`. Every
+> checkout/step references `${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}`, so when
+> `RELEASE_TOKEN` is unset it **falls back to `GITHUB_TOKEN`** — releases work out of the box
+> with just the write permission below. `RELEASE_TOKEN` is an opt-in escalation (item 4).
+
 1. **Primary** — Settings → Actions → General → **Workflow permissions** → **Read and
    write permissions** → Save.
 2. **Organization override** — if an org caps Actions permissions to read-only, an org
@@ -333,8 +338,9 @@ The release workflow pushes the version bump/tag, so its token needs **write**.
 4. **PAT / `RELEASE_TOKEN` (escalation)** — when `GITHUB_TOKEN` is insufficient (bypass
    protection, trigger downstream workflows): create a fine-grained PAT with
    `Contents: Read and write` (+ `Workflows: Read and write` if the release touches
-   workflow files), store it as the repo secret `RELEASE_TOKEN`, and reference it in
-   `actions/checkout` `token:` and the release step's `GH_TOKEN`.
+   workflow files) and store it as the repo secret `RELEASE_TOKEN`. The workflow already
+   references `${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}`, so **just adding the
+   secret takes effect — no YAML edit**; when it is absent the run falls back to `GITHUB_TOKEN`.
 
 The release preflight (`check-token-write.sh`) fails fast with this pointer when the
 token is read-only.

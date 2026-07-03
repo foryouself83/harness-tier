@@ -57,7 +57,12 @@ If the stack is confirmed, describe the corresponding tool. **If unconfirmed, le
 - The release CI pushes tags/commits, so its token needs **write**. Document, in order:
   primary (Settings → Actions → Workflow permissions = Read and write), org override,
   protected-branch bypass, and PAT/`RELEASE_TOKEN` escalation (Contents+Workflows: RW,
-  repo secret, `actions/checkout` token + step `GH_TOKEN`).
+  repo secret).
+- **State the default/fallback**: the rendered release workflow already references
+  `${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}`, so by default it runs on the
+  auto-provided `GITHUB_TOKEN` — `RELEASE_TOKEN` is an **opt-in escalation** (bypass branch
+  protection / trigger downstream). When the secret is unset the expression falls back to
+  `GITHUB_TOKEN`, and adding it later needs no YAML edit.
 - This is the single canonical location; guard messages link here.
 
 ### 4. Version Check Commands

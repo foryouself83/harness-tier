@@ -299,6 +299,11 @@ python3 "${ROOT}/.claude/harness-tier/scripts/teams_alert.py" --channel personal
 
 릴리스 워크플로우는 버전 범프와 태그를 푸시하므로 그 토큰에 **쓰기 권한**이 필요합니다.
 
+> **기본 동작** — 워크플로우는 자동 발급되는 `GITHUB_TOKEN` 으로 인증합니다. 모든 checkout/스텝이
+> `${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}` 을 참조하므로, `RELEASE_TOKEN` 이
+> 없으면 **`GITHUB_TOKEN` 으로 폴백**합니다 — 아래 쓰기 권한만 있으면 릴리스가 그대로 돕니다.
+> `RELEASE_TOKEN` 설정은 opt-in 승격입니다(4번 항목).
+
 1. **기본 방법** — Settings → Actions → General → **Workflow permissions** → **Read and
    write permissions** → Save.
 2. **조직 정책 재정의** — 조직이 Actions 권한을 읽기 전용으로 제한하면 조직 관리자가
@@ -307,8 +312,9 @@ python3 "${ROOT}/.claude/harness-tier/scripts/teams_alert.py" --channel personal
    추가하거나 우회할 수 있는 토큰을 씁니다.
 4. **PAT / `RELEASE_TOKEN` (승격)** — `GITHUB_TOKEN` 으로 부족할 때(보호 우회, 후속 워크플로우
    트리거): 세분화 PAT 을 만들되 `Contents: Read and write` 를 포함시키고(릴리스가 워크플로우
-   파일을 건드리면 `Workflows: Read and write` 추가), 리포 시크릿 `RELEASE_TOKEN` 으로 저장한 후
-   `actions/checkout` 의 `token:` 과 릴리스 스텝의 `GH_TOKEN` 에서 참조합니다.
+   파일을 건드리면 `Workflows: Read and write` 추가), 리포 시크릿 `RELEASE_TOKEN` 으로 저장합니다.
+   워크플로우가 이미 `${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}` 을 참조하므로
+   **시크릿만 추가하면 바로 적용**됩니다(YAML 수정 불필요). 없으면 `GITHUB_TOKEN` 으로 폴백합니다.
 
 릴리스 사전검사(`check-token-write.sh`)는 토큰이 읽기 전용이면 이 안내를 띄우며 빠르게 중단합니다.
 
