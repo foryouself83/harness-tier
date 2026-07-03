@@ -18,4 +18,5 @@ Confirm against the official docs, not model knowledge, as the SSOT:
   The template's `{{PATHS_FRONTMATTER_OR_REMOVE}}` is replaced with a `---`/`paths:`/`---` block for a path-scoped rule,
   or with an empty string for a global rule. **The 5 mandatory rules are injected into the CLAUDE.md baseline body for certainty.**
 
-**Common discipline**: concise and lean; keep a fact in a single SSOT and link the rest.
+**Common discipline**: concise and lean; **no duplication** — keep a fact in a single
+SSOT and link the rest ([harness-rules.md](../../../rules/harness-rules.md) rule 7·8).

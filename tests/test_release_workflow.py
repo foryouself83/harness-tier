@@ -41,6 +41,24 @@ def test_consumer_template_has_force_and_finalize():
     assert "__HARNESS_STABLE__" in tmpl and "__HARNESS_PRERELEASE__" in tmpl
 
 
+def test_consumer_templates_fall_back_to_github_token():
+    """Both consumer release templates auth via `RELEASE_TOKEN || GITHUB_TOKEN`, so a repo
+    that never sets RELEASE_TOKEN still releases on the auto-provided GITHUB_TOKEN (the PAT
+    is an opt-in escalation, not a prerequisite). flow-init renders these verbatim."""
+    for rel in (
+        "github/release.python-semantic-release.workflow.example.yml",
+        "github/release.semantic-release.workflow.example.yml",
+    ):
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert "secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN" in text, f"{rel}: missing fallback"
+        # no bare `secrets.GITHUB_TOKEN` should survive outside the fallback expression
+        for line in text.splitlines():
+            if "secrets.GITHUB_TOKEN" in line:
+                assert "secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN" in line, (
+                    f"{rel}: bare GITHUB_TOKEN not wrapped in fallback -> {line.strip()}"
+                )
+
+
 def test_release_uses_release_token_and_preflight():
     text = _release_text()
     assert "secrets.RELEASE_TOKEN" in text

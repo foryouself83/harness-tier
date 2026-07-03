@@ -81,6 +81,10 @@ contract_test:
 # Semantic versioning/release (downstream = a regular package). /flow-init uses these values to
 # render .github/workflows/ (same pattern as api-contract). If unused, enable:false → not installed.
 # release_tool is filled in by harness-init research to match the stack.
+# CI auth: the rendered release workflow references RELEASE_TOKEN || GITHUB_TOKEN, so it runs on
+# the default GITHUB_TOKEN (just grant repo Actions write permission). Add a RELEASE_TOKEN repo
+# secret only to escalate (bypass branch protection / trigger downstream); unset → falls back to
+# GITHUB_TOKEN, no workflow edit needed.
 versioning:
   enable: true
   # Release tool per stack. Supported: python-semantic-release | semantic-release(node)

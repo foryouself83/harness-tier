@@ -90,8 +90,6 @@ python3 -m pip install pyyaml pre-commit
 /plugin install superpowers@claude-plugins-official
 ```
 
-> To just check what's missing first (without installing): `bash scripts/check-deps.sh`
-
 ### 2. Install the plugin
 
 ```
@@ -127,16 +125,23 @@ After that, start day-to-day work with **`/flow <task description>`**.
 
 | Kind | Item | Role |
 |------|------|------|
-| Command | `/flow` | Classify risk → run the tier's workflow → record gate evidence |
-| Command | `/flow-init` | Setup/update wizard (initial setup + re-sync/reconfigure on re-run, preserving config) |
-| Command | `/flow-uninstall` | Remove harness-tier's host-side wiring |
-| Command | `/harness-init` | Framework detection + research/verification to generate a harness (`.md` by default, no overwrite) |
-| Agents | `harness-researcher` · `harness-code-analyzer` · `harness-critic` | Research / code analysis / output verification for harness generation |
-| Rule | `risk-tiers` | The single source of truth for risk classification + commit discipline |
+| Skill | `/flow` | Classify risk → run the tier's workflow → record gate evidence |
+| Skill | `/flow-init` | Setup/update wizard (initial setup + re-sync/reconfigure on re-run, preserving config) |
+| Skill | `/flow-uninstall` | Remove harness-tier's host-side wiring |
+| Skill | `/harness-init` | Framework detection + research/verification to generate a harness (`.md` by default, no overwrite) |
 | Skill | `doc-sync` | Code ↔ doc synchronization + doc-set consistency |
 | Skill | `harness-insight` | Aggregate Claude Code activity over a period + insight report |
 | Skills | `playwright-scaffold` · `integration` · `performance` | E2E scaffold / integration & performance checks (non-enforcing manual skills) |
+| Agents | `harness-researcher` · `harness-code-analyzer` · `harness-critic` | Research / code analysis / output verification for harness generation |
+| Rule | `risk-tiers` | The single source of truth for risk classification + commit discipline |
 | Hooks | SessionStart · Notification · PreToolUse(commit) | Rule injection · Teams alerts · commit gate |
+
+> **Release CI token** — the release workflow that `/flow-init` renders authenticates via
+> `${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}`, so it runs on the default
+> `GITHUB_TOKEN` out of the box (just grant Actions write permission). A `RELEASE_TOKEN`
+> secret is an **opt-in escalation** (bypass branch protection / trigger downstream) and,
+> when unset, falls back to `GITHUB_TOKEN` — see [USAGE.md](USAGE.md) → "Release token
+> write permission".
 
 ## Update & removal
 
