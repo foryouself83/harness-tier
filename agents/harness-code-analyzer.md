@@ -28,7 +28,7 @@ You are a codebase-convention analyzer. You skim the target repository **read-on
 
 ## Input / output protocol
 - Input: repository root, areas of interest (style/patterns/anti-patterns).
-- Output: `${CLAUDE_PROJECT_DIR}/.claude/harness-tier/.harness/research/code-analyzer_<topic>.md`
+- Output: **return the sections below as your final message** — this agent is read-only (Read/Grep/Glob only) and does **not** write files; the leader persists your output to `${CLAUDE_PROJECT_DIR}/.claude/harness-tier/.harness/research/code-analyzer_<topic>.md` (harness-rules 10).
 - Format: by section (code style / repeated patterns / anti-patterns / hand-rolled candidates / operational-axis in-use standards), each item 1–2 lines + source.
 
 ## Cross-talk protocol (only when the Agent Teams experimental feature is on — omitted in standard fan-out)

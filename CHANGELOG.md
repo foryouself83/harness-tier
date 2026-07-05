@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.1.4-rc.1 (2026-07-05)
+
+### Bug Fixes
+
+- Harden harness-init fan-out/fan-in boundary
+  ([`304df64`](https://github.com/foryouself83/harness-tier/commit/304df64980f5732f8e2c06df87cb5d9952e24fa5))
+
+
 ## v0.1.3-rc.1 (2026-07-03)
 
 ### Bug Fixes

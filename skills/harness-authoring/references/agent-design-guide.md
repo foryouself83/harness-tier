@@ -49,7 +49,7 @@ You are an expert [role] in [domain]. [Single responsibility].
 
 ## Input / Output Protocol
 - Input: [what, from where]
-- Output: [what, to where — file path·format]
+- Output: [what, to where — file path·format]. **A read-only agent (tools = Read/Grep/Glob) cannot write** — it **returns** its output for the caller/leader to persist; declare that, not a self-write to a path it cannot reach (tool-fit — §4).
 
 ## Cross-Talk Protocol (optional — only when the Agent Teams experimental feature is on; omit for standard fan-out)
 - Receive: [what message, from whom]
