@@ -81,12 +81,14 @@
 10. **Research fans out via `Agent` (formerly `Task`, an alias) subagents** (researcher + code-analyzer for brownfield), dispatched in parallel and fanned in.
     Cross-talk happens via `SendMessage` only when the Agent Teams experimental feature (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) is on (optional).
     Deprecated tools (`TeamCreate`·`TaskCreate`, etc.) are forbidden. Network/dispatch failures are FAIL-OPEN (warn + selection), not fabricated.
+    **Fan-in write ownership** — sub-agents **return** their findings as their final message; the **leader** persists each to `.harness/research/<agent>_<topic>.md` under a **leader-assigned unique topic** (sub-agents do not write these files — parallel dispatch cannot collide on a filename, and the read-only code-analyzer needs no write access).
+    **Partial fan-in** — after fan-in the leader verifies each expected output is present and non-empty, marking any missing/empty area **"needs confirmation"** (a legitimate "insufficient sample" is distinguished from a lost dispatch; FAIL-OPEN covers total failure, this covers the partial state).
 10-1. **Stack-inventory reconcile (converge before freeze — omission guard)**: `stack_map` is *provisionally*
     fixed during the interview, and the stacks (including infrastructure) surfaced by research (researcher's autonomous expansion · off-the-shelf solutions · stack-compatibility matrix)
     are merged into `stack_map` **before** authoring. Stacks whose conventions actually exist (infrastructure is especially easy to miss)
     are promoted to convention targets (9-6), and because a newly promoted stack was not dispatched as (layer, stack) in the first fan-out,
-    run **targeted follow-up research** (a full sweep of that stack's ops_axes) to fill in its conventions. Repeat **until the stack set is stable**
-    (usually once). **Do not grow the stack set by guessing** — only what has discovery evidence. The promote/reject decisions and reasons are **recorded** by authoring, one line each,
+    run **targeted follow-up research** (a full sweep of that stack's ops_axes) to fill in its conventions — **the re-dispatch input must include the first pass's frozen stack-compatibility matrix / ceiling, and any version pick stays within it** (12-2; a fresh follow-up agent cannot see the first pass's matrix otherwise). Repeat **until the stack set is stable**
+    (usually once), **then re-validate the whole merged set against the global ceiling as a single authoritative matrix before freezing** (the Step 5 critic cross-checks that one matrix, not divergent per-dispatch ones). **Do not grow the stack set by guessing** — only what has discovery evidence. The promote/reject decisions and reasons are **recorded** by authoring, one line each,
     in `docs/sds/README.md` (confirmed by the user in the preview alongside the other deliverables) —
     a version-controlled decision record (not a rationale duplicate).
 11. **Write the rationale**: after synthesizing research, `.harness/rationale.md` (per-deliverable generation rationale · adopted patterns · reuse recommendations · sources).

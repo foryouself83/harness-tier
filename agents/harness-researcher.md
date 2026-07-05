@@ -59,6 +59,7 @@ conventions and **free, commercial-OK off-the-shelf solutions** from the web/reg
      human-in-the-loop + reference OSS (Newman/Maestro/Appium — Apache-2.0).
 
 ## Output (this exact format)
+**Return this as your final message — do not write a file.** The leader (harness-init) persists your returned output to `.harness/research/researcher_<topic>.md` under a leader-assigned unique topic (this keeps filenames collision-free across parallel researchers — harness-rules 10).
 ```
 ## {framework} {version} — latest conventions (as of research date)
 ### Folder/layout
