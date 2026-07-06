@@ -1,0 +1,70 @@
+# Release (Rust, cargo-release) — rendered by /flow-init from flow-config.versioning.
+# cargo-release natively bumps Cargo.toml, commits, tags, and pushes — but (verified against
+# crate-ci/cargo-release docs) it does not derive patch/minor/major from Conventional Commits;
+# the level is a required argument. So the level comes from the same `Release-Level:
+# major|minor|patch` commit trailer the `/flow` staging-bump step writes (default: patch).
+# `rc`/`release` are real cargo-release levels (not fabricated here): `rc` bumps/continues a
+# `-rc.N` prerelease train, `release` strips an existing prerelease suffix back to stable.
+# `--no-publish` is intentional: publishing to crates.io is a bigger, separate decision than
+# tagging on GitHub — remove it once the crate is ready for that (see commit-versioning-guide.md).
+# cargo-release does not create a GitHub Release (only the git tag) — added as a final step.
+# Auth: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }} (falls back to GITHUB_TOKEN when unset).
+name: release
+
+on:
+  push:
+    branches: [__HARNESS_STABLE__, __HARNESS_PRERELEASE__]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # cargo-release's default `allow-branch` rejects detached HEAD (its internal `!HEAD`
+          # exception) — `actions/checkout` leaves HEAD detached on `push` unless `ref:` is
+          # given, so this attaches it to the real branch cargo-release needs to commit/push to.
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-release
+        run: cargo install cargo-release
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: cargo release
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          LEVEL="$(git log -1 --pretty=%B | sed -nE 's/^Release-Level:[[:space:]]*(major|minor|patch)[[:space:]]*$/\1/p' | head -1)"
+          LEVEL="${LEVEL:-patch}"
+          BEFORE="$(git rev-parse HEAD)"
+          if [ "${{ github.ref_name }}" = "__HARNESS_PRERELEASE__" ]; then
+            cargo release rc --execute --no-confirm --no-publish
+          else
+            # Finalize an in-flight rc train; if there is none to finalize, do a fresh bump.
+            cargo release release --execute --no-confirm --no-publish \
+              || cargo release "$LEVEL" --execute --no-confirm --no-publish
+          fi
+          AFTER="$(git rev-parse HEAD)"
+          if [ "$BEFORE" != "$AFTER" ]; then echo "released=true" >> "$GITHUB_OUTPUT"; fi
+      - name: Create GitHub Release
+        if: ${{ steps.release.outputs.released == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="$(git describe --tags --abbrev=0)"
+          PRERELEASE=""
+          [ "${{ github.ref_name }}" = "__HARNESS_PRERELEASE__" ] && PRERELEASE="--prerelease"
+          gh release create "$TAG" --title "$TAG" --generate-notes $PRERELEASE

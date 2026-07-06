@@ -204,7 +204,9 @@ Generates a `CLAUDE.md`, rules, and technical docs tailored to your project. It 
 **separate, independent command** from `/flow-init` (governance wiring). Sequence:
 
 1. **Framework detection** — determine language/framework from dependency files
-   (`package.json`, `pyproject.toml`, `go.mod`, etc.) and directories.
+   (`package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `pom.xml`/`build.gradle[.kts]`,
+   `*.csproj`, `CMakeLists.txt`/`vcpkg.json`/`conanfile.*`, `composer.json`, `Gemfile`,
+   `Package.swift`, `build.sbt`, etc.) and directories.
 2. **Research** — use multiple subagents (`harness-researcher`) to web-research current
    conventions, best practices, and free off-the-shelf solutions; if code exists, analyze
    its real conventions with `harness-code-analyzer`. Versions are chosen not as *each

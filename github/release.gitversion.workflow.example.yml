@@ -1,0 +1,68 @@
+# Release (C#, GitVersion) — rendered by /flow-init from flow-config.versioning.
+# GitVersion only calculates a SemVer from git history/branch config — it does not tag, publish,
+# or create a GitHub Release, and (verified against gitversion.net docs) has no Conventional
+# Commits preset out of the box. It runs here purely to surface the branch-computed SemVer for
+# visibility (e.g. to cross-check against GitVersion.MsBuild's build-time value); it does NOT
+# drive the release. The actual release version comes from the same `Release-Level:
+# major|minor|patch` commit trailer the `/flow` staging-bump step writes (default: patch), the
+# same mechanism the other non-Conventional-Commits stacks (Java/Rust/Scala) use.
+# Version is tag-based (no .csproj rewrite) — GitVersion.MsBuild is the idiomatic way to inject
+# the version at build time; that is a separate, opt-in addition (not part of this workflow).
+# Auth: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }} (falls back to GITHUB_TOKEN when unset).
+name: release
+
+on:
+  push:
+    branches: [__HARNESS_STABLE__, __HARNESS_PRERELEASE__]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+      - uses: gittools/actions/gitversion/setup@v4.7.0
+        with:
+          versionSpec: "6.x"
+      - name: GitVersion (informational only — does not drive the release)
+        id: gitversion
+        continue-on-error: true # advisory output — a branch-inference failure here must not block the actual release below
+        uses: gittools/actions/gitversion/execute@v4.7.0
+      - name: Compute next version
+        id: ver
+        run: |
+          echo "GitVersion computed: ${{ steps.gitversion.outputs.semVer }} (informational)"
+          LEVEL="$(git log -1 --pretty=%B | sed -nE 's/^Release-Level:[[:space:]]*(major|minor|patch)[[:space:]]*$/\1/p' | head -1)"
+          LEVEL="${LEVEL:-patch}"
+          CURRENT="$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo 0.0.0)"
+          if [ "${{ github.ref_name }}" = "__HARNESS_PRERELEASE__" ]; then
+            NEXT="$(python3 .claude/harness-tier/scripts/bump_version.py bump --current "$CURRENT" --level "$LEVEL" --prerelease "rc.${{ github.run_number }}")"
+          else
+            NEXT="$(python3 .claude/harness-tier/scripts/bump_version.py finalize --current "$CURRENT" || true)"
+            if [ -z "$NEXT" ]; then
+              NEXT="$(python3 .claude/harness-tier/scripts/bump_version.py bump --current "$CURRENT" --level "$LEVEL")"
+            fi
+          fi
+          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
+      - name: Tag and create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          NEXT="${{ steps.ver.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$NEXT" -m "release v$NEXT"
+          git push origin "v$NEXT"
+          PRERELEASE=""
+          [ "${{ github.ref_name }}" = "__HARNESS_PRERELEASE__" ] && PRERELEASE="--prerelease"
+          gh release create "v$NEXT" --title "v$NEXT" --generate-notes $PRERELEASE

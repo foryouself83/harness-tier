@@ -31,8 +31,8 @@ That one sentence leads to three design choices.
    (fail-closed)**.
 3. **A harness you build once and port** — Repo-specific values like branch names and
    test commands are all pulled out into a config file, so a new repo picks it up with a
-   single `/flow-init`. The gate works **regardless of the project's language** (Go/JS/Java
-   repos behave the same).
+   single `/flow-init`. The gate works **regardless of the project's language** (Go/JS/Java/
+   C++/C#/Rust repos behave the same).
 
 ## Benefits
 

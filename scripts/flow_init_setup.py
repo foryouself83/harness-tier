@@ -78,6 +78,7 @@ COPY_FILES = [
     "scripts/check-deps.sh",
     "scripts/check-token-write.sh",
     "scripts/finalize_prerelease.py",
+    "scripts/bump_version.py",
 ]
 
 # Lines to add to .gitignore. The personal webhook is kept as a **bare pattern** (matches at any
@@ -529,6 +530,9 @@ def load_versioning_config(host: Path) -> dict | None:
 _RELEASE_TEMPLATES = {
     "python-semantic-release": "github/release.python-semantic-release.workflow.example.yml",
     "semantic-release": "github/release.semantic-release.workflow.example.yml",
+    "jreleaser": "github/release.jreleaser.workflow.example.yml",
+    "gitversion": "github/release.gitversion.workflow.example.yml",
+    "cargo-release": "github/release.cargo-release.workflow.example.yml",
 }
 
 
@@ -564,9 +568,10 @@ def render_versioning_workflows(host: Path, plugin: Path) -> list[str]:
     subs = {"__HARNESS_STABLE__": stable, "__HARNESS_PRERELEASE__": prerelease}
     wf_dir = host / ".github" / "workflows"
 
-    # release (per tool)
+    # release (per tool) — case-insensitive: harness-init research may propose the tool's
+    # proper-noun spelling (e.g. "JReleaser", "GitVersion") while the lookup keys stay lowercase.
     tool = str(v.get("release_tool", ""))
-    tmpl = _RELEASE_TEMPLATES.get(tool)
+    tmpl = _RELEASE_TEMPLATES.get(tool.strip().lower())
     if tmpl:
         out += _render_one(plugin / tmpl, wf_dir / "release.yml", subs)
     else:

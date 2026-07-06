@@ -118,6 +118,10 @@
     - Node/TypeScript → `semantic-release`
     - Rust → `cargo-release`
     - Go → `goreleaser`
+    - Java/Kotlin → `JReleaser` (or Gradle `axion-release-plugin`)
+    - C# → `GitVersion`
+    - Scala → `sbt-release` (sbt plugin)
+    - C++/PHP/Ruby/Swift → no single ecosystem-standard tool — researcher proposes per project
     - Other → researcher investigates the ecosystem standard and proposes with rationale
     (if the stack is absent or uncertain, do not fabricate — leave it "needs confirmation" — rule 4).
 13-1. **Generate `commit-versioning-guide` (technical doc)**: in Step 4 authoring, generate
