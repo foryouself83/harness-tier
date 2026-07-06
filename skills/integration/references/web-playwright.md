@@ -43,13 +43,10 @@ When present alongside the primary signal, they strengthen the web verdict:
 | `"react-native"` dependency | React Native (mobile) |
 | `metro.config.js` | React Native bundler |
 | `pubspec.yaml` | Flutter |
-| `"electron"` dependency | Electron desktop |
 | `main.go` / `go.mod` (+ no web signals) | Go CLI/service |
 
-> **Electron exception**: even with an `"electron"` dependency, since it uses Chromium internally,
-> partial automation of the renderer process is possible with `playwright chromium`.
-> However, the main process (Node.js IPC, filesystem access) cannot be controlled with Playwright —
-> handle those parts human-in-the-loop.
+> **Electron is not listed here** — it is checked *before* this table (see `integration/SKILL.md` §2) and is
+> its own verdict, not a non-web signal. For the full procedure, see [`electron.md`](electron.md).
 
 ---
 
@@ -80,12 +77,8 @@ If a value is specified in the config file, use that value.
 ### 3.1 Discovering case files
 
 ```bash
-# Based on the testDir default (./tests), applying the testMatch pattern
-find ./tests \( \
-  -name "*.spec.ts" -o -name "*.spec.js" -o \
-  -name "*.spec.mts" -o -name "*.spec.mjs" -o \
-  -name "*.test.ts" -o -name "*.test.js" \
-\) 2>/dev/null
+# Matches the testMatch default exactly: **/*.@(spec|test).?(c|m)[jt]s?(x)
+find ./tests -regextype posix-extended -regex '.*\.(spec|test)\.(c|m)?[jt]sx?' 2>/dev/null
 ```
 
 **Handling zero cases**: use the `playwright-scaffold` skill to generate a **main-screen smoke** (a deterministic
@@ -127,14 +120,22 @@ Top-level structure of `results.json`:
 }
 ```
 
-Parsing example:
+Parsing example (defensive — a crashed or incomplete Playwright run must still produce a clear FAIL
+report, not an uncaught exception):
 
 ```bash
 node -e "
-  const r = JSON.parse(require('fs').readFileSync('results.json','utf8'));
-  const {expected, unexpected, skipped} = r.stats;
-  console.log('PASS:', expected, '/ FAIL:', unexpected, '/ SKIP:', skipped);
-  process.exit(unexpected > 0 ? 1 : 0);
+  const fs = require('fs');
+  let r;
+  try { r = JSON.parse(fs.readFileSync('results.json', 'utf8')); }
+  catch (e) { console.log('FAIL: results.json missing or invalid (' + e.message + ')'); process.exit(1); }
+  const s = r && r.stats;
+  if (!s || typeof s.unexpected !== 'number') {
+    console.log('FAIL: results.json has no stats — the Playwright run likely crashed before completing');
+    process.exit(1);
+  }
+  console.log('PASS:', s.expected, '/ FAIL:', s.unexpected, '/ SKIP:', s.skipped);
+  process.exit(s.unexpected > 0 ? 1 : 0);
 "
 ```
 

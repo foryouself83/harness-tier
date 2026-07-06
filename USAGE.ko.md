@@ -196,8 +196,9 @@ doc_sync:                    # doc-sync 대상
 프로젝트에 맞는 `CLAUDE.md`·규칙·기술 문서를 만들어 줍니다. `/flow-init`(거버넌스
 배선)과는 **독립적인 별개 커맨드**입니다. 진행 순서:
 
-1. **프레임워크 감지** — 의존성 파일(`package.json`·`pyproject.toml`·`go.mod` 등)과
-   디렉터리로 언어·프레임워크를 판별.
+1. **프레임워크 감지** — 의존성 파일(`package.json`·`pyproject.toml`·`go.mod`·`Cargo.toml`·
+   `pom.xml`/`build.gradle[.kts]`·`*.csproj`·`CMakeLists.txt`/`vcpkg.json`/`conanfile.*`·
+   `composer.json`·`Gemfile`·`Package.swift`·`build.sbt` 등)과 디렉터리로 언어·프레임워크를 판별.
 2. **리서치** — 다중 서브에이전트(`harness-researcher`)로 최신 컨벤션·베스트 프랙티스·
    무료 기성 솔루션을 웹 조사하고, 기존 코드가 있으면 `harness-code-analyzer` 로 실제
    컨벤션도 분석. 버전은 *각각의 최신*이 아니라 **함께 기동되는 호환 집합**으로 고름.

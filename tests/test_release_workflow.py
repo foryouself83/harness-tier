@@ -91,6 +91,65 @@ def test_workflow_step_output_refs_resolve():
         assert refs <= ids, f"{rel}: orphaned step refs {refs - ids} (not a declared id:)"
 
 
+_NEW_LANGUAGE_TEMPLATES = (
+    "github/release.jreleaser.workflow.example.yml",
+    "github/release.gitversion.workflow.example.yml",
+    "github/release.cargo-release.workflow.example.yml",
+)
+
+
+def test_new_language_templates_parse_and_have_release_job():
+    for rel in _NEW_LANGUAGE_TEMPLATES:
+        data = yaml.safe_load((ROOT / rel).read_text(encoding="utf-8"))
+        assert "release" in data["jobs"], rel
+
+
+def test_new_language_templates_step_output_refs_resolve():
+    for rel in _NEW_LANGUAGE_TEMPLATES:
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        ids, refs = _ids_and_output_refs(text)
+        assert refs <= ids, f"{rel}: orphaned step refs {refs - ids} (not a declared id:)"
+
+
+def test_new_language_templates_fall_back_to_github_token():
+    for rel in _NEW_LANGUAGE_TEMPLATES:
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert "secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN" in text, f"{rel}: missing fallback"
+        for line in text.splitlines():
+            if "secrets.GITHUB_TOKEN" in line:
+                assert "secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN" in line, (
+                    f"{rel}: bare GITHUB_TOKEN not wrapped in fallback -> {line.strip()}"
+                )
+
+
+def test_new_language_templates_read_release_level_trailer():
+    # None of these 4 tools derive patch/minor/major from Conventional Commits themselves
+    # (verified per-tool — see commit-versioning-guide.md), so every template reads the same
+    # `Release-Level:` trailer the `/flow` staging-bump step writes.
+    for rel in _NEW_LANGUAGE_TEMPLATES:
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert "Release-Level:" in text, f"{rel}: expected Release-Level trailer read"
+
+
+def test_new_language_templates_use_bump_version_helper_where_needed():
+    # jreleaser/gitversion lack a native "bump by explicit level" primitive, so they use the
+    # shared bump_version.py helper. cargo-release is the one exception: it accepts the level as
+    # a native CLI argument (`cargo release patch/rc/release`), so no helper is needed.
+    with_helper = (
+        "github/release.jreleaser.workflow.example.yml",
+        "github/release.gitversion.workflow.example.yml",
+    )
+    for rel in with_helper:
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert "bump_version.py" in text, f"{rel}: expected bump_version.py usage"
+
+    cargo_text = (ROOT / "github/release.cargo-release.workflow.example.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "bump_version.py" not in cargo_text
+    assert "cargo release" in cargo_text
+
+
 def test_release_body_uses_changelog_section():
     """release.yml + the python template build the GitHub Release body from the
     latest CHANGELOG.md section, with a --generate-notes fallback."""

@@ -32,15 +32,32 @@ If the stack is confirmed, describe the corresponding tool. **If unconfirmed, le
 
 #### Default Tool Candidates per Stack
 
-| Stack | Recommended Tool | Version File |
-|------|-----------|-----------|
-| Python | `python-semantic-release` | `[tool.poetry] version` or `__version__` in `pyproject.toml` |
-| Node/TypeScript | `semantic-release` | `"version"` in `package.json` |
-| Rust | `cargo-release` | `[package] version` in `Cargo.toml` |
-| Go | `goreleaser` | `go.mod` tag-based (no file version — git tags are the SSOT) |
-| Other | researcher investigates the ecosystem standard and proposes with rationale | — |
+**SSOT**: [harness-rules.md §13](../../../rules/harness-rules.md) "Version/release convention
+research" holds the definitive per-stack candidate list — do not duplicate it here (harness-rules
+rule 8, no duplication).
 
-> **Do not assert a library**: the list above is candidates; do not commit to a specific tool without research·code-analyzer evidence (harness-authoring principle).
+> **Do not assert a library**: the candidates there are starting points; do not commit to a
+> specific tool without research·code-analyzer evidence (harness-authoring principle).
+
+#### Rendered CI Templates — Bump-Level Mechanism Differs by Tool
+
+`/flow-init` renders `.github/workflows/release.yml` from `github/release.<tool>.workflow.example.yml`
+(case-insensitive match on `release_tool`) for: `python-semantic-release` · `semantic-release` ·
+`jreleaser` · `gitversion` · `cargo-release`. Other candidates (Scala/sbt-release, C++/PHP/Ruby/Swift/Go)
+have no template yet — CI wiring stays opt-in/manual (rule 13-2).
+
+- **The current version always comes from the release branch's git tag**
+  (`git describe --tags --abbrev=0`), never a value the human types in — this is the one
+  language-agnostic part all templates share.
+- **Python/Node read Conventional Commits themselves** — patch/minor/major is auto-derived.
+- **JReleaser/GitVersion/cargo-release do not** (verified against each tool's docs — do not
+  assume otherwise for a new stack without the same verification). Their templates instead read
+  the same `Release-Level: major|minor|patch` commit trailer the `/flow` staging-bump step
+  already writes (the human picks the *level*, not a version number), defaulting to `patch` when
+  absent. JReleaser/GitVersion compute the next version with the shared `scripts/bump_version.py`
+  helper; cargo-release takes the level as a native CLI argument instead (no helper needed).
+- **GitVersion/cargo-release don't create a GitHub Release natively** (only a git tag) — their
+  templates add a `gh release create` step, same as the Python template's `gh` usage.
 
 #### Configuration Items (fill in per tool from research results)
 - whether a changelog is generated·file location
@@ -71,10 +88,14 @@ If the stack is confirmed, describe the corresponding tool. **If unconfirmed, le
 git describe --tags --abbrev=0
 
 # Release-tool dry-run (fill in after confirming the tool — per stack)
-# Python: semantic-release version --dry-run
-# Node:   semantic-release --dry-run
-# Rust:   cargo release --dry-run
-# Go:     goreleaser release --skip-publish --snapshot
+# Python:      semantic-release version --dry-run
+# Node:        semantic-release --dry-run
+# Rust:        cargo release <level>              # dry-run BY DEFAULT — add --execute to apply
+# Go:          goreleaser release --skip-publish --snapshot
+# Java/Kotlin: jreleaser full-release --dry-run
+# C#:          dotnet-gitversion /showvariable SemVer   # reports only — does not drive the release
+# Scala:       sbt "release with-defaults"         # no --dry-run flag; no CI template yet (opt-in/manual)
+# C++/PHP/Ruby/Swift: project-specific — no ecosystem-standard tool (see harness-rules.md §13)
 ```
 
 ### 5. Guidance When flow Is Detected

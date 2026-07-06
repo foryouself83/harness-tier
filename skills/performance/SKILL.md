@@ -1,7 +1,7 @@
 ---
 name: performance
 description: Statically flags language-specific performance anti-patterns (N+1, query plans, recursion/complexity, frontend re-renders) across the codebase, and when a backend exists, extracts the APIs from OpenAPI and load-tests each API 100 times with openapi-to-k6+k6, reporting p50/p95/p99, throughput, and error rate against SLOs. A manual skill, not a gate — invoke it when a performance check is needed.
-allowed-tools: Bash, Read, Grep, Glob, WebFetch
+allowed-tools: Bash, Read, Grep, Glob
 ---
 
 # performance
@@ -25,86 +25,43 @@ First consume the host documentation; if none exists, fall back to the built-in 
 ls docs/verification/performance.md 2>/dev/null && cat docs/verification/performance.md
 ```
 
-- **If `docs/verification/performance.md` exists**: read the stack list, SSOT, and tools from the file and run only the sections for those stacks.
-- **If `docs/verification/performance.md` is absent**: fall back to `references/static-checks.md` and `references/api-load.md`.
+- **If `docs/verification/performance.md` exists**: read the stack list, SSOT, and tools from the file and
+  run those sections. **Also independently run Automatic Stack Detection (below)** — for any detected stack
+  that the host doc does NOT mention, run that stack's fallback reference file too (the host doc may be
+  stale or predate a newly added stack; do not silently skip undocumented stacks).
+- **If `docs/verification/performance.md` is absent**: fall back entirely to Automatic Stack Detection.
 
-### Automatic Stack Detection (fallback)
+### Automatic Stack Detection (fallback / gap-fill)
 
-| Signal file/pattern | Detected stack |
-|---|---|
-| `pyproject.toml` / `setup.py` / `*.py` | Python |
-| `package.json` (ORM/express in `"dependencies"`) | Node.js |
-| `package.json` (`react`/`next`) | React |
-| `pom.xml` / `*.java` / `build.gradle` | Java/Hibernate |
-| `Gemfile` / `*.rb` | Ruby |
-| `*.csproj` / `*.cs` | .NET |
-| `go.mod` / `*.go` | Go |
-| `*.sql` / DB-related migrations | DB |
+| Signal file/pattern | Detected stack | Reference file |
+|---|---|---|
+| `pyproject.toml` / `setup.py` / `*.py` | Python | [`static-checks-python.md`](references/static-checks-python.md) |
+| `package.json` (ORM/express in `"dependencies"`) | Node.js | [`static-checks-node.md`](references/static-checks-node.md) |
+| `package.json` (`react`/`next`) | React | [`static-checks-react.md`](references/static-checks-react.md) |
+| `pom.xml` / `*.java` / `build.gradle` | Java/Hibernate | [`static-checks-java.md`](references/static-checks-java.md) |
+| `Gemfile` / `*.rb` | Ruby | [`static-checks-ruby.md`](references/static-checks-ruby.md) |
+| `*.csproj` / `*.cs` | .NET | [`static-checks-dotnet.md`](references/static-checks-dotnet.md) |
+| `go.mod` / `*.go` | Go | (no dedicated N+1 catalog yet — run [`static-checks-complexity.md`](references/static-checks-complexity.md) only) |
+| `*.sql` / DB-related migrations | DB | [`static-checks-db.md`](references/static-checks-db.md) |
 
-If multiple stacks are detected, **run all of them**.
+If multiple stacks are detected, **run all of them**. Always also run
+[`static-checks-complexity.md`](references/static-checks-complexity.md) (language-agnostic via lizard),
+regardless of which stacks were detected.
 
 ---
 
 ## 2. Language-Specific Static Anti-Pattern Flagging
 
-> **Authoritative catalog (SSOT) = [`references/static-checks.md`](references/static-checks.md)** —
-> the per-stack tools, patterns, and SSOT URLs are managed only there (add/modify stacks in
-> references, not in this SKILL copy).
-> The §2.x subsections below are an **execution-procedure summary** for applying that catalog (on any overlap, references takes precedence).
+> **Authoritative catalogs (SSOT)** — one file per stack, listed in the table in §1. Add/modify detection
+> patterns only in the relevant `references/static-checks-<stack>.md` file, never here.
 
-For each detected stack, follow the corresponding row in `references/static-checks.md`.
+For each detected stack, open its reference file from §1's table and follow its detection commands and
+verification-delegated runtime tools. Every stack file follows the same shape: a detection-pattern table,
+the statically-safe grep/tool command, the correct fix, and the runtime tool to delegate final verification to.
 
-### 2.1 N+1 Queries
-
-Statically detect ORM access patterns inside loops. Detection heuristic:
-
-```bash
-# Python/Django example: .objects.get() / .filter() inside a for loop
-grep -rn "for .*:" src/ | xargs grep -l "\.objects\.\(get\|filter\|all\)()"
-```
-
-After flagging, **always delegate verification to a runtime tool** (nplusone, bullet, Hibernate Statistics, etc.).
-See the "N+1 detection" column in `references/static-checks.md`.
-
-### 2.2 DB Query-Plan Caution Patterns
-
-Flag only patterns that are statically detectable:
-
-- `SELECT *` — retrieves all columns
-- `WHERE FUNC(column) = ?` — function wrapping prevents index use
-- `LIKE '%keyword%'` — leading wildcard prevents index use
-- Complex `OR` chains — poor index branching
-
-After detection, guide the `EXPLAIN ANALYZE` (PostgreSQL) / `EXPLAIN` (MySQL) / `EXPLAIN QUERY PLAN` (SQLite)
-procedure. For details, see the "DB query plan" section of `references/static-checks.md`.
-
-### 2.3 Recursion / Algorithmic Complexity
-
-> **Important**: Cyclomatic complexity is a count of branches, not Big-O time complexity.
-> Keep the two concepts distinct.
-
-Static detection scope:
-
-- Nested-loop depth ≥ 3 — flagged as a candidate for quadratic-or-worse complexity
-- Recursive functions without memoization — potential exponential complexity depending on the argument space
-
-After detection, delegate measurement to a **profiler** (py-spy, 0x, async-profiler, etc.). For details, see `references/static-checks.md`.
-
-### 2.4 Frontend Re-renders (React)
-
-**Detect whether React Compiler v1.0 is active first** — check for `babel-plugin-react-compiler`
-/ `@babel/plugin-react-compiler` / the Vite `reactCompiler` option in the package or Babel config.
-
-```bash
-grep -r "react-compiler\|babel-plugin-react-compiler" package.json babel.config.* vite.config.* 2>/dev/null
-```
-
-| State | Applicable rule |
-|---|---|
-| **Compiler active** | Relax the manual `memo`/`useMemo`/`useCallback` rules. Instead, focus checks on **Rules of React violations** (`eslint-plugin-react-hooks`). |
-| **Compiler inactive** | Statically detect inline object/function props, missing `useCallback`, unnecessary `React.createElement` re-creation, etc. |
-
-For detailed patterns and SSOT, see the "React re-render" section of `references/static-checks.md`.
+DB query-plan caution patterns (`SELECT *`, function-wrapped `WHERE`, leading-wildcard `LIKE`, etc.) are
+DB-engine-based, not language-based — always consult [`static-checks-db.md`](references/static-checks-db.md)
+when a DB is present, regardless of the application language.
 
 ---
 
@@ -112,34 +69,20 @@ For detailed patterns and SSOT, see the "React re-render" section of `references
 
 > For the detailed procedure, tools, and report template, see → [`references/api-load.md`](references/api-load.md).
 
-### 3.1 Automatic OpenAPI Spec Discovery
+### 3.1 Automatic OpenAPI Spec Discovery + BASE_URL Confirmation
 
-> **The authoritative procedure and the full candidate-path list = [`references/api-load.md`](references/api-load.md) §1**
-> (including per-stack paths and handling of the variable ASP.NET documentName). The below is an execution summary.
-
-Do not hardcode BASE_URL; detect it (same principle as playwright-scaffold's baseURL detection —
-find and confirm it from flow-config, the running server, docker-compose, .env, or the framework default):
-
-```bash
-BASE_URL="${BASE_URL:?set to the detected base URL — see api-load.md §1}"
-for path in /openapi.json /v3/api-docs /swagger/v1/swagger.json /swagger.json /api-docs; do
-  curl -sf "${BASE_URL}${path}" && break
-done
-```
+> **The authoritative procedure = [`references/api-load.md`](references/api-load.md) §1** (candidate-path
+> list, BASE_URL multi-source detection + **required user confirmation** via `AskUserQuestion`, and the
+> ASP.NET variable-documentName handling). Follow it exactly — do not re-derive BASE_URL inline here.
 
 ### 3.2 Generating and Running the Load Script
 
-**First choice (AGPL-3.0 — harmless for internal CI use):**
+> **The authoritative procedure = [`references/api-load.md`](references/api-load.md) §2.1** (openapi-to-k6's
+> real CLI syntax — positional `<spec> <outputDir>` args, not `-o <file>` — its TypeScript class-based client
+> output, and the N-endpoint scenario generator). Follow it exactly — do not re-derive the invocation inline
+> here.
 
-```bash
-# Generate a per-operation function client with openapi-to-k6
-npx openapi-to-k6 openapi.json -o k6-client.js
-# Configure and run a k6 scenario (iterations:100) per endpoint — "100 runs per endpoint"
-# (k6 --iterations counts the whole script, so per-endpoint counts are NOT guaranteed. Details: references/api-load.md)
-k6 run --out json=k6-result.json k6-load.js
-```
-
-**MIT fallback (when avoiding AGPL):** `oha`, `autocannon`, `vegeta` — see `references/api-load.md`.
+**MIT fallback (when avoiding AGPL):** `oha`, `autocannon`, `vegeta` — see `references/api-load.md` §2.2.
 
 > The iteration count (default 100) and SLO thresholds are the skill's defaults. If a team-specific
 > load profile is needed, do not fork the skill; place it in the host's `docs/verification/performance.md`
@@ -190,5 +133,12 @@ warm-up excluded (first 10 runs) / no CO correction / local execution (no networ
 
 ## References
 
-- [`references/static-checks.md`](references/static-checks.md) — per-stack static anti-pattern SSOT (§10.1–§10.4)
-- [`references/api-load.md`](references/api-load.md) — OpenAPI discovery + openapi-to-k6/k6 + report standard (§10.5–§10.6)
+- [`references/static-checks-python.md`](references/static-checks-python.md) — Python static anti-pattern catalog (N+1)
+- [`references/static-checks-node.md`](references/static-checks-node.md) — Node.js (Prisma/TypeORM) static anti-pattern catalog (N+1)
+- [`references/static-checks-java.md`](references/static-checks-java.md) — Java/Hibernate static anti-pattern catalog (N+1)
+- [`references/static-checks-ruby.md`](references/static-checks-ruby.md) — Ruby/Rails static anti-pattern catalog (N+1)
+- [`references/static-checks-dotnet.md`](references/static-checks-dotnet.md) — .NET/EF Core static anti-pattern catalog (N+1)
+- [`references/static-checks-react.md`](references/static-checks-react.md) — React frontend re-render anti-pattern catalog
+- [`references/static-checks-db.md`](references/static-checks-db.md) — DB query-plan caution patterns (language-agnostic)
+- [`references/static-checks-complexity.md`](references/static-checks-complexity.md) — recursion/algorithmic complexity detection (language-agnostic, lizard)
+- [`references/api-load.md`](references/api-load.md) — OpenAPI discovery + BASE_URL confirmation + openapi-to-k6/k6 + report standard

@@ -56,7 +56,10 @@ ls tsconfig.json 2>/dev/null; grep -E '"(typescript|@playwright/test)"' package.
 
 ```bash
 # Do not generate if any existing case is present (the starter is for empty projects only)
-find "${TESTDIR:-tests}" \( -name '*.spec.*' -o -name '*.test.*' \) 2>/dev/null | head -1
+# Matches the testMatch default exactly — same pattern used by integration/SKILL.md and web-playwright.md,
+# so all three files agree on what counts as "an existing case" (previously this used a broader `*.spec.*`
+# wildcard that could also match non-Playwright files like `foo.spec.md`).
+find "${TESTDIR:-tests}" -regextype posix-extended -regex '.*\.(spec|test)\.(c|m)?[jt]sx?' 2>/dev/null | head -1
 ```
 - If cases already exist or `main.smoke.spec.*` exists, **only report and do not generate** (no overwriting).
 - Only when absent, write `<testDir>/main.smoke.spec.<ts|js>` based on
