@@ -16,14 +16,11 @@
 | **React Native** | `"react-native"` dependency | iOS/Android app |
 | | `metro.config.js` present | RN bundler signal |
 | **Flutter** | `pubspec.yaml` present | iOS/Android/Desktop |
-| **Electron** | `"electron"` dependency | Desktop app (has an exception) |
 | **Go service/CLI** | `go.mod` + no web-framework dependency | Non-web if there is no frontend, even with an HTTP server |
 | **Python service** | `pyproject.toml`/`requirements.txt` + no web-framework dependency | FastAPI/Django are backends — distinguish from a web frontend |
 
-> **Electron exception**: even with an `"electron"` dependency, the Chromium renderer process can be
-> partially automated with `playwright chromium`.
-> For Electron app integration testing, see the "Electron exception" section of [`web-playwright.md`](web-playwright.md),
-> and handle only the main-process scenarios (IPC, filesystem, native APIs) human-in-the-loop.
+> **Electron is not a non-web type** — it is its own verdict, checked before this table (see
+> `integration/SKILL.md` §2). See [`electron.md`](electron.md) for the full hybrid procedure.
 
 ---
 
@@ -151,8 +148,8 @@ appium
 | REST API service (no frontend) | Postman collection → run with Newman in CI | Newman (Apache-2.0) |
 | React Native | Define flows in Maestro YAML | Maestro (Apache-2.0) |
 | Flutter | `flutter test` integration tests + Maestro | Maestro (Apache-2.0) |
-| Electron (renderer) | Playwright chromium channel | [`web-playwright.md`](web-playwright.md) |
-| Electron (main process, IPC) | human-in-the-loop manual checklist | — |
+| Electron (renderer) | Playwright chromium channel | [`electron.md`](electron.md) |
+| Electron (main process, IPC) | human-in-the-loop manual checklist | [`electron.md`](electron.md) |
 | iOS/Android native | Appium WebDriver | Appium (Apache-2.0) |
 
 ---

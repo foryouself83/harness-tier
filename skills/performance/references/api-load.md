@@ -4,11 +4,35 @@
 
 ---
 
-## 1. Automatic OpenAPI Spec Discovery
+## 1. Automatic OpenAPI Spec Discovery + BASE_URL Confirmation
 
-### 1.1 Candidate-Path Order
+### 1.1 BASE_URL Detection (multi-source, with required user confirmation)
 
-If the server is running, GET the paths below in order. Use the first successful response.
+Do not hardcode or silently default BASE_URL. Gather candidates, then **confirm with the user** before use
+(same principle as `playwright-scaffold`'s baseURL detection):
+
+```bash
+# 1) flow-config.yaml (host-shared config, if this project uses the harness-tier flow)
+grep -A2 "contract_test:" .claude/harness-tier/config/flow-config.yaml 2>/dev/null | grep "base_url"
+
+# 2) docker-compose port mapping (backend service host port)
+grep -nE '^\s*-\s*"?[0-9]+:[0-9]+' docker-compose.y*ml compose.y*ml 2>/dev/null
+
+# 3) PORT / BASE_URL in .env
+grep -nhE '^(PORT|BASE_URL)=' .env .env.* 2>/dev/null
+
+# 4) framework-default ports (if nothing above matched)
+#    FastAPI/Django=8000, Spring Boot=8080, ASP.NET=5000/7000, Rails/Express=3000
+```
+
+**User confirmation (required)**: present the collected candidates via `AskUserQuestion` and finalize
+`BASE_URL` (offer them as choices if there are several; ask for direct input if none was found). Do not
+assert a guess as fact — this mirrors `playwright-scaffold`'s Step 1 exactly.
+
+### 1.2 Candidate-Path Order
+
+If the server is running, GET the paths below in order using the confirmed `BASE_URL`. Use the first
+successful response.
 
 | Priority | Path | Framework | Source |
 |---|---|---|---|
@@ -22,13 +46,15 @@ If the server is running, GET the paths below in order. Use the first successful
 `/swagger` HTML and parse the `url: "..."` pattern inside a `<script>` tag to extract the actual spec URL.
 
 ```bash
-# Auto-discovery script (bash)
-BASE_URL="${1:-http://localhost:8000}"
+# Save the spec to a fixed, shared path — every later step in this file (openapi-to-k6, the scenario
+# generator) reads from this exact path, so there is only one file location to keep in sync.
+mkdir -p /tmp/harness-perf
+SPEC_PATH="/tmp/harness-perf/openapi_spec.json"
 SPEC_URL=""
 for path in /openapi.json /v3/api-docs /swagger/v1/swagger.json /swagger.json /api-docs; do
-  if curl -sf "${BASE_URL}${path}" -o /tmp/openapi_spec.json; then
+  if curl -sf "${BASE_URL}${path}" -o "$SPEC_PATH"; then
     SPEC_URL="${BASE_URL}${path}"
-    echo "spec found: ${SPEC_URL}"
+    echo "spec found: ${SPEC_URL} -> ${SPEC_PATH}"
     break
   fi
 done
@@ -38,7 +64,7 @@ if [ -z "$SPEC_URL" ]; then
 fi
 ```
 
-### 1.2 $ref Dereference
+### 1.3 $ref Dereference
 
 A spec containing `$ref` may need to be resolved before tools can process it.
 
@@ -48,7 +74,7 @@ A spec containing `$ref` may need to be resolved before tools can process it.
 | schemathesis | MIT | $ref resolve + contract testing | https://github.com/schemathesis/schemathesis |
 | json-schema-faker | MIT | Generate example values (JS) | https://github.com/json-schema-faker/json-schema-faker |
 
-### 1.3 Example-Value Override Rules
+### 1.4 Example-Value Override Rules
 
 Per the OpenAPI 3.1.1 spec:
 
@@ -72,12 +98,13 @@ Source: https://spec.openapis.org/oas/v3.1.1.html · 3.0→3.1 upgrade: https://
 
 | Tool | Version check | Source |
 |---|---|---|
-| openapi-to-k6 | `npx openapi-to-k6 --version` | https://github.com/grafana/openapi-to-k6 |
-| k6 | `k6 version` | https://grafana.com/docs/k6/latest/ |
+| openapi-to-k6 | `npx @grafana/openapi-to-k6 --version` | https://github.com/grafana/openapi-to-k6 |
+| k6 | `k6 version` (need **v0.57+** for native TypeScript — see note below) | https://grafana.com/docs/k6/latest/ |
 
 **Installation (if missing):**
 ```bash
-# openapi-to-k6 (usable immediately via npx)
+# openapi-to-k6 (usable immediately via npx; the bare package name alone is NOT resolvable —
+# always pass the scoped package @grafana/openapi-to-k6)
 npm install -g @grafana/openapi-to-k6  # or use npx directly
 
 # k6 (per OS)
@@ -86,39 +113,130 @@ npm install -g @grafana/openapi-to-k6  # or use npx directly
 # Windows: choco install k6  or the official MSI
 ```
 
+> **k6 + TypeScript**: openapi-to-k6 generates a **TypeScript** client (`.ts`), and k6 **v0.57+** runs
+> `.ts` files natively (transpiles via esbuild at runtime; type-stripping only, no type-checking). On an
+> older k6, either upgrade or pre-compile the generated file to `.js` yourself (e.g. `tsc`/`esbuild`) before
+> importing it. Source: https://grafana.com/docs/k6/latest/using-k6/javascript-typescript-compatibility-mode/
+
 **Running (100 times per endpoint):**
 
 > ⚠️ `k6 run --iterations N` is the run count for the **whole script**, **not** the per-endpoint count.
 > When there are multiple endpoints, a plain `--iterations 100` does **not guarantee** "100 runs per API".
 > To measure **each endpoint exactly 100 times**, use k6 **scenarios** with a separate scenario
-> (`iterations: 100`) per endpoint. Since openapi-to-k6 generates a function per operation, wire
-> that function into the scenario's `exec`.
+> (`iterations: 100`) per endpoint, one scenario per operation.
 
 ```bash
-# 1) OpenAPI → k6 client (per-operation functions)
-npx openapi-to-k6 /tmp/openapi_spec.json -o /tmp/k6-client.js
+# 1) OpenAPI → k6 client. openapi-to-k6's CLI takes POSITIONAL args (spec, then an output DIRECTORY) —
+# there is no `-o <file>` flag. It writes ONE .ts file into that directory, named after the spec's
+# info.title (e.g. a spec titled "Test API" produces testAPI.ts) — not a fixed filename, so discover it.
+mkdir -p /tmp/harness-perf/client
+npx @grafana/openapi-to-k6 /tmp/harness-perf/openapi_spec.json /tmp/harness-perf/client --disable-analytics
+CLIENT_FILE=$(find /tmp/harness-perf/client -name '*.ts' | head -1)
+echo "generated client: ${CLIENT_FILE}"
 ```
 
-```javascript
-// /tmp/k6-load.js — per-endpoint scenarios (100 iterations each)
-import { getUsers, createOrder } from './k6-client.js'; // functions generated by openapi-to-k6
+> **Client shape**: the generated file exports a single **class** (e.g. `TestAPIClient` for a spec titled
+> "Test API") — **not** top-level functions. Each spec `operationId` becomes a class **method** of the
+> exact same name (verified against real `openapi-to-k6 0.4.1` output), returning `{ response, data,
+> operationId }`. Instantiate the class once with `{ baseUrl }`, then call one method per operation.
+
+> **Executor choice matters**: `shared-iterations` treats `iterations` as a TOTAL shared across all `vus`
+> (exactly "100 per endpoint"). `per-vu-iterations` instead runs `iterations` **per VU**, i.e. `vus * iterations`
+> total — using it here would silently run 1000 iterations per endpoint instead of the promised 100.
+
+```typescript
+// /tmp/harness-perf/k6-load.ts — per-endpoint scenarios (100 TOTAL iterations each, shared across 10 VUs)
+// Import path/class name are illustrative — see §2.1's generator below to derive them from the real
+// generated file rather than hardcoding.
+import { TestAPIClient } from './client/testAPI.ts';
+
+const client = new TestAPIClient({ baseUrl: __ENV.BASE_URL });
+
 export const options = {
   scenarios: {
-    get_users:    { executor: 'per-vu-iterations', vus: 10, iterations: 100, exec: 'getUsers' },
-    create_order: { executor: 'per-vu-iterations', vus: 10, iterations: 100, exec: 'createOrder' },
+    getUsers:     { executor: 'shared-iterations', vus: 10, iterations: 100, exec: 'getUsers' },
+    createOrder:  { executor: 'shared-iterations', vus: 10, iterations: 100, exec: 'createOrder' },
   },
 };
-export function getUsers()    { /* call GET /users via the generated client */ }
-export function createOrder() { /* call POST /orders via the generated client */ }
+export function getUsers()    { client.getUsers(); }
+export function createOrder() { client.createOrder(); }
 ```
 
 ```bash
 # 2) Run + JSON result (100 times per endpoint)
-k6 run --out json=/tmp/k6-result.json /tmp/k6-load.js
+k6 run --out json=/tmp/harness-perf/k6-result.json /tmp/harness-perf/k6-load.ts
 ```
 
-> When there are many endpoints, **generate the `scenarios` above programmatically** from the spec's
-> (method, path) list. If there is only a single endpoint, `k6 run --iterations 100` is enough (only then does whole = endpoint).
+**Generating scenarios for an arbitrary number of endpoints:**
+
+The two-scenario example above is illustrative. For any real spec, generate `k6-load.ts` programmatically:
+find the generated class's name, confirm each spec `operationId` is really implemented as a method (by
+searching for its `operationId: "..."` return-literal — more robust than assuming a naming convention,
+since the method name and the string literal are both derived from the same `operationId` and must agree),
+then emit one scenario + wrapper function per operation:
+
+```javascript
+// /tmp/harness-perf/gen-k6-scenarios.mjs
+// Usage: node gen-k6-scenarios.mjs <spec.json> <generated-client.ts> <output k6-load.ts>
+import fs from 'fs';
+import path from 'path';
+
+const [specPath, clientPath, outPath] = process.argv.slice(2);
+const spec = JSON.parse(fs.readFileSync(specPath, 'utf8'));
+
+const operationIds = [];
+for (const methods of Object.values(spec.paths || {})) {
+  for (const [method, op] of Object.entries(methods)) {
+    if (!['get', 'post', 'put', 'patch', 'delete'].includes(method)) continue;
+    if (!op.operationId) {
+      throw new Error(`${method.toUpperCase()} operation with no operationId — openapi-to-k6 requires one per operation`);
+    }
+    operationIds.push(op.operationId);
+  }
+}
+
+const clientSrc = fs.readFileSync(clientPath, 'utf8');
+const classMatch = clientSrc.match(/export\s+class\s+(\w+)/);
+if (!classMatch) {
+  console.error(`Could not find an exported class in ${clientPath} — openapi-to-k6's output shape may have changed; inspect the file manually.`);
+  process.exit(1);
+}
+const className = classMatch[1];
+
+const missing = operationIds.filter((id) => !clientSrc.includes(`operationId: "${id}"`));
+if (missing.length > 0) {
+  console.error(
+    `Spec operationIds not found as methods in ${clientPath}: ${missing.join(', ')} — ` +
+    `verify openapi-to-k6's output manually before generating scenarios.`
+  );
+  process.exit(1);
+}
+
+const scenarios = {};
+operationIds.forEach((id) => {
+  // shared-iterations: `iterations` is the TOTAL shared across all `vus` (exactly "100 per endpoint").
+  // per-vu-iterations would instead run 100 PER VU = vus*iterations total — do not use it here.
+  scenarios[id] = { executor: 'shared-iterations', vus: 10, iterations: 100, exec: id };
+});
+
+const clientRelPath = './' + path.basename(clientPath);
+const out = `import { ${className} } from '${clientRelPath}';
+
+const client = new ${className}({ baseUrl: __ENV.BASE_URL });
+
+export const options = {
+  scenarios: ${JSON.stringify(scenarios, null, 2)},
+};
+${operationIds.map((id) => `export function ${id}() { client.${id}(); }`).join('\n')}
+`;
+fs.writeFileSync(outPath, out);
+console.log(`Generated ${operationIds.length} scenarios -> ${outPath}`);
+```
+
+```bash
+node /tmp/harness-perf/gen-k6-scenarios.mjs /tmp/harness-perf/openapi_spec.json "${CLIENT_FILE}" /tmp/harness-perf/k6-load.ts
+k6 run --out json=/tmp/harness-perf/k6-result.json /tmp/harness-perf/k6-load.ts
+```
 
 ### 2.2 MIT Fallback (when avoiding AGPL)
 
@@ -196,6 +314,7 @@ Source: https://sre.google/sre-book/monitoring-distributed-systems/
 ```
 Measurement metadata:
 - Tool / version: openapi-to-k6 x.y.z + k6 0.52.x
+- Confirmed BASE_URL: <value> (source: flow-config / docker-compose / .env / framework-default / user-provided)
 - Load model: constant / ramp-up / spike
 - Duration: Xs (or iterations=100 per endpoint)
 - VU (concurrency): N
