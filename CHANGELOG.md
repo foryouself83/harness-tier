@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v0.1.5-rc.1 (2026-07-06)
+
+### Bug Fixes
+
+- **performance,integration**: Fix 16 confirmed bugs, split static-checks.md by stack, promote
+  Electron to a first-class branch
+  ([`6298a1f`](https://github.com/foryouself83/harness-tier/commit/6298a1f1decd93e0140e495d4f0e4ad5b5b74072))
+
+### Features
+
+- **harness-init,flow-init**: Add C++/C#/Java/Kotlin/Rust/PHP/Ruby/Swift support
+  ([`6b881da`](https://github.com/foryouself83/harness-tier/commit/6b881da0d163c65e12d890198d8afe0338dee416))
+
+
 ## v0.1.4-rc.1 (2026-07-05)
 
 ### Bug Fixes
