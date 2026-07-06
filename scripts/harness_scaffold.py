@@ -72,6 +72,82 @@ FRAMEWORK_SIGNATURES = {
     "django": "django",
     "flask": "flask",
 }
+# C# (.csproj) Sdk attribute → framework label
+DOTNET_SDK_SIGNATURES = {
+    "Microsoft.NET.Sdk.Web": "aspnet-core",
+    "Microsoft.NET.Sdk.BlazorWebAssembly": "blazor-wasm",
+    "Microsoft.NET.Sdk.Razor": "razor-class-library",
+}
+# C# (.csproj) MSBuild UI-stack property → framework label
+DOTNET_PROPERTY_SIGNATURES = {
+    "UseWPF": "wpf",
+    "UseWindowsForms": "winforms",
+    "UseMaui": "maui",
+}
+# C# (.csproj) NuGet PackageReference name → framework label
+DOTNET_PACKAGE_SIGNATURES = {
+    "Microsoft.EntityFrameworkCore": "entity-framework-core",
+}
+# C++ (vcpkg.json/conanfile.*) dependency/port name → library label
+CPP_LIB_SIGNATURES = {
+    "boost": "boost",
+    "qtbase": "qt",
+    "qt5": "qt",
+    "qt6": "qt",
+    "opencv": "opencv",
+    "opencv4": "opencv",
+    "gtest": "googletest",
+    "catch2": "catch2",
+    "fmt": "fmt",
+    "spdlog": "spdlog",
+}
+# JVM (pom.xml/build.gradle[.kts]) artifactId prefix → framework label (Java & Kotlin share
+# the same Maven/Gradle manifests, so one table covers both).
+JAVA_LIB_SIGNATURES = {
+    "spring-boot-starter": "spring-boot",
+    "spring-core": "spring",
+    "spring-webmvc": "spring",
+    "quarkus-core": "quarkus",
+    "micronaut-core": "micronaut",
+    "ktor-server-core": "ktor",
+}
+# Rust (Cargo.toml) crate name → framework label
+RUST_LIB_SIGNATURES = {
+    "actix-web": "actix-web",
+    "axum": "axum",
+    "rocket": "rocket",
+    "warp": "warp",
+    "tokio": "tokio",
+}
+# PHP (composer.json) package name → framework label
+PHP_LIB_SIGNATURES = {
+    "laravel/framework": "laravel",
+    "symfony/framework-bundle": "symfony",
+    "symfony/symfony": "symfony",
+    "slim/slim": "slim",
+    "codeigniter4/framework": "codeigniter",
+}
+# Ruby (Gemfile) gem name → framework label
+RUBY_LIB_SIGNATURES = {
+    "rails": "rails",
+    "sinatra": "sinatra",
+    "hanami": "hanami",
+}
+# Swift (Package.swift) package repo name → library label
+SWIFT_LIB_SIGNATURES = {
+    "vapor": "vapor",
+    "swift-nio": "swift-nio",
+    "alamofire": "alamofire",
+    "rxswift": "rxswift",
+}
+# Scala (build.sbt) artifactId → framework label
+SCALA_LIB_SIGNATURES = {
+    "play": "play-framework",
+    "akka-actor-typed": "akka",
+    "akka-http": "akka-http",
+    "http4s-core": "http4s",
+    "cats-effect": "cats-effect",
+}
 
 
 def _walk_files(root: Path) -> Iterator[Path]:
@@ -92,6 +168,19 @@ def _norm_version(spec: str) -> str:
     # "==0.118.0", "^15.0.1", ">=2,<3" → extract only the first numeric version (else the original)
     m = re.search(r"\d+(?:\.\d+)*", spec or "")
     return m.group(0) if m else (spec or "").strip()
+
+
+def _match_by_prefix(name: str, signatures: dict[str, str]) -> str | None:
+    """Match a Maven/Gradle artifactId against known label prefixes.
+
+    Unlike npm/pip, JVM artifactIds carry many starter/module suffixes
+    (`spring-boot-starter-web`, `spring-boot-starter-data-jpa`, ...), so an
+    exact dict lookup would need one entry per variant.
+    """
+    for key, label in signatures.items():
+        if name == key or name.startswith(f"{key}-"):
+            return label
+    return None
 
 
 def detect_frameworks(root: Path) -> list[dict]:
@@ -166,6 +255,211 @@ def detect_frameworks(root: Path) -> list[dict]:
     gomod = root / "go.mod"
     if gomod.is_file():
         out.append({"name": "go", "version": "", "manifest": "go.mod"})
+
+    for csproj in sorted(root.glob("*.csproj")):
+        try:
+            text = csproj.read_text(encoding="utf-8")
+            sdk_m = re.search(r'<Project\s[^>]*\bSdk\s*=\s*"([^"]+)"', text)
+            sdk = sdk_m.group(1) if sdk_m else ""
+            label = DOTNET_SDK_SIGNATURES.get(sdk)
+            if not label:
+                for prop, prop_label in DOTNET_PROPERTY_SIGNATURES.items():
+                    if re.search(rf"<{prop}>\s*true\s*</{prop}>", text, re.IGNORECASE):
+                        label = prop_label
+                        break
+            if not label and sdk == "Microsoft.NET.Sdk":
+                label = "dotnet"
+            if label:
+                out.append({"name": label, "version": "", "manifest": csproj.name})
+            for pm in re.finditer(
+                r'<PackageReference\s+Include\s*=\s*"([^"]+)"(?:\s+Version\s*=\s*"([^"]+)")?',
+                text,
+            ):
+                pkg_label = DOTNET_PACKAGE_SIGNATURES.get(pm.group(1))
+                if pkg_label:
+                    out.append(
+                        {
+                            "name": pkg_label,
+                            "version": _norm_version(pm.group(2) or ""),
+                            "manifest": csproj.name,
+                        }
+                    )
+        except Exception:
+            pass
+
+    pom = root / "pom.xml"
+    if pom.is_file():
+        try:
+            text = pom.read_text(encoding="utf-8")
+            for m in re.finditer(
+                r"<dependency>\s*<groupId>[^<]+</groupId>\s*<artifactId>([^<]+)</artifactId>"
+                r"(?:\s*<version>([^<]+)</version>)?",
+                text,
+            ):
+                label = _match_by_prefix(m.group(1), JAVA_LIB_SIGNATURES)
+                if label:
+                    out.append(
+                        {
+                            "name": label,
+                            "version": _norm_version(m.group(2) or ""),
+                            "manifest": "pom.xml",
+                        }
+                    )
+        except Exception:
+            pass
+
+    for gradle_name in ("build.gradle", "build.gradle.kts"):
+        gradle = root / gradle_name
+        if not gradle.is_file():
+            continue
+        try:
+            text = gradle.read_text(encoding="utf-8")
+            for m in re.finditer(r"""['"]([\w.\-]+):([\w.\-]+):([\w.\-]+)['"]""", text):
+                label = _match_by_prefix(m.group(2), JAVA_LIB_SIGNATURES)
+                if label:
+                    out.append(
+                        {
+                            "name": label,
+                            "version": _norm_version(m.group(3)),
+                            "manifest": gradle_name,
+                        }
+                    )
+        except Exception:
+            pass
+
+    cmake = root / "CMakeLists.txt"
+    if cmake.is_file():
+        out.append({"name": "cmake", "version": "", "manifest": "CMakeLists.txt"})
+
+    vcpkg = root / "vcpkg.json"
+    if vcpkg.is_file():
+        try:
+            data = json.loads(vcpkg.read_text(encoding="utf-8"))
+            for dep in data.get("dependencies", []) or []:
+                dep_name = dep if isinstance(dep, str) else (dep or {}).get("name", "")
+                label = CPP_LIB_SIGNATURES.get(str(dep_name).lower())
+                if label:
+                    out.append({"name": label, "version": "", "manifest": "vcpkg.json"})
+        except Exception:
+            pass
+
+    conanfile_txt = root / "conanfile.txt"
+    if conanfile_txt.is_file():
+        try:
+            text = conanfile_txt.read_text(encoding="utf-8")
+            in_requires = False
+            for line in text.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("["):
+                    in_requires = stripped.lower() == "[requires]"
+                    continue
+                if in_requires and stripped:
+                    dep_name, _, dep_ver = stripped.partition("/")
+                    label = CPP_LIB_SIGNATURES.get(dep_name.lower())
+                    if label:
+                        ver_m = re.match(r"[\d.]+", dep_ver)
+                        out.append(
+                            {
+                                "name": label,
+                                "version": ver_m.group(0) if ver_m else "",
+                                "manifest": "conanfile.txt",
+                            }
+                        )
+        except Exception:
+            pass
+
+    conanfile_py = root / "conanfile.py"
+    if conanfile_py.is_file():
+        try:
+            text = conanfile_py.read_text(encoding="utf-8")
+            for m in re.finditer(r'requires\(\s*["\']([\w+.\-]+)/', text):
+                label = CPP_LIB_SIGNATURES.get(m.group(1).lower())
+                if label:
+                    out.append({"name": label, "version": "", "manifest": "conanfile.py"})
+        except Exception:
+            pass
+
+    cargo = root / "Cargo.toml"
+    if cargo.is_file():
+        try:
+            text = cargo.read_text(encoding="utf-8")
+            for dep, label in RUST_LIB_SIGNATURES.items():
+                esc = re.escape(dep)
+                m = re.search(rf'(?m)^\s*{esc}\s*=\s*"([^"]*)"', text)
+                if not m:
+                    m = re.search(rf'(?m)^\s*{esc}\s*=\s*\{{[^}}]*version\s*=\s*"([^"]*)"', text)
+                if m:
+                    out.append(
+                        {
+                            "name": label,
+                            "version": _norm_version(m.group(1)),
+                            "manifest": "Cargo.toml",
+                        }
+                    )
+        except Exception:
+            pass
+
+    composer = root / "composer.json"
+    if composer.is_file():
+        try:
+            data = json.loads(composer.read_text(encoding="utf-8"))
+            deps: dict = {}
+            deps.update(data.get("require", {}) or {})
+            deps.update(data.get("require-dev", {}) or {})
+            for dep, ver in deps.items():
+                label = PHP_LIB_SIGNATURES.get(dep)
+                if label:
+                    out.append(
+                        {
+                            "name": label,
+                            "version": _norm_version(str(ver)),
+                            "manifest": "composer.json",
+                        }
+                    )
+        except Exception:
+            pass
+
+    gemfile = root / "Gemfile"
+    if gemfile.is_file():
+        try:
+            text = gemfile.read_text(encoding="utf-8")
+            for m in re.finditer(r"""gem\s+['"]([\w\-]+)['"](?:\s*,\s*['"]([^'"]+)['"])?""", text):
+                label = RUBY_LIB_SIGNATURES.get(m.group(1))
+                if label:
+                    out.append(
+                        {
+                            "name": label,
+                            "version": _norm_version(m.group(2) or ""),
+                            "manifest": "Gemfile",
+                        }
+                    )
+        except Exception:
+            pass
+
+    pkg_swift = root / "Package.swift"
+    if pkg_swift.is_file():
+        try:
+            text = pkg_swift.read_text(encoding="utf-8")
+            for m in re.finditer(r'\.package\(\s*url:\s*"([^"]+)"', text):
+                repo = re.sub(r"\.git$", "", m.group(1).rstrip("/").rsplit("/", 1)[-1]).lower()
+                label = SWIFT_LIB_SIGNATURES.get(repo)
+                if label:
+                    out.append({"name": label, "version": "", "manifest": "Package.swift"})
+        except Exception:
+            pass
+    if next(root.glob("*.xcodeproj"), None) or next(root.glob("*.xcworkspace"), None):
+        out.append({"name": "xcode", "version": "", "manifest": "*.xcodeproj"})
+
+    sbt = root / "build.sbt"
+    if sbt.is_file():
+        try:
+            text = sbt.read_text(encoding="utf-8")
+            for m in re.finditer(r'"[\w.\-]+"\s*%%?\s*"([\w\-]+)"\s*%\s*"([\d.]+)"', text):
+                label = SCALA_LIB_SIGNATURES.get(m.group(1))
+                if label:
+                    out.append({"name": label, "version": m.group(2), "manifest": "build.sbt"})
+        except Exception:
+            pass
 
     # If multiple dependencies point to the same framework, dedup by name (keep first occurrence)
     deduped: list[dict] = []

@@ -30,11 +30,17 @@ ls docs/verification/integration.md 2>/dev/null && cat docs/verification/integra
 
 ---
 
-## 2. Web-Frontend Detection (heuristic)
+## 2. Web-Frontend / Electron / Non-web Detection (heuristic)
 
 > For the full list of detection signals and its limitations, see → [`references/web-playwright.md`](references/web-playwright.md).
 
-Check `package.json`'s `dependencies`/`devDependencies` against a web-framework allowlist:
+Check **Electron first** — it is a distinct verdict, not folded into Non-web:
+
+```bash
+grep '"electron"' package.json 2>/dev/null
+```
+
+If not Electron, check `package.json`'s `dependencies`/`devDependencies` against a web-framework allowlist:
 
 ```bash
 # Check for web-framework dependencies
@@ -48,23 +54,23 @@ Also check the supporting signals:
 ls vite.config.* index.html public/ 2>/dev/null
 ```
 
-Check the **non-web signals** (if present, classify as non-web):
+Check the **other non-web signals** (if present, classify as non-web):
 
 ```bash
-# CLI: bin field, RN: react-native/metro.config.js, Flutter: pubspec.yaml, Electron: electron
+# CLI: bin field, RN: react-native/metro.config.js, Flutter: pubspec.yaml, Go: go.mod/main.go
 grep '"bin"' package.json 2>/dev/null
-grep '"react-native"\|"electron"' package.json 2>/dev/null
-ls metro.config.js pubspec.yaml 2>/dev/null
+grep '"react-native"' package.json 2>/dev/null
+ls metro.config.js pubspec.yaml go.mod main.go 2>/dev/null
 ```
 
 | Verdict | Condition |
 |---|---|
-| **Web** | An allowlist dependency exists + no non-web signal |
-| **Non-web** | A non-web signal exists, or no allowlist match |
-| **Electron** | `"electron"` dependency — Chromium-based internally, so partial automation is possible (web-playwright §1.3) |
+| **Electron** | An `"electron"` dependency exists (checked **before** any other signal) |
+| **Web** | No Electron signal + an allowlist dependency exists + no other non-web signal |
+| **Non-web** | No Electron signal + a non-web signal exists (CLI/RN/Flutter/Go/etc.), or no allowlist match |
 
-> For the **Electron exception** details (partial renderer automation / the main process is human-in-the-loop), see
-> [`references/web-playwright.md`](references/web-playwright.md) §1.3 — keep it in one place to avoid duplicate definitions.
+> For the full **Electron** procedure (renderer automation + main-process human-in-the-loop), see
+> [`references/electron.md`](references/electron.md) — the single source of truth for this exception.
 
 ---
 
@@ -87,8 +93,8 @@ Read `testDir` and `testMatch` from the config file. The defaults are:
 ### 3.2 Discover Existing Cases
 
 ```bash
-# Count case files in testDir (default ./tests)
-find ./tests -name "*.spec.ts" -o -name "*.spec.js" -o -name "*.test.ts" -o -name "*.test.js" 2>/dev/null | wc -l
+# Matches the testMatch default exactly: **/*.@(spec|test).?(c|m)[jt]s?(x)
+find ./tests -regextype posix-extended -regex '.*\.(spec|test)\.(c|m)?[jt]sx?' 2>/dev/null | wc -l
 ```
 
 **If there are zero cases**, invoke the `playwright-scaffold` skill to **generate a main-screen smoke and run it immediately**
@@ -117,13 +123,20 @@ PLAYWRIGHT_JUNIT_OUTPUT_NAME=results.xml \
 
 ### 3.4 Parse Results and Report PASS/FAIL
 
-Parse the `results.json` specified in §3.3:
+Parse the `results.json` specified in §3.3, defensively (a crashed or incomplete Playwright run must still
+produce a clear FAIL report, not an uncaught exception):
 
 ```bash
-# Result summary: extract pass/fail/skip counts
 node -e "
-  const r = JSON.parse(require('fs').readFileSync('results.json','utf8'));
-  const s = r.stats;
+  const fs = require('fs');
+  let r;
+  try { r = JSON.parse(fs.readFileSync('results.json', 'utf8')); }
+  catch (e) { console.log('FAIL: results.json missing or invalid (' + e.message + ')'); process.exit(1); }
+  const s = r && r.stats;
+  if (!s || typeof s.unexpected !== 'number') {
+    console.log('FAIL: results.json has no stats — the Playwright run likely crashed before completing');
+    process.exit(1);
+  }
   console.log('PASS:', s.expected, '/ FAIL:', s.unexpected, '/ SKIP:', s.skipped);
   process.exit(s.unexpected > 0 ? 1 : 0);
 "
@@ -146,14 +159,33 @@ Failed case: tests/checkout.spec.ts › navigate to the confirmation page after 
 
 ---
 
-## 4. If Non-Web — human-in-the-loop
+## 4. If Electron — hybrid (renderer automation + main-process human-in-the-loop)
+
+> For the full procedure and SSOT, see → [`references/electron.md`](references/electron.md).
+
+Electron is a **distinct third verdict**, not folded into Non-web — it gets **partial automation**.
+
+1. Run the renderer-process suite the same way as §3 "If Web" (same `playwright.config.*` parsing, same
+   `--reporter=json,junit` run, same defensive result parsing from §3.4) — see `references/electron.md` §1
+   for the Electron-specific Playwright launch (`_electron.launch()`, not a plain `chromium` channel).
+2. For main-process scenarios (IPC handlers, filesystem access, native menus), use the same human-in-the-loop
+   procedure as `## 5. If Non-web` below — collect scenarios via `AskUserQuestion` and produce a manual
+   checklist.
+3. Report both results together: a Playwright PASS/FAIL table for the renderer + a manual checklist for the
+   main process (see `references/electron.md` §3 for the combined report template).
+
+---
+
+## 5. If Non-Web — human-in-the-loop
 
 > For per-type non-web signals and reference OSS details, see → [`references/non-web.md`](references/non-web.md).
 
-Do not enforce automated integration testing. Collect scenarios and pass criteria via `AskUserQuestion`:
+Do not enforce automated integration testing. Determine the specific non-web type from the §2 signal that
+matched (CLI / React Native / Flutter / Go / generic — do not fall back to a generic list if a specific
+signal matched), then collect scenarios and pass criteria via `AskUserQuestion` using that type:
 
 ```
-This project was detected as non-web (CLI/RN/Flutter, etc.).
+This project was detected as non-web (<type>).
 No integration-test automation tool is enforced.
 
 Please provide the following:
@@ -171,5 +203,6 @@ Based on the collected scenarios, write a manual verification checklist and poin
 ## References
 
 - [`references/web-playwright.md`](references/web-playwright.md) — web detection signals, testDir/testMatch, reporters, best practices, SSOT URLs (§10.7)
+- [`references/electron.md`](references/electron.md) — Electron detection + hybrid renderer/main-process procedure, combined report template
 - [`references/non-web.md`](references/non-web.md) — non-web type signals, human-in-the-loop procedure, reference OSS
 - [`playwright-scaffold`](../playwright-scaffold/SKILL.md) — main-screen smoke generator for web + zero cases (invoked by this skill)

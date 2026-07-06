@@ -87,7 +87,12 @@ contract_test:
 # GITHUB_TOKEN, no workflow edit needed.
 versioning:
   enable: true
-  # Release tool per stack. Supported: python-semantic-release | semantic-release(node)
+  # Release tool per stack (proposed by harness-init research; candidates: rules/harness-rules.md
+  # §13). Ready-made CI templates under github/ (case-insensitive match) exist for:
+  # python-semantic-release | semantic-release(node) | jreleaser(java/kotlin) | gitversion(c#) |
+  # cargo-release(rust). Other stacks (Go/Scala/C++/PHP/Ruby/Swift/...) get a researched candidate
+  # + commit-versioning-guide doc, but the CI workflow itself is opt-in/manual until a template
+  # is added under github/.
   release_tool: python-semantic-release
   # Target file:field for version bump (per stack). python: pyproject.toml:project.version / node: package.json:version
   version_files: ["pyproject.toml:project.version"]
