@@ -95,6 +95,14 @@ asks and renders them):
   `/flow-init` generates `.github/workflows/api-contract.yml`. Slots: `branches` ·
   `schema` (OpenAPI URL/path) · `base_url` · `server` (compose_file/health_url/health_timeout) ·
   `tool`/`action_ref` (pinned once at setup).
+- **`unit_test`** — unit-test CI safety net. The local flow gate runs unit tests only on
+  Claude-session commits; direct/terminal/CI/GitHub commits bypass it, so with `enable: true`
+  `/flow-init` generates `.github/workflows/unit-test.yml` to run them in CI too. Slots:
+  `branches` · `timeout_minutes` (per-job cap, default 10) · `jobs[]` — one entry per
+  language/module (`name`/`language`/`version`/`setup`/`test`), rendered into a
+  `strategy.matrix.include`. A `language` of python/node/java/go/rust uses that official setup
+  action; any other value lets the `setup` command prepare the runtime. Declared independently
+  of `modules[]` (local gate and CI run in different contexts).
 - **`versioning`** — release automation such as python-semantic-release. With `enable: true`
   it renders the release / branch-naming / entropy-check workflows. The **GitHub Release
   body** is the latest grouped `CHANGELOG.md` section (semantic-release output — grouped by

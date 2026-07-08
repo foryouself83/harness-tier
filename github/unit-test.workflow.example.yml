@@ -1,0 +1,66 @@
+# harness-tier unit-test CI — output rendered by /flow-init from flow-config.unit_test.
+# A CI safety net: the local flow gate (layer 2) runs unit tests only on Claude-session commits;
+# contributors committing directly from the terminal, via CI, or on GitHub bypass it — this runs
+# the same unit tests in CI too. Even if edited directly, re-running /flow-init does not overwrite
+# it but only reports it as "manual review".
+# Trigger branches come from unit_test.branches (collaboration branches only; feature/* excluded by default).
+# The variable-length unit_test.jobs[] is rendered into strategy.matrix.include (one entry per job).
+name: unit-test
+
+on:
+  push:
+    branches: [__HARNESS_BRANCHES__]
+  pull_request:
+    branches: [__HARNESS_BRANCHES__]
+
+jobs:
+  unit-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: __HARNESS_TIMEOUT__
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - __HARNESS_MATRIX_INCLUDE__
+    steps:
+      - uses: actions/checkout@v7
+
+      # Official language setup actions, gated by matrix.language. Any other language value → no
+      # official setup runs and the `setup` command below is responsible for runtime prep.
+      - name: Setup Python
+        if: matrix.language == 'python'
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.version }}
+
+      - name: Setup Node
+        if: matrix.language == 'node'
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.version }}
+
+      - name: Setup Java
+        if: matrix.language == 'java'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.version }}
+
+      - name: Setup Go
+        if: matrix.language == 'go'
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.version }}
+
+      - name: Setup Rust
+        if: matrix.language == 'rust'
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.version }}
+
+      - name: Setup (project runtime / dependencies)
+        if: matrix.setup != ''
+        run: ${{ matrix.setup }}
+
+      - name: Unit tests
+        run: ${{ matrix.test }}
