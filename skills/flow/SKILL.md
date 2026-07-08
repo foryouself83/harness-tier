@@ -122,7 +122,8 @@ it for that tier).
 2. Invoke the `doc-sync` skill to harmonize the doc set (index `CLAUDE.md` + per-service docs +
    rule dirs from `flow-config.doc_sync`; also reconciles code↔doc drift). On pass
    → `touch .claude/harness-tier/.flow/doc-sync.done`.
-3. Commit (Conventional Commits, 50/72; stage only affected files) → merge.
+3. Commit (Conventional Commits, 50/72; stage only affected files) → merge
+   **applying the risk-tiers Merge strategy** (rule 3 — not a plain merge).
    (The commit hook blocks until `doc-sync.done` exists.)
 
 ### Dev — any code (`superpowers` ON)
@@ -143,7 +144,8 @@ it for that tier).
      contract, DB/migration & transactions, async task idempotency, API errors).
      On pass → `touch .claude/harness-tier/.flow/review.done`.
    - **invoke the `doc-sync` skill** (not part of `superpowers`) → `touch .claude/harness-tier/.flow/doc-sync.done`.
-3. Commit → merge. (The commit hook blocks until `review.done` and `doc-sync.done`.)
+3. Commit → merge **applying the risk-tiers Merge strategy** (rule 3 — not a plain
+   merge). (The commit hook blocks until `review.done` and `doc-sync.done`.)
 
 ## Promotion — Staging (integration → staging) / Release (staging → production)
 
@@ -193,8 +195,12 @@ rm -rf .claude/harness-tier/.flow
    write the tier marker.
 2. **Record gate evidence honestly** — `touch .claude/harness-tier/.flow/<gate>.done` only
    after the gate genuinely passes. A marker is a forcing function, not a stamp.
-3. **No PR** — direct commit + merge per
-   [`risk-tiers.md`](../../rules/risk-tiers.md) Commit Discipline.
+3. **No PR; apply the documented Merge strategy** — direct commit + merge, but
+   **do not default to a plain / `--no-ff` merge**. For every merge, look up its
+   branch-flow row in [`risk-tiers.md`](../../rules/risk-tiers.md) **Merge strategy**
+   and follow it exactly — the required strategy varies by flow (rebase / squash /
+   `--no-ff` merge). Commit types & the 50/72 rule live in the same file's Commit
+   Discipline.
 4. **Inherit the pre-commit gate** — never bypass the `git commit` hook
    (no `--no-verify`).
 5. **Worker / service-process safety** — Dev+ changes touching long-running
