@@ -1,6 +1,6 @@
 [project]
 name = "harness-tier"
-version = "0.1.5"
+version = "0.1.6-rc.1"
 license = "Apache-2.0"
 # Environment floor for the plugin's own development/testing (ruff·pytest). The gate
 # scripts deployed to the host require python 3.8+ at runtime (walrus) — unrelated to this line, so don't confuse them.
