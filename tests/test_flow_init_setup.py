@@ -818,6 +818,22 @@ def test_render_unit_test_default_timeout(tmp_path: Path):
     assert UNIT_TEST_DEFAULT_TIMEOUT == 10
 
 
+def test_render_unit_test_null_timeout_falls_back(tmp_path: Path):
+    # timeout_minutes present but blank (null) must fall back to the default, NOT render
+    # `timeout-minutes: None` (yaml.safe_load accepts the string so a naive check misses it,
+    # but GitHub Actions rejects a non-integer cap → CLAUDE.md "every job caps timeout" broken).
+    from scripts.flow_init_setup import UNIT_TEST_DEFAULT_TIMEOUT
+
+    _write_unit_test_config(
+        tmp_path,
+        {"enable": True, "timeout_minutes": None, "jobs": [{"name": "api", "test": "pytest"}]},
+    )
+    render_unit_test_workflow(tmp_path, PLUGIN)
+    text = (tmp_path / ".github" / "workflows" / "unit-test.yml").read_text(encoding="utf-8")
+    assert "timeout-minutes: None" not in text
+    assert f"timeout-minutes: {UNIT_TEST_DEFAULT_TIMEOUT}" in text
+
+
 def test_render_unit_test_disabled(tmp_path: Path):
     _write_unit_test_config(tmp_path, {"enable": False, "jobs": [{"name": "x", "test": "t"}]})
     out = render_unit_test_workflow(tmp_path, PLUGIN)

@@ -663,7 +663,7 @@ def render_unit_test_workflow(host: Path, plugin: Path) -> list[str]:
     branches = ut.get("branches") or ["dev", "stage", "main"]
     replacements = {
         "__HARNESS_BRANCHES__": ", ".join(str(b) for b in branches),
-        "__HARNESS_TIMEOUT__": str(ut.get("timeout_minutes", UNIT_TEST_DEFAULT_TIMEOUT)),
+        "__HARNESS_TIMEOUT__": str(ut.get("timeout_minutes") or UNIT_TEST_DEFAULT_TIMEOUT),
         "__HARNESS_MATRIX_INCLUDE__": _unit_test_matrix_include(jobs),
     }
     try:
