@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v0.1.7-rc.1 (2026-07-09)
+
+### Bug Fixes
+
+- **flow**: Add post-release back-merge step to promotion flow
+  ([`86731b6`](https://github.com/foryouself83/harness-tier/commit/86731b62d8efa331ddbf2fc0c73355c9172ed873))
+
+- **flow-init**: Wire pre-commit hygiene stage
+  ([`ce1a6a5`](https://github.com/foryouself83/harness-tier/commit/ce1a6a57e845e5139b8f341c3c829a4d297a4f5b))
+
+### Documentation
+
+- Rework README/USAGE benefits and layer model
+  ([`fc6a0a3`](https://github.com/foryouself83/harness-tier/commit/fc6a0a3fcf5b695e584fc813520aed6d2ac591d7))
+
+
 ## v0.1.6-rc.1 (2026-07-09)
 
 ### Bug Fixes

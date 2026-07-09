@@ -179,13 +179,24 @@ needed — the branch drives it). Record each gate before committing the promoti
   is lost (e.g. `0.2.0` instead of `0.1.2`). Always `git fetch origin` first.
   Deploy (project-specific / offline) — not gated; the production-branch commit
   is the gate.
+- **Back-merge after the production release (not optional)** — once the finalize
+  CI has pushed its `chore(release)` version-bump + marketplace-sha-pin commits to
+  production, back-merge them **production → integration and → staging** so the
+  released tag returns to the day-to-day branches: `git fetch origin`, then
+  `git switch <integration> && git merge --ff-only origin/<production>` (same for
+  `<staging>`), and push each (FF when strictly behind, else `--no-ff`). Skipping it
+  leaves the released tag unreachable from integration/staging → semantic-release
+  miscomputes the next version. Rationale/steps:
+  [`risk-tiers.md`](../../rules/risk-tiers.md) "Back-merge after release".
 
 The commit hook ([`flow_gate_check.py`](../../scripts/flow_gate_check.py)) blocks
 the staging/production commit until those markers exist.
 
 ## Phase 4 — Finalize
 
-After the commit/merge completes, clear the flow state:
+After the commit/merge completes — and, for a **production release**, after the
+back-merge in the Release step above (production → integration/staging, not
+optional) — clear the flow state:
 
 ```bash
 rm -rf .claude/harness-tier/.flow
