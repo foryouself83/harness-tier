@@ -203,9 +203,9 @@ It performs, idempotently, and prints a report to relay:
   runs in parallel with its own `timeout-minutes`. Skips when `enable: false` or the
   section is absent.
 
-Then remind the user to run `pre-commit install --hook-type commit-msg
---hook-type pre-push` (activates gitlint + the push notifier) and to swap the
-language-specific `local` hooks for their stack.
+Then remind the user to run `pre-commit install --hook-type pre-commit --hook-type commit-msg
+--hook-type pre-push` (activates gitlint, the push notifier, and the file-hygiene hooks) and
+to swap the language-specific `local` hooks for their stack.
 
 ### Step 2.5 — Backfill missing config slots (interactive — Claude, skippable)
 
