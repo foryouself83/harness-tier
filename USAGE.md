@@ -29,7 +29,7 @@ The full installation procedure, including installing dependencies, is in
    `/plugin install harness-tier@harness-tier`.
 3. **`/harness-init`** — generate the project harness (`CLAUDE.md`, docs); new projects start here.
 4. **`/flow-init`** — wire up governance such as the commit gate and Teams (interactive, idempotent).
-5. **Finish** — `pre-commit install --hook-type commit-msg --hook-type pre-push`.
+5. **Finish** — `pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre-push`.
 
 Everything created in the host repo after installation is gathered under a single
 **`.claude/harness-tier/`** directory:
@@ -234,6 +234,36 @@ Generates a `CLAUDE.md`, rules, and technical docs tailored to your project. It 
 - **Actual settings** like security scanners, CI, folder creation, and version pinning are
   applied **only with per-item consent** during the interview.
 - **It does not generate slash commands.**
+- **`.claude/rules/`, not just `CLAUDE.md`** — framework and structural conventions are
+  written as auto-loaded `.claude/rules/<name>.md` files (Claude Code's rules convention; an
+  optional `paths` glob scopes a rule so it loads only when a matching file is read), so the
+  harness follows the current multi-file convention rather than one monolithic `CLAUDE.md`.
+  `doc-sync` keeps them in step as the code changes.
+
+#### Auto-detected languages and frameworks
+
+Step 1 fingerprints your stack from its manifest files. Deterministic auto-detection covers:
+
+| Language | Manifest(s) | Auto-detected frameworks / libraries |
+|----------|-------------|--------------------------------------|
+| Python | `pyproject.toml` · `requirements.txt` | FastAPI · Django · Flask |
+| JavaScript / TypeScript | `package.json` | Next.js · React · Vue · Nuxt · Svelte · Angular · Express · NestJS |
+| Go | `go.mod` | (module-level) |
+| Java | `pom.xml` · `build.gradle[.kts]` | Spring Boot · Spring · Quarkus · Micronaut · Ktor |
+| Kotlin | `build.gradle.kts` · `pom.xml` | shares the JVM table above |
+| C# | `*.csproj` | ASP.NET Core · Blazor WASM · Razor · WPF · WinForms · MAUI · EF Core |
+| C++ | `CMakeLists.txt` · `vcpkg.json` · `conanfile.*` | CMake · Boost · Qt · OpenCV · GoogleTest · Catch2 · fmt · spdlog |
+| Rust | `Cargo.toml` | actix-web · axum · Rocket · warp · tokio |
+| PHP | `composer.json` | Laravel · Symfony · Slim · CodeIgniter |
+| Ruby | `Gemfile` | Rails · Sinatra · Hanami |
+| Swift | `Package.swift` · `*.xcodeproj`/`*.xcworkspace` | Vapor · SwiftNIO · Alamofire · RxSwift |
+| Scala | `build.sbt` | Play · Akka · Akka HTTP · http4s · Cats Effect |
+
+- Detected frameworks come with a **version**, and the versions are reconciled into a set
+  that boots together — not each one's latest in isolation.
+- **A stack outside this table still gets a harness.** Greenfield vs. brownfield is decided
+  from source-file extensions, and `harness-researcher` researches conventions for whatever
+  framework you're on; only the deterministic fingerprint above is limited to these entries.
 
 | | `/flow-init` | `/harness-init` |
 |---|---|---|

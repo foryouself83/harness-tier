@@ -27,7 +27,7 @@
    `/plugin install harness-tier@harness-tier`.
 3. **`/harness-init`** — 프로젝트 하네스(`CLAUDE.md`·문서) 생성(신규 프로젝트는 여기서 시작).
 4. **`/flow-init`** — 커밋 게이트·Teams 등 거버넌스 배선(대화형·멱등).
-5. **마무리** — `pre-commit install --hook-type commit-msg --hook-type pre-push`.
+5. **마무리** — `pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre-push`.
 
 설치 후 호스트 저장소에 생기는 것은 모두 **`.claude/harness-tier/`** 한곳에 모입니다:
 
@@ -220,6 +220,35 @@ doc_sync:                    # doc-sync 대상
 - **덮어쓰기 없음** — 기존 파일은 관리 블록 단위로만 갱신, 충돌은 보고.
 - 보안 스캐너·CI·폴더 생성·버전 고정 같은 **실제 설정**은 인터뷰에서 **항목별 동의 시에만**.
 - **슬래시 커맨드는 생성하지 않습니다.**
+- **`CLAUDE.md` 뿐 아니라 `.claude/rules/` 도** — 프레임워크·구조 컨벤션을 자동 로드되는
+  `.claude/rules/<name>.md` 파일로 작성합니다(Claude Code 의 rules 방식; 선택적 `paths` glob 로
+  매칭 파일을 읽을 때만 로드되도록 범위 지정). 단일 `CLAUDE.md` 하나가 아니라 최신 다중 파일
+  방식을 따르며, `doc-sync` 가 코드 변화에 맞춰 동기화합니다.
+
+#### 자동 감지 언어와 프레임워크
+
+1단계는 매니페스트 파일로 스택을 지문 인식합니다. 결정적 자동 감지 범위:
+
+| 언어 | 매니페스트 | 자동 감지 프레임워크 / 라이브러리 |
+|------|-----------|-----------------------------------|
+| Python | `pyproject.toml` · `requirements.txt` | FastAPI · Django · Flask |
+| JavaScript / TypeScript | `package.json` | Next.js · React · Vue · Nuxt · Svelte · Angular · Express · NestJS |
+| Go | `go.mod` | (모듈 단위) |
+| Java | `pom.xml` · `build.gradle[.kts]` | Spring Boot · Spring · Quarkus · Micronaut · Ktor |
+| Kotlin | `build.gradle.kts` · `pom.xml` | 위 JVM 표 공유 |
+| C# | `*.csproj` | ASP.NET Core · Blazor WASM · Razor · WPF · WinForms · MAUI · EF Core |
+| C++ | `CMakeLists.txt` · `vcpkg.json` · `conanfile.*` | CMake · Boost · Qt · OpenCV · GoogleTest · Catch2 · fmt · spdlog |
+| Rust | `Cargo.toml` | actix-web · axum · Rocket · warp · tokio |
+| PHP | `composer.json` | Laravel · Symfony · Slim · CodeIgniter |
+| Ruby | `Gemfile` | Rails · Sinatra · Hanami |
+| Swift | `Package.swift` · `*.xcodeproj`/`*.xcworkspace` | Vapor · SwiftNIO · Alamofire · RxSwift |
+| Scala | `build.sbt` | Play · Akka · Akka HTTP · http4s · Cats Effect |
+
+- 감지된 프레임워크는 **버전**과 함께 잡히고, 버전은 각각의 최신이 아니라 **함께 기동되는
+  호환 집합**으로 조정됩니다.
+- **이 표에 없는 스택도 하네스는 생성됩니다.** greenfield/brownfield 는 소스 파일 확장자로
+  판별하고, `harness-researcher` 가 어떤 프레임워크든 컨벤션을 조사합니다 — 위 결정적 지문만
+  이 항목들로 한정됩니다.
 
 | | `/flow-init` | `/harness-init` |
 |---|---|---|
