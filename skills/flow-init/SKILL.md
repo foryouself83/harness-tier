@@ -143,6 +143,19 @@ consent; never mutate machine-wide state.
            tool candidates → present a recommendation (default `schemathesis` +
            `schemathesis/action@v3`) and **pin** the choice into `tool`/`action_ref`.
            CI then runs deterministically on this pinned value (no per-CI web check).
+       - **unit_test** (unit-test CI safety net — CI only): first ask via
+         `AskUserQuestion` "Run unit tests in CI too?". The local flow gate (layer 2)
+         only runs unit tests on Claude-session commits — direct/terminal/CI/GitHub
+         commits bypass it, so this is the CI-side net. **No** → write `enable: false`
+         and skip the slots below. **Yes** → collect `branches` (propose
+         `flow-config.branches`' integration/staging/production values as defaults,
+         independently editable), `timeout_minutes` (per-job wall-clock cap; default
+         10), and one `jobs[]` entry per language/module to test — each
+         `name` / `language` / `version` / `setup` / `test`. A `language` of
+         python/node/java/go/rust selects that official setup action; any other value
+         means the `setup` command prepares the runtime. Not derived from `modules[]`
+         — the local gate and CI run in different execution contexts, so the CI job set
+         is declared independently (self-contained `jobs[]`).
        - **modules** (per-module monorepo pre-checks — host-owned, lives under config):
          do not collect values on the first run. In Step 2.6, draft them by consulting
          the harness SSOT or by taking user input.
@@ -183,6 +196,12 @@ It performs, idempotently, and prints a report to relay:
   reports for manual review). `.github/workflows/` is GitHub's enforced location — a
   documented exception to the `.claude/harness-tier/` rule. Skips entirely when
   `enable: false` or the section is absent.
+- **Renders** `.github/workflows/unit-test.yml` from `flow-config.unit_test` when
+  `enable: true` (same create-if-absent / never-overwrite / GitHub-forced-location
+  rules as api-contract). The variable-length `unit_test.jobs[]` is rendered into a
+  GitHub Actions `strategy.matrix.include` (one job per line), so each language/module
+  runs in parallel with its own `timeout-minutes`. Skips when `enable: false` or the
+  section is absent.
 
 Then remind the user to run `pre-commit install --hook-type commit-msg
 --hook-type pre-push` (activates gitlint + the push notifier) and to swap the
@@ -290,8 +309,8 @@ later. If the user chooses to skip, write `modules:` as an empty array (`[]`) an
 
 Print a summary: the **Step 0** dependency status (python3 ≥3.8 / PyYAML required —
 gate fails closed if missing; pre-commit / superpowers guidance), the **Step 2**
-script report (copied / registered / pre-commit checked / **contract-test
-workflow rendered-or-skipped** / skipped, + any missing
+script report (copied / registered / pre-commit checked / **contract-test &
+unit-test workflows rendered-or-skipped** / skipped, + any missing
 pre-commit hooks to add manually),
 the **Step 2.6** modules draft result (whether a harness was detected / number of modules
 written / list of unconfirmed items / whether skipped), whether the

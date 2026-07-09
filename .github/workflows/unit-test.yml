@@ -1,0 +1,31 @@
+# harness-tier's own unit tests — the CI safety net this plugin renders for consumers, applied to
+# itself (dogfood). The flow gate runs pytest only on Claude-session commits, so a direct terminal
+# commit / CI push to a collaboration branch would otherwise skip the tests; this closes that gap.
+# GitHub natively skips push/PR workflows on '[skip ci]' commits (the release bot's chore commits).
+name: unit-test
+
+on:
+  push:
+    branches: [dev, stage, main]
+  pull_request:
+    branches: [dev, stage, main]
+
+jobs:
+  unit-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Sync deps
+        run: uv sync
+
+      - name: Unit tests
+        run: uv run pytest
