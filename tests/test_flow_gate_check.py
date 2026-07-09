@@ -1,4 +1,6 @@
+import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -309,6 +311,187 @@ def test_bump_is_not_runtime_gate():
     from scripts._harness_paths import RUNTIME_GATES
 
     assert "bump" not in RUNTIME_GATES  # bump needs a .done marker (evidence gate)
+
+
+# ── worktree-aware re-designation (--resolve-worktree) ────────────────────────────
+# The gate assumes working tree = CLAUDE_PROJECT_DIR (fixed at session start). When a commit
+# runs in a git worktree, precommit-runner.sh asks flow_gate_check.py --resolve-worktree for the
+# actual worktree W (branch-key) and re-points ROOT=W. These pin that mechanism end-to-end.
+
+
+def _git_ok() -> bool:
+    try:
+        subprocess.run(["git", "--version"], capture_output=True, timeout=5)
+        return True
+    except Exception:
+        return False
+
+
+requires_git = pytest.mark.skipif(not _git_ok(), reason="git not available")
+
+
+def _rg(args: list[str], cwd: Path) -> None:
+    subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True, check=True)
+
+
+def _init_repo(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    _rg(["init", "-b", "main"], path)
+    _rg(["config", "user.email", "t@e.st"], path)
+    _rg(["config", "user.name", "Test"], path)
+    (path / "README.md").write_text("x", encoding="utf-8")
+    _rg(["add", "-A"], path)
+    _rg(["commit", "-m", "init"], path)
+
+
+def _resolve_worktree(root: Path, payload: dict) -> subprocess.CompletedProcess[str]:
+    env = {**os.environ, "CLAUDE_PROJECT_DIR": str(root), "PYTHONIOENCODING": "utf-8"}
+    return subprocess.run(
+        [sys.executable, "scripts/flow_gate_check.py", "--resolve-worktree"],
+        cwd=Path(__file__).resolve().parent.parent,
+        env=env,
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+
+@requires_git
+def test_resolve_worktree_detects_git_dash_c(tmp_path: Path):
+    # `git -C <wt> commit` (the /flow worktree commit convention) → prints W's absolute path.
+    main = tmp_path / "repo"
+    _init_repo(main)
+    wt = tmp_path / "repo-wt"
+    _rg(["worktree", "add", "-b", "feature/x", str(wt)], main)
+    payload = {"cwd": str(main), "tool_input": {"command": f'git -C {wt} commit -m "m"'}}
+    r = _resolve_worktree(main, payload)
+    assert r.returncode == 0
+    assert r.stdout.strip() == str(wt.resolve())
+
+
+@requires_git
+def test_resolve_worktree_single_tree_empty(tmp_path: Path):
+    # non-worktree (single tree): W == main → empty output → runner keeps ROOT=main (no change).
+    main = tmp_path / "repo"
+    _init_repo(main)
+    payload = {"cwd": str(main), "tool_input": {"command": "git commit -m m"}}
+    r = _resolve_worktree(main, payload)
+    assert r.returncode == 0
+    assert r.stdout.strip() == ""
+
+
+@requires_git
+def test_changed_files_isolated_per_worktree(tmp_path: Path):
+    # the motivating defect: a worktree's staged change is invisible to main. Once ROOT=W, the
+    # gate reads the worktree's staged files (and main's do not leak in).
+    main = tmp_path / "repo"
+    _init_repo(main)
+    wt = tmp_path / "repo-wt"
+    _rg(["worktree", "add", "-b", "feature/x", str(wt)], main)
+    (wt / "new.py").write_text("x = 1\n", encoding="utf-8")
+    _rg(["add", "new.py"], wt)  # stage inside the worktree
+    assert "new.py" in fgc._changed_files(wt)  # W sees its own staged change
+    assert "new.py" not in fgc._changed_files(main)  # main does not
+
+
+def _repo_bash() -> str | None:
+    """A bash that can actually see the repo path (Git Bash on Windows / native bash on POSIX).
+
+    Windows PATH often resolves ``bash`` to WSL, which cannot access ``C:/…`` paths, so probe the
+    candidate and fall back to known Git Bash locations. None → no usable bash (skip)."""
+    repo = Path(__file__).resolve().parent.parent
+    probe = f"{repo.as_posix()}/scripts/precommit-runner.sh"
+    which = shutil.which("bash")
+    candidates = [
+        which,
+        r"C:\Program Files\Git\bin\bash.exe",
+        r"C:\Program Files\Git\usr\bin\bash.exe",
+    ]
+    for bash in candidates:
+        if not bash or not (bash == which or Path(bash).exists()):
+            continue
+        try:
+            r = subprocess.run([bash, "-c", f'test -f "{probe}"'], capture_output=True, timeout=10)
+            if r.returncode == 0:
+                return bash
+        except Exception:
+            continue
+    return None
+
+
+_REPO_BASH = _repo_bash()
+requires_bash_git = pytest.mark.skipif(
+    not (_REPO_BASH and _git_ok()), reason="a repo-visible bash + git required"
+)
+
+
+def _classify_worktree_module(wt: Path) -> None:
+    """Give a worktree a dev tier marker + evidence and one module covering a staged file."""
+    flow = wt / ".claude" / "harness-tier" / ".flow"
+    flow.mkdir(parents=True)
+    (flow / "tier").write_text("dev:feature/x", encoding="utf-8")
+    (flow / "review.done").touch()
+    (flow / "doc-sync.done").touch()
+    cfg = wt / ".claude" / "harness-tier" / "config"
+    cfg.mkdir(parents=True)
+    (cfg / "flow-config.yaml").write_text(
+        "modules:\n  - name: api\n    path: services/api/\n"
+        '    checks:\n      lint: "echo LINT_RAN"\n',
+        encoding="utf-8",
+    )
+    (wt / "services" / "api").mkdir(parents=True)
+    (wt / "services" / "api" / "a.py").write_text("x = 1\n", encoding="utf-8")
+    _rg(["add", "services/api/a.py"], wt)
+
+
+def _run_runner(main: Path, command: str) -> subprocess.CompletedProcess[str]:
+    repo = Path(__file__).resolve().parent.parent
+    env = {
+        **os.environ,
+        "CLAUDE_PROJECT_DIR": str(main),
+        "CLAUDE_PLUGIN_ROOT": repo.as_posix(),
+        "HARNESS_PRECOMMIT_DRYRUN": "1",
+        "PYTHONIOENCODING": "utf-8",
+    }
+    hook = json.dumps({"cwd": str(main), "tool_input": {"command": command}})
+    # bash eats backslashes in an argv path (C:\a\b → C:ab), so pass a forward-slash path.
+    return subprocess.run(
+        [_REPO_BASH, f"{repo.as_posix()}/scripts/precommit-runner.sh"],
+        input=hook,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+
+@requires_bash_git
+def test_runner_gates_worktree_commit_via_git_dash_c(tmp_path: Path):
+    # end-to-end: `git -C <wt> commit` must (1) pass the commit self-filter despite the `-C <dir>`
+    # between `git` and `commit`, then (2) re-point ROOT=W so the module pre-check reads the
+    # worktree's staged files. If either breaks, W's `echo LINT_RAN` would not appear (DRYRUN).
+    main = tmp_path / "main"
+    _init_repo(main)
+    wt = tmp_path / "wt"
+    _rg(["worktree", "add", "-b", "feature/x", str(wt)], main)
+    _classify_worktree_module(wt)
+    r = _run_runner(main, f"git -C {wt} commit -m x")
+    assert "echo LINT_RAN" in (r.stdout + r.stderr)  # gate ran against W
+
+
+@requires_bash_git
+def test_runner_ignores_commit_graph_subcommand(tmp_path: Path):
+    # `git -C <wt> commit-graph write` is NOT a commit — the whole-word match must not fire,
+    # else a non-commit git command would be gated (false block risk).
+    main = tmp_path / "main"
+    _init_repo(main)
+    wt = tmp_path / "wt"
+    _rg(["worktree", "add", "-b", "feature/x", str(wt)], main)
+    _classify_worktree_module(wt)
+    r = _run_runner(main, f"git -C {wt} commit-graph write")
+    assert "echo LINT_RAN" not in (r.stdout + r.stderr)
+    assert r.returncode == 0
 
 
 def test_staging_requires_bump_marker(tmp_path: Path):

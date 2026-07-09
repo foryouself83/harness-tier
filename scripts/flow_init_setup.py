@@ -63,6 +63,11 @@ except ImportError:
 WORKFLOW_TEMPLATE = "github/api-contract.workflow.example.yml"  # SOURCE (plugin-owned)
 WORKFLOW_DEST = ".github/workflows/api-contract.yml"  # host (GitHub-forced — HARNESS_DIR exception)
 
+UNIT_TEST_TEMPLATE = "github/unit-test.workflow.example.yml"  # SOURCE (plugin-owned)
+UNIT_TEST_DEST = ".github/workflows/unit-test.yml"  # host (GitHub-forced — HARNESS_DIR exception)
+# per-job wall-clock cap (minutes) when unit_test.timeout_minutes is unset
+UNIT_TEST_DEFAULT_TIMEOUT = 10
+
 EXAMPLE_CONFIG = "flow-config.example.yaml"  # plugin SOURCE (basis for config-slot diff)
 
 # Gate scripts to copy to .claude/harness-tier/scripts/ (SOURCE → HOST). _harness_paths.py is a
@@ -599,6 +604,79 @@ def render_versioning_workflows(host: Path, plugin: Path) -> list[str]:
     return out
 
 
+def load_unit_test_config(host: Path) -> dict | None:
+    """Return the unit_test dict from flow-config.yaml (None if absent/unparseable — FAIL-OPEN)."""
+    ut = _load_yaml_safe(config_path(host)).get("unit_test")
+    return ut if isinstance(ut, dict) else None
+
+
+def _unit_test_matrix_include(jobs: list) -> str:
+    """Build the strategy.matrix.include body from unit_test.jobs[].
+
+    One flow-style YAML mapping per job. The template already supplies the first list item's
+    "          - " prefix (so the pre-render template itself stays valid YAML — the token sits
+    at a real list position), so the first job substitutes in place and the rest are joined with
+    a fresh "\\n          - " (10-space indent under strategy.matrix.include). safe_dump handles
+    quoting/escaping of arbitrary command strings, and width is very high so each job stays on a
+    single line (a wrap would break the block indentation).
+    """
+    import yaml
+
+    flows: list[str] = []
+    for job in jobs:
+        if not isinstance(job, dict):
+            continue
+        flows.append(
+            yaml.safe_dump(
+                job, default_flow_style=True, sort_keys=False, allow_unicode=True, width=10**9
+            ).strip()
+        )
+    return "\n          - ".join(flows)
+
+
+def render_unit_test_workflow(host: Path, plugin: Path) -> list[str]:
+    """Render .github/workflows/unit-test.yml from the unit_test configuration.
+
+    Mirrors render_workflow (contract_test): idempotent·non-destructive — not installed if
+    enable=false/section absent; if the target already exists, only report (no auto-merge·
+    overwrite). The variable-length jobs[] become a strategy.matrix.include (one job per line).
+    FAIL-OPEN — an OSError while rendering is reported, not raised (never blocks the gate).
+    Since GitHub forces the location, .github/workflows/ is an exception to the HARNESS_DIR rule.
+    """
+    ut = load_unit_test_config(host)
+    if ut is None:
+        return ["  [=] unit_test 미설정 — 워크플로 skip"]
+    if not ut.get("enable"):
+        return ["  [=] unit_test.enable=false — 워크플로 미설치"]
+    jobs = [j for j in (ut.get("jobs") or []) if isinstance(j, dict)]
+    if not jobs:
+        return ["  [!] unit_test.jobs 비어 있음 — 워크플로 skip"]
+    template = plugin / UNIT_TEST_TEMPLATE
+    if not template.is_file():
+        return ["  [!] unit-test 워크플로우 템플릿 없음 — skip"]
+    dest = host / UNIT_TEST_DEST
+    if dest.is_file():
+        return [
+            "  [i] .github/workflows/unit-test.yml 이미 있어 자동 병합 안 함(주석/커스텀 보존).",
+            "  [i] 갱신하려면 기존 파일을 지우고 /flow-init 을 재실행하거나 직접 수정하세요.",
+        ]
+    branches = ut.get("branches") or ["dev", "stage", "main"]
+    replacements = {
+        "__HARNESS_BRANCHES__": ", ".join(str(b) for b in branches),
+        "__HARNESS_TIMEOUT__": str(ut.get("timeout_minutes") or UNIT_TEST_DEFAULT_TIMEOUT),
+        "__HARNESS_MATRIX_INCLUDE__": _unit_test_matrix_include(jobs),
+    }
+    try:
+        text = template.read_text(encoding="utf-8")
+        for token, value in replacements.items():
+            text = text.replace(token, value)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(text, encoding="utf-8")
+    except OSError as exc:
+        return [f"  [!] unit-test 워크플로우 렌더링 실패(수동 확인): {exc}"]
+    return ["  [+] .github/workflows/unit-test.yml 생성 (unit_test 렌더링)"]
+
+
 def run_setup(host: Path, plugin: Path) -> None:
     print(f"flow-init 기계적 셋업 — host={host}")
     print("[복사]")
@@ -619,6 +697,9 @@ def run_setup(host: Path, plugin: Path) -> None:
         print(line)
     print("[버저닝 워크플로우]")
     for line in render_versioning_workflows(host, plugin):
+        print(line)
+    print("[유닛 테스트 워크플로우]")
+    for line in render_unit_test_workflow(host, plugin):
         print(line)
     print("[config 슬롯 점검]")
     for line in report_missing_config_slots(host, plugin):

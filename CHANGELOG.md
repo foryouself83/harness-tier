@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v0.1.6-rc.1 (2026-07-09)
+
+### Bug Fixes
+
+- **flow**: Enforce risk-tiers Merge strategy at merge time
+  ([`118a9d4`](https://github.com/foryouself83/harness-tier/commit/118a9d494cec95dd6fba0cb1abec4751cce2fb96))
+
+- **flow-init**: Fall back to default when timeout_minutes is null
+  ([`4cdef52`](https://github.com/foryouself83/harness-tier/commit/4cdef5280ef3a20e8d43ad7e9c6574f10e3ffe60))
+
+### Features
+
+- **ci**: Unit-test CI workflow + tighten Action timeouts
+  ([`718e670`](https://github.com/foryouself83/harness-tier/commit/718e670dbbf574a137de864c57b173dda0125e62))
+
+- **flow**: Worktree-aware commit gate (branch-key)
+  ([`b4fe12f`](https://github.com/foryouself83/harness-tier/commit/b4fe12f2673e0cd790830ab1baad18d7a5046d2f))
+
+
 ## v0.1.5-rc.1 (2026-07-06)
 
 ### Bug Fixes

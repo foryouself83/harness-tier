@@ -91,6 +91,14 @@ doc_sync:                    # doc-sync 대상
   `/flow-init` 이 `.github/workflows/api-contract.yml` 을 생성합니다. 슬롯: `branches` ·
   `schema`(OpenAPI URL/경로) · `base_url` · `server`(compose_file/health_url/health_timeout) ·
   `tool`/`action_ref`(셋업 시 1회 pin).
+- **`unit_test`** — 유닛 테스트 CI 안전망. 로컬 flow 게이트는 Claude 세션 커밋에서만 유닛
+  테스트를 돌리므로 직접·터미널·CI·GitHub 커밋은 이를 우회합니다. `enable: true` 이면
+  `/flow-init` 이 `.github/workflows/unit-test.yml` 을 생성해 CI 에서도 유닛 테스트를
+  돌립니다. 슬롯: `branches` · `timeout_minutes`(잡별 상한, 기본 10) · `jobs[]` — 언어/모듈당
+  한 항목(`name`/`language`/`version`/`setup`/`test`), `strategy.matrix.include` 로 렌더링됩니다.
+  `language` 가 python/node/java/go/rust 면 해당 공식 setup action 을 쓰고, 그 외 값이면
+  `setup` 커맨드가 런타임을 준비합니다. `modules[]` 와 별개로 선언합니다(로컬 게이트와 CI 는
+  실행 맥락이 다름).
 - **`versioning`** — python-semantic-release 등 릴리스 자동화. `enable: true` 이면
   release / branch-naming / entropy-check 워크플로우를 렌더링합니다. **GitHub Release
   본문**은 `CHANGELOG.md` 의 최신 섹션(semantic-release 산출물 — type별 그룹핑, 배관

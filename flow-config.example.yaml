@@ -105,3 +105,37 @@ versioning:
     enable: true
     schedule: "0 0 * * 5"   # weekly cron (UTC)
     paths: ["src/"]          # paths for complexity/file-size measurement
+
+# Unit-test CI safety net (CI only — GitHub Actions). The local flow gate (layer 2) runs unit
+# tests only on Claude-session commits; contributors committing directly from the terminal, via
+# CI, or straight on GitHub bypass that gate. /flow-init reads this block and renders
+# .github/workflows/unit-test.yml so unit tests run in CI too (same pattern as api-contract).
+# No CI unit tests wanted → enable:false → not installed.
+# NOTE: this is NOT derived from modules[] — the local gate and CI run in different execution
+# contexts, so the CI job set is declared independently here (self-contained jobs[]).
+unit_test:
+  enable: true
+  # Branches this workflow runs on (both push/PR). Usually collaboration/promotion branches.
+  # Do not include feature/* if you want to keep feature-branch pushes light.
+  branches: [dev, stage, main]
+  # Per-job wall-clock cap (minutes) — applied to every matrix job. Default 10.
+  timeout_minutes: 10
+  # One entry per language/module to test, rendered into a GitHub Actions strategy.matrix.include:
+  #   name:     matrix display name (free-form).
+  #   language: python | node | java | go | rust → uses that official setup action (setup-python,
+  #             setup-node, setup-java, setup-go, dtolnay/rust-toolchain). Any other value → no
+  #             official setup action; the `setup` command below prepares the runtime.
+  #   version:  runtime version passed to the official setup action (e.g. '3.12', '20', '21').
+  #   setup:    shell command to install deps / prepare the runtime (runs for every job when set).
+  #   test:     shell command that runs the unit tests.
+  jobs:
+    - name: api
+      language: python
+      version: "3.12"
+      setup: "pip install uv && uv sync"
+      test: "uv run pytest"
+    - name: web
+      language: node
+      version: "20"
+      setup: "npm ci"
+      test: "npm test"

@@ -6,6 +6,7 @@ variable, and internal errors do not block the gate (fail-open).
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -28,6 +29,7 @@ try:
         flow_dir,
         force_utf8_io,
         host_root,
+        working_root,
     )
 except ImportError:
     from scripts._harness_paths import (
@@ -41,6 +43,7 @@ except ImportError:
         flow_dir,
         force_utf8_io,
         host_root,
+        working_root,
     )
 
 
@@ -358,10 +361,37 @@ def module_commands_output() -> None:
         print(cmd)
 
 
+def resolve_worktree_output() -> None:
+    """Detect the commit's actual worktree from the hook payload and print its path (branch-key).
+
+    Reads the PreToolUse hook JSON on stdin, feeds ``cwd`` and ``tool_input.command`` to
+    working_root (against CLAUDE_PROJECT_DIR = main), and prints the detected worktree's absolute
+    path to stdout when it differs from main. Empty output otherwise (no worktree / detection
+    failure) → precommit-runner.sh keeps ROOT=main (FAIL-OPEN, no re-designation). Invariant #2:
+    force_utf8_io before any print."""
+    force_utf8_io()
+    raw = sys.stdin.read()
+    try:
+        payload = json.loads(raw) if raw.strip() else {}
+    except Exception:
+        payload = {}
+    hook_cwd = payload.get("cwd") or None
+    command = (payload.get("tool_input") or {}).get("command") or None
+    root = host_root()
+    try:
+        w = working_root(project_dir=root, hook_cwd=hook_cwd, command=command)
+    except Exception:
+        return  # FAIL-OPEN → empty output
+    if w and w.resolve() != root.resolve():
+        print(str(w))
+
+
 if __name__ == "__main__":
     try:
         if "--module-commands" in sys.argv:
             module_commands_output()
+        elif "--resolve-worktree" in sys.argv:
+            resolve_worktree_output()
         else:
             main()
     except SystemExit:

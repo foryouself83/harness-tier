@@ -9,6 +9,7 @@ on:
 jobs:
   entropy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - name: File size audit (>500 lines)
