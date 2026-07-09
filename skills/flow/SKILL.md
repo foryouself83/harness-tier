@@ -122,9 +122,10 @@ it for that tier).
 2. Invoke the `doc-sync` skill to harmonize the doc set (index `CLAUDE.md` + per-service docs +
    rule dirs from `flow-config.doc_sync`; also reconciles code↔doc drift). On pass
    → `touch .claude/harness-tier/.flow/doc-sync.done`.
-3. Commit (Conventional Commits, 50/72; stage only affected files) → merge
-   **applying the risk-tiers Merge strategy** (rule 3 — not a plain merge).
-   (The commit hook blocks until `doc-sync.done` exists.)
+3. Commit (Conventional Commits, 50/72; stage only affected files; from a worktree
+   use `git -C <worktree> commit …` — rule 5) → merge **applying the risk-tiers
+   Merge strategy** (rule 3 — not a plain merge). (The commit hook blocks until
+   `doc-sync.done` exists.)
 
 ### Dev — any code (`superpowers` ON)
 
@@ -145,7 +146,8 @@ it for that tier).
      On pass → `touch .claude/harness-tier/.flow/review.done`.
    - **invoke the `doc-sync` skill** (not part of `superpowers`) → `touch .claude/harness-tier/.flow/doc-sync.done`.
 3. Commit → merge **applying the risk-tiers Merge strategy** (rule 3 — not a plain
-   merge). (The commit hook blocks until `review.done` and `doc-sync.done`.)
+   merge; from a worktree use `git -C <worktree> commit …` — rule 5). (The commit
+   hook blocks until `review.done` and `doc-sync.done`.)
 
 ## Promotion — Staging (integration → staging) / Release (staging → production)
 
@@ -203,9 +205,15 @@ rm -rf .claude/harness-tier/.flow
    Discipline.
 4. **Inherit the pre-commit gate** — never bypass the `git commit` hook
    (no `--no-verify`).
-5. **Worker / service-process safety** — Dev+ changes touching long-running
+5. **Commit from a git worktree with `git -C <worktree> commit …`** — a single
+   command, not a preceding `cd`. `CLAUDE_PROJECT_DIR` is fixed at session start,
+   so when the commit runs in a worktree, the gate re-points to it by branch-key
+   (`flow_gate_check.py --resolve-worktree`); the explicit `git -C <worktree>` is the
+   deterministic signal that keeps that detection unambiguous. (No worktree → no
+   change.) Stands alongside rules 4 (no `--no-verify`) and "stage only affected files".
+6. **Worker / service-process safety** — Dev+ changes touching long-running
    worker processes: inspect for in-flight tasks and require explicit user
    approval before restarting.
-6. **[`risk-tiers.md`](../../rules/risk-tiers.md) and
+7. **[`risk-tiers.md`](../../rules/risk-tiers.md) and
    [`flow-tiers.yaml`](../../flow-tiers.yaml) are the source of truth** — if this
    command diverges, follow them and fix this command.

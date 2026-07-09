@@ -48,7 +48,17 @@ try:
 except Exception:
     print('')" 2>/dev/null || true)"
 fi
-case "${_hook_cmd:-$_hook_input}" in *"git commit"*) : ;; *) exit 0 ;; esac
+# Detect a `git commit` invocation, allowing git global options between `git` and the `commit`
+# subcommand — critically `git -C <worktree> commit` (the /flow worktree-commit convention, the
+# deterministic worktree-detection signal) and `git -c k=v commit`. A plain `*"git commit"*`
+# substring MISSES `git -C <wt> commit`, so the worktree commit would slip past the filter as
+# "not a commit" and bypass the gate entirely (silent neutralization — Invariant #1). `commit` is
+# matched as a whole word so `git commit-graph`/`git commit-tree` etc. do not false-positive. When
+# python extraction is empty (python3 broken/absent) the same regex scans the raw JSON. The
+# terminator allows any non-alnum/non-`-` char after `commit` (space, `;`, `&`, …) so `git commit;`
+# is caught too, while `-`/alnum keep `commit-graph`/`commitfoo` excluded.
+_commit_re='git([[:space:]]+-[^[:space:]]+([[:space:]]+[^[:space:]]+)?)*[[:space:]]+commit($|[^[:alnum:]-])'
+[[ "${_hook_cmd:-$_hook_input}" =~ $_commit_re ]] || exit 0
 
 # Dependency FAIL-CLOSED — the harness requires python3 + PyYAML (regardless of project language).
 # If they are missing and we silently pass (fail-open), the gate is disabled on non-Python teams, so
@@ -75,11 +85,24 @@ fi
 
 ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}"
 [ -n "$ROOT" ] || exit 0
-cd "$ROOT" || exit 0
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_SCRIPTS="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts}"
 PLUGIN_SCRIPTS="${PLUGIN_SCRIPTS:-$SCRIPT_DIR}"
+
+# worktree-aware ROOT re-designation (FAIL-OPEN). CLAUDE_PROJECT_DIR is fixed at session start,
+# so a commit run in a git worktree created inside that session (e.g. `git -C <wt> commit`) would
+# otherwise be gated against main (staged diff invisible · branch-bound tier marker mismatch ·
+# relative module-lint misses worktree files). flow_gate_check.py --resolve-worktree detects the
+# actual commit worktree W by branch-key (from the same hook JSON) and echoes its path; if valid,
+# ROOT=W so the cd / CLAUDE_PROJECT_DIR=ROOT / module-command steps below all read W. Detection
+# failure → empty → ROOT stays main (current behavior). python3 is guaranteed (dependency check above).
+_wt="$(printf '%s' "$_hook_input" | CLAUDE_PROJECT_DIR="$ROOT" python3 "$PLUGIN_SCRIPTS/flow_gate_check.py" --resolve-worktree 2>/dev/null || true)"
+if [ -n "$_wt" ] && [ -d "$_wt" ]; then
+  ROOT="$_wt"
+fi
+
+cd "$ROOT" || exit 0
 
 status="$(git status --porcelain 2>/dev/null)" || exit 0
 [ -z "$status" ] && exit 0

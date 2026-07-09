@@ -31,6 +31,7 @@ cross-shared with JSON/shell. But the *fallback helpers that read those keys*
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -148,3 +149,140 @@ def force_utf8_io() -> None:
                 reconfigure(encoding="utf-8")
             except (ValueError, OSError):  # already closed or cannot reconfigure → ignore
                 pass
+
+
+# ── worktree-aware working root (branch-key detection) ───────────────────────────
+# The gate is built on "working tree = one CLAUDE_PROJECT_DIR", fixed at session start and
+# unchanged by cd. When a consumer commits from a `git worktree` created inside that session
+# (case B), the commit runs in the worktree but the gate still inspects main: git diff/status
+# miss the worktree's staged changes, the branch-bound tier marker mismatches (→ "unclassified"
+# fail-closed), and relative module-lint commands miss the worktree's files.
+#
+# working_root() detects the worktree where the commit actually runs and returns it so the whole
+# gate reads that worktree. Identification key = the *branch* (git enforces one-branch↔one-worktree,
+# a bijection; the tier marker is already branch-bound). Everything is read git-natively (no path or
+# session-id stored in the team-shared config). Any uncertainty → project_dir (= main = current
+# behavior), preserving Invariant #1 (FAIL-OPEN).
+_WORKTREE_PREFIX = "worktree "
+_BRANCH_PREFIX = "branch "
+_HEADS_PREFIX = "refs/heads/"
+# path token: "double-quoted" | 'single-quoted' | bare (up to whitespace)
+_PATH_TOKEN = r'"([^"]*)"|\'([^\']*)\'|(\S+)'
+
+
+def _git(args: list[str], cwd: str | Path) -> str | None:
+    """Run a git command with cwd, returning stripped stdout, or None on any failure."""
+    try:
+        out = subprocess.run(
+            ["git", *args],
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=5,
+        )
+    except Exception:
+        return None
+    if out.returncode != 0:
+        return None
+    return out.stdout.strip()
+
+
+def _dir_from_command(command: str | None) -> str | None:
+    """Extract the commit's execution directory from the command string (deterministic signals).
+
+    ① ``git -C <dir>`` (git's own -C overrides cwd) — scanned only in the global-options region
+       before the ``commit`` subcommand, so a ``-C`` inside the commit message is not mistaken
+       for a directory. ② a leading ``cd <dir> && … git commit`` prefix. Conservative shell-lite
+       parse (quoted or bare paths); if nothing matches, None → the caller drops to the next rung.
+    """
+    if not command:
+        return None
+    head = command.split(" commit", 1)[0]  # ① global-options region only
+    m = re.search(rf"(?:^|\s)-C\s+(?:{_PATH_TOKEN})", head)
+    if not m:  # ② leading `cd <dir> &&`
+        m = re.match(rf"\s*cd\s+(?:{_PATH_TOKEN})\s*&&", command)
+    if not m:
+        return None
+    return next(g for g in m.groups() if g is not None)
+
+
+def _parse_worktree_list(porcelain: str) -> list[tuple[str, str | None]]:
+    """Parse ``git worktree list --porcelain`` into ``[(path, branch|None), …]``.
+
+    A record ends at a blank line (or EOF); a detached worktree has no ``branch`` line → None.
+    """
+    entries: list[tuple[str, str | None]] = []
+    path: str | None = None
+    branch: str | None = None
+    for line in porcelain.splitlines():
+        if line.startswith(_WORKTREE_PREFIX):
+            path, branch = line[len(_WORKTREE_PREFIX) :], None
+        elif line.startswith(_BRANCH_PREFIX):
+            ref = line[len(_BRANCH_PREFIX) :]
+            branch = ref[len(_HEADS_PREFIX) :] if ref.startswith(_HEADS_PREFIX) else ref
+        elif not line.strip():
+            if path is not None:
+                entries.append((path, branch))
+            path, branch = None, None
+    if path is not None:
+        entries.append((path, branch))
+    return entries
+
+
+def _common_dir(d: str | Path) -> Path | None:
+    """Resolved ``--git-common-dir`` for a dir — the shared .git all worktrees of a repo point at.
+
+    Same-repo identity uses this (never a path prefix): sibling worktrees like ``…/kit`` vs
+    ``…/kit-feature`` overlap by prefix yet share the common dir, while a different repo at a
+    prefix-overlapping path does not. Relative output is resolved against ``d`` (git's relative
+    paths are cwd-relative and we run with cwd=d).
+    """
+    out = _git(["rev-parse", "--git-common-dir"], d)
+    if out is None:
+        return None
+    p = Path(out)
+    if not p.is_absolute():
+        p = Path(d) / p
+    try:
+        return p.resolve()
+    except Exception:
+        return None
+
+
+def working_root(
+    *, project_dir: Path, hook_cwd: str | None = None, command: str | None = None
+) -> Path:
+    """Resolve the worktree where this commit actually runs (branch-key ladder). FAIL-OPEN.
+
+    Reads the execution location deterministic-first and confirms same-repo via common-dir
+    equality (Invariant #1: any uncertainty → ``project_dir`` = main = current behavior):
+      ①② a dir named in the command (``git -C``/``cd &&``) → its toplevel, if same repo.
+      ③   the hook cwd → learn its branch B → the unique ``git worktree list`` entry on B.
+      ④   otherwise ``project_dir``.
+    detached HEAD / a different repo / no worktree / any exception all fall to ④.
+    """
+    try:
+        project_dir = Path(project_dir).resolve()
+        main_common = _common_dir(project_dir)
+        if main_common is None:  # main is not a git repo → nothing to resolve
+            return project_dir
+        # ①② directory named directly in the command (deterministic)
+        cmd_dir = _dir_from_command(command)
+        if cmd_dir and _common_dir(cmd_dir) == main_common:
+            top = _git(["rev-parse", "--show-toplevel"], cmd_dir)
+            if top:
+                return Path(top).resolve()
+        # ③ hook cwd → branch B → bijection over the worktree list
+        if hook_cwd and _common_dir(hook_cwd) == main_common:
+            branch = _git(["rev-parse", "--abbrev-ref", "HEAD"], hook_cwd)
+            if branch and branch != "HEAD":  # not detached
+                listing = _git(["worktree", "list", "--porcelain"], project_dir)
+                if listing is not None:
+                    matches = [p for p, b in _parse_worktree_list(listing) if b == branch]
+                    if len(matches) == 1:
+                        return Path(matches[0]).resolve()
+        # ④ fallback → main (current behavior)
+        return project_dir
+    except Exception:
+        return project_dir
