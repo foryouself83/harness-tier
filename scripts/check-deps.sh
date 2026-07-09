@@ -60,7 +60,7 @@ if command -v pre-commit >/dev/null 2>&1 || python3 -c "import pre_commit" >/dev
   ok "pre-commit"
 else
   need "pre-commit 미설치(권장) — 설치: python3 -m pip install pre-commit"
-  need "    설치 후: pre-commit install --hook-type commit-msg --hook-type pre-push"
+  need "    설치 후: pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre-push"
 fi
 
 # 4) superpowers plugin (required for Standard+) — a Claude layer, undetectable from the shell. Guidance only.
