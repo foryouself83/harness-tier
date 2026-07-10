@@ -8,7 +8,7 @@ Place docs in category folders and make the entry document `README.md` (friendly
 
 ```text
 docs/
-  README.md                  overall index · written last (links to the other docs)
+  README.md                  overall index · written last · links EVERY category below (incl. verification/ · operations/)
   srs/README.md              functional/non-functional requirements · greenfield only · written first
   sds/README.md     structure + Mermaid structure diagram (required)
   code-style/
@@ -17,6 +17,11 @@ docs/
   research/
     README.md                research summary index
     <topic>.md               incorporated from .harness/research/ (source links)
+  verification/
+    performance.md           per-stack performance SSOT (consumed by /performance)
+    integration.md           per-stack integration-verification SSOT (consumed by /integration)
+  operations/
+    commit-versioning-guide.md  Conventional Commits · SemVer · release-tool setup
   onboarding/README.md       run/debug + key doc links · written last
 ```
 
@@ -49,7 +54,12 @@ is wanted even if not measurable ("would be nice if it were convenient" ✗ → 
   the SDS module overview can back-trace to it via a link**. If there is an originating customer need, back-reference via `(← [C-x])`. Do not delete
   axes that do not apply — mark them "not applicable — reason".
 - **Non-functional requirements (§6)** — fixed sub-axes aligned to ISO/IEC 25010: performance·security·availability·scalability·accessibility·maintainability·compatibility.
-  Each axis gets a quantitative criterion or "not applicable — reason" (no blanks).
+  Each axis gets a **priority [P0/P1/P2]** + a quantitative criterion (or "not applicable — reason", no blanks) + an `<a id="nfr-xxx">` anchor, so the
+  SDS "NFR Realization" section can back-trace it. **The verification procedure is owned by `docs/verification/*` (SSOT) — link it, do not restate it here.**
+- **Data requirements (§7)** — requirements ABOUT data (retention/deletion policy, GDPR/PCI-DSS/PII handling, classification/ownership, integrity, volume/growth),
+  NOT the schema/ERD (that is SDS Data Design). `<a id="dr-xxx">` anchors. Stateless / no regulated data → "not applicable — reason" (YAGNI).
+- **External interface requirements (§8)** — external interfaces the system MUST conform to as a constraint (mandated legacy API/protocol/data format, third-party
+  SLA/rate limits), NOT the internal integration design (that is SDS Integration Points). `<a id="eir-xxx">` anchors. None mandated → "not applicable — reason" (YAGNI).
 - **Users/scenarios (§3)** — classify by user role and connect it to the permission axis of the features.
 
 ## SDS — sds/README.md
@@ -64,6 +74,11 @@ omits this field, and infrastructure/cross-cutting modules (logging·config·DB 
 Provided/used interfaces follow the UML provided/required split — provided = the contract exposed to the outside, used = the external
 contract needed to operate (other internal modules + external systems, = the concretization of dependencies). **Decomposition axis**: procedural·data-pipeline·functional projects use
 processing stages·data flows as the primary unit instead of modules. Class/type details are absorbed into interfaces. If it is a single module, keep just one (YAGNI).
+**NFR Realization (requirement→design→verification bridge)**: FRs are traced per-module via "Implemented requirements"; NFRs are traced in a dedicated
+`## NFR Realization` section — map each measurable SRS §6 NFR (`#nfr-xxx`) to the module/design decision that satisfies it, plus a link to the verification
+SSOT (`docs/verification/*`). Cross-cutting NFRs need not bind to one module. Brownfield (no SRS) or no measurable NFR → omit (YAGNI).
+**Requirements Coverage (bidirectional check)**: close the one-way module→FR link with a `## Requirements Coverage` section confirming every SRS FR is
+implemented by ≥1 module and every measurable NFR is realized, listing any unmapped FR/NFR as an explicit gap (never a silent drop). Brownfield → omit.
 **Data design (only when there is a DB)**: only module↔data linkage·transaction boundaries. Schema details are owned by code/migrations as
 SSOT — do not duplicate. If there is no DB, omit the section (YAGNI). **UI flow (only when there is a UI)**: screen transitions·state·key actions
 (no screenshots, flow only). If there is no UI, omit. **Do not place exception handling·error handling in the SDS** —

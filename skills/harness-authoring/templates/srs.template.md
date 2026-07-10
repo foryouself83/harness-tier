@@ -45,29 +45,45 @@
 {{FR_LIST_B}}
 
 ## 6. Non-functional Requirements
-<!-- Fixed sub-axes (aligned to ISO/IEC 25010). Fill each axis with quantitative criteria, or,
-     if it does not apply to this project, leave "N/A — reason" (no blanks). -->
+<!-- Fixed sub-axes (aligned to ISO/IEC 25010). For each axis give a **priority [P0/P1/P2]** and a **measurable, verifiable
+     criterion** ("fast" ✗ → "p95 < 200ms" ✓), or leave "N/A — reason" (no blanks). Each axis carries an `<a id="nfr-xxx">` anchor
+     so the SDS "NFR Realization" section can back-trace which design satisfies it (the requirement→design→verification chain).
+     **How a criterion is verified is owned by `docs/verification/*` (performance.md · integration.md) as SSOT — link there;
+     do not restate the procedure here (no duplication). -->
 
-### 6.1 Performance
-{{NFR_PERFORMANCE}}  <!-- Figures for throughput, latency (p50/p95), concurrency, etc. -->
+### 6.1 <a id="nfr-perf"></a>Performance
+{{NFR_PERFORMANCE}}  <!-- [P0/P1/P2] Throughput, latency (p50/p95), concurrency. Verify → docs/verification/performance.md. -->
 
-### 6.2 Security
-{{NFR_SECURITY}}  <!-- Authentication/authorization, encryption, secrets, vulnerability criteria. -->
+### 6.2 <a id="nfr-security"></a>Security
+{{NFR_SECURITY}}  <!-- [P0/P1/P2] Authentication/authorization, encryption, secrets, vulnerability criteria. -->
 
-### 6.3 Availability / Reliability
-{{NFR_AVAILABILITY}}  <!-- SLA, recovery objectives (RTO/RPO), fault tolerance. -->
+### 6.3 <a id="nfr-availability"></a>Availability / Reliability
+{{NFR_AVAILABILITY}}  <!-- [P0/P1/P2] SLA, recovery objectives (RTO/RPO), fault tolerance. -->
 
-### 6.4 Scalability
-{{NFR_SCALABILITY}}  <!-- Response to increased load, horizontal/vertical scaling criteria. -->
+### 6.4 <a id="nfr-scalability"></a>Scalability
+{{NFR_SCALABILITY}}  <!-- [P0/P1/P2] Response to increased load, horizontal/vertical scaling criteria. -->
 
-### 6.5 Accessibility
-{{NFR_ACCESSIBILITY}}  <!-- WCAG level, etc. If there is no UI, "N/A". -->
+### 6.5 <a id="nfr-accessibility"></a>Accessibility
+{{NFR_ACCESSIBILITY}}  <!-- [P0/P1/P2] WCAG level, etc. If there is no UI, "N/A". -->
 
-### 6.6 Maintainability
-{{NFR_MAINTAINABILITY}}  <!-- Test coverage, documentation, module boundary criteria. -->
+### 6.6 <a id="nfr-maintainability"></a>Maintainability
+{{NFR_MAINTAINABILITY}}  <!-- [P0/P1/P2] Test coverage, documentation, module boundary criteria. -->
 
-### 6.7 Compatibility
-{{NFR_COMPATIBILITY}}  <!-- Supported OS/browser/runtime, API version policy. -->
+### 6.7 <a id="nfr-compatibility"></a>Compatibility
+{{NFR_COMPATIBILITY}}  <!-- [P0/P1/P2] Supported OS/browser/runtime, API version policy. -->
 
-## 7. Constraints / Assumptions
+## 7. Data Requirements
+<!-- Requirements ABOUT data — NOT the schema/ERD (that is design → SDS Data Design). State retention/deletion policy, regulatory
+     constraints (GDPR/PCI-DSS/PII handling), data classification/ownership, integrity/consistency, volume/growth. Give each a
+     `<a id="dr-xxx">` anchor so the SDS can trace back. If the system is stateless / holds no regulated data, leave "N/A — reason" (YAGNI). -->
+{{DATA_REQUIREMENTS}}
+<!-- Format — - <a id="dr-1"></a>**DR-1** [P0] PII is purged 90 days after account deletion. Acceptance: 0 rows older than 90d. -->
+
+## 8. External Interface Requirements
+<!-- Requirements ABOUT external interfaces the system MUST conform to (a constraint), NOT the internal integration design
+     (that is SDS Integration Points). e.g. "must integrate via legacy system X's SOAP API v1.2", mandated protocols/data formats,
+     third-party SLA/rate limits. Give each an `<a id="eir-xxx">` anchor. If none is mandated, leave "N/A — reason" (YAGNI). -->
+{{EXTERNAL_INTERFACE_REQUIREMENTS}}
+
+## 9. Constraints / Assumptions
 {{CONSTRAINTS_ASSUMPTIONS}}
