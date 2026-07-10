@@ -31,7 +31,7 @@ When modifying `*.sh`, verify with ShellCheck (the hook runtime is Windows, so b
 agents/     harness-researcher · harness-code-analyzer · harness-critic   (harness research/analysis/critique)
 hooks/      hooks.json (SessionStart rule injection + Notification) · inject-risk-tiers.sh
 skills/     flow · flow-init · flow-uninstall · harness-init · doc-sync · harness-authoring · harness-insight
-            playwright-scaffold · integration · performance   (/slash = skill)
+            harness-deployments · playwright-scaffold · integration · performance   (/slash = skill)
 rules/      risk-tiers.md  ← SSOT for tier classification & commit discipline (not auto-loaded; injected by a hook)
             harness-rules.md  ← SSOT for harness-generation discipline (loaded by the harness-init skill)
 scripts/    flow_gate_check.py · precommit-runner.sh · teams_alert.py · notify-push.sh
@@ -43,6 +43,9 @@ github/     api-contract.workflow.example.yml   contract-test SOURCE (/flow-init
             release.python-semantic-release.workflow.example.yml · release.semantic-release.workflow.example.yml
             branch-naming.workflow.example.yml · entropy-check.workflow.example.yml
             (the 4 above are rendered by /flow-init via flow-config.versioning — release picks one via release_tool)
+            deploy.{pypi,npm,maven-central,gradle,nuget,cratesio,ghcr,dockerhub}.workflow.example.yml (workflow_call
+            components) → orchestrator .github/workflows/deploy.yml is generated from flow-config.deploy.targets;
+            release.yml calls it in-run via a managed block (integrate_release_deploy)
             (all workflow templates carry a timeout-minutes cap; guarded by test_flow_init_setup.py)
 .github/    workflows/ (release·branch-naming·entropy-check·unit-test — harness-tier's own CI, all timeout-capped) · scripts/pin-marketplace-sha.py (pins the marketplace sha at release)
 flow-tiers.yaml            tier→gates policy (plugin-owned, immutable)
@@ -61,6 +64,7 @@ tests/      test_flow_gate_check.py · test_flow_init_setup.py · test_harness_s
 - **Versioning & release (tightly coupled)**: for harness-tier distribution, plugin.json `version` gates updates (Claude Code Explicit-version — when the manifest has a version, a sha change alone does not propagate; reinstall happens only on a version bump). `.github/workflows/release.yml` (python-semantic-release) parses the Conventional Commits (feat/fix) of pushes to main/stage to bump the pyproject + plugin.json version and tag (`vX.Y.Z`), and on main, `pin-marketplace-sha.py` **immutably pins** the marketplace `source.sha` into the release commit (pin-to-parent — no tag refs allowed; supply-chain integrity). Therefore `.md` (rules/skills) changes that affect consumer behavior must be committed as `feat`/`fix`, not `docs`, to propagate (risk-tiers Commit Discipline). Branches: `feature/*` → dev → stage → main.
 - **The plugin's `rules/` is not auto-loaded** → `hooks/inject-risk-tiers.sh` injects it as `additionalContext` at SessionStart (the output key differs per host).
 - **Three verification layers** (independent): static analysis & hygiene = the host's `.pre-commit-config.yaml` (git-native — gitlint (commit-msg) · teams-notify-push (pre-push) · language-agnostic hygiene; per-module lint/static/import_lint/test moved to layer 2) / flow gate = `precommit-runner.sh` (**Claude-session commits only** — PreToolUse, self-filters to `git commit` invocations only (incl. `git -C <worktree> commit`), re-pointing the gate to the actual commit worktree by branch-key (worktree-aware · FAIL-OPEN — see Invariant #6); direct terminal commits and CI do not go through it — blocks unclassified commits + runs only the items enabled in the tier's `gates` (`flow-tiers.yaml`): `precommit` = **lint/static/import_lint/test of the changed modules (every commit)**, `security-scan` = a full-module `security` scan on staging/release promotion — both are RUNTIME_GATES, so the hook runs them directly without a marker, and removing one from that tier's `gates` disables just that check) / **CI (GitHub Actions)** — two workflows `/flow-init` renders on collaboration/promotion branches: **contract testing** (`.github/workflows/api-contract.yml` — schemathesis, via `flow-config.contract_test`) and **unit-test CI** (`.github/workflows/unit-test.yml` — a safety net closing the layer-2 gap, since the flow gate runs unit tests only on Claude-session commits so direct/terminal/CI/GitHub commits would otherwise skip them; via `flow-config.unit_test`, variable `jobs[]` → `strategy.matrix.include`). Every GitHub Actions job carries a `timeout-minutes` cap.
+- **Deployment is not one of the three verification layers** — it's a separate, release-decoupled opt-in: `/harness-deployments` (after `/flow-init`) detects targets, writes `flow-config.deploy`, and renders per-target `deploy-<name>.yml` components plus a generated `deploy.yml` orchestrator. `release.yml` calls the orchestrator via `workflow_call` in the same run (trigger-integral — no PAT, no cross-workflow event), and the orchestrator calls each target component with per-target least-privilege permissions; none of this gates a commit.
 
 ## Invariants (break these and the gate is silently neutralized)
 

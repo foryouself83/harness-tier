@@ -294,6 +294,66 @@ doc_sync:                    # doc-sync 대상
   baseURL 을 설정/코드베이스에서 찾아 확인받고 `goto('/')`+응답 OK+비어있지 않은 title 을
   생성. 보통 `/integration` 이 케이스 0개일 때 호출합니다.
 
+### 3.8 `/harness-deployments` — 배포 계층
+
+```text
+/harness-deployments   # 인자 없음 — 대화형
+```
+
+릴리스 워크플로우(태그+노트) 위에 **배포 계층**을 얹습니다. **`/flow-init` 이 먼저 실행돼
+있어야 하며**(`flow-config.yaml` 필요) 아니면 안내와 함께 중단합니다. 순서: `/harness-init`
+→ `/flow-init` → **`/harness-deployments`**.
+
+1. **감지** — `flow-config.yaml`(`versioning.release_tool`/`version_files`/
+   `modules[].checks`)로 스택을 판별하고, 빌드 산출물(`Dockerfile`,
+   `pyproject.toml`/`package.json`/`Cargo.toml`/`pom.xml`/`*.csproj`), JVM `build_tool`
+   (`build.gradle`/`build.gradle.kts` → gradle, `pom.xml` → maven, `build.sbt` → sbt —
+   `maven-central` 타깃일 때만 필요하며, 어떤 컴포넌트 템플릿을 쓸지 고르는 데 쓰입니다),
+   `.github/workflows/*` 에 이미 있는 publish/deploy 스텝을 확인합니다.
+2. **질문**(`AskUserQuestion`, 적응형 — 파생 불가능한 것만 묻습니다) — 감지된 후보 중에서
+   배포 타깃(레지스트리 발행 / 컨테이너 이미지 / 앱 배포)을 고르고, 타깃별 `auth`(OIDC
+   vs. token — repo에서 감지 불가), 타깃 간 배포 `order`, 모노레포 이미지의
+   `image`/`context`/`dockerfile`(단일 이미지면 생략 — 렌더러가 파생 기본값을 채움),
+   custom 타깃의 `permissions`/`with`를 정합니다. `build_tool`은 감지값을 **확인만**
+   하고(다시 묻지 않음), `version`/`build`는 선택 사항(기본값을 안내만 하고 강제하지
+   않음)입니다. 기존 배포가 있는 brownfield 저장소면 채택/증강/교체 중 선택합니다(조용히
+   덮어쓰지 않음). **트리거는 묻지 않습니다** — 배선은 항상 동일합니다(아래 "배선" 참고).
+3. **생성**:
+   - `flow-config.yaml`에 `deploy:` 블록을 작성/갱신(팀 공유·git 추적 — config는 파생
+     불가능한 값만 담고, 파생 가능한 필드는 생략).
+   - 매핑된 `target`(레지스트리/이미지, `maven-central`+`build_tool: maven|gradle` 포함)
+     이면 `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/flow_init_setup.py" --render-deploy` 를
+     호출해 컴포넌트 CI 워크플로우를 렌더링합니다 — **플러그인 SOURCE 스크립트**를 직접
+     호출하는 것이며(`flow_init_setup.py`는 `/flow-init`이 호스트로 복사하는 파일 목록에
+     없음), 호스트 카피가 아닙니다.
+   - references가 있는 custom/app-deploy 타깃, 또는 `maven-central`+`build_tool: sbt`
+     (정적 템플릿 없음)이면 해당 `references/app-deploy/*` 또는
+     `references/registry-publish/jvm-sbt.md` 레시피로
+     `.github/workflows/deploy-<name>.yml` 를 직접 저작합니다.
+   - 매칭되는 reference가 없는 타깃은 `WebSearch`/`WebFetch`로 공식 액션·시크릿·OIDC
+     지원 여부를 리서치한 뒤 컴포넌트를 저작하고 "검증 필요" 플래그와 필요 시크릿을
+     남깁니다.
+   - 생성된 `deploy.yml` 오케스트레이터와 release.yml 배선(관리 블록
+     `# __HARNESS_DEPLOY_BEGIN/END__`)은 스크립트가 자동으로 처리합니다 — 스킬은
+     스크립트가 마커 없는 legacy/foreign release.yml을 보고할 때만 개입해, release.yml을
+     템플릿에서 재생성하거나(경로 A) 의미적으로 패치(경로 B — `outputs.tag`와 deploy job을
+     올바른 위치에 삽입, diff 확인 후 적용)하도록 안내합니다. 그동안 `deploy.yml`은 이미
+     `workflow_dispatch`로 실행 가능합니다.
+   - `docs/operations/deploy-guide.md` 를 작성합니다(설정할 시크릿 — 빌드 도구별 JVM
+     서명 키 형식 포함, `workflow_dispatch`를 통한 수동 재배포, 롤백 포인터).
+4. **보고** — 생성/변경된 파일, repo admin 이 설정해야 할 시크릿, 발견된 충돌을 요약합니다.
+
+**배선** — `release.yml`이 **같은 런**에서 `workflow_call`로 `deploy.yml`을 호출합니다 —
+크로스-워크플로우 트리거도, deploy용 `RELEASE_TOKEN`도 필요 없습니다. release job이
+`outputs.tag`(방금 만든 실제 태그, 릴리스가 스킵되면 빈 값)를 노출하고, 관리 블록이 그
+태그로 오케스트레이터를 호출하면 오케스트레이터가 태그를 한 번 해석해 각 타깃 컴포넌트를
+타깃별 최소권한으로 호출합니다. 수동 재배포는 `.github/workflows/deploy.yml`을
+`workflow_dispatch`(tag 입력, 선택적으로 특정 target만)로 직접 실행합니다.
+
+**릴리스와 분리** — 릴리스(`versioning`)는 태그와 노트를 만들고, 배포는 그 위에 얹히는
+별도의 opt-in 계층(`flow-config.deploy.enable`)으로, 릴리스 프로세스 자체의 일부가
+아닙니다.
+
 ---
 
 ## 4. Teams 알림

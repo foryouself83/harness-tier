@@ -139,3 +139,41 @@ unit_test:
       version: "20"
       setup: "npm ci"
       test: "npm test"
+
+# Deployment (CI only — GitHub Actions). Layered ON TOP of versioning: release mints the tag,
+# deploy consumes it in the SAME run — release.yml calls deploy.yml via workflow_call, so there is
+# no cross-workflow trigger and no admin PAT. Set up by /harness-deployments (detect → Q&A → render).
+# enable:false → not installed. See docs/operations/deploy-guide.md.
+#
+# PRINCIPLE: config holds only NON-DERIVABLE values. The optional fields below are filled with
+# derived defaults by the renderer when omitted; the skill DETECTS build_tool and writes it. Only
+# enable / name / target / order / auth / custom-permissions are truly human-chosen.
+deploy:
+  enable: false
+  # timeout_minutes: 15            # optional (default 15) — component (executing) job timeout
+  # order: [pypi, api-image]       # optional — listed names run sequentially via needs:; omit → all parallel
+  # One entry per target → component .github/workflows/deploy-<name>.yml, wired by the deploy.yml orchestrator.
+  #   target: pypi | npm | maven-central | nuget | cratesio | ghcr | dockerhub | custom
+  targets:
+    - name: pypi                   # required — job id (unit_test rule: blank → job-1, job-2 …)
+      target: pypi                 # required — which registry/image/custom (selects the template)
+      # auth: oidc                 # optional — oidc | token (default per target; pypi/npm → oidc)
+      # version: "3.12"            # optional — runtime version (setup-* version); omit → template default
+      # build: "uv build"          # optional — artifact build command; omit → stack default
+    # - name: api-image
+    #   target: ghcr
+    #   image: "ghcr.io/OWNER/REPO/api"        # optional — omit → ghcr.io/${{ github.repository }}
+    #   context: "services/api"                # optional — omit → "."
+    #   dockerfile: "services/api/Dockerfile"  # optional — omit → <context>/Dockerfile
+    # - name: central
+    #   target: maven-central
+    #   build_tool: gradle          # required (skill detects: build.gradle→gradle, pom.xml→maven, build.sbt→sbt)
+    #   version: "21"               # optional — JDK
+    #   publish: "./gradlew publishAndReleaseToMavenCentral --no-configuration-cache"
+    #   # publish — required for build_tool gradle/sbt (no default; §6.4). maven uses its pom's
+    #   # central-publishing-maven-plugin config via the template's `mvn deploy` (no publish field).
+    # - name: ecs                   # long-tail — the skill authors deploy-ecs.yml from references
+    #   target: custom
+    #   workflow: ./.github/workflows/deploy-ecs.yml      # required
+    #   permissions: { contents: read, id-token: write }  # required — orchestrator uses verbatim
+    #   with: { cluster: prod }     # optional — extra inputs to the component (tag is always passed)
