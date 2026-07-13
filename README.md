@@ -63,6 +63,7 @@ and CI in sync → evolve from how you actually work**:
 | **Quality gates in one file** | lint · static analysis · import-linting · tests · security scans · API contract tests, declared per module in a single `flow-config.yaml` — **freely add and extend modules, branches, and CI jobs**. **Language-agnostic** (the gate just runs the commands you configure); a new repo inherits the whole setup with one `/flow-init`, and it runs only what the active tier needs. |
 | **A living SSOT for docs** | `doc-sync` diffs code and docs together — code changes propagate into the related markdown, and doc changes are harmonized across the whole doc set, so documentation stops drifting from the code it describes. |
 | **CI that writes itself** | `/flow-init` renders ready-to-run GitHub Actions from your config: a unit-test safety net, API contract tests, semantic-versioning releases that bump and tag from your Conventional Commits, plus branch-naming and entropy checks — every job timeout-capped. |
+| **Deployment on top of release** | `/harness-deployments` adds publishing to the artifact-less release: detect the stack, ask what to ship where, and render the CI — an orchestrator `release.yml` calls in the **same run** (no cross-workflow trigger, no PAT) that fans out to per-target components (PyPI · npm · Maven Central/Gradle · NuGet · crates.io · GHCR · Docker Hub, plus authored app deploys) with per-target least-privilege permissions. |
 | **A harness that learns from you** | `harness-insight` aggregates your Claude Code activity, surfaces the instructions you keep repeating as **harness candidates**, and prunes stale memory — so the harness keeps sharpening around how your team actually works. |
 | **Team notifications built in** | A Microsoft Teams channel is pinged when the workflow is waiting on your input, or at any checkpoint you choose. |
 
@@ -150,6 +151,7 @@ After that, start day-to-day work with **`/flow <task description>`**.
 | Skill | `/harness-init` | Framework detection + research/verification to generate a harness (`.md` by default, no overwrite) |
 | Skill | `doc-sync` | Code ↔ doc synchronization + doc-set consistency |
 | Skill | `harness-insight` | Aggregate Claude Code activity over a period + insight report |
+| Skill | `/harness-deployments` | Layer deployment (registry publish / container image / app deploy) on the release workflow — detect → ask → render deploy CI (opt-in, after `/flow-init`) |
 | Skills | `playwright-scaffold` · `integration` · `performance` | E2E scaffold / integration & performance checks (non-enforcing manual skills) |
 | Agents | `harness-researcher` · `harness-code-analyzer` · `harness-critic` | Research / code analysis / output verification for harness generation |
 | Rule | `risk-tiers` | The single source of truth for risk classification + commit discipline |

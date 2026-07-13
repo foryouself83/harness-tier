@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v0.1.8-rc.1 (2026-07-13)
+
+### Documentation
+
+- **deploy**: Add /harness-deployments to README
+  ([`12ae549`](https://github.com/foryouself83/harness-tier/commit/12ae5491219ce17c3aba3247597ddd8abe002f0d))
+
+### Features
+
+- **authoring**: SRS/SDS requirement traceability
+  ([`1503c20`](https://github.com/foryouself83/harness-tier/commit/1503c20b52174ba05d19db7d91e3c28eae0d63cb))
+
+- **deploy**: Harness-deployments deployment layer
+  ([`a3b1863`](https://github.com/foryouself83/harness-tier/commit/a3b1863534f321008f4c1f19b2e6150e6ccb6498))
+
+- **flow**: Rework commit discipline, drop no-PR
+  ([`7bfa6c0`](https://github.com/foryouself83/harness-tier/commit/7bfa6c0481fcd3ec44e73733318e220b29a6b3e6))
+
+
 ## v0.1.7-rc.1 (2026-07-09)
 
 ### Bug Fixes

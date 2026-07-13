@@ -1,0 +1,46 @@
+# Deploy (Docker Hub image) — reusable component (workflow_call) invoked by deploy.yml's
+# orchestrator, or run manually via workflow_dispatch. Requires DOCKERHUB_USERNAME and
+# DOCKERHUB_TOKEN secrets.
+name: deploy-dockerhub
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "배포할 태그 (예: v1.2.3)"
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-dockerhub-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: __HARNESS_TIMEOUT__
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: __HARNESS_CONTEXT__
+          file: __HARNESS_DOCKERFILE__
+          push: true
+          tags: |
+            __HARNESS_IMAGE__:${{ inputs.tag }}
+            __HARNESS_IMAGE__:latest

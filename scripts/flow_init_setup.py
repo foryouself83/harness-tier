@@ -532,6 +532,23 @@ def load_versioning_config(host: Path) -> dict | None:
     return v if isinstance(v, dict) else None
 
 
+def load_deploy_config(host: Path) -> dict | None:
+    """Return deploy dict from flow-config.yaml (None if absent/unparseable — FAIL-OPEN)."""
+    try:
+        import yaml
+
+        cfg = config_path(host)
+        if not cfg.exists():
+            return None
+        data = yaml.safe_load(cfg.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return None
+        d = data.get("deploy")
+        return d if isinstance(d, dict) else None
+    except Exception:
+        return None
+
+
 _RELEASE_TEMPLATES = {
     "python-semantic-release": "github/release.python-semantic-release.workflow.example.yml",
     "semantic-release": "github/release.semantic-release.workflow.example.yml",
@@ -601,7 +618,310 @@ def render_versioning_workflows(host: Path, plugin: Path) -> list[str]:
             wf_dir / "entropy-check.yml",
             esub,
         )
+    out += integrate_release_deploy(host, plugin)
     return out
+
+
+# target → component template path (plugin-owned SOURCE). maven-central branches on build_tool.
+# Targets with no static template (sbt, custom, unknown) are authored by /harness-deployments.
+DEPLOY_TEMPLATE_BY_TARGET = {
+    "pypi": "github/deploy.pypi.workflow.example.yml",
+    "npm": "github/deploy.npm.workflow.example.yml",
+    "nuget": "github/deploy.nuget.workflow.example.yml",
+    "cratesio": "github/deploy.cratesio.workflow.example.yml",
+    "ghcr": "github/deploy.ghcr.workflow.example.yml",
+    "dockerhub": "github/deploy.dockerhub.workflow.example.yml",
+}
+
+_DEFAULT_VERSION_BY_TARGET = {"pypi": "3.12", "npm": "20", "nuget": "8.0", "maven-central": "21"}
+_DEFAULT_BUILD_BY_TARGET = {
+    "pypi": "python -m build",
+    "npm": "npm ci",
+    "nuget": "dotnet pack -c Release",
+    "cratesio": "cargo build --release",
+    "maven-central": "mvn -B -DskipTests package",
+}
+_DEFAULT_IMAGE_BY_TARGET = {
+    "ghcr": "ghcr.io/${{ github.repository }}",
+    "dockerhub": "${{ github.repository }}",
+}
+
+
+def _deploy_template_for(target: str, build_tool: str) -> str | None:
+    """Component template for a target. maven-central branches on build_tool; None → authored
+    by /harness-deployments (sbt / custom / unknown)."""
+    if target == "maven-central":
+        if build_tool == "gradle":
+            return "github/deploy.gradle.workflow.example.yml"
+        if build_tool == "sbt":
+            return None  # reference-authored (base64 PGP_SECRET, different from maven/gradle)
+        return "github/deploy.maven-central.workflow.example.yml"  # maven (default)
+    return DEPLOY_TEMPLATE_BY_TARGET.get(target)
+
+
+def _deploy_target_wired(t) -> bool:
+    """True iff this target contributes a job to deploy.yml — i.e. its component workflow will
+    exist. Authored targets (custom / sbt / unknown → no static template; the skill writes the
+    file, or config `workflow` points at it) are wired by design. A mapped static template is
+    wired only if it actually renders: maven-central+gradle needs `publish` (no default), else
+    it is skipped and would dangle."""
+    target = str(t.get("target", "")).strip()
+    build_tool = str(t.get("build_tool", "maven")).strip()
+    tmpl = _deploy_template_for(target, build_tool)
+    if tmpl is None:
+        return True  # custom/sbt/unknown → authored elsewhere (by design)
+    publish = str(t.get("publish", "")).strip()
+    if tmpl.endswith("deploy.gradle.workflow.example.yml") and not publish:
+        return False  # mapped but config-invalid (gradle w/o publish) → render skipped → dangle
+    return True
+
+
+def render_deploy_workflows(host: Path, plugin: Path) -> list[str]:
+    """Render .github/workflows/deploy-<name>.yml for each configured deploy target (rev.3).
+
+    Components are reusable workflows (on: workflow_call + workflow_dispatch); the deploy.yml
+    orchestrator wires them (see render step in flow-init). Idempotent·non-destructive (skips an
+    existing dest), FAIL-OPEN. custom / sbt / unknown targets are skipped with a note —
+    /harness-deployments authors those. GitHub forces .github/workflows/ (exception to HARNESS_DIR).
+    """
+    d = load_deploy_config(host)
+    if not d:
+        return ["  [=] deploy 미설정 — 워크플로 skip"]
+    if not d.get("enable", False):
+        return ["  [=] deploy.enable=false — 워크플로 미설치"]
+
+    timeout = str(d.get("timeout_minutes", 15))
+    wf_dir = host / ".github" / "workflows"
+    out: list[str] = []
+    for t in d.get("targets", []) or []:
+        name = str(t.get("name", "")).strip()
+        target = str(t.get("target", "")).strip()
+        build_tool = str(t.get("build_tool", "maven")).strip()
+        if not name:
+            out.append("  [!] name 없는 deploy 타깃 — skip")
+            continue
+        tmpl = _deploy_template_for(target, build_tool)
+        if not tmpl:
+            extra = f",build_tool={build_tool}" if target == "maven-central" else ""
+            out.append(
+                f"  [i] deploy 타깃 {name!r}(target={target}{extra}) — 템플릿 없음"
+                " → /harness-deployments 저작 대상"
+            )
+            continue
+        publish = str(t.get("publish", "")).strip()
+        if tmpl.endswith("deploy.gradle.workflow.example.yml") and not publish:
+            out.append(
+                f"  [!] deploy 타깃 {name!r}(maven-central/gradle) — publish 필수(무기본값) → skip"
+            )
+            continue
+        context = str(t.get("context", "") or ".")
+        dockerfile = str(t.get("dockerfile", "") or f"{context}/Dockerfile")
+        subs = {
+            "__HARNESS_TIMEOUT__": timeout,
+            "__HARNESS_BUILD__": str(
+                t.get("build", "") or _DEFAULT_BUILD_BY_TARGET.get(target, "")
+            ),
+            "__HARNESS_VERSION__": str(
+                t.get("version", "") or _DEFAULT_VERSION_BY_TARGET.get(target, "")
+            ),
+            "__HARNESS_IMAGE__": str(
+                t.get("image", "") or _DEFAULT_IMAGE_BY_TARGET.get(target, "")
+            ),
+            "__HARNESS_CONTEXT__": context,
+            "__HARNESS_DOCKERFILE__": dockerfile,
+            "__HARNESS_PUBLISH__": publish,
+        }
+        out += _render_one(plugin / tmpl, wf_dir / f"deploy-{name}.yml", subs)
+
+    orch_targets = [t for t in (d.get("targets", []) or []) if _deploy_target_wired(t)]
+    if orch_targets:
+        orch = wf_dir / "deploy.yml"
+        orch.parent.mkdir(parents=True, exist_ok=True)
+        orch.write_text(_orchestrator_yaml(orch_targets, d.get("order")), encoding="utf-8")
+        out.append("  [+] .github/workflows/deploy.yml 생성(오케스트레이터, 재생성)")
+    out += integrate_release_deploy(host, plugin)
+    return out
+
+
+def _deploy_job_permissions(target: str, auth: str, custom_permissions) -> dict:
+    """Least-privilege permissions for a target's caller job in deploy.yml (spec §6.3).
+    custom → the config-declared permissions verbatim; ghcr → packages:write; oidc registry →
+    id-token:write; everything else → contents:read only."""
+    if target == "custom":
+        return custom_permissions if isinstance(custom_permissions, dict) else {"contents": "read"}
+    perms = {"contents": "read"}
+    if target == "ghcr":
+        perms["packages"] = "write"
+    elif auth == "oidc":
+        perms["id-token"] = "write"
+    return perms
+
+
+def _deploy_union_permissions(targets) -> dict:
+    """Union of every target's caller-job permissions for the release deploy job (spec §8).
+    'write' beats 'read'. custom folds its declared perms. Never a config field — always
+    computed."""
+    union = {"contents": "read"}
+    for t in targets or []:
+        target = str(t.get("target", "")).strip()
+        auth = str(t.get("auth", "") or ("oidc" if target in ("pypi", "npm") else "token")).strip()
+        for k, v in _deploy_job_permissions(target, auth, t.get("permissions")).items():
+            if k not in union or v == "write":
+                union[k] = v
+    return union
+
+
+def _deploy_call_job(targets) -> str:
+    """The release.yml deploy job that calls the deploy.yml orchestrator (same run)."""
+    perms = _deploy_union_permissions(targets)
+    lines = [
+        "  deploy:",
+        "    needs: [release]",
+        "    if: ${{ needs.release.outputs.tag != '' }}",
+        "    permissions:",
+        *[f"      {k}: {v}" for k, v in perms.items()],
+        "    uses: ./.github/workflows/deploy.yml",
+        "    with:",
+        "      tag: ${{ needs.release.outputs.tag }}",
+        "    secrets: inherit",
+    ]
+    return "\n".join(lines)
+
+
+def report_legacy_release_workflow(deploy_enabled: bool) -> list[str]:
+    """Report (do NOT edit) a release.yml lacking the managed markers — legacy-ours or
+    truly-foreign. Loud [!] so a configured-but-unwired deploy is not silently inert; two
+    recovery paths (spec §8)."""
+    if not deploy_enabled:
+        return ["  [=] release.yml에 deploy 관리 블록 없음(deploy 비활성 — 배선 불필요)"]
+    return [
+        "  [!] release.yml에 harness deploy 관리 블록(__HARNESS_DEPLOY_BEGIN/END__)이 없습니다.",
+        "      → deploy가 flow-config엔 켜져 있지만 release 자동 배선이 안 됩니다(발행 0 위험).",
+        "      복구 A(재생성): release.yml을 새 템플릿에서 재생성하면 스크립트가 자동 배선합니다"
+        "(커스터마이즈 검토).",
+        "      복구 B(의미 패치): /harness-deployments가 release job에 outputs.tag + deploy 호출"
+        " job을",
+        "                        올바른 위치에 삽입합니다(diff 확인 후 — outputs.tag 위치는 의미"
+        " 판단).",
+        "      그동안 .github/workflows/deploy.yml은 workflow_dispatch(tag 입력)로 수동 실행"
+        " 가능합니다.",
+    ]
+
+
+def integrate_release_deploy(host: Path, plugin: Path) -> list[str]:
+    """Wire release.yml → deploy.yml by replacing the managed block between the
+    __HARNESS_DEPLOY_BEGIN/END__ markers with the deploy call job (deploy.enable) or nothing.
+    Idempotent — re-run recomputes the union permissions. Legacy/foreign release.yml (markers
+    absent) is refused via report_legacy_release_workflow; the file is NOT edited (outputs.tag
+    placement is semantic — spec §8). FAIL-OPEN on exceptions."""
+    try:
+        rel = host / ".github" / "workflows" / "release.yml"
+        if not rel.exists():
+            return ["  [=] release.yml 없음 — deploy 배선 skip"]
+        d = load_deploy_config(host)
+        enabled = bool(d and d.get("enable", False))
+        wired = [t for t in (d.get("targets") if d else None) or [] if _deploy_target_wired(t)]
+        body = _deploy_call_job(wired) if (enabled and wired) else ""
+        text = rel.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        begin_marker = "# __HARNESS_DEPLOY_BEGIN__"
+        end_marker = "# __HARNESS_DEPLOY_END__"
+        begin = next((i for i, ln in enumerate(lines) if ln.strip().startswith(begin_marker)), None)
+        end = next((i for i, ln in enumerate(lines) if ln.strip().startswith(end_marker)), None)
+        if begin is None or end is None or end < begin:
+            return report_legacy_release_workflow(enabled)
+        new_lines = lines[: begin + 1] + ([body] if body else []) + lines[end:]
+        rel.write_text(
+            "\n".join(new_lines) + ("\n" if text.endswith("\n") else ""), encoding="utf-8"
+        )
+        return [
+            "  [+] release.yml deploy 배선 갱신(관리 블록)"
+            if body
+            else "  [=] release.yml deploy 블록 비움(deploy.enable=false)"
+        ]
+    except Exception:
+        return ["  [i] release.yml deploy 배선 skip(내부 오류 — FAIL-OPEN)"]
+
+
+def _orchestrator_yaml(targets: list, order: list | None) -> str:
+    """Build the deploy.yml orchestrator: a reusable (workflow_call) + manual (workflow_dispatch)
+    workflow that resolves the tag once and calls each target's component with needs:-ordering
+    and per-target permissions. FULLY GENERATED/MANAGED — regenerated on every render (do not
+    hand-edit)."""
+    order = [str(o) for o in (order or [])]
+    L = [
+        "# Generated by /harness-deployments from flow-config.deploy — DO NOT EDIT.",
+        "# Change targets in flow-config.yaml and re-render (/flow-init or /harness-deployments).",
+        "name: deploy",
+        "on:",
+        "  workflow_call:",
+        "    inputs:",
+        "      tag:",
+        "        required: true",
+        "        type: string",
+        "      target:",
+        "        default: all",
+        "        type: string",
+        "  workflow_dispatch:",
+        "    inputs:",
+        "      tag:",
+        '        description: "배포할 태그(비우면 브랜치에서 도달 가능한 최신 태그)"',
+        "        required: false",
+        "        type: string",
+        "      target:",
+        '        description: "배포할 타깃(all 또는 특정 name)"',
+        "        default: all",
+        "        type: string",
+        "jobs:",
+        "  resolve:",
+        "    runs-on: ubuntu-latest",
+        "    timeout-minutes: 5",
+        "    permissions:",
+        "      contents: read",
+        "    outputs:",
+        "      tag: ${{ steps.r.outputs.tag }}",
+        "    steps:",
+        "      - if: ${{ github.event_name == 'workflow_dispatch' }}",
+        "        uses: actions/checkout@v7",
+        "        with:",
+        "          ref: ${{ github.ref }}",
+        "          fetch-depth: 0",
+        "      - id: r",
+        "        run: |",
+        '          TAG="${{ inputs.tag }}"',
+        '          [ -z "$TAG" ] && TAG="$(git describe --tags --abbrev=0)"',
+        '          echo "tag=$TAG" >> "$GITHUB_OUTPUT"',
+    ]
+    for t in targets:
+        name = str(t.get("name", "")).strip()
+        target = str(t.get("target", "")).strip()
+        if not name or not target:
+            continue
+        auth = str(t.get("auth", "") or ("oidc" if target in ("pypi", "npm") else "token")).strip()
+        perms = _deploy_job_permissions(target, auth, t.get("permissions"))
+        needs = ["resolve"]
+        if name in order:
+            idx = order.index(name)
+            if idx > 0:
+                needs.append(order[idx - 1])
+        uses = (
+            str(t.get("workflow"))
+            if target == "custom"
+            else f"./.github/workflows/deploy-{name}.yml"
+        )
+        L.append(f"  {name}:")
+        L.append("    permissions:")
+        for k, v in perms.items():
+            L.append(f"      {k}: {v}")
+        L.append("    if: " + "${{ inputs.target == 'all' || inputs.target == '" + name + "' }}")
+        L.append(f"    needs: [{', '.join(needs)}]")
+        L.append(f"    uses: {uses}")
+        L.append("    with:")
+        L.append("      tag: ${{ needs.resolve.outputs.tag }}")
+        for k, v in (t.get("with") or {}).items():
+            L.append(f"      {k}: {v}")
+        L.append("    secrets: inherit")
+    return "\n".join(L) + "\n"
 
 
 def load_unit_test_config(host: Path) -> dict | None:
@@ -701,6 +1021,9 @@ def run_setup(host: Path, plugin: Path) -> None:
     print("[유닛 테스트 워크플로우]")
     for line in render_unit_test_workflow(host, plugin):
         print(line)
+    print("[배포 워크플로우]")
+    for line in render_deploy_workflows(host, plugin):
+        print(line)
     print("[config 슬롯 점검]")
     for line in report_missing_config_slots(host, plugin):
         print(line)
@@ -739,8 +1062,17 @@ def main() -> None:
         action="store_true",
         help="호스트에서 harness-tier 배선을 제거(setup 의 역연산)",
     )
+    parser.add_argument(
+        "--render-deploy",
+        action="store_true",
+        help="flow-config.deploy 로부터 배포 워크플로우만 렌더(/harness-deployments 가 호출).",
+    )
     args = parser.parse_args()
     host = host_root()
+    if args.render_deploy:
+        for line in render_deploy_workflows(host, plugin_root()):
+            print(line)
+        return
     if args.uninstall:
         run_uninstall(host)
     else:

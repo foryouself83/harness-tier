@@ -57,6 +57,7 @@ harness-tier 는 이들과 경쟁하지 않습니다 — Dev 등급은 **`superp
 | **한 파일로 끝내는 품질 게이트** | lint · 정적 분석 · import 린팅 · 테스트 · 보안 스캔 · API 계약 테스트를 모듈별로 하나의 `flow-config.yaml` 에 선언 — **모듈·브랜치·CI 잡을 자유롭게 추가·확장**. **언어 무관**(게이트는 당신이 설정한 명령을 실행할 뿐)하며, 새 저장소는 `/flow-init` 한 번으로 전체 구성을 물려받고, 활성 등급에 필요한 것만 실행합니다. |
 | **살아 있는 문서 SSOT** | `doc-sync` 가 코드와 문서를 함께 diff — 코드 변경은 관련 마크다운으로 전파되고, 문서 변경은 문서 집합 전체에서 조율되어, 문서가 설명하는 코드로부터 멀어지지 않습니다. |
 | **스스로 작성되는 CI** | `/flow-init` 이 설정으로부터 GitHub Actions 를 렌더링합니다: 유닛 테스트 안전망, API 계약 테스트, Conventional Commits 로 버전을 올리고 태깅하는 시맨틱 릴리스, 브랜치명·entropy 검사 — 모든 잡에 timeout 상한. |
+| **릴리스 위에 얹는 배포** | `/harness-deployments` 가 산출물 없는 릴리스에 발행을 더합니다: 스택을 감지하고, 무엇을 어디에 배포할지 묻고, CI 를 렌더링합니다 — `release.yml` 이 **같은 런**에서 호출하는 오케스트레이터(크로스-워크플로우 트리거·PAT 불필요)가 타깃별 컴포넌트(PyPI · npm · Maven Central/Gradle · NuGet · crates.io · GHCR · Docker Hub, 그리고 저작된 앱 배포)로 분기하며 타깃별 최소권한을 적용합니다. |
 | **당신에게서 배우는 하네스** | `harness-insight` 가 Claude Code 활동을 집계해 반복해서 내리는 지시를 **하네스 후보**로 드러내고, 낡은 메모리를 정리합니다 — 하네스가 팀의 실제 작업 방식에 맞춰 계속 날카로워집니다. |
 | **팀 알림 내장** | 워크플로가 입력을 기다릴 때, 또는 원하는 체크포인트에서 Microsoft Teams 채널로 알립니다. |
 
@@ -142,6 +143,7 @@ pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre
 | 스킬 | `/harness-init` | 프레임워크 감지 + 리서치·검증으로 하네스 생성 (`.md` 기본, 덮어쓰기 없음) |
 | 스킬 | `doc-sync` | 코드 ↔ 문서 동기화 + 문서 집합 일관성 |
 | 스킬 | `harness-insight` | 지정 기간 Claude Code 활동 집계 + 인사이트 리포트 |
+| 스킬 | `/harness-deployments` | 릴리스 워크플로 위에 배포(레지스트리 발행 / 컨테이너 이미지 / 앱 배포) 계층 추가 — 감지 → 질문 → 배포 CI 렌더(옵트인, `/flow-init` 이후) |
 | 스킬 | `playwright-scaffold` · `integration` · `performance` | E2E 스캐폴드 / 통합·성능 검증(비강제 수동 스킬) |
 | 에이전트 | `harness-researcher` · `harness-code-analyzer` · `harness-critic` | 하네스 생성용 리서치 / 코드 분석 / 생성물 검증 |
 | 룰 | `risk-tiers` | 위험도 분류 + 커밋 규율의 단일 기준 |

@@ -25,6 +25,14 @@
 - Required interface: {{MODULE_REQUIRED_IF}}  <!-- The external contracts needed to operate (= concretization of dependencies). Both other internal modules and external systems (third-party APIs, services, DBs, message brokers, etc.). If none, "none". -->
 - Owned data: {{MODULE_DATA}}  <!-- Core data structures/tables it owns/mutates. If not applicable, "N/A". -->
 
+## NFR Realization
+<!-- Bridge each measurable SRS §6 NFR to the design that satisfies it — this is the missing "requirement → design → verification"
+     link (FRs are traced per-module above via "Implemented requirements"; NFRs are traced here). For each NFR: which module/design
+     decision serves it + a link to the verification SSOT. Cross-cutting NFRs need not map to a single module. Confirmed facts only.
+     **Brownfield (no SRS) omits this section**; if there is no measurable NFR, omit (YAGNI). -->
+{{NFR_REALIZATION}}
+<!-- Format — - [Performance](../srs/README.md#nfr-perf) (p95<200ms): served by {{module/decision}}; verified in [performance.md](../verification/performance.md). -->
+
 ## Data Design
 <!-- Write only when there is a DB/persistent store. If none, omit this section (YAGNI). Schema details are owned by code/migrations
      as the SSOT — here, only module↔data linkage, transaction boundaries, and key entity relationships (no duplication). -->
@@ -47,3 +55,10 @@
      a version-controlled decision outlet (only the core decisions as a doc, not a duplicate of the gitignored `.harness/rationale.md`).
      If there are no promotions/rejections, omit this section. -->
 {{STACK_RECONCILE}}
+
+## Requirements Coverage
+<!-- Bidirectional completeness check that closes the one-way module→FR link: confirm **every** SRS FR is implemented by at least one
+     module above, and every measurable NFR is realized (above). List any FR/NFR with **no** mapping as an explicit gap — never drop it
+     silently (a silently missing FR = a feature dropped at design time). **Brownfield (no SRS) omits this section.** -->
+{{REQUIREMENTS_COVERAGE}}
+<!-- Format — Covered: FR-001…FR-006 · NFR-perf · NFR-security.  Gaps: FR-007 (no module yet — needs design). -->

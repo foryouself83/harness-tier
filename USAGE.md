@@ -318,6 +318,68 @@ promotion).
   `goto('/')` + response OK + non-empty title. Usually invoked by `/integration` when there
   are zero cases.
 
+### 3.8 `/harness-deployments` — deployment layer
+
+```text
+/harness-deployments   # no arguments — interactive
+```
+
+Adds a **deployment layer** on top of the release workflow (tag + notes). It **requires
+`/flow-init` to have already run** (it needs `flow-config.yaml`) and hard-stops with
+guidance otherwise. Order: `/harness-init` → `/flow-init` → **`/harness-deployments`**.
+
+1. **Detect** — stack from `flow-config.yaml` (`versioning.release_tool`/`version_files`/
+   `modules[].checks`), build artifacts (`Dockerfile`, `pyproject.toml`/`package.json`/
+   `Cargo.toml`/`pom.xml`/`*.csproj`), the JVM `build_tool` (`build.gradle`/
+   `build.gradle.kts` → gradle, `pom.xml` → maven, `build.sbt` → sbt — needed only for a
+   `maven-central` target, to pick the matching component template), and existing
+   publish/deploy steps already in `.github/workflows/*`.
+2. **Ask** (`AskUserQuestion`, adaptive — only for what can't be derived) — deploy target(s)
+   from the detected candidates (registry publish / container image / app deploy), per-target
+   `auth` (OIDC vs. token — not detectable from the repo), deploy `order` across targets, a
+   monorepo image's `image`/`context`/`dockerfile` (skipped for a single image — the renderer
+   fills a derived default), and a custom target's `permissions`/`with`. `build_tool` is only
+   confirmed (detected, not asked); `version`/`build` are optional (mention the default,
+   don't force a choice). On a brownfield repo with an existing deploy step, you choose
+   adopt/augment/replace — it never silently overwrites. There is no trigger question —
+   wiring is always the same (see "Wiring" below).
+3. **Generate**:
+   - Writes/updates the `deploy:` block in `flow-config.yaml` (team-shared, git-tracked;
+     config holds only non-derivable values — derivable fields are omitted).
+   - For a registry/image target with a mapped `target` (including `maven-central` with
+     `build_tool: maven|gradle`), renders the component CI workflow via
+     `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/flow_init_setup.py" --render-deploy` — the
+     **plugin SOURCE script**, not a host copy (`flow_init_setup.py` isn't among the files
+     `/flow-init` copies to the host).
+   - For a references-backed custom/app-deploy target or `maven-central`+`build_tool: sbt`
+     (no static template), authors `.github/workflows/deploy-<name>.yml` directly from the
+     matching `references/app-deploy/*` or `references/registry-publish/jvm-sbt.md` recipe.
+   - For a target with no matching reference, researches the official action/secrets/OIDC
+     support via `WebSearch`/`WebFetch`, then authors the component and flags it
+     "verify needed" with the secrets it requires.
+   - The generated `deploy.yml` orchestrator and the release.yml wiring (the managed
+     `# __HARNESS_DEPLOY_BEGIN/END__` block) are handled by the script automatically — the
+     skill only steps in when the script reports a legacy/foreign release.yml (no markers):
+     it offers to regenerate release.yml from the template, or to semantically patch it
+     (insert `outputs.tag` + the deploy job at the right spot, after showing a diff for
+     confirmation). Meanwhile `deploy.yml` is already runnable via `workflow_dispatch`.
+   - Writes `docs/operations/deploy-guide.md` (secrets to configure — including the JVM
+     signing-key format per build tool, manual re-deploy via dispatch, rollback pointers).
+4. **Report** — summarizes created/changed files, secrets the repo admin must set, and any
+   conflicts found.
+
+**Wiring** — `release.yml` calls `deploy.yml` via `workflow_call` in the **same run**: no
+cross-workflow trigger, no `RELEASE_TOKEN` for deploy. The release job exposes
+`outputs.tag` (the actual tag just created, or empty when the release was skipped) and a
+managed block calls the orchestrator with that tag; the orchestrator resolves it once and
+calls each target component with per-target least-privilege permissions. Manual re-deploy:
+run `.github/workflows/deploy.yml` via `workflow_dispatch` with a `tag` input (and an
+optional `target` to redeploy just one).
+
+**Decoupled from release** — release (`versioning`) produces the tag and notes; deployment
+is a separate, opt-in layer (`flow-config.deploy.enable`) on top of it, not part of the
+release process itself.
+
 ---
 
 ## 4. Teams notifications

@@ -208,7 +208,7 @@ rm -rf .claude/harness-tier/.flow
    write the tier marker.
 2. **Record gate evidence honestly** — `touch .claude/harness-tier/.flow/<gate>.done` only
    after the gate genuinely passes. A marker is a forcing function, not a stamp.
-3. **No PR; apply the documented Merge strategy** — direct commit + merge, but
+3. **Apply the documented Merge strategy** — direct commit + merge, but
    **do not default to a plain / `--no-ff` merge**. For every merge, look up its
    branch-flow row in [`risk-tiers.md`](../../rules/risk-tiers.md) **Merge strategy**
    and follow it exactly — the required strategy varies by flow (rebase / squash /
