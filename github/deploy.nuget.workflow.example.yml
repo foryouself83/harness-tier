@@ -1,0 +1,40 @@
+# Deploy (NuGet) — reusable component (workflow_call) invoked by deploy.yml's orchestrator, or run
+# manually via workflow_dispatch. Packs and pushes to nuget.org. Requires a NUGET_API_KEY secret.
+name: deploy-nuget
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "배포할 태그 (예: v1.2.3)"
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-nuget-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: __HARNESS_TIMEOUT__
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "__HARNESS_VERSION__"
+      - name: Pack
+        run: __HARNESS_BUILD__
+      - name: Push to NuGet
+        run: dotnet nuget push "**/*.nupkg" --api-key "${{ secrets.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate

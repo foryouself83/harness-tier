@@ -27,6 +27,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    outputs:
+      tag: ${{ steps.exposetag.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -36,6 +38,23 @@ jobs:
         with:
           node-version: "20"
       - name: Semantic release
+        id: sr
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
-        run: npx --yes semantic-release
+        run: |
+          out="$(npx --yes semantic-release 2>&1)"; echo "$out"
+          if printf '%s\n' "$out" | grep -qiE 'Published release'; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Expose released tag
+        id: exposetag
+        run: |
+          if [ "${{ steps.sr.outputs.released }}" = "true" ]; then
+            echo "tag=$(git describe --tags --abbrev=0)" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=" >> "$GITHUB_OUTPUT"
+          fi
+
+  # __HARNESS_DEPLOY_BEGIN__ (managed by /harness-deployments · /flow-init — do not edit inside)
+  # __HARNESS_DEPLOY_END__

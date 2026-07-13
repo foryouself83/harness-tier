@@ -1,0 +1,43 @@
+# Deploy (PyPI) — reusable component (workflow_call) invoked by deploy.yml's orchestrator, or run
+# manually via workflow_dispatch. Builds the sdist/wheel and publishes to PyPI.
+# OIDC trusted publishing is used when no token secret is configured (id-token: write) — set up a
+# PyPI "trusted publisher" for this repo, or switch to a PYPI_API_TOKEN secret. See deploy-guide.md.
+name: deploy-pypi
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "배포할 태그 (예: v1.2.3)"
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-pypi-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write        # OIDC trusted publishing
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: __HARNESS_TIMEOUT__
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "__HARNESS_VERSION__"
+      - name: Build
+        run: __HARNESS_BUILD__
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

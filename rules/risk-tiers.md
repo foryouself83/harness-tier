@@ -267,16 +267,39 @@ Staging gates **plus**:
 
 Always apply before every `git commit -m` and every merge.
 
-### Hard limits — 50/72 rule
+### Message format (Conventional Commits)
 
-- **Subject**: ≤50 chars total. Non-ASCII chars counted as 1 char
-  each (per Conventional Commits standard).
-- **Body**: each line ≤72 chars. Wrap at natural word boundaries.
-  No one-line paragraphs.
-- **Footer** (`BREAKING CHANGE:`, `Refs:`, etc.): same 72-char rule.
+```
+<type>[(scope)][!]: <description>
+                                   ← blank line
+[body]
+                                   ← blank line
+[footer(s)]
+```
 
-If subject > 50, **REWRITE**. No exceptions, even for descriptive
-richness.
+- **Subject** — `type(scope): description`; ≤50 chars (non-ASCII = 1
+  each); lowercase, imperative; no trailing period. Over 50 →
+  **REWRITE**, no exceptions.
+- **Body** — what & why as `-` bullets (one fact each), not prose;
+  each line ≤72, wrap at word boundaries. Fragments over sentences
+  (noun phrases + `cause → effect`); cut filler — drop anything that
+  restates another.
+- **Footer** — `BREAKING CHANGE: …`, `Refs: #123`; same ≤72.
+
+Subject/body limits (the **50/72 rule**) + no-trailing-period are
+lint-enforced; bullets, fragments, and terseness are soft style.
+
+Example:
+
+```
+feat(auth): rotate refresh tokens per use
+
+- Old tokens: 15-min re-login churn.
+- Per-use rotation → replayed tokens rejected.
+
+BREAKING CHANGE: refresh tokens now single-use.
+Refs: #421
+```
 
 ### Language
 
@@ -408,11 +431,6 @@ integration/staging). It is needed because Explicit-version gating
 forces the version into a **committed file** (not a tag-only release,
 which would never drift).
 
-### PR workflow
-
-**Not used in harness-tier projects.** Direct merge + push. Never propose
-creating a PR; merge straight to the target branch and push.
-
 ### Feature branch base
 
 `/flow` cuts this branch in Step 2b. A **clean** tree branches from
@@ -434,7 +452,6 @@ Don't trust your earlier write.
 
 ## Repo conventions baked in
 
-- **No PR** — direct commit + merge (see Commit Discipline above).
 - **Pre-commit hard gate is inherited by every tier** — the
   `git commit` hook (configured in the project's `settings.json`)
   runs the project's linter / test / formatter chain. Never bypass

@@ -1,0 +1,51 @@
+# Deploy (Maven Central via Gradle) — rendered from flow-config.deploy (target: maven-central,
+# build_tool: gradle). Runs when release.yml calls deploy.yml (same run), or manually. Publishes to
+# the Central Portal with the com.vanniktech.maven.publish plugin (configured in build.gradle[.kts]).
+# Requires MAVEN_CENTRAL_USERNAME / MAVEN_CENTRAL_PASSWORD (Central Portal token) and, for signing,
+# MAVEN_GPG_PRIVATE_KEY (ASCII-armored — the SAME secret the Maven template uses) / MAVEN_GPG_PASSPHRASE.
+# The publish command chooses auto vs manual release (see deploy-guide.md): e.g.
+# publishAndReleaseToMavenCentral auto-publishes, publishToMavenCentral uploads only.
+# --no-configuration-cache is required for Maven Central *release* publishing (Gradle issue 22779).
+name: deploy-maven-central
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "배포할 태그 (예: v1.2.3)"
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-gradle-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: __HARNESS_TIMEOUT__
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "__HARNESS_VERSION__"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Publish to Maven Central
+        run: __HARNESS_PUBLISH__
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.MAVEN_GPG_PASSPHRASE }}

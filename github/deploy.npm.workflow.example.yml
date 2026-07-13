@@ -1,0 +1,45 @@
+# Deploy (npm) — reusable component (workflow_call) invoked by deploy.yml's orchestrator, or run
+# manually via workflow_dispatch. Publishes to npm with provenance. Requires an NPM_TOKEN secret
+# (Automation token).
+name: deploy-npm
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "배포할 태그 (예: v1.2.3)"
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-npm-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write        # npm provenance
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: __HARNESS_TIMEOUT__
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "__HARNESS_VERSION__"
+          registry-url: "https://registry.npmjs.org"
+      - name: Build
+        run: __HARNESS_BUILD__
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
