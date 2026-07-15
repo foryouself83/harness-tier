@@ -70,6 +70,9 @@ The sub-agents **return** their findings as their final message; the **leader ow
   research is confined to the actual requirements (do not expand scope by guessing — investigate while leaving unknown slots as "needs confirmation").
 - **Operational-concern injection**: when dispatching research, pass the harness-rules 9-1 checklist and the **per-layer language/stack map**
   so that, for each (layer, stack), the sub-agent researches the latest standards, sources, alternatives, and applicability per operational axis (9-2 to 9-4).
+- **Quality-lens injection**: pass the harness-rules 9-7 lens checklist (correctness · UX · a11y · performance · security · maintainability/testability ·
+  cross-cutting/integration · i18n) alongside the stack map so that, per (layer, stack), the sub-agent researches best practices **by lens** with
+  applicability (9-2) and **links** — not duplicates — the owning SSOT (9-8).
 - **Version/release tooling research**: research the standard release tool (`release_tool`), `version_files`, and 0.x policy for the detected stack (harness-rules 13, 13-1).
 - **Performance/integration dimension injection**: after the stack is fixed by the Step 2.5 reconcile, when re-dispatching harness-researcher,
   pass the finalized `stack_map` as well and instruct it to research procedure 9 (performance SSOT, integration-verification SSOT).

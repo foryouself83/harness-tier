@@ -9,7 +9,7 @@ conventions and **free, commercial-OK off-the-shelf solutions** from the web/reg
 
 ## Input
 - `framework`, `version`, `concerns` (folder/schema/best-practices/anti-patterns/security/reuse)
-- `ops_axes` (operational-concern checklist, harness-rules 9-1) + `stack_map` (language/stack per layer)
+- `ops_axes` (operational-concern checklist, harness-rules 9-1) + `quality_lenses` (best-practice perspectives, harness-rules 9-7) + `stack_map` (language/stack per layer)
 
 ## Procedure
 1. Search official docs · release notes first (WebSearch → WebFetch). awesome lists are supplementary.
@@ -51,6 +51,12 @@ conventions and **free, commercial-OK off-the-shelf solutions** from the web/reg
    "needs confirmation" (no fabrication). **However, for axes that become 7-1 anchor candidates, like circuit breaker · retry, adopt the latest only
    within the 7-1 ceiling constraint (the limit within which the anchor GA-supports the core major)** — do not pick a core-unsupported latest just
    because it is an operational axis.
+8-1. **Quality-lens best-practice research (9-7 · 9-8)**: organize best practices **by quality lens** — correctness · UX · a11y · performance ·
+   security · maintainability/testability · cross-cutting/integration · i18n. For each (layer, stack), research the applicable lenses' recommended
+   coding practices with source · **applicability** (does the lens exist for this stack — no UX/a11y on a headless backend, no cross-cutting on a
+   single process). Keep each lens's *coding* guidance only and **link** the SSOT that owns the rest (perf tools → the Performance SSOT below;
+   integration contract/E2E → SDS Integration Points / the Integration SSOT below; security enforcement → the 9-1 ops axis + the scanner) — do not
+   duplicate. Uncertain applicability → "needs confirmation" (no fabrication).
 9. **Performance · integration SSOT research**: for each (layer, stack) confirmed by reconcile, additionally research the two dimensions below.
    Leave the source URL · license · cost together, applying the existing discipline (exclude paid · "needs confirmation" if the license is unclear · output in the host's configured language) identically.
    - **Performance SSOT**: N+1 detection tool · profiler · static-complexity tool · DB query-plan tool · API load
@@ -71,8 +77,10 @@ conventions and **free, commercial-OK off-the-shelf solutions** from the web/reg
 - authoritative baseline: based on <the detected framework's official scaffolder> output ... (source: URL)
 ### Autonomous expansion items (additional research per framework characteristics)
 - <item> — why it is needed + authoring ... (source: URL)
-### Best practices (N)
-- ... (source: URL)
+### Best practices by quality lens (9-7 · 9-8, per (layer, stack))
+- <lens>: <coding practice> / applicability: <exists | needs confirmation | N/A> ... (source: URL)
+  (lenses: correctness · UX · a11y · performance · security · maintainability/testability · cross-cutting/integration · i18n;
+   emit only applicable lenses — 9-2; coding guidance only, link the owning SSOT — 9-8, no duplication)
 ### Anti-patterns (avoid)
 - ... (source: URL)
 ### Operational axes (9-1, per (layer, stack))
