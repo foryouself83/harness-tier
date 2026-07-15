@@ -237,11 +237,18 @@ determine whether a harness is installed; the handling differs based on that.
 1. Read the "toolchain & config" / "operational concerns" sections of
    `docs/code-style/<stack>.md` and `services/*/CLAUDE.md` (the per-module SSOT) to
    identify each module's language and tools.
-2. For each module, fill in `path` and `checks` (only those of
-   lint/static/import_lint/test/security that exist for that language). Infer the
-   test path from scaffold subfolders (`tests/`, etc.).
-   - lint/static/import_lint/test → applied on every commit (layer-2 flow gate, changed modules)
-   - security → applied at staging/release promotion
+2. For each module, fill in `path` and `checks`. Draft the standard keys
+   (lint/static/import_lint/test/security) that exist for that language, and add any
+   project-specific custom checks (license, sbom, secret-scan, …) the SSOT implies.
+   Infer the test path from scaffold subfolders (`tests/`, etc.).
+   - A check value is either a command string or the extended form
+     `{ run: <cmd>, when: every-commit | promotion }`. Use `when` (NOT `on` — YAML
+     parses a bare `on` key as boolean). Validate `when ∈ {every-commit, promotion}`;
+     an unknown value falls back to every-commit with a warning, so catch typos here.
+   - every-commit → runs on changed modules every commit (layer-2 flow gate).
+     A string value defaults to every-commit (except `security`).
+   - promotion → runs on all modules at staging/release promotion.
+     A string `security` defaults to promotion (back-compat).
 3. **If a tool can't be found in the SSOT or is ambiguous, confirm via
    `AskUserQuestion`** (do not guess).
 4. Insert the draft into the `modules:` section of `flow-config.yaml` (Edit — no

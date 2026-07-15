@@ -104,10 +104,11 @@ echo "<tier>:$(git branch --show-current)" > .claude/harness-tier/.flow/tier   #
 ## Phase 3 — Dispatch
 
 Record each completed gate as `.claude/harness-tier/.flow/<gate>.done`. `precommit`
-(module lint/static/import_lint/test) and `security-scan` are executed by the
-commit hook itself — no marker (both are ordinary `gates` entries; removing
-one from a tier's list in [`flow-tiers.yaml`](../../flow-tiers.yaml) disables
-it for that tier).
+(every-commit module checks of changed modules) and `security-scan` (promotion module
+checks of all modules) are executed by the commit hook itself — no marker (both are
+ordinary `gates` entries and timing buckets over `flow-config.modules[].checks`, routed
+by each check's `when`; removing one from a tier's list in
+[`flow-tiers.yaml`](../../flow-tiers.yaml) disables it for that tier).
 
 > **Precondition (Dev / Staging / Release)** — the `superpowers` plugin must
 > be installed. If `superpowers:using-superpowers` is **not** among the available

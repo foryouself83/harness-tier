@@ -4,3 +4,5 @@ __pycache__/
 .teams-webhooks.local.json
 flow-config.yaml
 .claude/harness-tier/.flow/
+
+.claude/vway-kit/.vdev/
