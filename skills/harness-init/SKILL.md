@@ -73,6 +73,15 @@ The sub-agents **return** their findings as their final message; the **leader ow
 - **Quality-lens injection**: pass the harness-rules 9-7 lens checklist (correctness · UX · a11y · performance · security · maintainability/testability ·
   cross-cutting/integration · i18n) alongside the stack map so that, per (layer, stack), the sub-agent researches best practices **by lens** with
   applicability (9-2) and **links** — not duplicates — the owning SSOT (9-8).
+- **code-style incremental (lens-gap) path — unified gap model**: classify `docs/code-style/<stack>.md` deterministically and
+  token-free by running `python3 "${PLUGIN}/scripts/harness_scaffold.py" scan <path> <stack>` (not a hand LLM read) to get its
+  3-state classification (`state`: none / `"flat"` legacy / `"lens"` doc, plus the `present` lens list) and tally the present
+  lenses. `gap = applicable lenses − present` (applicable lenses = a lightweight, stack-nature judgment — not research). **Before
+  research**, use `AskUserQuestion` to
+  confirm what to fill: flat legacy is confirmed **per stack** (migrate all applicable lenses), lens docs **per lens** (add what's
+  missing). Only the confirmed `(stack, lens)` set is sent to research dispatch → applied via the `lens_upsert` action (flat =
+  `migrate:true` section replace / lens doc = additive). The replace/migration safety net is **git diff + preview→confirm** (no edit
+  detection, no manifest).
 - **Version/release tooling research**: research the standard release tool (`release_tool`), `version_files`, and 0.x policy for the detected stack (harness-rules 13, 13-1).
 - **Performance/integration dimension injection**: after the stack is fixed by the Step 2.5 reconcile, when re-dispatching harness-researcher,
   pass the finalized `stack_map` as well and instruct it to research procedure 9 (performance SSOT, integration-verification SSOT).
@@ -109,6 +118,12 @@ Per the 9-3 split, fill each stack's structure/detailed conventions into both th
      code-style → onboarding → docs/README, with source links.) First refine `.harness/research/` and merge it into
      `docs/research/` (the basis for the SDS and code-style); thereafter docs link their sources to
      `docs/research/` (do not reference `.harness/`). When generating a skill, include the accompanying references/examples subfolders.
+   - **Absent vs. existing code-style routing (unambiguous)**: a **brand-new / absent** `docs/code-style/<stack>.md` is always
+     generated via the normal full-template `create` action (every section — title, naming/formatting/imports, toolchain,
+     anti-patterns, reuse candidates; its Best Practices section already carries lens managed blocks per the template, so it is
+     never headless). The `lens_upsert` action is for **existing** docs only, as surfaced by the Step 2 gap scan: flat legacy
+     (`migrate: true`, whole-section replace) or an existing lens doc (additive per-lens). `lens_upsert`'s own absent-file branch
+     is a defensive fallback for a stray plan entry, never the first-run authoring path.
    - When flow is detected, put only a risk-tiers defer note for process discipline and do not emit your own process rules.
    - **Performance/integration SSOT docs**: generate `docs/verification/performance.md` · `docs/verification/integration.md` via authoring only when
      there is a finalized stack. Do not create empty stack sections. Link sources to `docs/research/`.

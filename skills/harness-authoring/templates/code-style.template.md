@@ -6,28 +6,23 @@
 {{STYLE_RULES}}
 
 ## Best Practices (by quality lens)
-<!-- Organize into per-lens sub-sections; emit ONLY the lenses that apply to this stack (harness-rules 9-7 · 9-8, 9-2 evidence-based).
-     1-2 lines + source each. Coding guidance only — link the SSOT that owns the rest, never duplicate it. Drop the ### heading of any lens
-     that does not apply (no empty sections). -->
-{{BEST_PRACTICES_BY_LENS}}
-<!-- shape (keep only applicable lenses):
-### Correctness & robustness
-- ... (source: URL)
-### UX & user-facing behavior   — UI-facing stacks
-- duplicate-action guard: disable/guard on submit + server idempotency (→ Cross-cutting) ... (source: URL)
-### Accessibility (a11y)   — UI stacks
-- ... (source: URL)
-### Performance   — perf-conscious coding; profiling tools live in docs/verification/performance.md
-- ... (source: URL)
-### Security   — call-site coding; enforcement in the ops-conventions rule + scanner
-- ... (source: URL)
-### Maintainability & testability
-- ... (source: URL)
-### Cross-cutting / integration   — multi-layer / multi-service; contract in docs/sds Integration Points
-- idempotency: front guard + server idempotency key; cross-layer consistency ... (source: URL)
-### Internationalization / localization   — multi-locale products
-- ... (source: URL)
--->
+<!-- Each applicable lens = a managed block. Emit ONLY the lenses that apply to this stack
+     (harness-rules 9-7 · 9-8, 9-2 evidence-based). Order = correctness · ux · a11y · performance ·
+     security · maintainability · cross-cutting · i18n. Each block holds coding guidance only (1-2 lines +
+     source each) — link the SSOT that owns the rest, never duplicate it. On re-run, harness-init
+     additively upserts any missing lens block into this section; blocks already present are left
+     untouched unless the user selects a refresh.
+
+     Emit the marker below VERBATIM — byte-exact, only <stack>/<lens> substituted — so a re-run upserts
+     in place instead of duplicating a new block (shown as a fenced example so its own `-->` cannot
+     terminate this comment early): -->
+```
+<!-- code-style:lens:<stack>:<lens> BEGIN (managed by /harness-init — edits inside are overwritten) -->
+### <Lens heading>
+- ...
+<!-- code-style:lens:<stack>:<lens> END -->
+```
+{{BEST_PRACTICES_LENS_BLOCKS}}
 
 ## Anti-patterns (avoid)
 {{ANTI_PATTERNS}}

@@ -108,7 +108,11 @@ SSOT (no duplication on either side). If greenfield modules are not yet confirme
   **emitting only the lenses that apply to the stack** (9-2 — no UX/a11y on a headless backend, no cross-cutting on a single process; uncertain →
   ask in the preview, never fabricate). Each lens holds the *coding* guidance only and **links** the SSOT that owns the rest (perf tools →
   `docs/verification/performance.md`; integration contract → `docs/sds` Integration Points; security enforcement → the ops-conventions rule +
-  scanner) — no duplication.
+  scanner) — no duplication. Each lens is emitted as a managed marker block — the exact literal
+  `<!-- code-style:lens:<stack>:<lens> BEGIN (managed by /harness-init — edits inside are overwritten) -->`
+  opening and `<!-- code-style:lens:<stack>:<lens> END -->` closing, byte-exact (verbatim, only
+  `<stack>`/`<lens>` substituted) — so a `/harness-init` re-run can additively upsert only the missing
+  lenses instead of duplicating a new block (spec: incremental lens update).
 - **Toolchain config as one set** — describe together the mutual consistency of the build runner·compiler·bundler·type checker·linter·test runner (e.g. `tsc -b` (references) ↔
   bundler include scope). With the official authoring for the detected version, and its source.
 - **Specify the pre-check tool list (required)** — `/flow-init` references this SSOT when drafting the `flow-config.modules[].checks`
