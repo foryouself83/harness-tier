@@ -62,10 +62,13 @@ BLOCK_EXIT_CODE = 2
 # list (on desync, missing_gates wrongly reports the gate as unmet — sync required on rename).
 # The gates list is the real switch: module_commands decides whether to run based on membership
 # in this key rather than a hardcoded tier branch — removing it from gates turns that check off.
-# - precommit: precommit-runner.sh runs it directly (changed-module
-#   lint/static/import_lint/test, every commit).
-# - security-scan: precommit-runner.sh runs it directly (full-module security on
-#   staging/release promotion).
+# The two gates are timing buckets over the module checks (flow-config modules[].checks); each
+# check routes to one by its `when` (every-commit | promotion), string values defaulting by key
+# name (`security` → promotion, else every-commit). See flow_gate_check._parse_check.
+# - precommit: precommit-runner.sh runs it directly — the every-commit checks of the CHANGED
+#   modules (lint/static/import_lint/test + custom `when: every-commit`), on every commit.
+# - security-scan: precommit-runner.sh runs it directly — the promotion checks of ALL modules
+#   (`security` + custom `when: promotion`), on staging/release promotion.
 RUNTIME_GATES = ("precommit", "security-scan")
 # Lifecycle branch → tier label. Must byte-match the flow-tiers.yaml tiers: keys for the gate to be
 # enforced (on desync, required_gates returns None → gate silently skipped via FAIL-OPEN).

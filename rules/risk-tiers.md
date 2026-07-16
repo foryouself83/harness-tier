@@ -46,15 +46,27 @@ fail-open/closed — see Hard gates.)
 Two kinds:
 
 - **Runtime gates** — executed directly by the commit hook
-  (`precommit-runner.sh`, layer 2), no `.done` marker:
-  - **`precommit`** — lint/static/import_lint/test of the **changed modules**,
-    on every commit.
-  - **`security-scan`** — a full-module scan with the security tools, on
-    staging/release promotion.
+  (`precommit-runner.sh`, layer 2), no `.done` marker. They are **timing buckets**
+  over the `flow-config.modules[].checks`; each check routes to a bucket by its
+  `when` (`every-commit` | `promotion`):
+  - **`precommit`** — the **every-commit** bucket: the every-commit checks of the
+    **changed modules** (lint/static/import_lint/test + any custom
+    `when: every-commit`), on every commit.
+  - **`security-scan`** — the **promotion** bucket: the promotion checks of **all
+    modules** (`security` + any custom `when: promotion`), on staging/release
+    promotion.
 
-  Both are ordinary entries in each tier's `flow-tiers.yaml` `gates` list, so
-  **removing one from a tier's list disables just that check** for that tier
-  (the gates list is the single on/off switch, not a hardcoded branch).
+  Hosts add their own runtime checks by putting extra keys under
+  `flow-config.modules[].checks` — a command string (timing defaults by key name:
+  `security` → promotion, else every-commit) or `{ run, when }` to set timing
+  explicitly (use `when`, not `on` — YAML reads a bare `on` key as a boolean).
+  **Timing is bound to that bucket's gate existing in the tier**: the `docs` tier
+  has neither runtime gate (and is short-circuited), so custom checks never run on
+  a docs commit. Both gates are ordinary entries in each tier's `flow-tiers.yaml`
+  `gates` list, so **removing one disables that whole bucket** for that tier (the
+  gates list is the single on/off switch, not a hardcoded branch). Like all
+  layer-2 checks these run **only on Claude-session commits** — terminal/CI commits
+  are not gated (add a CI safety net if you need hard enforcement).
 - **Marker gates** — recorded as `<gate>.done` only after the work genuinely
   passes (a marker is an audit trail + forcing function, not proof of quality):
   - **`review`** — an independent `general-purpose` review agent (separate

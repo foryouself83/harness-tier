@@ -17,11 +17,17 @@ branches:
   feature_prefix: "feature/"
 
 # Per-module pre-checks (monorepo — when each module uses a different language/toolset). A single-stack project is expressed as one module too.
-# When declared, the layer-2 flow gate (Claude-session commits) runs verification on "all changed modules".
-# checks uses variable keys (lint/static/import_lint/test/security) — only the ones that exist for that language.
+# Enforced by the layer-2 flow gate (Claude-session commits only — terminal/CI commits bypass it, same as every runtime gate).
+# Each key under `checks` is ONE check; its VALUE is either a command string or an extended form
+#   { run: <cmd>, when: every-commit | promotion }.  Add your OWN keys freely (license, sbom, secret-scan, …).
+#   - string value → command; timing defaults by key name (`security` → promotion, else every-commit).
+#   - dict value   → declare timing with `when` (NOT `on` — YAML parses a bare `on` key as boolean true).
+#   Also do NOT name a check key `on`/`off`/`yes`/`no`/`true`/`false` — YAML reads those keys as booleans.
+# Timing → gate → scope (derived, not chosen separately):
+#   every-commit → `precommit` gate, CHANGED modules (dev/staging/release, every commit).
+#   promotion    → `security-scan` gate, ALL modules (staging/release promotion only).
+# Timing is bound to that gate EXISTING in the tier — the docs tier has neither, so custom checks never run on a docs commit.
 # /flow-init drafts these values by referring to the harness docs SSOT, and a human edits them.
-# Timing: keys other than security (lint/static/import_lint/test) → every commit (changed modules) /
-#         security → staging/release promotion (all modules).
 modules:
   - name: api
     path: services/api/
@@ -31,6 +37,13 @@ modules:
       import_lint: "uv run lint-imports --config services/api/.importlinter"
       test:        "uv run pytest services/api"
       security:    "uv run bandit -r services/api --severity-level medium"
+      # custom checks (host-defined) — add your own keys with explicit timing:
+      license:                                          # runs every commit, on changed modules
+        run: "uv run pip-licenses --fail-on 'GPL'"
+        when: every-commit
+      sbom:                                             # runs only on staging/release promotion, all modules
+        run: "uv run cyclonedx-py environment -o sbom.json"
+        when: promotion
   - name: web
     path: services/web/
     checks:

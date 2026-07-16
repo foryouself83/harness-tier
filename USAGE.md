@@ -83,10 +83,14 @@ doc_sync:                    # doc-sync targets
 
 **When each `checks` key runs** (module pre-checks):
 
-| Key | When |
-|-----|------|
-| `lint` · `static` · `import_lint` · `test` | changed modules, **every commit** (Dev gate) |
-| `security` | all modules, **at staging/release promotion** (security-scan gate) |
+Each `checks` key is one check; its value is either a **command string** or the extended form **`{ run: <cmd>, when: every-commit | promotion }`**. Beyond `lint`/`static`/`import_lint`/`test`/`security` you may **add your own keys** (license, sbom, secret-scan, …). (The field is `when`, not `on` — YAML parses a bare `on` key as a boolean.)
+
+| Timing (`when`) | Gate | Scope | When |
+|-----------------|------|-------|------|
+| `every-commit` (default for string values except `security`) | `precommit` | **changed modules** | dev/staging/release, every commit |
+| `promotion` (default for the string `security`) | `security-scan` | **all modules** | at staging/release promotion |
+
+Timing applies only when that gate exists in the tier — the docs tier has neither, so custom checks never run on a docs commit. Enforcement is **Claude-session commits only** (layer-2), same as every runtime gate — terminal/CI commits are not gated.
 
 **Optional sections** (only when you need a REST API / release automation; `/flow-init`
 asks and renders them):
@@ -123,8 +127,8 @@ pass before it can commit**.
 | Tier | When | superpowers | Mandatory gates |
 |------|------|:---:|-----------------|
 | `docs` | no-code change (docs/comments/config values) | ✗ | `doc-sync` |
-| `dev` | change with code (feature/fix) | ✓ | `precommit` (changed modules lint/static/import_lint/test) · `review` (domain review) · `doc-sync` |
-| `staging` | QA/RC promotion (integration→staging) | ✓ | `precommit` · `review` · `security-scan` (all-module security) |
+| `dev` | change with code (feature/fix) | ✓ | `precommit` (changed-module every-commit checks) · `review` (domain review) · `doc-sync` |
+| `staging` | QA/RC promotion (integration→staging) | ✓ | `precommit` · `review` · `security-scan` (all-module promotion checks) |
 | `release` | production deploy (staging→production) | ✓ | `precommit` · `review` · `security-scan` · `security` (security review) |
 
 - **`precommit` · `security-scan`** are executed by the commit hook itself (no marker).

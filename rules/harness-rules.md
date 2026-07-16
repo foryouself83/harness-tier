@@ -76,6 +76,23 @@
    conventions (structure/detail SSOT separation follows 9-3 — no duplication here). In particular, infrastructure (DB · cache · queue ·
    container/image · CI/CD · IaC · cloud) tends to end as a mere reuse artifact, so if conventions (best practices · anti-patterns · operational axes)
    **actually exist**, promote it to a stack (otherwise leave it as a reuse candidate only — 9-2 evidence-based).
+9-7. **Quality-lens taxonomy (best-practice perspectives · open list · applicability-gated)**: the `docs/code-style/<stack>.md`
+   **Best Practices** section is organized **by quality lens**, not as one flat bullet list. Researcher/code-analyzer **review all** of the
+   following *coding-quality perspectives* (isomorphic to 9-1 — a common starting set, not a closed floor; add more per the stack's characteristics):
+   **correctness/robustness** (edge cases · invariants · failure handling in code) · **UX** (loading/disabled/optimistic states ·
+   duplicate-action guards · user-facing error/empty states — UI-facing stacks) · **accessibility (a11y)** (semantics · keyboard · ARIA · contrast —
+   UI stacks) · **performance** (re-render · N+1 · caching · memoization · payload/bundle — the perf-conscious *coding* practice) · **security**
+   (input validation · authz at call sites · injection/escaping · secret handling) · **maintainability/testability** (module boundaries ·
+   dependency direction · test seams) · **cross-cutting/integration** (idempotency = front guard + server idempotency · cross-layer consistency ·
+   contract adherence at call sites) · **i18n/l10n** (multi-locale products). Emit each lens **only when it actually applies** to the stack
+   (9-2 evidence-based — no UX/a11y lens on a headless backend, no cross-cutting lens on a single-process app); uncertain applicability is asked in
+   the Step 6 preview, never fabricated.
+9-8. **Lens boundaries (one fact, one place — 9-3 · rule 7)**: a lens carries the *coding* guidance only and **links** the SSOT that owns the rest —
+   never duplicates it. **performance** lens ↔ `docs/verification/performance.md` (measurement/profiling tools). **cross-cutting/integration** lens ↔
+   `docs/sds` Integration Points (the boundary contract) + `docs/verification/integration.md` (E2E verification). **security** lens ↔ the 9-1
+   secrets/authn/input-validation operational axis + the 9-5 scanner opt-in (the runtime directive + enforcement). **9-1 vs lenses**: 9-1 = runtime
+   operational behavior in production; lenses = authoring-time code quality — where a name overlaps (security), the *directive* lives once in the
+   `<!-- ops-conventions -->` rule section and the lens references it.
 
 ## Multi-agent / critique
 10. **Research fans out via `Agent` (formerly `Task`, an alias) subagents** (researcher + code-analyzer for brownfield), dispatched in parallel and fanned in.

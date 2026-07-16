@@ -44,6 +44,10 @@ and reports any remainder as "unresolved".
   standard detail (doc) not duplicate the same fact, (d) is the security axis (secrets/auth/
   input validation) not ending at directives alone but connected to an opt-in scanner?
   Violations are `high`.
+- **Quality lenses (9-7·9-8)**: (a) is the `docs/code-style/<stack>.md` Best Practices section organized **by lens** with the applicable lens
+  set reviewed — if a lens is missing, is there an emit/skip reason (9-2), (b) does each lens carry **coding guidance only** and **link** (not
+  duplicate) the owning SSOT (perf → `docs/verification/performance.md`; integration → `docs/sds` Integration Points; security → the
+  ops-conventions rule + scanner), (c) is no UX/a11y lens forced onto a non-UI stack (evidence-based emit)? Violations are `high`.
 - **Stack reconcile coverage (9-6·10-1)**: are **all** the "stacks needing conventions"
   (infrastructure included) reported by the researcher either (a) given conventions (rule +
   `docs/code-style/<stack>.md`) or (b) recorded with a **rejection reason** in the SDS

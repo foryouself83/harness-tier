@@ -4,8 +4,9 @@
 # Inspects the commit in two stages, emitting deny JSON on stdout only when blocking:
 #   1) flow gate — flow_gate_check.py (plugin) verifies the required gate evidence for
 #      the declared tier / lifecycle branch. If unmet: exit 2 + reason → deny.
-#   2) module pre-check — lint/static/import_lint/test for changed modules (+ full security
-#      on promotion). Config parse failure / no command is FAIL-OPEN (skip); if any fails, deny.
+#   2) module pre-check — every-commit module checks for changed modules (+ promotion checks
+#      for all modules on promotion), routed by each check's `when` in flow-config. Config parse
+#      failure / no command is FAIL-OPEN (skip); if any fails, deny.
 #
 # Path conventions (the plugin is installed outside the host):
 #   - host repo root  → CLAUDE_PROJECT_DIR (falls back to git toplevel)
@@ -115,8 +116,8 @@ if [ "$flow_rc" -eq 2 ] && [ -n "$flow_reason" ]; then
   deny "$flow_reason"
 fi
 
-# 2) module pre-check. Per tier, runs lint/static/import_lint/test for the changed modules
-#    (+ full-module security on promotion). Commands arrive on stdout, the uncovered report on
+# 2) module pre-check. Per tier, runs the every-commit checks of the changed modules
+#    (+ all-module promotion checks on promotion). Commands arrive on stdout, the uncovered report on
 #    stderr (stderr is not captured and is shown to the user as-is). On config parse failure /
 #    no command: FAIL-OPEN (skip). If any one fails, deny.
 mod_cmds="$(CLAUDE_PROJECT_DIR="$ROOT" python3 "$PLUGIN_SCRIPTS/flow_gate_check.py" --module-commands)"

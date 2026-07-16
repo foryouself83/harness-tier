@@ -2,6 +2,23 @@
 
 <!-- version list -->
 
+## v0.1.9-rc.1 (2026-07-16)
+
+### Features
+
+- **authoring**: Add code-style quality lenses
+  ([`ac558e0`](https://github.com/foryouself83/harness-tier/commit/ac558e05deb5caeecf08b71ae5c2700ff5f71a42))
+
+- **authoring**: No plan indices in code comments
+  ([`5dfb24d`](https://github.com/foryouself83/harness-tier/commit/5dfb24d108d72ccf02d156b7d8083469e8784588))
+
+- **flow**: Per-check timing for custom module gates
+  ([`1a47528`](https://github.com/foryouself83/harness-tier/commit/1a47528b4964ca1fa2acb17758574436f513ee02))
+
+- **harness-init**: Incremental lens gap-fill
+  ([`d82f340`](https://github.com/foryouself83/harness-tier/commit/d82f3401bdbaae56cbe194cb0b154cf4027ada24))
+
+
 ## v0.1.8-rc.1 (2026-07-13)
 
 ### Documentation

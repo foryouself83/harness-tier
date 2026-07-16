@@ -240,14 +240,68 @@ def _match_modules(changed: list[str], modules: list[dict]) -> tuple[list[dict],
     return matched, uncovered
 
 
-def _check_cmds(mod: dict, *, security: bool) -> list[str]:
-    """Module checks commands. security=True → only the security key; False → all except security
-    (config authoring order preserved, empty commands skipped)."""
+_TIMINGS = ("every-commit", "promotion")
+
+
+def _default_timing(key: str) -> str:
+    """Timing for a check that does not declare `when`.
+
+    Back-compat: the reserved key ``security`` keeps its historical promotion timing; every
+    other key defaults to every-commit (the historical non-security path).
+    """
+    return "promotion" if key == "security" else "every-commit"
+
+
+def _parse_check(key: str, val: object) -> tuple[str | None, str, str | None]:
+    """Parse one ``checks`` entry → ``(command|None, timing, warning|None)``. Pure (no I/O).
+
+    A value is either a plain string (command) or an extended dict ``{run, when}``:
+      - string/scalar → key-name default timing.
+      - dict → ``when`` if it is a known timing, else FAIL-SAFE ``every-commit`` (bias to safety:
+        run MORE often, never silently less) plus a warning surfaced on stderr. ``run`` missing
+        or empty → command None (skipped). Runtime stays FAIL-OPEN (Invariant #1); strict
+        validation of ``when`` is /flow-init's job.
+
+    Field name is ``when`` (not ``on``): YAML 1.1 parses a bare ``on`` key as the boolean
+    ``True``, so ``on:`` would never be read back as expected.
+    """
+    if isinstance(val, dict):
+        run = val.get("run")
+        cmd = str(run) if run else None
+        when = val.get("when")
+        if when in _TIMINGS:
+            return cmd, str(when), None
+        if when is None:
+            return cmd, _default_timing(key), None
+        return (
+            cmd,
+            "every-commit",
+            f"checks['{key}'].when='{when}' 알 수 없음 → every-commit 로 처리 "
+            f"(허용값: {', '.join(_TIMINGS)})",
+        )
+    return (str(val) if val else None, _default_timing(key), None)
+
+
+def _check_cmds(mod: dict, *, promotion: bool) -> tuple[list[str], list[str]]:
+    """Module checks for the given timing → ``(commands, warnings)``.
+
+    ``promotion=False`` → every-commit checks (changed modules); ``True`` → promotion checks
+    (all modules). Each entry is a plain string or an extended ``{run, when}`` dict (see
+    :func:`_parse_check`). Config authoring order preserved; empty commands skipped. Warnings are
+    prefixed with the module name so the same typo in two modules stays two distinct lines.
+    """
     checks = mod.get("checks") or {}
-    if security:
-        cmd = checks.get("security")
-        return [str(cmd)] if cmd else []
-    return [str(v) for k, v in checks.items() if k != "security" and v]
+    name = str(mod.get("name") or mod.get("path") or "?")
+    want = "promotion" if promotion else "every-commit"
+    cmds: list[str] = []
+    warns: list[str] = []
+    for key, val in checks.items():
+        cmd, timing, warn = _parse_check(key, val)
+        if warn:
+            warns.append(f"[{name}] {warn}")
+        if cmd and timing == want:
+            cmds.append(cmd)
+    return cmds, warns
 
 
 def module_commands(
@@ -257,8 +311,10 @@ def module_commands(
     gates is the SSOT — not hardcoded by tier label. Removing it from gates turns that check off).
 
     - docs/None tier, or empty gates → ([], [])
-    - "precommit" in gates → the changed modules' non-security checks (+ uncovered report)
-    - "security-scan" in gates → all modules' security (on promotion)
+    - "precommit" in gates → the changed modules' every-commit checks (+ uncovered report)
+    - "security-scan" in gates → all modules' promotion checks (on promotion)
+    Each check is a plain command string or an extended ``{run, when}`` dict routed by timing
+    (see :func:`_parse_check`); unknown ``when`` warnings ride the report (deduped).
     config parse failure·absent modules → ([], []) (FAIL-OPEN — Invariant #1)."""
     if tier is None or tier == "docs" or not gates:
         return [], []
@@ -276,10 +332,13 @@ def module_commands(
         return [], []
     cmds: list[str] = []
     report: list[str] = []
+    warns: list[str] = []
     if "precommit" in gates:
         matched, uncovered = _match_modules(_changed_files(root), modules)
         for mod in matched:
-            cmds += _check_cmds(mod, security=False)
+            c, w = _check_cmds(mod, promotion=False)
+            cmds += c
+            warns += w
         if uncovered:
             report.append(
                 "다음 파일은 모듈 미커버라 사전검사 생략 — 새 모듈이면 "
@@ -288,8 +347,14 @@ def module_commands(
             report += [f"  - {f}" for f in uncovered]
     if "security-scan" in gates:
         for mod in modules:
-            cmds += _check_cmds(mod, security=True)
-    return cmds, report
+            c, w = _check_cmds(mod, promotion=True)
+            cmds += c
+            warns += w
+    # de-dup warnings (a module can appear in both passes), order-preserving; warnings lead so
+    # they are visible above the uncovered report on stderr.
+    seen: set[str] = set()
+    deduped = [w for w in warns if not (w in seen or seen.add(w))]
+    return cmds, deduped + report
 
 
 def main() -> None:
@@ -343,8 +408,9 @@ def module_commands_output() -> None:
     """Emit the module pre-check commands enabled by the current tier's gates to stdout
     (line by line), and the uncovered report to stderr.
 
-    If gates has precommit → changed modules' non-security; if security-scan → + all modules'
-    security (the tiers.yaml gates list is the SSOT — removing it here turns that check off).
+    If gates has precommit → changed modules' every-commit checks; if security-scan → + all
+    modules' promotion checks (the tiers.yaml gates list is the SSOT — removing it turns that
+    bucket off).
     Determination failure → empty output (FAIL-OPEN). precommit-runner.sh runs the stdout commands
     and exposes the stderr report to the user as-is."""
     force_utf8_io()

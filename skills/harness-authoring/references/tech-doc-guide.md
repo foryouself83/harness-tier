@@ -101,8 +101,18 @@ SSOT (no duplication on either side). If greenfield modules are not yet confirme
   differs** (the emphasis differs, so bundling into one file makes both shallow). **If infrastructure has real conventions, give it a stack
   file too** (e.g. `docker.md`·`postgresql.md`·`github-actions.md`) — including stacks promoted via the Step 2.5 reconcile
   (harness-rules 9-6). The target is not the initial stack_map but **the entire reconcile-confirmed set**.
-- Each `<stack>.md` writes naming·formatting·imports / best practices / anti-patterns (including reinventing the wheel) /
+- Each `<stack>.md` writes naming·formatting·imports / **best practices organized by quality lens** / anti-patterns (including reinventing the wheel) /
   toolchain config / reuse candidates **in detailed prose**. **Do not include code snippets**.
+- **Best Practices by quality lens (harness-rules 9-7 · 9-8)** — structure the Best Practices section into per-lens sub-sections
+  (correctness · UX · accessibility · performance · security · maintainability/testability · cross-cutting/integration · i18n),
+  **emitting only the lenses that apply to the stack** (9-2 — no UX/a11y on a headless backend, no cross-cutting on a single process; uncertain →
+  ask in the preview, never fabricate). Each lens holds the *coding* guidance only and **links** the SSOT that owns the rest (perf tools →
+  `docs/verification/performance.md`; integration contract → `docs/sds` Integration Points; security enforcement → the ops-conventions rule +
+  scanner) — no duplication. Each lens is emitted as a managed marker block — the exact literal
+  `<!-- code-style:lens:<stack>:<lens> BEGIN (managed by /harness-init — edits inside are overwritten) -->`
+  opening and `<!-- code-style:lens:<stack>:<lens> END -->` closing, byte-exact (verbatim, only
+  `<stack>`/`<lens>` substituted) — so a `/harness-init` re-run can additively upsert only the missing
+  lenses instead of duplicating a new block (spec: incremental lens update).
 - **Toolchain config as one set** — describe together the mutual consistency of the build runner·compiler·bundler·type checker·linter·test runner (e.g. `tsc -b` (references) ↔
   bundler include scope). With the official authoring for the detected version, and its source.
 - **Specify the pre-check tool list (required)** — `/flow-init` references this SSOT when drafting the `flow-config.modules[].checks`

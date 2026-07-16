@@ -9,7 +9,7 @@ tiers:
       - doc-sync
 
   dev:
-    description: "Changes that include code (precommit = lint/static/import_lint/test on changed modules)"
+    description: "Changes that include code (precommit = every-commit module checks on changed modules; custom keys allowed via flow-config checks[].when)"
     superpowers: true
     gates:
       - precommit
