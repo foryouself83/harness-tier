@@ -80,10 +80,14 @@ doc_sync:                    # doc-sync 대상
 
 **`checks` 키의 실행 시점** (모듈 사전검사):
 
-| 키 | 시점 |
-|----|------|
-| `lint` · `static` · `import_lint` · `test` | 변경 모듈 대상, **모든 커밋**(Dev 게이트) |
-| `security` | 전체 모듈 대상, **staging·release 승격 시**(security-scan 게이트) |
+각 `checks` 키는 하나의 검사이고, 값은 **명령 문자열** 또는 확장형 **`{ run: <명령>, when: every-commit | promotion }`** 입니다. `lint`/`static`/`import_lint`/`test`/`security` 외에 **임의 키(license·sbom·secret-scan 등)를 직접 추가**할 수 있습니다. (필드명은 `on` 이 아니라 `when` — YAML 이 bare `on` 키를 불리언으로 파싱하기 때문.)
+
+| 타이밍(`when`) | 실행 게이트 | 범위 | 시점 |
+|----------------|-------------|------|------|
+| `every-commit`(문자열 값의 기본; `security` 제외) | `precommit` | **변경 모듈** | dev·staging·release 매 커밋 |
+| `promotion`(문자열 `security` 의 기본) | `security-scan` | **전체 모듈** | staging·release 승격 시 |
+
+타이밍은 해당 게이트가 그 티어에 존재할 때만 적용됩니다 — docs 티어는 둘 다 없어 커스텀 검사가 돌지 않습니다. 강제는 기존 게이트와 동일하게 **Claude 세션 커밋(layer-2)만** — 터미널·CI 커밋은 비강제입니다.
 
 **선택 섹션**(REST API·릴리스 자동화가 필요할 때만; `/flow-init` 이 물어보고 렌더링):
 
@@ -118,8 +122,8 @@ doc_sync:                    # doc-sync 대상
 | 등급 | 언제 | superpowers | 필수 게이트 |
 |------|------|:---:|------------|
 | `docs` | 코드 없는 변경(문서·주석·설정값) | ✗ | `doc-sync` |
-| `dev` | 코드 포함 변경(feature/fix) | ✓ | `precommit`(변경 모듈 lint/static/import_lint/test) · `review`(도메인 리뷰) · `doc-sync` |
-| `staging` | QA/RC 승격(integration→staging) | ✓ | `precommit` · `review` · `security-scan`(전체 모듈 보안) |
+| `dev` | 코드 포함 변경(feature/fix) | ✓ | `precommit`(변경 모듈 every-commit 검사) · `review`(도메인 리뷰) · `doc-sync` |
+| `staging` | QA/RC 승격(integration→staging) | ✓ | `precommit` · `review` · `security-scan`(전체 모듈 promotion 검사) |
 | `release` | 프로덕션 배포(staging→production) | ✓ | `precommit` · `review` · `security-scan` · `security`(보안 리뷰) |
 
 - **`precommit` · `security-scan`** 은 커밋 훅이 직접 실행합니다(별도 마커 없음). 해당

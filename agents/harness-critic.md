@@ -20,6 +20,10 @@ in a structured form the problems that should be fixed before a human judges the
    **Operational conventions (9-1~9-5)**: were the checklist axes reviewed without omission (is the emit/skip reason in the rationale),
    does the operational standard have a **source**, are the directive (rule) and the standard details (doc) **not duplicated**, and does the security axis
    not stop at a one-line directive but connect to a scanner opt-in.
+   **Quality lenses (9-7·9-8)**: is the `docs/code-style/<stack>.md` Best Practices section organized **by lens** with applicable lenses reviewed
+   (emit/skip reason for a missing lens — 9-2), does each lens carry coding guidance only and **link** (not duplicate) the owning SSOT (perf →
+   `docs/verification/performance.md` · integration → `docs/sds` Integration Points · security → ops-conventions rule + scanner), and is no UX/a11y
+   lens forced onto a non-UI stack. See critique-guide section 2 for details.
    **Stack reconcile coverage (9-6·10-1)**: did **every** "convention-needed stack" reported by researcher (infrastructure included) receive
    conventions (rule + `docs/code-style/<stack>.md`), or is a **rejection reason** left in the SDS reconcile decision section
    — if it was discovered outside the initial stack_map and neither exists, it is a wholesale omission, so `high`. See critique-guide section 2 for details.

@@ -47,7 +47,8 @@ The generation engine of `/harness-init`. It fills `templates/` (skeletons) with
    **not** put the `harness:baseline` BEGIN/END lines into the marker_upsert content — body only (apply wraps it).
 4. Fill the technical docs following the folder structure and authoring order of `tech-doc-guide.md`
    (SRS → research incorporation → SDS → code-style → onboarding → docs/README). Source links are mandatory; no
-   speculation. SRS is greenfield only. If you generate a skill, add companion folders (references/examples) per the
+   speculation. SRS is greenfield only. The code-style docs consume the researcher's **best-practices-by-lens**
+   output as per-lens sub-sections (tech-doc-guide code-style · harness-rules 9-7 · 9-8), not one flat list. If you generate a skill, add companion folders (references/examples) per the
    `skill-writing-guide.md` discipline. Generate `commit-versioning-guide` under `docs/operations/` using the
    `references/commit-versioning-guide.md` guidance (harness-rules 13-1 · 13-2 — regardless of whether flow is detected;
    defer tier/commit discipline to risk-tiers).

@@ -544,9 +544,110 @@ def _marker_end(marker_id: str) -> str:
     return f"<!-- {marker_id} END -->"
 
 
+# Canonical quality-lens order (harness-rules 9-7). Each key is the marker segment
+# id and the deterministic insertion order within a code-style Best Practices section.
+LENS_ORDER = (
+    "correctness",
+    "ux",
+    "a11y",
+    "performance",
+    "security",
+    "maintainability",
+    "cross-cutting",
+    "i18n",
+)
+
+
+def lens_marker_id(stack: str, lens: str) -> str:
+    return f"code-style:lens:{stack}:{lens}"
+
+
+def _managed_block(marker_id: str, body: str) -> str:
+    return f"{_marker_begin(marker_id)}\n{body.rstrip()}\n{_marker_end(marker_id)}\n"
+
+
+_BP_HEADING_RE = re.compile(r"^##[ \t]+Best Practices\b.*$", re.MULTILINE)
+_H2_RE = re.compile(r"^##[ \t]+", re.MULTILINE)
+
+
+def find_bp_section(text: str):
+    """(start, end) char offsets of the '## Best Practices...' section — heading
+    line through just before the next top-level '## ' heading (or EOF). None if
+    there is no Best Practices heading. '###' sub-headings do not terminate it."""
+    m = _BP_HEADING_RE.search(text)
+    if not m:
+        return None
+    nxt = _H2_RE.search(text, m.end())
+    return (m.start(), nxt.start() if nxt else len(text))
+
+
+def scan_code_style(text: str, stack: str) -> dict:
+    """Classify a code-style doc's Best Practices section.
+    state: 'lens' (has lens markers) | 'flat' (BP heading, no markers) |
+    None (no BP heading — non-standard, caller skips)."""
+    span = find_bp_section(text)
+    if span is None:
+        return {"has_bp": False, "state": None, "present": []}
+    section = text[span[0] : span[1]]
+    present = [lens for lens in LENS_ORDER if f"{lens_marker_id(stack, lens)} BEGIN" in section]
+    return {"has_bp": True, "state": "lens" if present else "flat", "present": present}
+
+
+BP_HEADING = "## Best Practices (by quality lens)"
+
+
+def upsert_lens_block(text: str, stack: str, lens: str, body: str) -> str:
+    """Insert or replace one lens block inside the Best Practices section, keeping
+    LENS_ORDER. Requires a Best Practices section to exist (ValueError otherwise)."""
+    span = find_bp_section(text)
+    if span is None:
+        raise ValueError("no '## Best Practices' section for a lens block")
+    marker_id = lens_marker_id(stack, lens)
+    begin, end = _marker_begin(marker_id), _marker_end(marker_id)
+    block = _managed_block(marker_id, body)
+    pattern = re.compile(re.escape(begin) + r".*?" + re.escape(end) + r"\n?", re.DOTALL)
+    if pattern.search(text):
+        return pattern.sub(block, text, count=1)
+    # insert before the first later-ordered lens already present; else end of section
+    insert_at = span[1]
+    for later in LENS_ORDER[LENS_ORDER.index(lens) + 1 :]:
+        idx = text.find(_marker_begin(lens_marker_id(stack, later)), span[0], span[1])
+        if idx != -1:
+            insert_at = idx
+            break
+    prefix, suffix = text[:insert_at], text[insert_at:]
+    sep = "" if prefix.endswith("\n") else "\n"
+    return prefix + sep + block + suffix
+
+
+def build_bp_section(stack: str, lenses) -> str:
+    """Fresh Best Practices section: canonical heading + lens blocks in LENS_ORDER.
+    `lenses` = iterable of (lens, body)."""
+    by_key = {lens: body for lens, body in lenses}
+    blocks = [
+        _managed_block(lens_marker_id(stack, lens), by_key[lens])
+        for lens in LENS_ORDER
+        if lens in by_key
+    ]
+    return BP_HEADING + "\n" + "".join(blocks)
+
+
+def replace_bp_section(text: str, stack: str, lenses) -> str:
+    """Replace the whole '## Best Practices' section (flat migration) with a fresh
+    lens-block section, preserving surrounding sections."""
+    span = find_bp_section(text)
+    if span is None:
+        raise ValueError("no '## Best Practices' section to replace")
+    new_section = build_bp_section(stack, lenses).rstrip() + "\n"
+    tail = text[span[1] :]
+    if tail:
+        new_section += "\n"  # blank line before the next section
+    return text[: span[0]] + new_section + tail
+
+
 def upsert_marker_block(path: Path, marker_id: str, body: str) -> str:
     begin, end = _marker_begin(marker_id), _marker_end(marker_id)
-    block = f"{begin}\n{body.rstrip()}\n{end}\n"
+    block = _managed_block(marker_id, body)
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(block, encoding="utf-8")
@@ -843,6 +944,24 @@ def apply_plan(root: Path, plan: dict) -> dict:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(entry.get("content", ""), encoding="utf-8")
             report["created"].append(rel)
+        elif action == "lens_upsert":
+            stack = entry["stack"]
+            lenses = [(x["lens"], x["body"]) for x in entry.get("lenses", [])]
+            if not target.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(build_bp_section(stack, lenses).rstrip() + "\n", encoding="utf-8")
+                report["created"].append(rel)
+            else:
+                text = target.read_text(encoding="utf-8")
+                if entry.get("migrate"):
+                    new = replace_bp_section(text, stack, lenses)
+                else:
+                    new = text
+                    for lens, body in lenses:
+                        new = upsert_lens_block(new, stack, lens, body)
+                if new != text:
+                    target.write_text(new, encoding="utf-8")
+                report["updated"].append(rel)
         else:
             report["skipped"].append(rel)
     return report
@@ -915,8 +1034,12 @@ def main(argv: list[str]) -> int:
     v.add_argument("--plan", required=True)
     c = sub.add_parser("cleanup")
     c.add_argument("--root", default=".")
+    s = sub.add_parser("scan")
+    s.add_argument("path")
+    s.add_argument("stack")
     args = parser.parse_args(argv)
-    root = Path(args.root)
+    # 'scan' takes a file path, not --root — do not require the attribute for it.
+    root = Path(args.root) if hasattr(args, "root") else None
     if args.cmd == "detect":
         print(json.dumps(_detect_payload(root), ensure_ascii=False, indent=2))
         return 0
@@ -931,6 +1054,14 @@ def main(argv: list[str]) -> int:
     if args.cmd == "cleanup":
         harness_dir = root / ".claude" / "harness-tier" / ".harness"
         print(json.dumps(cleanup_harness(harness_dir, root), ensure_ascii=False, indent=2))
+        return 0
+    if args.cmd == "scan":
+        target = Path(args.path)
+        exists = target.exists()
+        text = target.read_text(encoding="utf-8") if exists else ""
+        result = scan_code_style(text, args.stack)
+        result["exists"] = exists
+        print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     return 1
 
