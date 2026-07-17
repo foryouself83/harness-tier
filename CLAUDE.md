@@ -38,6 +38,9 @@ scripts/    flow_gate_check.py · precommit-runner.sh · teams_alert.py · notif
             check-deps.sh (dependency check & guidance) · flow_init_setup.py (flow-init setup/re-run + --uninstall cleanup)
             harness_scaffold.py (harness-init scaffold generation)
             harness_insight.py (harness-insight transcript aggregation — project-agnostic, emits a temporary txt)
+            _harness_paths.py (shared paths & magic-value SSOT for the gates) · check-token-write.sh (release-token push check)
+            bump_version.py · finalize_prerelease.py (release version compute / rc finalize)
+            The authoritative copy list is flow_init_setup.py's COPY_FILES — this listing orients, it does not gate.
 github/     api-contract.workflow.example.yml   contract-test SOURCE (/flow-init renders it via flow-config.contract_test)
             unit-test.workflow.example.yml      unit-test CI SOURCE (/flow-init renders it via flow-config.unit_test — jobs[]→matrix)
             release.python-semantic-release.workflow.example.yml · release.semantic-release.workflow.example.yml

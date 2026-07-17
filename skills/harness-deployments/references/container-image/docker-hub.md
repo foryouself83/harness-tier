@@ -1,29 +1,29 @@
 # Container Image — Docker Hub
 
-## 공식 액션
-- 로그인: `docker/login-action@v3` — `username: ${{ secrets.DOCKERHUB_USERNAME }}`, `password: ${{ secrets.DOCKERHUB_TOKEN }}` (registry 입력 생략 시 기본값이 Docker Hub).
-- 빌드+푸시: `docker/build-push-action@v6` — GHCR과 동일한 사용법.
+## Official actions
+- Login: `docker/login-action@v3` — `username: ${{ secrets.DOCKERHUB_USERNAME }}`, `password: ${{ secrets.DOCKERHUB_TOKEN }}` (when the registry input is omitted, the default is Docker Hub).
+- Build+push: `docker/build-push-action@v6` — same usage as GHCR.
 
-## 시크릿
-| 시크릿 | 값 |
+## Secrets
+| Secret | Value |
 |---|---|
-| `DOCKERHUB_USERNAME` | Docker Hub 계정/조직 사용자명 |
-| `DOCKERHUB_TOKEN` | **Access Token**(계정 비밀번호 아님) — Docker Hub → Account Settings → Security → *New Access Token*, Read & Write 스코프로 발급 |
+| `DOCKERHUB_USERNAME` | Docker Hub account/organization username |
+| `DOCKERHUB_TOKEN` | **Access Token** (not the account password) — Docker Hub → Account Settings → Security → *New Access Token*, issued with Read & Write scope |
 
-## OIDC / trusted-publishing 대안
-**없음** — Docker Hub는 이 문서 작성 시점 기준 GitHub OIDC 기반 trusted publishing을 지원하지 않는다. Access Token이 유일한 인증 경로이므로, 최소 권한(해당 리포만 Read & Write) 토큰을 발급하고 주기적으로 로테이션할 것.
+## OIDC / trusted-publishing alternative
+**None** — as of this document's writing, Docker Hub does not support GitHub OIDC-based trusted publishing. An Access Token is the only authentication path, so issue a least-privilege token (Read & Write on that repo only) and rotate it periodically.
 
-## 주의사항 (gotchas)
-- 반드시 **Access Token**을 발급해서 써야 한다 — 계정 로그인 비밀번호를 시크릿에 넣지 말 것(2FA 계정은 애초에 비밀번호 로그인이 API에서 막혀 있다).
-- 토큰 스코프를 "Read & Write"로 지정해야 push가 성공한다(기본 "Read-only"로는 실패).
-- 무료 플랜은 익명 pull rate limit이 있다 — CI에서 base 이미지를 자주 pull한다면 로그인된 상태(`docker/login-action`)로 pull해 리밋을 완화할 수 있다.
+## Gotchas
+- You must issue and use an **Access Token** — do not put the account login password in a secret (for 2FA accounts, password login is blocked at the API in the first place).
+- The token scope must be set to "Read & Write" for the push to succeed (the default "Read-only" fails).
+- The free plan has an anonymous pull rate limit — if CI pulls base images frequently, pulling while logged in (`docker/login-action`) can ease the limit.
 
-## 대응 템플릿
-`github/deploy.dockerhub.workflow.example.yml` — image+docker-hub 조합은 `/flow-init --render-deploy`가 정적 렌더링한다.
+## Corresponding template
+`github/deploy.dockerhub.workflow.example.yml` — the image+docker-hub combination is statically rendered by `/flow-init --render-deploy`.
 
 ## SSOT
-| 항목 | URL |
+| Item | URL |
 |---|---|
 | docker/login-action | https://github.com/docker/login-action |
 | docker/build-push-action | https://github.com/docker/build-push-action |
-| Docker Hub Access Tokens 문서 | https://docs.docker.com/security/for-developers/access-tokens/ |
+| Docker Hub Access Tokens docs | https://docs.docker.com/security/for-developers/access-tokens/ |

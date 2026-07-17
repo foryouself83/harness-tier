@@ -1,6 +1,6 @@
 ---
 name: doc-sync
-description: "Sync documentation with BOTH code and documentation changes via git diff. For code changes, update related markdown. For doc changes, harmonize the whole doc set (the targets declared in flow-config.doc_sync — index, dirs, service_docs) for consistency, including creating or updating each module's local CLAUDE.md against a best-practice template. Use when docs need updating, when code/doc changes affect docs, or to verify documentation consistency (the /flow doc-sync gate)."
+description: "Use when a change may have left the documentation drifted or inconsistent — after editing code that docs describe, after editing docs themselves, when verifying doc consistency, or when a module has no local CLAUDE.md. Also the /flow doc-sync gate."
 ---
 
 # doc-sync

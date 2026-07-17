@@ -9,9 +9,9 @@ in decides **which skills run** (notably whether the heavy `superpowers`
 pipeline engages) and **which gates are mandatory and enforced**.
 
 This file is the single source of truth for tier classification and
-the per-tier workflow. [`/flow`](../skills/flow/SKILL.md),
-[`flow-tiers.yaml`](../flow-tiers.yaml), and the `warn-risk-tier` hook
-all defer to it.
+the per-tier workflow. [`/flow`](../skills/flow/SKILL.md) and
+[`flow-tiers.yaml`](../flow-tiers.yaml) both defer to it, and
+[`inject-risk-tiers.sh`](../hooks/inject-risk-tiers.sh) is what injects it.
 
 There are four tiers across two axes:
 

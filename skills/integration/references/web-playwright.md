@@ -76,9 +76,14 @@ If a value is specified in the config file, use that value.
 
 ### 3.1 Discovering case files
 
+The config's `testDir` (§2.2) is where the cases are — `./e2e`, `./integration`, or the
+`./tests` default. Derive it in the same command so the search follows the project.
+
 ```bash
-# Matches the testMatch default exactly: **/*.@(spec|test).?(c|m)[jt]s?(x)
-find ./tests -regextype posix-extended -regex '.*\.(spec|test)\.(c|m)?[jt]sx?' 2>/dev/null
+# testDir from playwright.config (§2.2), falling back to Playwright's ./tests default.
+# Regex matches the testMatch default exactly: **/*.@(spec|test).?(c|m)[jt]s?(x)
+TESTDIR=$(grep -hoE "testDir:[[:space:]]*['\"][^'\"]+" playwright.config.* 2>/dev/null | head -1 | sed -E "s/.*['\"]//")
+find "${TESTDIR:-./tests}" -regextype posix-extended -regex '.*\.(spec|test)\.(c|m)?[jt]sx?' 2>/dev/null
 ```
 
 **Handling zero cases**: use the `playwright-scaffold` skill to generate a **main-screen smoke** (a deterministic

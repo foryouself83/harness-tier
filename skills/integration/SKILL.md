@@ -1,20 +1,11 @@
 ---
 name: integration
-description: When the project is a web frontend, deterministically runs the existing Playwright cases (--reporter=json) and reports the integration-verification result as PASS/FAIL. If it is web but has zero cases, generates a main-screen smoke via playwright-scaffold and runs it immediately; if it is not web, asks a human for scenarios and pass criteria (human-in-the-loop). A manual skill, not a gate — invoke it when integration verification is needed.
-allowed-tools: Bash, Read, Grep, Glob, AskUserQuestion, Skill
+description: Use when integration or end-to-end verification is needed — running a project's existing suite, or establishing one where none exists. Covers web frontends (Playwright), Electron, and non-web projects. A manual skill, not a gate.
 ---
 
 # integration
 
 **Manually runs the project's integration tests**, or, when there is no automation, **collects scenarios from a human**.
-This is a manual skill, not a gate — it is not tied to the `/flow` gate.
-
-> **Positioning**: This skill **deterministically runs existing Playwright cases**. If it is web but has
-> no cases, it uses `playwright-scaffold` to generate only a **main-screen smoke** (a deterministic
-> "does the app come up?" check) and run it (it does not generate arbitrary scenarios); if it is not
-> web, it is handled human-in-the-loop.
-> Web-frontend detection is a heuristic, not a definitive SSOT — for details, see
-> [`references/web-playwright.md`](references/web-playwright.md).
 
 ---
 
@@ -92,9 +83,15 @@ Read `testDir` and `testMatch` from the config file. The defaults are:
 
 ### 3.2 Discover Existing Cases
 
+Cases live wherever the config points, so derive `testDir` in the same command rather
+than assuming `./tests` — that is what makes a zero-case verdict trustworthy enough to
+scaffold on.
+
 ```bash
-# Matches the testMatch default exactly: **/*.@(spec|test).?(c|m)[jt]s?(x)
-find ./tests -regextype posix-extended -regex '.*\.(spec|test)\.(c|m)?[jt]sx?' 2>/dev/null | wc -l
+# testDir from playwright.config (§3.1), falling back to Playwright's ./tests default.
+# Regex matches the testMatch default exactly: **/*.@(spec|test).?(c|m)[jt]s?(x)
+TESTDIR=$(grep -hoE "testDir:[[:space:]]*['\"][^'\"]+" playwright.config.* 2>/dev/null | head -1 | sed -E "s/.*['\"]//")
+find "${TESTDIR:-./tests}" -regextype posix-extended -regex '.*\.(spec|test)\.(c|m)?[jt]sx?' 2>/dev/null | wc -l
 ```
 
 **If there are zero cases**, invoke the `playwright-scaffold` skill to **generate a main-screen smoke and run it immediately**
@@ -202,7 +199,7 @@ Based on the collected scenarios, write a manual verification checklist and poin
 
 ## References
 
-- [`references/web-playwright.md`](references/web-playwright.md) — web detection signals, testDir/testMatch, reporters, best practices, SSOT URLs (§10.7)
+- [`references/web-playwright.md`](references/web-playwright.md) — web detection signals, testDir/testMatch, reporters, best practices, SSOT URLs (§6)
 - [`references/electron.md`](references/electron.md) — Electron detection + hybrid renderer/main-process procedure, combined report template
 - [`references/non-web.md`](references/non-web.md) — non-web type signals, human-in-the-loop procedure, reference OSS
 - [`playwright-scaffold`](../playwright-scaffold/SKILL.md) — main-screen smoke generator for web + zero cases (invoked by this skill)

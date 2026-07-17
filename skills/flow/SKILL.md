@@ -1,7 +1,6 @@
 ---
 name: flow
-description: MANDATORY first step for ALL development work — invoke BEFORE starting any code change, feature, fix, or free-text dev request. Classifies the task as Docs/Dev by risk, confirms the tier, runs the matching workflow, and records the gate evidence the commit hook enforces; skipping it leaves the commit unclassified and the commit gate blocks it. Staging/Release apply at integration→staging / staging→production.
-allowed-tools: Bash, Read, Grep, Glob, Skill, AskUserQuestion, Edit, Write
+description: MANDATORY first step for ALL development work — invoke BEFORE starting any code change, feature, fix, or free-text dev request, and before any commit. Skipping it leaves the commit unclassified and the commit gate blocks it. Also applies when promoting integration→staging or staging→production.
 argument-hint: "[free-text request]"
 ---
 
@@ -13,29 +12,25 @@ enforces the tier's required gates.
 
 **Source of truth**: [`risk-tiers.md`](../../rules/risk-tiers.md) (criteria, skill
 gate, per-tier steps) and [`flow-tiers.yaml`](../../flow-tiers.yaml) (tier→gates the
-commit hook enforces). Read them first; do not duplicate their content.
+commit hook enforces). `risk-tiers.md` is already in context — the SessionStart hook
+injects it — but **read `flow-tiers.yaml`**, which is not injected and carries the
+gate list you must report in Phase 1.
 
 Branch names referenced below come from `flow-config.branches`
 (`integration` / `staging` / `production`). Domain-review items come from
 `flow-config.review_checklist` and per-module pre-checks from `flow-config.modules`.
 
 Four tiers, two axes:
-- **Day-to-day task** (this command's main job): **Docs** (no code) or
+- **Day-to-day task** (this skill's main job): **Docs** (no code) or
   **Dev** (any code).
 - **Promotion** (run when cutting a release): **Staging** (integration → staging)
   and **Release** (staging → production) — see "Promotion" below.
 
 ## Input
 
-- **$ARGUMENTS** — a free-text request.
-- If empty, ask the user what the task is.
-
-## Phase 0 — Resolve input
-
-Treat `$ARGUMENTS` as the request text.
-
-Carry the **resolved request text** forward as *the task* for every later step — it
-is the explicit input to `brainstorming` and the reference for the commit scope.
+- **$ARGUMENTS** — a free-text request. If empty, ask the user what the task is.
+- Carry that request text forward as *the task* for every later phase — it is the
+  explicit input to `brainstorming` and the reference for the commit scope.
 
 ## Phase 1 — Classify the task (Docs or Dev)
 
@@ -226,6 +221,6 @@ rm -rf .claude/harness-tier/.flow
 6. **Worker / service-process safety** — Dev+ changes touching long-running
    worker processes: inspect for in-flight tasks and require explicit user
    approval before restarting.
-7. **[`risk-tiers.md`](../../rules/risk-tiers.md) and
-   [`flow-tiers.yaml`](../../flow-tiers.yaml) are the source of truth** — if this
-   command diverges, follow them and fix this command.
+7. **On conflict, [`risk-tiers.md`](../../rules/risk-tiers.md) and
+   [`flow-tiers.yaml`](../../flow-tiers.yaml) win** — where this skill disagrees with
+   them, follow them, and tell the user this skill has drifted.

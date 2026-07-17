@@ -1,8 +1,7 @@
 ---
 name: harness-insight
-description: Aggregates Claude Code activity over a given period into a 4-section report of development/harness insights, output into the conversation, then reviews the accumulated project memory and consolidates it (prune / migrate to SSOT). From the transcript (prompts sent and tool_use) it derives the distribution of work done, repeated instructions (harness candidates), activity hotspots, and next actions; for memory it prunes invalid/duplicate entries, promotes lasting knowledge to .claude/rules or docs/, and keeps cross-project habits (pruning/migration only after user approval). It does not create a report file (intermediate txt files are deleted after the work). Use for requests like "insights for the last N days/weeks", "summarize what I did this week", "pull out harness candidates", "clean up memory".
+description: Use for requests like "insights for the last N days/weeks", "summarize what I did this week", "pull out harness candidates", or "clean up memory".
 argument-hint: "period (e.g., 7 days, 2 weeks, 30 days — default 7 days)"
-allowed-tools: Bash, Read, Glob, Grep, Edit, Write, AskUserQuestion
 ---
 
 # Harness-Insight — Period-based Development/Harness Insights
