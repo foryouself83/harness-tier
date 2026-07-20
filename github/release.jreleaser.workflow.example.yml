@@ -42,12 +42,15 @@ jobs:
         run: curl -sSfL https://jreleaser.org/setup.sh | sh
       - name: Compute next version
         id: ver
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
           LEVEL="$(git log -1 --pretty=%B | sed -nE 's/^Release-Level:[[:space:]]*(major|minor|patch)[[:space:]]*$/\1/p' | head -1)"
           LEVEL="${LEVEL:-patch}"
           CURRENT="$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo 0.0.0)"
-          if [ "${{ github.ref_name }}" = "__HARNESS_PRERELEASE__" ]; then
-            NEXT="$(python3 .claude/harness-tier/scripts/bump_version.py bump --current "$CURRENT" --level "$LEVEL" --prerelease "rc.${{ github.run_number }}")"
+          if [ "$REF_NAME" = "__HARNESS_PRERELEASE__" ]; then
+            NEXT="$(python3 .claude/harness-tier/scripts/bump_version.py bump --current "$CURRENT" --level "$LEVEL" --prerelease "rc.$RUN_NUMBER")"
           else
             NEXT="$(python3 .claude/harness-tier/scripts/bump_version.py finalize --current "$CURRENT" || true)"
             if [ -z "$NEXT" ]; then

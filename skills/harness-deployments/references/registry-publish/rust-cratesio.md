@@ -20,7 +20,11 @@
       id: auth
       uses: rust-lang/crates-io-auth-action@v1
     - name: Publish to crates.io
-      run: cargo publish --token ${{ steps.auth.outputs.token }}
+      # cargo reads CARGO_REGISTRY_TOKEN natively, so no --token flag: passing it would put the
+      # secret in argv, where the runner's process list exposes it.
+      env:
+        CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+      run: cargo publish
   ```
   The issued token is automatically revoked by the action's post-step when the job ends.
 - **The first publish cannot be done with OIDC** — the crate must exist on crates.io through at least one manual/token publish before the GitHub repo can be linked as a Trusted Publishing target on the crate settings screen. Bootstrap with `CARGO_REGISTRY_TOKEN`, then switch to OIDC from the following releases.

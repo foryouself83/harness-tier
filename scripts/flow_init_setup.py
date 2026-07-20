@@ -887,8 +887,13 @@ def _orchestrator_yaml(targets: list, order: list | None) -> str:
         "          ref: ${{ github.ref }}",
         "          fetch-depth: 0",
         "      - id: r",
+        # `tag` is an unconstrained workflow_dispatch string and the jobs downstream run with
+        # `secrets: inherit`, so it must reach the shell as data. env + "$VAR" is never re-parsed;
+        # `${{ }}` here would be substituted into the script before bash sees it.
+        "        env:",
+        "          TAG_INPUT: ${{ inputs.tag }}",
         "        run: |",
-        '          TAG="${{ inputs.tag }}"',
+        '          TAG="$TAG_INPUT"',
         '          [ -z "$TAG" ] && TAG="$(git describe --tags --abbrev=0)"',
         '          echo "tag=$TAG" >> "$GITHUB_OUTPUT"',
     ]

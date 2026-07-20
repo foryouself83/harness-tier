@@ -35,52 +35,42 @@ When modifying `*.sh`, verify with ShellCheck (the hook runtime is Windows, so b
 .claude-plugin/
   plugin.json              plugin manifest (minimal — name/description/version/author)
   marketplace.json         marketplace manifest (harness-tier exposes itself; plugin source=github + immutable sha pin)
-agents/     harness-researcher · harness-code-analyzer · harness-critic   (harness research/analysis/critique)
+agents/     harness-researcher · harness-code-analyzer · harness-critic
 hooks/      hooks.json (SessionStart rule injection + Notification) · inject-risk-tiers.sh
 skills/     flow · flow-init · flow-uninstall · harness-init · doc-sync · harness-authoring · harness-insight
             harness-deployments · playwright-scaffold · integration · performance   (/slash = skill)
-rules/      risk-tiers.md  ← SSOT for tier classification & commit discipline (not auto-loaded; injected by a hook)
-            harness-rules.md  ← SSOT for harness-generation discipline (loaded by the harness-init skill)
-            Both ship to consumers. Contrast .claude/rules/ below, which never leaves this repo.
-.claude/rules/  skill-frontmatter.md  ← fires only when you open a skills/**/*.md (paths-scoped, so it
-            costs nothing otherwise). Carries the judgement tests/test_skills.py cannot make — a test
-            catches a wrong value, never a field that should have been there.
-scripts/    flow_gate_check.py · precommit-runner.sh · teams_alert.py · notify-push.sh
-            check-deps.sh (dependency check & guidance) · flow_init_setup.py (flow-init setup/re-run + --uninstall cleanup)
-            harness_scaffold.py (harness-init scaffold generation)
-            harness_insight.py (harness-insight transcript aggregation — project-agnostic, emits a temporary txt)
-            _harness_paths.py (shared paths & magic-value SSOT for the gates) · check-token-write.sh (release-token push check)
-            bump_version.py · finalize_prerelease.py (release version compute / rc finalize)
-            skill_sandbox.py (builds throwaway projects + prints the prompt/pass-criteria for
-            behaviour-testing a skill with a fresh agent — `--list` for the scenarios)
-            The authoritative copy list is flow_init_setup.py's COPY_FILES — this listing orients, it does not gate.
-github/     api-contract.workflow.example.yml   contract-test SOURCE (/flow-init renders it via flow-config.contract_test)
-            unit-test.workflow.example.yml      unit-test CI SOURCE (/flow-init renders it via flow-config.unit_test — jobs[]→matrix)
-            release.python-semantic-release.workflow.example.yml · release.semantic-release.workflow.example.yml
-            branch-naming.workflow.example.yml · entropy-check.workflow.example.yml
-            (the 4 above are rendered by /flow-init via flow-config.versioning — release picks one via release_tool)
-            deploy.{pypi,npm,maven-central,gradle,nuget,cratesio,ghcr,dockerhub}.workflow.example.yml (workflow_call
-            components) → orchestrator .github/workflows/deploy.yml is generated from flow-config.deploy.targets;
-            release.yml calls it in-run via a managed block (integrate_release_deploy)
-            (all workflow templates carry a timeout-minutes cap; guarded by test_flow_init_setup.py)
-.github/    workflows/ (release·branch-naming·entropy-check·unit-test — harness-tier's own CI, all timeout-capped) · scripts/pin-marketplace-sha.py (pins the marketplace sha at release)
-flow-tiers.yaml            tier→gates policy + merge_strategy (branch flow→required/forbidden `git merge` flags; plugin-owned, immutable)
-flow-config.example.yaml   host environment-value slots (the real file is the host's .claude/harness-tier/config/flow-config.yaml, team-shared & git-tracked)
+rules/      risk-tiers.md     SSOT for tier classification & commit discipline (hook-injected, not auto-loaded)
+            harness-rules.md  SSOT for harness-generation discipline (loaded by harness-init)
+            Both SHIP to consumers — unlike .claude/rules/ below, which never leaves this repo.
+.claude/rules/  skill-frontmatter.md — fires only on opening a skills/**/*.md. Carries the judgement
+            test_skills.py cannot make: a test catches a wrong value, never a field that should be there.
+scripts/    flow_gate_check.py · precommit-runner.sh · _harness_paths.py (paths & magic-value SSOT)
+            flow_init_setup.py (flow-init setup/re-run + --uninstall) · harness_scaffold.py
+            harness_insight.py (transcript aggregation — project-agnostic, emits a temporary txt)
+            bump_version.py · finalize_prerelease.py · check-deps.sh · check-token-write.sh
+            teams_alert.py · notify-push.sh · skill_sandbox.py (throwaway projects for skill behaviour tests)
+            Authoritative copy list = flow_init_setup.py COPY_FILES; this listing orients, it does not gate.
+github/     *.workflow.example.yml — SOURCEs that /flow-init renders from flow-config:
+            api-contract (contract_test) · unit-test (unit_test — jobs[]→matrix) · branch-naming · entropy-check
+            release.{python-semantic-release,semantic-release,jreleaser,gitversion,cargo-release} (versioning)
+            deploy.{pypi,npm,maven-central,gradle,nuget,cratesio,ghcr,dockerhub} (workflow_call components)
+            → deploy.yml orchestrator is GENERATED from flow-config.deploy.targets; release.yml calls it in-run
+            (timeout-minutes cap on every template; and no ${{ }} inside a run: block — env: + "$VAR".
+            Both guarded by test_flow_init_setup.py; the second also spans .github/workflows/ and the
+            GENERATED deploy.yml (a Python string — a file-glob check misses it). references/ uncovered.)
+.github/    workflows/ (release · branch-naming · entropy-check · unit-test — own CI, all timeout-capped)
+            scripts/pin-marketplace-sha.py (pins the marketplace sha at release)
+flow-tiers.yaml            tier→gates + merge_strategy — plugin-owned, immutable
+flow-config.example.yaml   host environment slots (real file: host's .claude/harness-tier/config/, team-shared)
 tests/      test_flow_gate_check.py · test_flow_init_setup.py · test_harness_scaffold.py · test_harness_insight.py
-            test_skills.py  ← the test of the skill FILES themselves — frontmatter, links, section refs, and
-            the case-discovery command extracted from the shipped SKILL.md and run against fixture projects.
-            (test_evals.py also reads skills/ — descriptions via scores.description_sha for the freshness
-            gate — so a description edit fails THERE, where re-measuring is the only fix.) Everything else
-            here tests scripts/, which is why command-era frontmatter went unnoticed for so long.
-            test_evals.py  ← the model-free half of evals/ (below): the gate predicate, the stream parser,
-            and the committed baseline. Never spawns a session.
-evals/      cases.yaml (the 7 model-invoked skills × 5 happy + 5 negative prompts) · run.py (headless
-            `claude -p --plugin-dir` runner, reps 3 → 15 samples per arm; pinned model, isolated
-            CLAUDE_CONFIG_DIR, spends hours of rate-limit budget — run by hand, local only) ·
-            stream.py (pure event observation) · scores.py (per-skill expect_invoke declaration + exact-binomial
-            ratchet · false_fire ceiling · all-zero floor — the gate predicate, model-free) · scores.json
-            (the committed baseline, invoke_hits/invoke_n per arm).
-            NOT shipped: only agents/·skills/·hooks/ reach consumers, so evals/ changes commit as test:/chore:.
+            test_skills.py — tests the skill FILES: frontmatter, links, section refs, and the case-discovery
+            command extracted from the shipped SKILL.md and run against fixtures. The rest tests scripts/.
+            test_evals.py — the model-free half of evals/: gate predicate, stream parser, committed baseline.
+evals/      cases.yaml (7 model-invoked skills × 5 happy + 5 negative) · stream.py (event observation)
+            run.py (headless runner, reps 3 → 15 samples/arm; pinned model, isolated CLAUDE_CONFIG_DIR —
+            by hand, local only, spends rate-limit budget) · scores.py (gate predicate: ratchet · false_fire
+            ceiling · all-zero floor) · scores.json (committed baseline)
+            NOT shipped — only agents/·skills/·hooks/ reach consumers, so evals/ commits as test:/chore:.
 ```
 
 ## Architecture (must-know)

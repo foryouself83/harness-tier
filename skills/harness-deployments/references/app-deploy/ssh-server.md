@@ -61,11 +61,14 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_KEY }}
       - name: Deploy via rsync
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
         run: |
-          mkdir -p ~/.ssh && ssh-keyscan -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
+          mkdir -p ~/.ssh && ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
           RELEASE=releases/$(date +%Y%m%d%H%M%S)
-          rsync -az --delete ./dist/ "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/srv/app/$RELEASE/"
-          ssh "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" "ln -sfn /srv/app/$RELEASE /srv/app/current && systemctl restart app"
+          rsync -az --delete ./dist/ "$SSH_USER@$SSH_HOST:/srv/app/$RELEASE/"
+          ssh "$SSH_USER@$SSH_HOST" "ln -sfn /srv/app/$RELEASE /srv/app/current && systemctl restart app"
 ```
 
 The orchestrator `deploy.yml` calls the component via `uses:` (`on: workflow_call` — `inputs.tag` is the

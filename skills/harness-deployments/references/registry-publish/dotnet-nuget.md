@@ -7,7 +7,7 @@
 ## Secrets
 | Method | What's needed | Workflow config |
 |---|---|---|
-| Long-lived API key (current default template) | `NUGET_API_KEY` | `--api-key "${{ secrets.NUGET_API_KEY }}"` |
+| Long-lived API key (current default template) | `NUGET_API_KEY` | `env: NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}` + `--api-key "$NUGET_API_KEY"` (never interpolate into `run:`) |
 | **NuGet Trusted Publishing (OIDC, phased rollout in progress)** | None (only the nuget.org username) | `permissions: id-token: write` + the `NuGet/login@v1` action to issue a 1-hour temporary API key |
 
 ## Gotchas
@@ -17,7 +17,9 @@
     id: login
     with:
       user: ${{ secrets.NUGET_USER }}   # nuget.org profile name (not the email) — keeping it in a secret is recommended
-  - run: dotnet nuget push "**/*.nupkg" --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
+  - env:
+      NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}   # dotnet does not read this natively, so --api-key stays — but via env, never interpolated into run:
+    run: dotnet nuget push "**/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json
   ```
 - The **Trusted Publishing** policy must be pre-registered on nuget.org: account menu → *Trusted Publishing* → repository owner/repo/workflow **filename only** (excluding the path, e.g. `deploy-nuget.yml`)/optional environment.
 - The issued temporary API key is valid for **1 hour** only — it must be issued right before the push, and expires if you wait long after issuance.

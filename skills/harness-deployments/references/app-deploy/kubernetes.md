@@ -52,11 +52,18 @@ jobs:
         with:
           version: 'v1.31.0'
       - name: Configure kubeconfig
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
         run: |
           mkdir -p "$HOME/.kube"
-          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > "$HOME/.kube/config"
+          echo "$KUBE_CONFIG" | base64 -d > "$HOME/.kube/config"
       - name: Roll out image
-        run: kubectl set image deployment/<name> <container>=<image>:${{ inputs.tag }} -n <namespace>
+        # `tag` is an unconstrained workflow_dispatch input — bind it to env: and quote it. A
+        # `${{ }}` here is substituted into the script before the shell parses it, so a crafted
+        # tag becomes a command.
+        env:
+          TAG: ${{ inputs.tag }}
+        run: kubectl set image deployment/<name> "<container>=<image>:$TAG" -n <namespace>
       - name: Wait for rollout
         run: kubectl rollout status deployment/<name> -n <namespace> --timeout=5m
 ```
