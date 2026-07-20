@@ -3,8 +3,13 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 This repo is the **Claude Code plugin itself** (not a consumer of it). For usage, see [README.md](README.md)·[USAGE.md](USAGE.md).
-For component authoring specs (command/agent/hook/skill frontmatter), verify against the official docs as the SSOT, not model knowledge:
-[plugins-reference](https://code.claude.com/docs/en/plugins-reference.md) · [hooks](https://code.claude.com/docs/en/hooks.md) · [skills](https://code.claude.com/docs/en/skills.md).
+For component authoring specs (agent/hook/skill frontmatter), verify against the official docs as the SSOT, not model knowledge:
+[plugins-reference](https://code.claude.com/docs/en/plugins-reference.md) · [hooks](https://code.claude.com/docs/en/hooks.md) · [skills](https://code.claude.com/docs/en/skills.md) · [permissions](https://code.claude.com/docs/en/permissions.md).
+This line alone did not hold: nine skills carried `allowed-tools: Bash, Read, Write, …` for months —
+inherited from the command→skill migration, never re-derived — while it read as a tool *restriction*
+and was in fact a blanket grant of every command. The conclusions now live where they fire:
+[`.claude/rules/skill-frontmatter.md`](.claude/rules/skill-frontmatter.md) (on opening a skill) and
+[`tests/test_skills.py`](tests/test_skills.py) (on every CI run).
 
 ## Commands
 
@@ -16,6 +21,8 @@ uv run pytest                                            # run all tests
 uv run pytest tests/test_flow_gate_check.py::<name>      # run a single test
 uv run ruff check && uv run ruff format --check          # lint + format check
 uv run pre-commit run --all-files                        # full static analysis
+uv run python -m evals.run --dry-run --all               # session count + wall-clock, no model calls
+uv run python -m evals.run                               # measure only skills whose description changed
 ```
 
 When modifying `*.sh`, verify with ShellCheck (the hook runtime is Windows, so bugs are hidden as FAIL-OPEN — see Invariants).
@@ -34,12 +41,18 @@ skills/     flow · flow-init · flow-uninstall · harness-init · doc-sync · h
             harness-deployments · playwright-scaffold · integration · performance   (/slash = skill)
 rules/      risk-tiers.md  ← SSOT for tier classification & commit discipline (not auto-loaded; injected by a hook)
             harness-rules.md  ← SSOT for harness-generation discipline (loaded by the harness-init skill)
+            Both ship to consumers. Contrast .claude/rules/ below, which never leaves this repo.
+.claude/rules/  skill-frontmatter.md  ← fires only when you open a skills/**/*.md (paths-scoped, so it
+            costs nothing otherwise). Carries the judgement tests/test_skills.py cannot make — a test
+            catches a wrong value, never a field that should have been there.
 scripts/    flow_gate_check.py · precommit-runner.sh · teams_alert.py · notify-push.sh
             check-deps.sh (dependency check & guidance) · flow_init_setup.py (flow-init setup/re-run + --uninstall cleanup)
             harness_scaffold.py (harness-init scaffold generation)
             harness_insight.py (harness-insight transcript aggregation — project-agnostic, emits a temporary txt)
             _harness_paths.py (shared paths & magic-value SSOT for the gates) · check-token-write.sh (release-token push check)
             bump_version.py · finalize_prerelease.py (release version compute / rc finalize)
+            skill_sandbox.py (builds throwaway projects + prints the prompt/pass-criteria for
+            behaviour-testing a skill with a fresh agent — `--list` for the scenarios)
             The authoritative copy list is flow_init_setup.py's COPY_FILES — this listing orients, it does not gate.
 github/     api-contract.workflow.example.yml   contract-test SOURCE (/flow-init renders it via flow-config.contract_test)
             unit-test.workflow.example.yml      unit-test CI SOURCE (/flow-init renders it via flow-config.unit_test — jobs[]→matrix)
@@ -54,6 +67,20 @@ github/     api-contract.workflow.example.yml   contract-test SOURCE (/flow-init
 flow-tiers.yaml            tier→gates policy (plugin-owned, immutable)
 flow-config.example.yaml   host environment-value slots (the real file is the host's .claude/harness-tier/config/flow-config.yaml, team-shared & git-tracked)
 tests/      test_flow_gate_check.py · test_flow_init_setup.py · test_harness_scaffold.py · test_harness_insight.py
+            test_skills.py  ← the test of the skill FILES themselves — frontmatter, links, section refs, and
+            the case-discovery command extracted from the shipped SKILL.md and run against fixture projects.
+            (test_evals.py also reads skills/ — descriptions via scores.description_sha for the freshness
+            gate — so a description edit fails THERE, where re-measuring is the only fix.) Everything else
+            here tests scripts/, which is why command-era frontmatter went unnoticed for so long.
+            test_evals.py  ← the model-free half of evals/ (below): the gate predicate, the stream parser,
+            and the committed baseline. Never spawns a session.
+evals/      cases.yaml (the 7 model-invoked skills × 5 happy + 5 negative prompts) · run.py (headless
+            `claude -p --plugin-dir` runner, reps 3 → 15 samples per arm; pinned model, isolated
+            CLAUDE_CONFIG_DIR, spends hours of rate-limit budget — run by hand, local only) ·
+            stream.py (pure event observation) · scores.py (per-skill expect_invoke declaration + exact-binomial
+            ratchet · false_fire ceiling · all-zero floor — the gate predicate, model-free) · scores.json
+            (the committed baseline, invoke_hits/invoke_n per arm).
+            NOT shipped: only agents/·skills/·hooks/ reach consumers, so evals/ changes commit as test:/chore:.
 ```
 
 ## Architecture (must-know)
@@ -67,6 +94,7 @@ tests/      test_flow_gate_check.py · test_flow_init_setup.py · test_harness_s
 - **Versioning & release (tightly coupled)**: for harness-tier distribution, plugin.json `version` gates updates (Claude Code Explicit-version — when the manifest has a version, a sha change alone does not propagate; reinstall happens only on a version bump). `.github/workflows/release.yml` (python-semantic-release) parses the Conventional Commits (feat/fix) of pushes to main/stage to bump the pyproject + plugin.json version and tag (`vX.Y.Z`), and on main, `pin-marketplace-sha.py` **immutably pins** the marketplace `source.sha` into the release commit (pin-to-parent — no tag refs allowed; supply-chain integrity). Therefore `.md` (rules/skills) changes that affect consumer behavior must be committed as `feat`/`fix`, not `docs`, to propagate (risk-tiers Commit Discipline). Branches: `feature/*` → dev → stage → main.
 - **The plugin's `rules/` is not auto-loaded** → `hooks/inject-risk-tiers.sh` injects it as `additionalContext` at SessionStart (the output key differs per host).
 - **Three verification layers** (independent): static analysis & hygiene = the host's `.pre-commit-config.yaml` (git-native — gitlint (commit-msg) · teams-notify-push (pre-push) · language-agnostic hygiene; per-module lint/static/import_lint/test moved to layer 2) / flow gate = `precommit-runner.sh` (**Claude-session commits only** — PreToolUse, self-filters to `git commit` invocations only (incl. `git -C <worktree> commit`), re-pointing the gate to the actual commit worktree by branch-key (worktree-aware · FAIL-OPEN — see Invariant #6); direct terminal commits and CI do not go through it — blocks unclassified commits + runs only the items enabled in the tier's `gates` (`flow-tiers.yaml`): `precommit` = **the every-commit module checks of the changed modules (every commit)**, `security-scan` = the promotion module checks of all modules on staging/release promotion — both are RUNTIME_GATES (timing buckets over `flow-config.modules[].checks`: each check routes by its `when` — `every-commit`|`promotion`, string values defaulting by key name with `security`→promotion; hosts add custom keys), so the hook runs them directly without a marker, and removing one from that tier's `gates` disables just that check) / **CI (GitHub Actions)** — two workflows `/flow-init` renders on collaboration/promotion branches: **contract testing** (`.github/workflows/api-contract.yml` — schemathesis, via `flow-config.contract_test`) and **unit-test CI** (`.github/workflows/unit-test.yml` — a safety net closing the layer-2 gap, since the flow gate runs unit tests only on Claude-session commits so direct/terminal/CI/GitHub commits would otherwise skip them; via `flow-config.unit_test`, variable `jobs[]` → `strategy.matrix.include`). Every GitHub Actions job carries a `timeout-minutes` cap.
+- **Skill invocation is measured, not assumed.** `tests/test_skills.py` checks that a skill *file* is well-formed; `evals/` checks that the skill is *reached*. Half of a model-invoked skill's failure modes live in its `description`, and no structural test can see them. The split is a cost split: measuring needs a model and hours of rate-limit budget (`evals/run.py`, by hand), checking needs neither (`tests/test_evals.py`, every `uv run pytest` and `unit-test.yml`). A description edit invalidates its own score via `description_sha`, so a stale green is unreachable. There is no global invoke-rate floor (that was circular — derived from the same distribution it judged): each skill declares `expect_invoke`/`expect_why` in cases.yaml (design-intent, deliberately not tuned to the baseline), a shortfall *warns*, and an exact-binomial *ratchet* against the recorded rate is the enforcement (a regression fails). The gate's SSOT is `evals/scores.py`, beside the predicate that applies it.
 - **Deployment is not one of the three verification layers** — it's a separate, release-decoupled opt-in: `/harness-deployments` (after `/flow-init`) detects targets, writes `flow-config.deploy`, and renders per-target `deploy-<name>.yml` components plus a generated `deploy.yml` orchestrator. `release.yml` calls the orchestrator via `workflow_call` in the same run (trigger-integral — no PAT, no cross-workflow event), and the orchestrator calls each target component with per-target least-privilege permissions; none of this gates a commit.
 
 ## Invariants (break these and the gate is silently neutralized)

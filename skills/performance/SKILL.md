@@ -1,6 +1,11 @@
 ---
 name: performance
 description: Use when a performance check is needed — code suspected of anti-patterns (N+1, query plans, algorithmic complexity, re-render churn), or an API that needs load-testing for latency/throughput against SLOs. A manual skill, not a gate.
+# The measurement tools this skill drives. `pip install lizard` is absent on purpose —
+# installing into the host's environment is the user's call, not a pre-approved one.
+# `npx @grafana/openapi-to-k6` is absent for the same reason: on first use npx *fetches
+# the package into the host's npm cache*, so pre-approving it pre-approves an install.
+allowed-tools: Bash(k6 run *) Bash(lizard *)
 ---
 
 # performance
@@ -45,8 +50,8 @@ regardless of which stacks were detected.
 
 ## 2. Language-Specific Static Anti-Pattern Flagging
 
-> **Authoritative catalogs (SSOT)** — one file per stack, listed in the table in §1. Add/modify detection
-> patterns only in the relevant `references/static-checks-<stack>.md` file, never here.
+> **Authoritative catalogs (SSOT)** — one file per stack, listed in the table in §1. Each stack's
+> detection patterns live in its `references/static-checks-<stack>.md`.
 
 For each detected stack, open its reference file from §1's table and follow its detection commands and
 verification-delegated runtime tools. Every stack file follows the same shape: a detection-pattern table,

@@ -25,7 +25,9 @@ If `package.json`'s `dependencies` or `devDependencies` contains one or more of 
 
 ### 1.2 Supporting signals
 
-When present alongside the primary signal, they strengthen the web verdict:
+These carry the web verdict on their own when the allowlist misses — a framework-less
+app is still a web app. A non-web signal (§1.3) still outranks them, since an Electron
+or React Native project ships an `index.html` too:
 
 | Signal file/path | Meaning |
 |---|---|
@@ -43,7 +45,13 @@ When present alongside the primary signal, they strengthen the web verdict:
 | `"react-native"` dependency | React Native (mobile) |
 | `metro.config.js` | React Native bundler |
 | `pubspec.yaml` | Flutter |
-| `main.go` / `go.mod` (+ no web signals) | Go CLI/service |
+| `main.go` / `go.mod` | Go CLI/service |
+
+The Go row carries no "unless web signals exist" qualifier — precedence here is
+unconditional (heading above, §1.2's "a non-web signal still outranks them", and
+`integration/SKILL.md` §2 all state the same rule). The old qualifier inverted it: a Go
+service with a `public/` dir read as Web in this file and Non-web in the skill, and the
+two shipped documents judged the same repo differently.
 
 > **Electron is not listed here** — it is checked *before* this table (see `integration/SKILL.md` §2) and is
 > its own verdict, not a non-web signal. For the full procedure, see [`electron.md`](electron.md).
@@ -82,9 +90,21 @@ The config's `testDir` (§2.2) is where the cases are — `./e2e`, `./integratio
 ```bash
 # testDir from playwright.config (§2.2), falling back to Playwright's ./tests default.
 # Regex matches the testMatch default exactly: **/*.@(spec|test).?(c|m)[jt]s?(x)
+# POSIX find + grep -E: -regextype is GNU-only (BSD/macOS find rejects it, exits 1, and an
+# `&& … || echo MISSING` chain then reports every healthy project as MISSING — conflating
+# any find failure with an absent directory). `|| true`: grep exits 1 on zero matches, and
+# an empty suite is an answer, not an error. MISSING comes only from the [ -d ] test.
 TESTDIR=$(grep -hoE "testDir:[[:space:]]*['\"][^'\"]+" playwright.config.* 2>/dev/null | head -1 | sed -E "s/.*['\"]//")
-find "${TESTDIR:-./tests}" -regextype posix-extended -regex '.*\.(spec|test)\.(c|m)?[jt]sx?' 2>/dev/null
+TESTDIR="${TESTDIR:-./tests}"
+if [ -d "$TESTDIR" ]; then find "$TESTDIR" -type f 2>/dev/null | grep -E '\.(spec|test)\.(c|m)?[jt]sx?$' || true; else echo "MISSING: $TESTDIR"; fi
 ```
+
+`[ -d ]` decides absence *before* the search, because a bare `find … 2>/dev/null` turns
+"that directory does not exist" into an empty result indistinguishable from "no cases
+here" — and the empty result is what authorises scaffolding over a suite. (The
+`2>/dev/null` that remains only quiets partial-walk noise such as an unreadable subdir;
+it can no longer swallow the absence case, which the guard reports first.) A `MISSING:`
+line for a **config-declared** `testDir` is a misconfiguration to report.
 
 **Handling zero cases**: use the `playwright-scaffold` skill to generate a **main-screen smoke** (a deterministic
 "does the app come up?" check) and run it immediately (it does not generate arbitrary user scenarios). Extend it into

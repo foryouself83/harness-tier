@@ -11,9 +11,9 @@ Undo what [`/flow-init`](../flow-init/SKILL.md) installed in the host repo.
 host); everything flow-init wrote **into** the host repo stays unless removed here.
 
 > **Run this BEFORE `/plugin uninstall`.** The cleanup runs the plugin's
-> `flow_init_setup.py --uninstall`, which is reachable only while the plugin is
-> still installed (`${CLAUDE_PLUGIN_ROOT}`). If the plugin is already gone, fall
-> back to the manual steps in [USAGE.md](../../USAGE.md) (§ uninstall).
+> `flow_init_setup.py --uninstall`, reachable only through `${CLAUDE_PLUGIN_ROOT}` —
+> so uninstalling the plugin first strands the host files this skill exists to remove.
+> Order is the whole point of the skill.
 
 ## Execution
 

@@ -2,6 +2,12 @@
 name: flow
 description: MANDATORY first step for ALL development work — invoke BEFORE starting any code change, feature, fix, or free-text dev request, and before any commit. Skipping it leaves the commit unclassified and the commit gate blocks it. Also applies when promoting integration→staging or staging→production.
 argument-hint: "[free-text request]"
+# Pre-approves only the gate-evidence writes — the one thing this skill does several
+# times per run. Exact marker paths, no trailing glob: a glob's `*` crosses path
+# separators including `..`, so `.flow/*` pre-approved touch of any path on disk.
+# `git commit` and `rm -rf` are deliberately absent: the commit prompt is the mechanical
+# backstop behind the gate, and the Phase 4 cleanup should stay deliberate.
+allowed-tools: Bash(mkdir -p .claude/harness-tier/.flow) Bash(touch .claude/harness-tier/.flow/doc-sync.done) Bash(touch .claude/harness-tier/.flow/review.done) Bash(touch .claude/harness-tier/.flow/bump.done) Bash(touch .claude/harness-tier/.flow/security.done)
 ---
 
 # Flow — Risk-Tiered Workflow Router
@@ -161,7 +167,9 @@ needed — the branch drives it). Record each gate before committing the promoti
      lacks write: if `gh`/a token is available, run
      `.claude/harness-tier/scripts/check-token-write.sh` (exit 10 → warn with the
      Settings/PAT how-to; exit 20/no tool → skip silently, never block).
-  4. `touch .claude/harness-tier/.flow/{review,bump}.done`.
+  4. `touch .claude/harness-tier/.flow/review.done` ·
+     `touch .claude/harness-tier/.flow/bump.done` (two commands, written out — the brace
+     form neither matches the exact allowed-tools rules nor reads as what actually runs).
   5. Commit on the staging branch **with a trailer** `Release-Level: <level>` (blank
      line before the trailer). CI reads it to force
      `semantic-release version --<level> --as-prerelease`. main needs no level — it

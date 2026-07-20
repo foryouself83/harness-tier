@@ -14,9 +14,8 @@ generates (it never deploys from the host).
 orchestrator, generated) **via `workflow_call` in the same run** — no cross-workflow trigger and no
 PAT. `deploy.yml` resolves the real tag once and calls each target component `deploy-<name>.yml`
 (`on: workflow_call`) with per-target permissions. The **script** (`flow_init_setup.py`
-`--render-deploy` / `/flow-init`) fills this wiring idempotently into release.yml's managed block —
-the skill neither asks about triggers nor edits the wiring (the only exception is the legacy/foreign
-`[!]` consultation for §3 release wiring).
+`--render-deploy` / `/flow-init`) fills this wiring idempotently into release.yml's managed block.
+Trigger and wiring therefore belong to the script; §2 and §3 say what that leaves you.
 
 ## Path conventions
 - Reads (templates/reference): `${CLAUDE_PLUGIN_ROOT}/...`
@@ -34,7 +33,7 @@ the skill neither asks about triggers nor edits the wiring (the only exception i
 - Artifacts: does a `Dockerfile` exist? A package library (`pyproject.toml`/`package.json`/`Cargo.toml`/`pom.xml`/`*.csproj`)?
 - `build_tool` (needed only for `target: maven-central`): `build.gradle`/`build.gradle.kts` → gradle,
   `pom.xml` → maven, `build.sbt` → sbt. This value decides whether the renderer uses the maven or the
-  gradle template, so the skill detects it and writes it into config (have the user confirm it — do not ask).
+  gradle template. §2 confirms it and §3 writes it.
 - Existing deployment: publish/deploy steps already in `.github/workflows/*` (Grep).
 - Secrets: where possible, check already-registered registry/signing secrets with `gh secret list` (for reference in the report step).
 
@@ -51,8 +50,8 @@ the skill neither asks about triggers nor edits the wiring (the only exception i
   `maven-central`+`build_tool: gradle/sbt` is the sole exception — task names vary per project, so there
   is no safe universal default and the user must state it (`build_tool: maven` does not apply — the
   template's `mvn deploy` performs the pom's central-publishing-maven-plugin configuration as-is).
-- **Do not ask about triggers** — the release.yml→deploy.yml wiring is always a same-run reusable-workflow
-  call and the script wires it automatically, so there is no choice of deployment trigger to offer.
+- **The trigger is already settled** — release.yml→deploy.yml is always a same-run
+  reusable-workflow call that the script wires, so there is no trigger to offer a choice about.
 
 ### 3. Generation
 - Write/update the `deploy:` block in `flow-config.yaml` (team-shared · git-tracked) — **config carries

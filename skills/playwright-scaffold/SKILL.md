@@ -43,10 +43,15 @@ scenarios** (that is the job of a human or codegen).
 ```bash
 # testDir from playwright.config, falling back to Playwright's ./tests default
 grep -hoE "testDir:[[:space:]]*['\"][^'\"]+" playwright.config.* 2>/dev/null | head -1 | sed -E "s/.*['\"]//"
-# Language: .spec.ts for a TS project, otherwise .spec.js
-ls tsconfig.json 2>/dev/null; grep -E '"(typescript|@playwright/test)"' package.json 2>/dev/null
+# Language: any of these three means TypeScript
+ls tsconfig.json playwright.config.ts 2>/dev/null; grep -E '"typescript"' package.json 2>/dev/null
 ```
-- `testDir` unset → `tests/`. TS (tsconfig.json or a typescript dependency) → `.spec.ts`, otherwise `.spec.js`.
+- `testDir` unset → `tests/`.
+- **TypeScript when *any* of `tsconfig.json`, `playwright.config.ts`, or a `typescript`
+  dependency is present** → `.spec.ts`; otherwise `.spec.js`. A `playwright.config.ts`
+  counts on its own: `@playwright/test` bundles its own TypeScript, so a TS Playwright
+  project routinely has neither a `tsconfig.json` nor a `typescript` dependency, and
+  keying only on those two drops a `.js` spec into a TypeScript suite.
 - Carry the resolved `testDir` forward as a literal in Step 3 — each `bash` call is a fresh
   shell, so a variable set here is gone by the next command.
 
@@ -59,22 +64,43 @@ The starter is for empty projects, so an existing case means report-and-stop. Re
 `web-playwright.md` use, so all three agree on what counts as an existing case.
 
 ```bash
+# POSIX find + grep -E: -regextype is GNU-only (BSD/macOS find rejects it, exits 1, and an
+# `&& … || echo MISSING` chain then reports every healthy project as MISSING — conflating
+# any find failure with an absent directory). `|| true`: grep exits 1 on zero matches, and
+# an empty suite is an answer, not an error. MISSING comes only from the [ -d ] test.
 TESTDIR=$(grep -hoE "testDir:[[:space:]]*['\"][^'\"]+" playwright.config.* 2>/dev/null | head -1 | sed -E "s/.*['\"]//")
-find "${TESTDIR:-./tests}" -regextype posix-extended -regex '.*\.(spec|test)\.(c|m)?[jt]sx?' 2>/dev/null | head -1
+TESTDIR="${TESTDIR:-./tests}"
+if [ -d "$TESTDIR" ]; then find "$TESTDIR" -type f 2>/dev/null | grep -E '\.(spec|test)\.(c|m)?[jt]sx?$' || true; else echo "MISSING: $TESTDIR"; fi
 ```
-- Any hit means cases already exist → **only report and do not generate** (no overwriting).
-  The regex already matches `main.smoke.spec.ts`, so a previous run's smoke counts as a hit.
+- Any case path means cases already exist → **only report and do not generate** (no
+  overwriting). The regex already matches `main.smoke.spec.ts`, so a previous run's smoke
+  counts as a hit.
+- `MISSING:` for a **config-declared** `testDir` is a misconfiguration — report it and
+  stop. Generating into a directory the config does not point at leaves a spec Playwright
+  will never run. `MISSING: ./tests` with no `testDir` in the config is just a new project:
+  create the directory and generate.
 - Only when absent, write `<testDir>/main.smoke.spec.<ts|js>` based on
-  [`examples/main.smoke.spec.ts`](examples/main.smoke.spec.ts). Do not hardcode baseURL into the spec;
-  inject it via **`use.baseURL` in playwright.config** (the spec uses only the `'/'` relative path). If the
-  config has no baseURL, add it to the config in Step 4.
+  [`examples/main.smoke.spec.ts`](examples/main.smoke.spec.ts). The spec navigates to `'/'`
+  and nothing else — Playwright resolves that against **`use.baseURL` in playwright.config**,
+  which is where the baseURL belongs. Step 4 puts it there.
 
 ---
 
-## Step 4 — Playwright Not Installed / Config Absent (opt-in)
+## Step 4 — Settle playwright.config (opt-in)
 
-- If `@playwright/test` is not installed or `playwright.config.*` is absent, scaffold a minimal config and
-  **guide** installation (do not force auto-install — only with consent):
+Three states, each with somewhere to go — a config that exists but declares no `baseURL`
+is the common one, and the spec written in Step 3 resolves `'/'` against nothing until it
+is handled:
+
+| State | Action |
+|---|---|
+| `playwright.config.*` exists **with** a `use.baseURL` | nothing to do config-wise — but if `@playwright/test` itself is missing, still guide the install below |
+| `playwright.config.*` exists, **no** `use.baseURL` | add `use: { baseURL: '<the value confirmed in Step 1>' }` to the existing config — edit it, do not replace it |
+| `playwright.config.*` absent | scaffold the minimal config below |
+
+- If `playwright.config.*` is absent, scaffold the minimal config below. If
+  `@playwright/test` is not installed (config present or not), **guide** installation —
+  do not force auto-install, only with consent:
   ```bash
   npm install -D @playwright/test && npx playwright install chromium
   ```
