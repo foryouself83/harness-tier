@@ -147,7 +147,7 @@ pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre
 | 스킬 | `playwright-scaffold` · `integration` · `performance` | E2E 스캐폴드 / 통합·성능 검증(비강제 수동 스킬) |
 | 에이전트 | `harness-researcher` · `harness-code-analyzer` · `harness-critic` | 하네스 생성용 리서치 / 코드 분석 / 생성물 검증 |
 | 룰 | `risk-tiers` | 위험도 분류 + 커밋 규율의 단일 기준 |
-| 훅 | SessionStart · Notification · PreToolUse(commit) | 규칙 주입 · Teams 알림 · 커밋 게이트 |
+| 훅 | SessionStart · Notification · PreToolUse(commit·merge) | 규칙 주입 · Teams 알림 · 커밋 게이트 + 머지 전략 게이트 |
 
 > **릴리스 CI 토큰** — `/flow-init` 이 렌더링하는 릴리스 워크플로는 기본 `GITHUB_TOKEN` 으로
 > 바로 돕니다(Actions 쓰기 권한만 부여). `RELEASE_TOKEN` 시크릿은 옵트인 확장입니다. 자세한

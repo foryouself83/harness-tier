@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Claude Code PreToolUse hook — git commit gate (harness-tier).
+# Claude Code PreToolUse hook — git commit/merge gate (harness-tier).
 #
 # Inspects the commit in two stages, emitting deny JSON on stdout only when blocking:
 #   1) flow gate — flow_gate_check.py (plugin) verifies the required gate evidence for
@@ -7,6 +7,9 @@
 #   2) module pre-check — every-commit module checks for changed modules (+ promotion checks
 #      for all modules on promotion), routed by each check's `when` in flow-config. Config parse
 #      failure / no command is FAIL-OPEN (skip); if any fails, deny.
+# `git merge` is inspected separately (--merge-check) before both stages above and before the
+# `git status` early-exit, since a merge runs on a clean tree by definition. A command that both
+# merges and commits (`git merge --squash X && git commit -m …`) gets BOTH checks, in that order.
 #
 # Path conventions (the plugin is installed outside the host):
 #   - host repo root  → CLAUDE_PROJECT_DIR (falls back to git toplevel)
@@ -59,7 +62,17 @@ fi
 # terminator allows any non-alnum/non-`-` char after `commit` (space, `;`, `&`, …) so `git commit;`
 # is caught too, while `-`/alnum keep `commit-graph`/`commitfoo` excluded.
 _commit_re='git([[:space:]]+-[^[:space:]]+([[:space:]]+[^[:space:]]+)?)*[[:space:]]+commit($|[^[:alnum:]-])'
-[[ "${_hook_cmd:-$_hook_input}" =~ $_commit_re ]] || exit 0
+
+# Detect `git merge` with the same convention as _commit_re: git global options (notably
+# `git -C <worktree>`) may sit between `git` and the subcommand, and `merge` is matched as a
+# whole word so `git merge-base` / `git merge-file` do not false-positive.
+_merge_re='git([[:space:]]+-[^[:space:]]+([[:space:]]+[^[:space:]]+)?)*[[:space:]]+merge($|[^[:alnum:]-])'
+
+_is_commit=0
+_is_merge=0
+[[ "${_hook_cmd:-$_hook_input}" =~ $_commit_re ]] && _is_commit=1
+[[ "${_hook_cmd:-$_hook_input}" =~ $_merge_re ]] && _is_merge=1
+[ "$_is_commit" -eq 1 ] || [ "$_is_merge" -eq 1 ] || exit 0
 
 # Dependency FAIL-CLOSED — the harness requires python3 + PyYAML (regardless of project language).
 # If they are missing and we silently pass (fail-open), the gate is disabled on non-Python teams, so
@@ -91,16 +104,38 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_SCRIPTS="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts}"
 PLUGIN_SCRIPTS="${PLUGIN_SCRIPTS:-$SCRIPT_DIR}"
 
-# worktree-aware ROOT re-designation (FAIL-OPEN). CLAUDE_PROJECT_DIR is fixed at session start,
-# so a commit run in a git worktree created inside that session (e.g. `git -C <wt> commit`) would
-# otherwise be gated against main (staged diff invisible · branch-bound tier marker mismatch ·
-# relative module-lint misses worktree files). flow_gate_check.py --resolve-worktree detects the
-# actual commit worktree W by branch-key (from the same hook JSON) and echoes its path; if valid,
-# ROOT=W so the cd / CLAUDE_PROJECT_DIR=ROOT / module-command steps below all read W. Detection
-# failure → empty → ROOT stays main (current behavior). python3 is guaranteed (dependency check above).
-_wt="$(printf '%s' "$_hook_input" | CLAUDE_PROJECT_DIR="$ROOT" python3 "$PLUGIN_SCRIPTS/flow_gate_check.py" --resolve-worktree 2>/dev/null || true)"
-if [ -n "$_wt" ] && [ -d "$_wt" ]; then
-  ROOT="$_wt"
+# merge gate — a merge runs on a clean tree, so it must be inspected before the `git status`
+# early-exit below, and before the worktree re-designation (Invariant #6: the merge path is
+# resolved against CLAUDE_PROJECT_DIR only). Uses neither .done markers nor module checks (the
+# commit gate already vetted the content being moved).
+# The merge check is NOT exclusive with the commit check: `git merge X && git commit -m …` is the
+# canonical squash-merge idiom, and gating it as "a commit" alone would skip the merge verdict
+# entirely (and then early-exit on the clean tree). So a merge is always inspected FIRST, and a
+# command that also commits falls through to the commit path below — both checks apply.
+if [ "$_is_merge" -eq 1 ]; then
+  merge_reason="$(printf '%s' "$_hook_input" | CLAUDE_PROJECT_DIR="$ROOT" \
+    python3 "$PLUGIN_SCRIPTS/flow_gate_check.py" --merge-check 2>&1 >/dev/null)"
+  merge_rc=$?
+  if [ "$merge_rc" -eq 2 ] && [ -n "$merge_reason" ]; then
+    deny "$merge_reason"
+  fi
+  [ -n "$merge_reason" ] && printf '%s\n' "$merge_reason" >&2   # warning passthrough
+  [ "$_is_commit" -eq 1 ] || exit 0
+fi
+
+# worktree-aware ROOT re-designation (FAIL-OPEN, commit-only — Invariant #6: the merge path must
+# not re-designate). CLAUDE_PROJECT_DIR is fixed at session start, so a commit run in a git
+# worktree created inside that session (e.g. `git -C <wt> commit`) would otherwise be gated
+# against main (staged diff invisible · branch-bound tier marker mismatch · relative module-lint
+# misses worktree files). flow_gate_check.py --resolve-worktree detects the actual commit
+# worktree W by branch-key (from the same hook JSON) and echoes its path; if valid, ROOT=W so the
+# cd / CLAUDE_PROJECT_DIR=ROOT / module-command steps below all read W. Detection failure → empty
+# → ROOT stays main (current behavior). python3 is guaranteed (dependency check above).
+if [ "$_is_commit" -eq 1 ]; then
+  _wt="$(printf '%s' "$_hook_input" | CLAUDE_PROJECT_DIR="$ROOT" python3 "$PLUGIN_SCRIPTS/flow_gate_check.py" --resolve-worktree 2>/dev/null || true)"
+  if [ -n "$_wt" ] && [ -d "$_wt" ]; then
+    ROOT="$_wt"
+  fi
 fi
 
 cd "$ROOT" || exit 0

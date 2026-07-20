@@ -342,14 +342,24 @@ commits.
 
 Branch names refer to `flow-config.branches` keys.
 
-| Branch flow | Strategy |
-|-------------|----------|
-| `feature/*` → integration | **Rebase onto integration → integration-test gate → Squash** |
-| `fix/*` / non-`feature/*` → integration | **Rebase** |
-| integration → staging | **Rebase** or **Merge** |
-| staging → production | **`--no-ff` Merge** |
-| `hotfix/*` → production | **Squash** |
-| production → integration/staging (after release) | **FF / `--no-ff` Merge** (back-merge) |
+| Branch flow | Strategy | Gate |
+|-------------|----------|------|
+| `feature/*` → integration | **Rebase onto integration → integration-test gate → Squash** | ✅ enforced |
+| `fix/*` / non-`feature/*` → integration | **Rebase** | ✅ `fix/*` only: `--no-ff` blocked |
+| integration → staging | **Rebase** or **Merge** | — |
+| staging → production | **`--no-ff` Merge** | ✅ enforced |
+| `hotfix/*` → production | **Squash** | ✅ enforced |
+| production → integration/staging (after release) | **FF / `--no-ff` Merge** (back-merge) | — |
+
+> The **Gate** column reflects `flow-tiers.yaml`'s `merge_strategy` policy, checked by the
+> PreToolUse hook on `git merge`. Every ✅ row blocks (exit 2) a merge whose flags violate the
+> strategy — whether the rule *requires* a flag ("enforced") or *forbids* one ("blocked");
+> `—` rows state a choice ("or"), so there is nothing to enforce. A ✅ cell that names a
+> narrower pattern than its row (row 2) is enforced for **that pattern only** — the rest of the
+> row is discipline the gate does not check. Enforcement covers
+> **Claude-session merges only** — a terminal merge bypasses it, same as every layer-2 gate.
+> The rebase step of row 1 is **warned, not blocked** (a stale `origin` ref would otherwise
+> produce false positives).
 
 > `staging → production` is a `--no-ff` **Merge**, not Squash:
 > semantic-release must parse the individual conventional commits, and

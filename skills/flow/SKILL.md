@@ -217,7 +217,9 @@ rm -rf .claude/harness-tier/.flow
    branch-flow row in [`risk-tiers.md`](../../rules/risk-tiers.md) **Merge strategy**
    and follow it exactly — the required strategy varies by flow (rebase / squash /
    `--no-ff` merge). Commit types & the 50/72 rule live in the same file's Commit
-   Discipline.
+   Discipline. Several of those rows are **enforced by the hook**: a merge whose flags
+   violate its row is blocked (exit 2) naming the flag it wants. The table's **Gate**
+   column says which rows fire — the rest still depend on you following them.
 4. **Inherit the pre-commit gate** — never bypass the `git commit` hook
    (no `--no-verify`).
 5. **Commit from a git worktree with `git -C <worktree> commit …`** — a single

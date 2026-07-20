@@ -894,3 +894,19 @@ def test_all_github_workflow_templates_are_valid_yaml():
     # sit at a valid scalar / list-item position so the template parses before substitution.
     for t in sorted(PLUGIN.glob("github/*.workflow.example.yml")):
         _yaml.safe_load(t.read_text(encoding="utf-8"))  # raises on malformed YAML
+
+
+def test_merge_strategy_policy_reaches_host(tmp_path: Path):
+    """copy_artifacts must carry the merge_strategy policy into the host config dir."""
+    import yaml
+
+    from scripts.flow_init_setup import copy_artifacts
+
+    plugin = Path(__file__).resolve().parents[1]
+    host = tmp_path / "host"
+    host.mkdir()
+    copy_artifacts(plugin, host)
+    dest = host / ".claude" / "harness-tier" / "config" / "flow-tiers.yaml"
+    data = yaml.safe_load(dest.read_text(encoding="utf-8"))
+    assert isinstance(data.get("merge_strategy"), list)
+    assert any(r.get("require") == "--squash" for r in data["merge_strategy"])
