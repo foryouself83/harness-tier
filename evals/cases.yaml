@@ -67,6 +67,18 @@ skills:
       - Set up the first Playwright test for this app.
 
   doc-sync:
+    # Hook-assisted like flow, in a weaker form. rules/risk-tiers.md — injected into every
+    # session — lists doc-sync as a marker gate and names `/doc-sync` as a numbered step in both
+    # the Docs and Dev workflows, and the happy prompts below sit right on top of that: "are the
+    # docs consistent" and "check for documentation drift" are close to the file's own wording
+    # for the gate ("reconciles code<->doc drift"). Conditional rather than flow's unconditional
+    # "enter FIRST", so the help is weaker — a difference of degree, not of kind.
+    #
+    # Same two consequences: the rate is not comparable to the unassisted skills, and a
+    # regression here has to be read as description *and* hook. Note the hook text sits in no
+    # fingerprint — description_sha covers only the description, so editing risk-tiers.md can
+    # move this number without anything marking the score stale.
+    hook_assisted: true
     fixture: doc-sync-drift
     expect_invoke: 0.70
     expect_why: >-
@@ -110,16 +122,24 @@ skills:
       - Write a unit test for the reducer.
 
   flow:
-    # `flow` is the one skill measured with outside help. The plugin's own SessionStart hook
-    # (hooks/hooks.json -> inject-risk-tiers.sh) injects rules/risk-tiers.md into every session,
-    # and that file names flow 39 times and tells the agent to enter /flow first. --plugin-dir
-    # loads the hook along with the skills, so isolating CLAUDE_CONFIG_DIR does not remove it.
+    # Measured with outside help, and it is NOT the only one — doc-sync is too. The plugin's own
+    # SessionStart hook (hooks/hooks.json -> inject-risk-tiers.sh) injects rules/risk-tiers.md
+    # into every session; --plugin-dir loads the hook along with the skills, so isolating
+    # CLAUDE_CONFIG_DIR does not remove it. That file tells the agent to enter /flow FIRST on any
+    # development request, which is the strongest form this help takes.
     #
     # Left in deliberately: consumers get that hook too, so this is what actually happens rather
     # than a clean-room number. Two consequences to carry, though — flow's rate is not comparable
-    # to the other six, and its ratchet is partly blind to its own description, since the hook can
-    # hold the rate up while the description rots. Read a flow regression as description *and*
-    # hook, and check both.
+    # to the unassisted skills, and its ratchet is partly blind to its own description, since the
+    # hook can hold the rate up while the description rots. Read a flow regression as description
+    # *and* hook, and check both.
+    #
+    # `hook_assisted` is a field rather than a note because the note was wrong: it claimed flow
+    # was the only one while the same rule names /doc-sync as a workflow step. No count is
+    # written here either — a hand-counted replacement was wrong too.
+    # test_every_skill_the_injected_rule_names_declares_hook_assisted checks both directions,
+    # over the hook's preamble as well as the rule file it wraps.
+    hook_assisted: true
     fixture: null
     expect_invoke: 0.80
     expect_why: >-

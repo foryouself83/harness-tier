@@ -69,15 +69,17 @@
       "false_fire": 0.0,
       "false_hits": 0,
       "false_n": 15,
-      "invoke_hits": 4,
+      "invoke_hits": 9,
       "invoke_n": 15,
-      "invoke_rate": 0.27,
-      "lost_to": {},
-      "measured_at": "2026-07-19",
+      "invoke_rate": 0.6,
+      "lost_to": {
+        "flow": 4
+      },
+      "measured_at": "2026-07-21",
       "model": "claude-opus-4-8",
       "reps": 3,
       "restricted": 0.2,
-      "truncated": 0.27,
+      "truncated": 0.0,
       "truncated_quiet": 0.0
     },
     "performance": {

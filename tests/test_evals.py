@@ -66,6 +66,19 @@ def no_real_sessions(monkeypatch):
     monkeypatch.setattr(run, "subprocess", _NoRealSessions())
 
 
+@pytest.fixture(autouse=True)
+def reset_capture_state():
+    """Capture state is module-level, so it leaks between tests without this — `CAPTURED` makes
+    the second write skip and the failure reads as a broken implementation.
+
+    Calls the production reset rather than listing the globals again. The earlier version
+    listed them, and that is how the bug got in: this fixture reset three while the runner
+    reset two, so the suite stayed green over a leak a real second run would hit."""
+    run._reset_capture_state()
+    yield
+    run._reset_capture_state()
+
+
 def frontmatter(name: str) -> dict:
     path = REPO / f"skills/{name}/SKILL.md"
     text = path.read_text(encoding="utf-8")
@@ -121,13 +134,18 @@ def test_case_fixtures_name_a_real_sandbox_scenario(name: str):
 # 332KB, none of it ever parsed. Those are gone; every surviving event is byte-identical to
 # what the CLI emitted.
 #
-# What survives that reduction is one disclosure worth knowing about: the `init` event is both
-# the source of `available` and a full inventory of the capturing machine — installed plugins
-# (including a private one), their absolute paths, and the developer's home directory. It
-# cannot be trimmed without rewriting a captured event into fiction, so it is kept whole. The
-# clean fix is a re-capture under the isolated config dir `evals.run.isolated_config_dir` now
-# builds, where the `init` event lists only `harness-tier@inline` — two real sessions' worth of
-# rate-limit budget, deliberately not spent as part of a fixes-only change.
+# What survives that reduction is the `init` event, kept whole: it is the source of `available`
+# and cannot be trimmed without rewriting a captured event into fiction. These two were captured
+# under the isolated config dir `evals.run.isolated_config_dir` builds, so `init` lists
+# `harness-tier@inline` as its only plugin — the earlier captures carried the whole machine
+# instead (18 plugins with absolute paths, one of them private, plus the home directory), and
+# that is gone. What the isolation cannot strip stays: the account-level claude.ai MCP connectors
+# still appear by name (no tokens — `apiKeySource` is `none`), because they are scoped to the
+# account, not the config dir.
+# Both were captured at the current `MAX_TURNS` = 6, so there is no capture-date ambiguity to
+# reason around: `stream-invoked` is a real turn-cap firing (`error_max_turns`, num_turns 7) and
+# `stream-quiet` a clean `success` (num_turns 9). The pair is read for tool calls per turn, which
+# is what `test_a_spent_turn_cap_cannot_be_ambiguous_at_this_budget` uses it for.
 FIXTURES = REPO / "evals/fixtures"
 
 
@@ -250,7 +268,11 @@ def test_observe_counts_every_tool_call_not_just_skill():
 def test_the_narrowed_rule_only_counts_a_cut_that_never_had_its_chance(monkeypatch):
     """(a) cut at 1 tool call and (c) a turn cap spent on almost nothing are both genuinely
     ambiguous — the session either never got far enough to decide or used its budget without
-    deciding. (b) cut after 5 tool calls had already passed FIRE_BY_TOOL_CALL=3 without
+    deciding. Note (c) and (d) are **synthetic**: at MAX_TURNS=6 a spent cap cannot sit below
+    FIRE_BY_TOOL_CALL=3, so the runner never produces them (see
+    `test_a_spent_turn_cap_cannot_be_ambiguous_at_this_budget`). They fix the rule's shape for
+    the day the budget changes; they are not evidence that the branch fires today.
+    (b) cut after 5 tool calls had already passed FIRE_BY_TOOL_CALL=3 without
     firing, so it is a decided miss and must not inflate `truncated` the way the old
     completed-only rule did. (d) is the same judgement applied to a turn cap: a capped
     session that made 5 tool calls also had its chance, and counting every cap as ambiguous
@@ -289,6 +311,137 @@ def test_the_narrowed_rule_only_counts_a_cut_that_never_had_its_chance(monkeypat
         assert result["truncated"] == expected_truncated, label
 
 
+def _injected_session_text() -> str:
+    """Everything the SessionStart hook puts into a session, not just the rule file.
+
+    `hooks/inject-risk-tiers.sh` wraps `rules/risk-tiers.md` in a hardcoded preamble, and that
+    preamble is the *strongest* form the help takes — it says outright that the agent's action
+    MUST be to invoke /flow. Reading only the rule file would miss it, and would also report
+    "the help is gone" if someone rewrote the rule file's slash forms into prose while the
+    preamble kept naming the skill.
+
+    None of it reaches a session unless `hooks.json` still registers the script for `startup`.
+    Narrowing that matcher would end the help while both files still named the skills, so this
+    returns "" in that case — the reverse check then reports the caveat as stale, which is what
+    it would be."""
+    hooks = json.loads((REPO / "hooks/hooks.json").read_text(encoding="utf-8"))
+    registered = any(
+        "startup" in (entry.get("matcher") or "")
+        and any("inject-risk-tiers" in h.get("command", "") for h in entry.get("hooks") or [])
+        for entry in hooks.get("hooks", {}).get("SessionStart") or []
+    )
+    if not registered:
+        return ""
+    return "\n".join(
+        (REPO / p).read_text(encoding="utf-8")
+        for p in ("hooks/inject-risk-tiers.sh", "rules/risk-tiers.md")
+    )
+
+
+def _skills_named_as_commands(text: str) -> set[str]:
+    """Measured skills the injected text tells the agent to run, by their `/name` form.
+
+    Intersected with the measured set rather than returned raw: a bare `/([a-z-]+)` matches
+    `and/or`, `lint/static/import_lint/test` and `integration/staging/production` — 37 tokens
+    in the current rule file, most of which are not invocations. Left unrestricted, reordering
+    one branch-role list to `staging/integration` would force a false `hook_assisted` onto the
+    `integration` skill, which the same file explicitly calls a branch role and not a skill.
+
+    The boundary has to exclude a following hyphen, not just a following word character: `\\b`
+    matches between `w` and `-`, so `/flow` would be found inside `/flow-init`,
+    `/flow-uninstall` and the link `](../flow-tiers.yaml)` — leaving `flow` permanently in the
+    named set and disabling the reverse stale check for it."""
+    return {name for name in CASES["skills"] if re.search(rf"/{re.escape(name)}(?![\w-])", text)}
+
+
+def test_the_hook_scan_does_not_match_a_longer_name_or_a_path():
+    """`/flow` must not be found inside `/flow-init`, `/flow-uninstall`, or the markdown link
+    `](../flow-tiers.yaml)` that the rule file already contains.
+
+    A `\\b` boundary matches immediately before a hyphen, so it read all three as invocations —
+    which would keep `flow` in the named set from a relative link alone and make the reverse
+    "the help is gone" branch unable to fire for the skill it matters most for. The broader
+    `/([a-z][a-z0-9-]*)` form this replaced did not have that failure (it tokenised
+    `flow-tiers`); the fix has to beat both."""
+    assert _skills_named_as_commands("see [flow-tiers.yaml](../flow-tiers.yaml)") == set()
+    assert _skills_named_as_commands("run /flow-uninstall to remove the gate") == set()
+    assert _skills_named_as_commands("`/flow-init` copies the scripts") == set()
+    # …while still finding the real ones, punctuation and all.
+    assert _skills_named_as_commands("enter `/flow` first") == {"flow"}
+    assert _skills_named_as_commands("2. Run /doc-sync to harmonize.") == {"doc-sync"}
+
+
+def test_every_skill_the_injected_rule_names_declares_hook_assisted():
+    """The SessionStart hook injects its text into EVERY session, so a skill it tells the agent
+    to run is measured with help that no consumer-free reading would give it. That is deliberate
+    — consumers get the hook too — but it has two consequences per affected skill: its rate is
+    not comparable to the others, and its ratchet is partly blind to its own description, since
+    the hook can hold the number up while the description rots.
+
+    This is checked rather than commented because the comment was wrong twice over. It sat only
+    on `flow` and read "flow is the one skill measured with outside help" while the same rule
+    names `/doc-sync` as a step in both the Docs and Dev workflows; the replacement note then
+    put a hand-counted number on that and got it wrong too. No count is written down here — the
+    check reads the text."""
+    named = _skills_named_as_commands(_injected_session_text())
+    measured = set(CASES["skills"])
+    for name in sorted(named & measured):
+        assert CASES["skills"][name].get("hook_assisted") is True, (
+            f"{name}: the injected session text names /{name}, and it reaches every eval "
+            f"session — declare `hook_assisted: true` in cases.yaml and say in the entry what "
+            f"the hook does for it."
+        )
+    for name in sorted(measured):
+        if CASES["skills"][name].get("hook_assisted") and name not in named:
+            raise AssertionError(
+                f"{name}: declares hook_assisted but nothing the SessionStart hook injects "
+                f"names /{name} any more — the help is gone, so the caveat is stale and the "
+                f"rate is now comparable to the unassisted skills."
+            )
+
+
+def test_a_spent_turn_cap_cannot_be_ambiguous_at_this_budget():
+    """`cut_early` has two halves — killed-early and turn-capped — and the turn-capped one is
+    unreachable at this budget: spending six turns costs at least five tool calls, so
+    `tool_calls < FIRE_BY_TOOL_CALL` cannot hold alongside `turns_exhausted`. That left the
+    scenario table above asserting on a state the runner cannot produce — a branch that reads
+    as live because a test exercises it.
+
+    Keeping the branch is right: the *rule* ("stopped before it could decide") is what should
+    hold, and lowering MAX_TURNS to 2 would make the branch fire for real. What was missing is
+    this: the emptiness now fails loudly if the two constants ever cross, instead of being a
+    claim in prose that nothing rechecks."""
+    assert run.MAX_TURNS > run.FIRE_BY_TOOL_CALL, (
+        "MAX_TURNS dropped to or below FIRE_BY_TOOL_CALL — cut_early's turn-cap branch is now "
+        "reachable, so scenarios (c)/(d) in the table above describe real sessions and the "
+        "docstring calling them synthetic is stale."
+    )
+    # The load-bearing half: turns cost tool calls. Asserting it against `cut_early` would only
+    # restate its own inequality, so it is measured on real captures instead. `stream-quiet`
+    # shows the relationship is NOT one-for-one — 4 turns, 3 tool calls, because the closing
+    # turn is text-only — so the honest bound is `tool_calls >= num_turns - 1`. At MAX_TURNS=6
+    # that still lands on 5, comfortably past FIRE_BY_TOOL_CALL=3.
+    for fixture in ("stream-invoked.jsonl", "stream-quiet.jsonl"):
+        text = (FIXTURES / fixture).read_text(encoding="utf-8")
+        obs = stream.observe(text)
+        num_turns = 0
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # a killed process ends mid-line; stream.observe tolerates it too
+            if event.get("type") == "result":
+                num_turns = max(num_turns, event.get("num_turns") or 0)
+        assert num_turns, f"{fixture}: no result event carrying num_turns — nothing to check"
+        assert obs.tool_calls >= num_turns - 1, (
+            f"{fixture}: {obs.tool_calls} tool calls over {num_turns} turns breaks the bound "
+            f"the empty-branch argument rests on — a session can now spend its whole budget "
+            f"without reaching FIRE_BY_TOOL_CALL, so the turn-cap branch is live."
+        )
+
+
 def test_both_arms_apply_the_same_ambiguity_rule(monkeypatch):
     """`truncated` and `truncated_quiet` answer the same question about opposite arms, so a
     session that is ambiguous on one must be ambiguous on the other. They diverged once —
@@ -313,8 +466,11 @@ def test_the_narrowed_rule_lowers_truncated_below_the_old_constant(monkeypatch):
     session got, which is what pinned `truncated` at a constant 0.80 across a 3-turn cap, a
     30s timeout and a 45s timeout while `invoke_rate` sat at 0.20 the whole time — a warning
     that always fires is not a signal. This mirrors that observed run: 2 of 10 happy samples
-    fired, 8 were cut with varying tool-call counts. Old rule: 8/10 = 0.80. New rule: only the
-    3 cuts below FIRE_BY_TOOL_CALL=3 count."""
+    fired, 8 were cut with varying tool-call counts.
+
+    Counting every cut would make it 8/8 of the misses. Only the 3 below FIRE_BY_TOOL_CALL=3
+    count, so 3/8. (The 0.80 above was that same run over the old all-samples denominator —
+    8/10 — which is why the historical number and this assertion differ.)"""
     name = "integration"
     prompts = [f"p{i}" for i in range(10)]
     entry = {"happy": prompts, "negative": ["n"]}
@@ -333,10 +489,10 @@ def test_the_narrowed_rule_lowers_truncated_below_the_old_constant(monkeypatch):
     monkeypatch.setattr(run, "_one", fake_one)
     result = run.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
 
-    # The old rule counted all 8 cut sessions: 8/10 = 0.80, the constant this replaced.
+    # Counting every cut session would read 8/8 = 1.00 — the constant this rule replaced.
     assert result["invoke_rate"] == 0.2  # matches the observed 2/10
-    assert result["truncated"] < 0.80
-    assert result["truncated"] == 0.3  # only tool_calls 0, 1, 2 are below FIRE_BY_TOOL_CALL=3
+    assert result["truncated"] < 1.0
+    assert result["truncated"] == 0.38  # 3/8 — only tool_calls 0, 1, 2 are below FIRE_BY_TOOL_CALL
 
 
 def test_truncated_quiet_counts_the_negative_arm_not_the_happy_arm(monkeypatch):
@@ -377,6 +533,85 @@ def test_truncated_counts_the_happy_arm_not_the_negative_arm(monkeypatch):
     result = run.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
 
     assert result["truncated"] == 1.0
+
+
+def test_truncated_is_a_share_of_the_misses_not_of_every_sample(monkeypatch):
+    """`truncated` exists to say how much of a verdict rests on a session being cut short, and
+    only a miss can rest on it — a session that fired already decided.
+
+    Dividing by every sample instead capped the value at `1 - invoke_rate`, which made the same
+    0.20 warning threshold mean a different thing per skill: unreachable for a skill measuring
+    1.00 (ceiling 0.00, so a warning is arithmetically impossible however many sessions were
+    cut) and easy to trip for one near the floor. Two of the seven baseline skills sit at 1.00."""
+    name = "integration"
+    entry = {"happy": ["h0", "h1", "h2", "h3"], "negative": ["n"]}
+
+    fired = stream.Observation(completed=True, fired=[name], available=[name])
+    cut = stream.Observation(completed=False, tool_calls=0, available=[name])
+    by_prompt = {"h0": fired, "h1": fired, "h2": cut, "h3": cut}
+    fallback = stream.Observation(completed=True, tool_calls=5, available=[name])
+
+    def fake_one(prompt, fixture, config_dir, restricted):
+        return by_prompt.get(prompt, fallback), ""
+
+    monkeypatch.setattr(run, "_one", fake_one)
+    result = run.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
+
+    assert result["invoke_rate"] == 0.5
+    # Both misses were cut before they could decide, so the whole miss column is unexplained.
+    # Over every sample this reads 0.50 and looks like a coin flip.
+    assert result["truncated"] == 1.0
+
+
+def test_the_truncation_warning_measures_distortion_not_the_miss_column(monkeypatch, capsys):
+    """The recorded metric and the warning divide by different things on purpose.
+
+    A skill at 14/15 whose single miss timed out has a fully unexplained miss column —
+    `truncated` 1.00, correctly — but its score moved by at most 1/15 = 0.067. Warning there
+    would say "invoke_rate is reporting SESSION_TIMEOUT rather than the description" about a
+    0.067 distortion, which is the always-on warning this threshold already survived once.
+
+    Moving the recorded denominator to misses and leaving the warning on it would have
+    inverted the very defect that motivated the change: unreachable at the top before, certain
+    at the top after."""
+    name = "integration"
+    prompts = [f"h{i}" for i in range(15)]
+    entry = {"happy": prompts, "negative": ["n"]}
+
+    fired = stream.Observation(completed=True, fired=[name], available=[name])
+    cut = stream.Observation(completed=False, tool_calls=0, available=[name])
+    by_prompt = {p: fired for p in prompts[:14]} | {prompts[14]: cut}
+    fallback = stream.Observation(completed=True, tool_calls=5, available=[name])
+
+    def fake_one(prompt, fixture, config_dir, restricted):
+        return by_prompt.get(prompt, fallback), ""
+
+    monkeypatch.setattr(run, "_one", fake_one)
+    result = run.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
+
+    assert result["invoke_rate"] == 0.93
+    assert result["truncated"] == 1.0  # the miss column really is entirely unexplained
+    assert "cut short" not in capsys.readouterr().out
+
+
+def test_truncated_reports_zero_when_there_was_nothing_to_miss(monkeypatch):
+    """A denominator of misses is 0 exactly when every sample fired. There is no truncation to
+    report then — not an undefined ratio and not a division error."""
+    name = "integration"
+    entry = {"happy": ["h0", "h1"], "negative": ["n0"]}
+
+    fired = stream.Observation(completed=True, fired=[name], available=[name])
+
+    def fake_one(prompt, fixture, config_dir, restricted):
+        return fired, ""
+
+    monkeypatch.setattr(run, "_one", fake_one)
+    result = run.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
+
+    assert result["invoke_rate"] == 1.0
+    assert result["truncated"] == 0.0
+    # The negative arm's mirror: every negative sample fired too, so `quiet` is 0.
+    assert result["false_fire"] == 1.0
     assert result["truncated_quiet"] == 0.0
 
 
@@ -898,3 +1133,223 @@ def test_the_committed_baseline_passes_the_gate():
             CASES["skills"][name].get("expect_invoke"),
             len(SKILLS),
         )
+
+
+# ── fixture capture ──────────────────────────────────────────────────────────────────────
+# The committed fixtures were re-captured under the isolated config dir, so their `init` event
+# lists `harness-tier@inline` as its only plugin — earlier captures carried the whole machine
+# inventory (18 plugins with absolute paths, 146 slash commands, the home directory), half of
+# each file, which a reduction cannot trim without rewriting a captured event into fiction. The
+# account-level claude.ai MCP connectors survive by name (config isolation is scoped to plugins,
+# not the account); no tokens ride along. The re-capture costs real sessions, so it rides along
+# with a measurement run instead of being its own errand.
+
+
+def test_reduce_capture_keeps_only_the_events_observe_reads():
+    """`stream.observe` reads four kinds. The rest — hook_*, thinking_tokens, task_*, user —
+    were 83% of the original 332KB and are never parsed, so they are dropped whole rather than
+    summarised."""
+    kept_init = '{"type":"system","subtype":"init","skills":["harness-tier:integration"]}'
+    kept_assistant = '{"type":"assistant","message":{"content":[]}}'
+    kept_rate = '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"}}'
+    kept_result = '{"type":"result","subtype":"success","num_turns":2}'
+    dropped = [
+        '{"type":"hook_started","name":"x"}',
+        '{"type":"user","message":{}}',
+        '{"type":"thinking_tokens","n":11}',
+        '{"type":"task_progress"}',
+    ]
+    text = "\n".join(
+        [
+            kept_init,
+            dropped[0],
+            kept_assistant,
+            dropped[1],
+            kept_rate,
+            dropped[2],
+            kept_result,
+            dropped[3],
+        ]
+    )
+    assert run.reduce_capture(text).splitlines() == [
+        kept_init,
+        kept_assistant,
+        kept_rate,
+        kept_result,
+    ]
+
+
+def test_reduce_capture_does_not_rewrite_a_surviving_event():
+    """The fixtures are worth having because they are real CLI bytes. Re-serialising would
+    normalise key order, spacing and escapes — turning a capture into a rendering of one, and
+    quietly ending its ability to catch a parser assumption."""
+    odd_spacing = '{"type":"result","subtype":"success",  "num_turns":2,"who":"caf\u00e9"}'
+    assert run.reduce_capture(odd_spacing).splitlines() == [odd_spacing]
+
+
+def test_reduce_capture_drops_a_line_that_is_not_json():
+    """A killed process ends mid-line. `stream.observe` tolerates that; a fixture should not
+    carry it, because the truncation test appends its own."""
+    good = '{"type":"result","subtype":"success"}'
+    assert run.reduce_capture(f'{{"type":"assis\n{good}').splitlines() == [good]
+
+
+def test_fixture_role_names_the_committed_fixture_a_capture_could_replace():
+    invoked = stream.Observation(
+        fired=["integration"],
+        available=["integration"],
+        turns_exhausted=True,
+        completed=True,
+        tool_calls=4,
+    )
+    assert run.fixture_role(invoked, "integration") == "stream-invoked"
+    quiet = stream.Observation(
+        fired=[],
+        available=["integration"],
+        completed=True,
+        tool_calls=3,
+    )
+    assert run.fixture_role(quiet, "integration") == "stream-quiet"
+
+
+def test_fixture_role_refuses_a_session_that_would_teach_the_parser_nothing():
+    """Each rejection maps to an assertion the committed fixtures already satisfy — a candidate
+    that fails one would replace a working fixture with a broken one."""
+    errored = stream.Observation(
+        fired=["x"],
+        available=["x"],
+        turns_exhausted=True,
+        errored=True,
+        tool_calls=4,
+    )
+    assert run.fixture_role(errored, "x") is None, "an outright failure is not a clean observation"
+    no_calls = stream.Observation(fired=[], available=["x"], completed=True, tool_calls=0)
+    assert run.fixture_role(no_calls, "x") is None, (
+        "test_observe_counts_every_tool_call_not_just_skill asserts tool_calls > 0"
+    )
+    never_loaded = stream.Observation(fired=[], available=[], completed=True, tool_calls=3)
+    assert run.fixture_role(never_loaded, "x") is None, (
+        "empty `available` means the plugin never loaded"
+    )
+
+
+def test_capture_writes_beside_the_committed_fixture_never_over_it(tmp_path, monkeypatch):
+    """`fixture_role` checks the conditions it knows about; the committed fixtures satisfy
+    seven assertions. A candidate that clears the former has not been checked against the
+    latter, so replacing is a human step and this only ever writes `.new`."""
+    monkeypatch.setattr(run, "CAPTURE_FOR", "x")
+    committed = tmp_path / "stream-quiet.jsonl"
+    committed.write_text("ORIGINAL", encoding="utf-8")
+    obs = stream.Observation(fired=[], available=["x"], completed=True, tool_calls=3)
+
+    run.maybe_capture(obs, '{"type":"result","subtype":"success"}\n{"type":"user"}', tmp_path)
+
+    assert committed.read_text(encoding="utf-8") == "ORIGINAL"
+    written = (tmp_path / "stream-quiet.jsonl.new").read_text(encoding="utf-8")
+    assert written.strip() == '{"type":"result","subtype":"success"}'
+
+
+def test_capture_is_off_unless_asked_and_keeps_the_first_of_each_role(tmp_path, monkeypatch):
+    """Off by default because a normal measurement run must not touch the fixtures. First-wins
+    because later sessions are not better candidates, and rewriting on every match would make
+    the file depend on which of 35 sessions happened to finish last."""
+    obs = stream.Observation(fired=[], available=["x"], completed=True, tool_calls=3)
+    dest = tmp_path / "stream-quiet.jsonl.new"
+
+    monkeypatch.setattr(run, "CAPTURE_FOR", None)
+    run.maybe_capture(obs, '{"type":"result","subtype":"success"}', tmp_path)
+    assert not dest.exists()
+
+    monkeypatch.setattr(run, "CAPTURE_FOR", "x")
+    run.maybe_capture(obs, '{"type":"result","subtype":"success"}', tmp_path)
+    run.maybe_capture(obs, '{"type":"result","subtype":"LATER"}', tmp_path)
+    assert "LATER" not in dest.read_text(encoding="utf-8")
+
+
+def test_fixture_role_keeps_the_two_fixtures_covering_different_endings():
+    """`stream-invoked` is a turn cap, `stream-quiet` is a clean `success` — that difference is
+    what `test_observe_tells_an_outright_failure_from_a_turn_cap` reads. A capped session that
+    happened not to fire satisfies every other quiet condition, so without this the pair could
+    drift into two turn caps and the success path would stop being covered at all."""
+    capped_but_quiet = stream.Observation(
+        fired=[], available=["x"], completed=True, turns_exhausted=True, tool_calls=5
+    )
+    assert run.fixture_role(capped_but_quiet, "x") is None
+
+
+def test_fixture_role_requires_the_measured_skill_to_be_the_one_that_fired():
+    """`test_observe_sees_a_skill_that_fired` asserts `"integration" in obs.fired`, so a
+    candidate taken from another skill's session would replace a working fixture with one the
+    suite rejects.
+
+    That is not hypothetical: the incremental default mode walks skills alphabetically, so
+    `doc-sync` runs first and first-wins would hand it `stream-invoked`. The role has to know
+    which skill is being measured — `measure` does, so it is not new information."""
+    other = stream.Observation(
+        fired=["doc-sync"],
+        available=["doc-sync"],
+        turns_exhausted=True,
+        completed=True,
+        tool_calls=4,
+    )
+    assert run.fixture_role(other, "integration") is None
+    target = stream.Observation(
+        fired=["integration"],
+        available=["integration"],
+        turns_exhausted=True,
+        completed=True,
+        tool_calls=4,
+    )
+    assert run.fixture_role(target, "integration") == "stream-invoked"
+    # The quiet fixture is skill-bound through `available`, which lists every plugin skill —
+    # so it only has to confirm the measured one was on offer.
+    quiet = stream.Observation(
+        fired=[],
+        available=["doc-sync", "integration"],
+        completed=True,
+        tool_calls=3,
+    )
+    assert run.fixture_role(quiet, "integration") == "stream-quiet"
+    assert run.fixture_role(quiet, "performance") is None
+
+
+def test_capture_preserves_the_trailing_newline_the_fixtures_depend_on():
+    """`test_observe_reports_a_rate_limited_session` and the turn-cap test both append an event
+    to the file's text. Without a trailing newline the appended JSON joins the last `result`
+    line and both are dropped as unparseable — so the newline is load-bearing, and asserting on
+    a `.strip()`ed value (as the write test does, deliberately, for content) cannot see it."""
+    assert run.reduce_capture('{"type":"result","subtype":"success"}').endswith("}")
+    for name in ("stream-invoked.jsonl", "stream-quiet.jsonl"):
+        assert (FIXTURES / name).read_text(encoding="utf-8").endswith("\n"), name
+
+
+def test_capture_writes_a_file_ending_in_a_newline(tmp_path, monkeypatch):
+    monkeypatch.setattr(run, "CAPTURE_FOR", "x")
+    obs = stream.Observation(fired=[], available=["x"], completed=True, tool_calls=3)
+    run.maybe_capture(obs, '{"type":"result","subtype":"success"}', tmp_path)
+    assert (tmp_path / "stream-quiet.jsonl.new").read_text(encoding="utf-8").endswith("\n")
+
+
+def test_git_tracks_exactly_the_two_committed_fixtures():
+    """`.jsonl.new` candidates are deliberately not gitignored so they surface in `git status`
+    for a human to inspect — which means one blanket `git add -A` commits an unverified second
+    copy that no test would otherwise look at (nothing globs this directory).
+
+    Tracked files, not directory contents: an untracked candidate sitting there mid-review is
+    the expected state and must not turn the suite red — that pressure pushes a developer to
+    delete the candidate instead of inspecting it. What must be impossible is *committing* one,
+    and that is exactly what `git ls-files` sees."""
+    tracked = subprocess.run(
+        ["git", "ls-files", "evals/fixtures"],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    assert sorted(tracked) == [
+        "evals/fixtures/stream-invoked.jsonl",
+        "evals/fixtures/stream-quiet.jsonl",
+    ], (
+        "unexpected tracked file under evals/fixtures — a captured `.jsonl.new` candidate is "
+        "meant to be reviewed and renamed over the committed fixture, never committed beside it"
+    )
