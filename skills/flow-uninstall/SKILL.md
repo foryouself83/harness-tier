@@ -1,8 +1,6 @@
 ---
 name: flow-uninstall
-description: Remove harness-tier's host-side wiring (the inverse of /flow-init) — unregisters the commit gate and marketplace from settings.json, strips the .gitignore lines and CLAUDE.md teams block, and deletes .claude/harness-tier/. Confirms before deleting; pre-commit/git hooks are reported for manual removal. Run BEFORE /plugin uninstall.
-allowed-tools: Bash, Read, AskUserQuestion
-argument-hint: (none)
+description: Remove harness-tier's wiring from this repo — the inverse of /flow-init. Deletes host-owned config, so it confirms first. Run BEFORE /plugin uninstall.
 disable-model-invocation: true
 ---
 
@@ -13,16 +11,9 @@ Undo what [`/flow-init`](../flow-init/SKILL.md) installed in the host repo.
 host); everything flow-init wrote **into** the host repo stays unless removed here.
 
 > **Run this BEFORE `/plugin uninstall`.** The cleanup runs the plugin's
-> `flow_init_setup.py --uninstall`, which is reachable only while the plugin is
-> still installed (`${CLAUDE_PLUGIN_ROOT}`). If the plugin is already gone, fall
-> back to the manual steps in [USAGE.md](../../USAGE.md) (§ uninstall).
-
-## Path conventions
-
-```bash
-ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
-PLUGIN="${CLAUDE_PLUGIN_ROOT}"
-```
+> `flow_init_setup.py --uninstall`, reachable only through `${CLAUDE_PLUGIN_ROOT}` —
+> so uninstalling the plugin first strands the host files this skill exists to remove.
+> Order is the whole point of the skill.
 
 ## Execution
 
@@ -34,7 +25,7 @@ PLUGIN="${CLAUDE_PLUGIN_ROOT}"
 
 2. **Run the cleanup** (idempotent — match-then-skip, the inverse of `/flow-init`):
    ```bash
-   python3 "${PLUGIN}/scripts/flow_init_setup.py" --uninstall
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/flow_init_setup.py" --uninstall
    ```
    Relay its report. It:
    - **Unregisters** the commit gate and the `harness-tier` marketplace from

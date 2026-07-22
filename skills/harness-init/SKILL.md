@@ -1,8 +1,6 @@
 ---
 name: harness-init
-description: A wizard that detects the framework and, using multiple sub-agents, researches the latest conventions and free off-the-shelf solutions to generate an AI harness (.md by default, real configuration opt-in) — detect → interview → research (fan-out) → rationale → generate → critique/validate → preview → confirm → write, no overwrites, no commands generated
-allowed-tools: Bash, Read, Write, Edit, AskUserQuestion, Glob, Grep, Agent, SendMessage, WebSearch, WebFetch, Skill
-argument-hint: (none)
+description: Generate an AI harness (CLAUDE.md, rules, agents, technical docs) tailored to this project, researching current framework conventions first. Everything is previewed before it is written.
 disable-model-invocation: true
 ---
 
@@ -45,7 +43,7 @@ Show the result (state/frameworks/existing) to the user **as a table**. Also rep
    - Output = a **scope summary** → the single input source for research, rationale, and the SRS (single downstream source).
    - **brownfield (no SRS generated) skips this gate** — take scope from the code-analyzer's code analysis, and optionally
      ask only about intent that the code does not resolve (goals/non-goals, etc.).
-1. **Fix the primary development language (hard gate, see harness-rules)**: Always fix the primary development language via
+1. **Fix the primary development language (hard gate)**: Always fix the primary development language via
    `AskUserQuestion` (ask regardless of the detected value). If a language was detected, offer it as the first option
    (recommended); if multiple/none were detected, list candidates. If the detected value and the user's choice differ,
    **the user's choice wins**. **Primary language ≠ the same language across every layer** — split the project into layers
@@ -84,7 +82,7 @@ The sub-agents **return** their findings as their final message; the **leader ow
   detection, no manifest).
 - **Version/release tooling research**: research the standard release tool (`release_tool`), `version_files`, and 0.x policy for the detected stack (harness-rules 13, 13-1).
 - **Performance/integration dimension injection**: after the stack is fixed by the Step 2.5 reconcile, when re-dispatching harness-researcher,
-  pass the finalized `stack_map` as well and instruct it to research procedure 9 (performance SSOT, integration-verification SSOT).
+  pass the finalized `stack_map` as well and instruct it to research `harness-researcher` procedure 9 (performance SSOT, integration-verification SSOT).
   Save the findings to `.harness/research/` and consume them in Step 4 authoring.
 - **Cross-talk (optional)**: cross-talk via `SendMessage` is only possible on builds where the Agent Teams experimental feature (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`)
   is enabled (code-analyzer "found hand-rolled X" → researcher "research a free replacement"). Without it,

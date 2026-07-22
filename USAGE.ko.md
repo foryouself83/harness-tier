@@ -114,6 +114,27 @@ doc_sync:                    # doc-sync 대상
 편집하지 마세요**(고칠 일이 있으면 플러그인 SOURCE 를 고치고 `/flow-init` 재실행). 이
 파일이 각 등급에서 어떤 게이트가 필수인지 정합니다.
 
+`merge_strategy` 도 이 파일에 있습니다. `git merge` 의 플래그를 그 머지가 속한 브랜치
+흐름과 대조합니다(브랜치 이름은 `flow-config.branches` 에서 해석):
+
+| 머지 | 강제 |
+|------|------|
+| `feature/*` → integration | `--squash` 필수 |
+| `staging` → production | `--no-ff` 필수 |
+| `hotfix/*` → production | `--squash` 필수 |
+| `fix/*` → integration | `--no-ff` 금지 |
+
+범위는 의도적으로 좁습니다. 전략이 하나로 정해진 행만 검사할 수 있습니다 —
+`integration → staging` 은 rebase 든 merge 든 되므로 강제할 것이 없습니다. `feature/*`
+머지 전 rebase 는 **경고만 하고 차단하지 않습니다**(로컬 `origin` ref 가 낡았을 때
+헛경고가 나기 때문). 그리고 다른 layer-2 게이트와 마찬가지로 **Claude 세션 안의 머지만**
+봅니다 — 터미널에서 직접 머지하면 걸리지 않습니다.
+
+판단할 수 없는 것은 전부 통과시킵니다: 매칭되는 규칙이 없거나, 명령을 파싱할 수 없거나,
+명령이 다른 워크트리를 지목하는 경우. 검사를 끄려면 플러그인 SOURCE 에서 `merge_strategy`
+키를 통째로 지우고 `/flow-init` 을 다시 실행하거나, `/flow-uninstall` 로 게이트 자체를
+제거하세요.
+
 ### 2.3 위험도 등급과 게이트
 
 작업은 네 등급으로 분류되며(두 축), 등급이 **어떤 게이트를 통과해야 커밋되는지**를

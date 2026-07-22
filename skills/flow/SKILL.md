@@ -1,8 +1,13 @@
 ---
 name: flow
-description: MANDATORY first step for ALL development work — invoke BEFORE starting any code change, feature, fix, or free-text dev request. Classifies the task as Docs/Dev by risk, confirms the tier, runs the matching workflow, and records the gate evidence the commit hook enforces; skipping it leaves the commit unclassified and the commit gate blocks it. Staging/Release apply at integration→staging / staging→production.
-allowed-tools: Bash, Read, Grep, Glob, Skill, AskUserQuestion, Edit, Write
+description: MANDATORY first step for ALL development work — invoke BEFORE starting any code change, feature, fix, or free-text dev request, and before any commit. Skipping it leaves the commit unclassified and the commit gate blocks it. Also applies when promoting integration→staging or staging→production.
 argument-hint: "[free-text request]"
+# Pre-approves only the gate-evidence writes — the one thing this skill does several
+# times per run. Exact marker paths, no trailing glob: a glob's `*` crosses path
+# separators including `..`, so `.flow/*` pre-approved touch of any path on disk.
+# `git commit` and `rm -rf` are deliberately absent: the commit prompt is the mechanical
+# backstop behind the gate, and the Phase 4 cleanup should stay deliberate.
+allowed-tools: Bash(mkdir -p .claude/harness-tier/.flow) Bash(touch .claude/harness-tier/.flow/doc-sync.done) Bash(touch .claude/harness-tier/.flow/review.done) Bash(touch .claude/harness-tier/.flow/bump.done) Bash(touch .claude/harness-tier/.flow/security.done)
 ---
 
 # Flow — Risk-Tiered Workflow Router
@@ -13,29 +18,25 @@ enforces the tier's required gates.
 
 **Source of truth**: [`risk-tiers.md`](../../rules/risk-tiers.md) (criteria, skill
 gate, per-tier steps) and [`flow-tiers.yaml`](../../flow-tiers.yaml) (tier→gates the
-commit hook enforces). Read them first; do not duplicate their content.
+commit hook enforces). `risk-tiers.md` is already in context — the SessionStart hook
+injects it — but **read `flow-tiers.yaml`**, which is not injected and carries the
+gate list you must report in Phase 1.
 
 Branch names referenced below come from `flow-config.branches`
 (`integration` / `staging` / `production`). Domain-review items come from
 `flow-config.review_checklist` and per-module pre-checks from `flow-config.modules`.
 
 Four tiers, two axes:
-- **Day-to-day task** (this command's main job): **Docs** (no code) or
+- **Day-to-day task** (this skill's main job): **Docs** (no code) or
   **Dev** (any code).
 - **Promotion** (run when cutting a release): **Staging** (integration → staging)
   and **Release** (staging → production) — see "Promotion" below.
 
 ## Input
 
-- **$ARGUMENTS** — a free-text request.
-- If empty, ask the user what the task is.
-
-## Phase 0 — Resolve input
-
-Treat `$ARGUMENTS` as the request text.
-
-Carry the **resolved request text** forward as *the task* for every later step — it
-is the explicit input to `brainstorming` and the reference for the commit scope.
+- **$ARGUMENTS** — a free-text request. If empty, ask the user what the task is.
+- Carry that request text forward as *the task* for every later phase — it is the
+  explicit input to `brainstorming` and the reference for the commit scope.
 
 ## Phase 1 — Classify the task (Docs or Dev)
 
@@ -166,7 +167,9 @@ needed — the branch drives it). Record each gate before committing the promoti
      lacks write: if `gh`/a token is available, run
      `.claude/harness-tier/scripts/check-token-write.sh` (exit 10 → warn with the
      Settings/PAT how-to; exit 20/no tool → skip silently, never block).
-  4. `touch .claude/harness-tier/.flow/{review,bump}.done`.
+  4. `touch .claude/harness-tier/.flow/review.done` ·
+     `touch .claude/harness-tier/.flow/bump.done` (two commands, written out — the brace
+     form neither matches the exact allowed-tools rules nor reads as what actually runs).
   5. Commit on the staging branch **with a trailer** `Release-Level: <level>` (blank
      line before the trailer). CI reads it to force
      `semantic-release version --<level> --as-prerelease`. main needs no level — it
@@ -214,7 +217,9 @@ rm -rf .claude/harness-tier/.flow
    branch-flow row in [`risk-tiers.md`](../../rules/risk-tiers.md) **Merge strategy**
    and follow it exactly — the required strategy varies by flow (rebase / squash /
    `--no-ff` merge). Commit types & the 50/72 rule live in the same file's Commit
-   Discipline.
+   Discipline. Several of those rows are **enforced by the hook**: a merge whose flags
+   violate its row is blocked (exit 2) naming the flag it wants. The table's **Gate**
+   column says which rows fire — the rest still depend on you following them.
 4. **Inherit the pre-commit gate** — never bypass the `git commit` hook
    (no `--no-verify`).
 5. **Commit from a git worktree with `git -C <worktree> commit …`** — a single
@@ -226,6 +231,6 @@ rm -rf .claude/harness-tier/.flow
 6. **Worker / service-process safety** — Dev+ changes touching long-running
    worker processes: inspect for in-flight tasks and require explicit user
    approval before restarting.
-7. **[`risk-tiers.md`](../../rules/risk-tiers.md) and
-   [`flow-tiers.yaml`](../../flow-tiers.yaml) are the source of truth** — if this
-   command diverges, follow them and fix this command.
+7. **On conflict, [`risk-tiers.md`](../../rules/risk-tiers.md) and
+   [`flow-tiers.yaml`](../../flow-tiers.yaml) win** — where this skill disagrees with
+   them, follow them, and tell the user this skill has drifted.

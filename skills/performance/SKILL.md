@@ -1,18 +1,16 @@
 ---
 name: performance
-description: Statically flags language-specific performance anti-patterns (N+1, query plans, recursion/complexity, frontend re-renders) across the codebase, and when a backend exists, extracts the APIs from OpenAPI and load-tests each API 100 times with openapi-to-k6+k6, reporting p50/p95/p99, throughput, and error rate against SLOs. A manual skill, not a gate — invoke it when a performance check is needed.
-allowed-tools: Bash, Read, Grep, Glob
+description: Use when a performance check is needed — code suspected of anti-patterns (N+1, query plans, algorithmic complexity, re-render churn), or an API that needs load-testing for latency/throughput against SLOs. A manual skill, not a gate.
+# The measurement tools this skill drives. `pip install lizard` is absent on purpose —
+# installing into the host's environment is the user's call, not a pre-approved one.
+# `npx @grafana/openapi-to-k6` is absent for the same reason: on first use npx *fetches
+# the package into the host's npm cache*, so pre-approving it pre-approves an install.
+allowed-tools: Bash(k6 run *) Bash(lizard *)
 ---
 
 # performance
 
 **Statically flags performance anti-patterns** across the codebase and, when a backend exists, performs **API load testing**.
-This is a manual skill, not a gate — it is not tied to the `/flow` gate.
-
-> **Positioning**: This skill **flags suspect patterns** through static code analysis; it is not
-> definitive detection. Results that can only be known at runtime (measured latency, actual N+1
-> counts, memory usage) inherently **must be verified with runtime tools**. False positives are
-> marked as "needs review" and the final verdict is delegated to the appropriate runtime tool.
 
 ---
 
@@ -41,7 +39,7 @@ ls docs/verification/performance.md 2>/dev/null && cat docs/verification/perform
 | `pom.xml` / `*.java` / `build.gradle` | Java/Hibernate | [`static-checks-java.md`](references/static-checks-java.md) |
 | `Gemfile` / `*.rb` | Ruby | [`static-checks-ruby.md`](references/static-checks-ruby.md) |
 | `*.csproj` / `*.cs` | .NET | [`static-checks-dotnet.md`](references/static-checks-dotnet.md) |
-| `go.mod` / `*.go` | Go | (no dedicated N+1 catalog yet — run [`static-checks-complexity.md`](references/static-checks-complexity.md) only) |
+| `go.mod` / `*.go` | Go | (no dedicated N+1 catalog yet) |
 | `*.sql` / DB-related migrations | DB | [`static-checks-db.md`](references/static-checks-db.md) |
 
 If multiple stacks are detected, **run all of them**. Always also run
@@ -52,8 +50,8 @@ regardless of which stacks were detected.
 
 ## 2. Language-Specific Static Anti-Pattern Flagging
 
-> **Authoritative catalogs (SSOT)** — one file per stack, listed in the table in §1. Add/modify detection
-> patterns only in the relevant `references/static-checks-<stack>.md` file, never here.
+> **Authoritative catalogs (SSOT)** — one file per stack, listed in the table in §1. Each stack's
+> detection patterns live in its `references/static-checks-<stack>.md`.
 
 For each detected stack, open its reference file from §1's table and follow its detection commands and
 verification-delegated runtime tools. Every stack file follows the same shape: a detection-pattern table,
@@ -67,20 +65,12 @@ when a DB is present, regardless of the application language.
 
 ## 3. API Load Analysis When a Backend Exists
 
-> For the detailed procedure, tools, and report template, see → [`references/api-load.md`](references/api-load.md).
+> **The authoritative procedure = [`references/api-load.md`](references/api-load.md)** — OpenAPI spec
+> discovery (§1), the openapi-to-k6 invocation (§2.1), and the report template (§3). Follow it exactly;
+> both the spec paths and the CLI syntax have traps that re-deriving them inline reliably gets wrong.
 
-### 3.1 Automatic OpenAPI Spec Discovery + BASE_URL Confirmation
-
-> **The authoritative procedure = [`references/api-load.md`](references/api-load.md) §1** (candidate-path
-> list, BASE_URL multi-source detection + **required user confirmation** via `AskUserQuestion`, and the
-> ASP.NET variable-documentName handling). Follow it exactly — do not re-derive BASE_URL inline here.
-
-### 3.2 Generating and Running the Load Script
-
-> **The authoritative procedure = [`references/api-load.md`](references/api-load.md) §2.1** (openapi-to-k6's
-> real CLI syntax — positional `<spec> <outputDir>` args, not `-o <file>` — its TypeScript class-based client
-> output, and the N-endpoint scenario generator). Follow it exactly — do not re-derive the invocation inline
-> here.
+**Confirm BASE_URL with the user via `AskUserQuestion` before running any load** — `api-load.md` §1
+gathers candidates from several sources, but a guessed BASE_URL points load at the wrong host.
 
 **MIT fallback (when avoiding AGPL):** `oha`, `autocannon`, `vegeta` — see `references/api-load.md` §2.2.
 
@@ -88,7 +78,7 @@ when a DB is present, regardless of the application language.
 > load profile is needed, do not fork the skill; place it in the host's `docs/verification/performance.md`
 > (generated by the harness) so those values take precedence (config-driven principle).
 
-### 3.3 Report Collection Criteria
+### 3.1 Report Collection Criteria
 
 Follow the report template in `references/api-load.md`. Key requirements:
 

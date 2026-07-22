@@ -124,7 +124,7 @@
     do not pin the core to a prerelease/unpublished dependency). Leave a **stack-compatibility
     matrix** (component → version → ceiling constraint → source) in the output. 9-4's "auto-adopt the latest standard" applies only within this ceiling constraint.
     (Checking whether brownfield's *detected* version combination is GA-compatible is not optional but detection, so it is handled by 12-1(b) —
-    7-1 · critique-guide(B) cite this selection part.)
+    `harness-researcher` procedure 7-1 · critique-guide(B) cite this selection part.)
 
 ## Version/release convention research
 

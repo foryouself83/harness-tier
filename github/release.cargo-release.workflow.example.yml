@@ -49,11 +49,12 @@ jobs:
         id: release
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           LEVEL="$(git log -1 --pretty=%B | sed -nE 's/^Release-Level:[[:space:]]*(major|minor|patch)[[:space:]]*$/\1/p' | head -1)"
           LEVEL="${LEVEL:-patch}"
           BEFORE="$(git rev-parse HEAD)"
-          if [ "${{ github.ref_name }}" = "__HARNESS_PRERELEASE__" ]; then
+          if [ "$REF_NAME" = "__HARNESS_PRERELEASE__" ]; then
             cargo release rc --execute --no-confirm --no-publish
           else
             # Finalize an in-flight rc train; if there is none to finalize, do a fresh bump.
@@ -66,10 +67,11 @@ jobs:
         if: ${{ steps.release.outputs.released == 'true' }}
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           TAG="$(git describe --tags --abbrev=0)"
           PRERELEASE=""
-          [ "${{ github.ref_name }}" = "__HARNESS_PRERELEASE__" ] && PRERELEASE="--prerelease"
+          [ "$REF_NAME" = "__HARNESS_PRERELEASE__" ] && PRERELEASE="--prerelease"
           gh release create "$TAG" --title "$TAG" --generate-notes $PRERELEASE
 
       - name: Expose released tag

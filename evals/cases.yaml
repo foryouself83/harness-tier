@@ -1,0 +1,216 @@
+# Prompts that decide whether each model-invoked skill fires. Data only — evals/run.py
+# supplies the mechanics.
+#
+# Negative cases carry the skill's own vocabulary and then ask for something else, because
+# that is where over-firing actually happens. "Explain Python decorators" catches nothing —
+# no description was ever going to fire on it, so a false_fire of 0.00 against prompts like
+# that measures the test's weakness rather than the skill's precision. Each skill keeps at
+# most one deliberately far-field case, which checks the opposite failure: a description so
+# broad it fires on anything.
+#
+# The 4 skills with `disable-model-invocation: true` are absent on purpose. Their
+# descriptions never enter the model's context, so there is no invocation to measure and a
+# case file entry would report coverage that does not exist.
+version: 1
+
+skills:
+  integration:
+    fixture: custom-testdir
+    # expect_invoke / expect_why are design-intent claims — the firing rate the description
+    # *ought* to reach, and why. They are deliberately NOT tuned to the measured baseline; that
+    # non-tuning is the whole point. The gate warns when a measurement falls significantly short
+    # of the declaration (the description needs work), and the ratchet separately enforces no
+    # regression from the recorded rate. Neither reads the other's number, and tuning
+    # expect_invoke to the baseline would collapse the gap the warn exists to surface.
+    expect_invoke: 0.70
+    expect_why: >-
+      e2e-verification asks name it almost directly, so a miss is a wording defect rather than a
+      judgement call.
+    happy:
+      - Run the end-to-end tests for this project and tell me what fails.
+      # These two describe a project with no automation, which contradicted the skill-level
+      # fixture (custom-testdir ships a real 2-spec suite): the agent spent its turns
+      # reconciling the contradiction and the misses were frozen into the 4/15 baseline —
+      # samples no description rewrite could ever recover. empty-web is the project state
+      # the prompts actually describe. Prompts corrected 2026-07-20; the committed scores
+      # predate this, so the next measurement re-baselines (the --accept path exists for a
+      # confirmed drop).
+      - prompt: I need to verify this app works end to end — there is no automation yet.
+        fixture: empty-web
+      - Check that the whole flow works in a real browser, not just unit tests.
+      - Can you do integration verification on this repo?
+      - prompt: Set up e2e coverage for this project.
+        fixture: empty-web
+    negative:
+      - This endpoint takes 900ms under load — find out why.
+      - Add a data-testid attribute to the checkout button so tests can target it.
+      - Write a unit test for the date parser in src/util.js.
+      - What does the --headed flag do in Playwright?
+      - Bump the vite dependency to the latest minor.
+
+  performance:
+    fixture: perf-n-plus-one
+    expect_invoke: 0.70
+    expect_why: >-
+      profiling / N+1 / load-test vocabulary is distinctive in the set.
+    happy:
+      - This list endpoint is slow — profile it and tell me what is wrong.
+      - Check this codebase for N+1 query patterns.
+      - I need to load-test the API against a 200ms p95 SLO.
+      - The React table re-renders constantly. Find the cause.
+      - Is this algorithm going to hold up at 10x the data?
+    negative:
+      - Run the integration suite.
+      - The build takes four minutes. Speed it up.
+      - Add a new field to the user model.
+      - Rename the slow_query helper to fetch_orders.
+      - Set up the first Playwright test for this app.
+
+  doc-sync:
+    # Hook-assisted like flow, in a weaker form. rules/risk-tiers.md — injected into every
+    # session — lists doc-sync as a marker gate and names `/doc-sync` as a numbered step in both
+    # the Docs and Dev workflows, and the happy prompts below sit right on top of that: "are the
+    # docs consistent" and "check for documentation drift" are close to the file's own wording
+    # for the gate ("reconciles code<->doc drift"). Conditional rather than flow's unconditional
+    # "enter FIRST", so the help is weaker — a difference of degree, not of kind.
+    #
+    # Same two consequences: the rate is not comparable to the unassisted skills, and a
+    # regression here has to be read as description *and* hook. Note the hook text sits in no
+    # fingerprint — description_sha covers only the description, so editing risk-tiers.md can
+    # move this number without anything marking the score stale.
+    hook_assisted: true
+    fixture: doc-sync-drift
+    expect_invoke: 0.70
+    expect_why: >-
+      drift and consistency asks use its own words.
+    happy:
+      # app/server.py is the file the doc-sync-drift fixture actually ships — the prompt
+      # used to name src/settings.py, which does not exist there, and the agent's first
+      # turns went to discovering that instead of reaching for the skill.
+      - I renamed the config keys in app/server.py — check the docs still match.
+      - Are the docs in this repo consistent with each other?
+      - This module has no local CLAUDE.md.
+      - I edited the README; make sure nothing else contradicts it now.
+      - Check for documentation drift after my last change.
+    negative:
+      - Run the e2e tests.
+      - Profile the slow endpoint.
+      - Write a new README section explaining the install steps.
+      - Translate CONTRIBUTING.md into Korean.
+      - Rename the variable foo to bar in one file.
+
+  playwright-scaffold:
+    fixture: empty-web
+    expect_invoke: 0.80
+    expect_why: >-
+      a narrow, checkable trigger (no tests exist yet); when it holds there is no competing
+      reading of the prompt.
+    happy:
+      - This web app has no tests at all — get the first one in place.
+      - Set up the first Playwright case for this project.
+      - There are zero e2e cases here. Create a smoke test.
+      - Bootstrap browser testing for this frontend.
+      - Add an initial Playwright smoke test that checks the app loads.
+    negative:
+      # The one anti-trigger its description names outright — an existing suite.
+      - prompt: Add a checkout scenario to the existing Playwright suite.
+        fixture: custom-testdir
+      - prompt: Run the Playwright tests.
+        fixture: custom-testdir
+      - Why would a Playwright test be flaky?
+      - Install Playwright in this project.
+      - Write a unit test for the reducer.
+
+  flow:
+    # Measured with outside help, and it is NOT the only one — doc-sync is too. The plugin's own
+    # SessionStart hook (hooks/hooks.json -> inject-risk-tiers.sh) injects rules/risk-tiers.md
+    # into every session; --plugin-dir loads the hook along with the skills, so isolating
+    # CLAUDE_CONFIG_DIR does not remove it. That file tells the agent to enter /flow FIRST on any
+    # development request, which is the strongest form this help takes.
+    #
+    # Left in deliberately: consumers get that hook too, so this is what actually happens rather
+    # than a clean-room number. Two consequences to carry, though — flow's rate is not comparable
+    # to the unassisted skills, and its ratchet is partly blind to its own description, since the
+    # hook can hold the rate up while the description rots. Read a flow regression as description
+    # *and* hook, and check both.
+    #
+    # `hook_assisted` is a field rather than a note because the note was wrong: it claimed flow
+    # was the only one while the same rule names /doc-sync as a workflow step. No count is
+    # written here either — a hand-counted replacement was wrong too.
+    # test_every_skill_the_injected_rule_names_declares_hook_assisted checks both directions,
+    # over the hook's preamble as well as the rule file it wraps.
+    hook_assisted: true
+    fixture: null
+    expect_invoke: 0.80
+    expect_why: >-
+      it claims every development request; a router that misses one dev ask in five is not
+      routing.
+    happy:
+      - Add a --verbose flag to the CLI.
+      - Fix the crash when the config file is missing.
+      - Commit these changes.
+      - Promote dev to stage.
+      - Refactor the parser into its own module.
+    negative:
+      # flow's description claims ALL development work, so its negatives are the read-only
+      # questions that sit closest to that claim without being a change.
+      - What does the error ENOTEMPTY mean?
+      - Explain the difference between rebase and merge.
+      - Which Python version is this project on?
+      - Summarize what this repository does.
+      - List the files in src/.
+
+  harness-insight:
+    fixture: null
+    expect_invoke: 0.80
+    expect_why: >-
+      transcript-insight / time-window vocabulary is unique in the set.
+    happy:
+      - Give me insights for the last 7 days.
+      - Summarize what I worked on this week.
+      - Pull out harness candidates from the last two weeks.
+      - Clean up the project memory.
+      - What patterns showed up in my sessions over the last month?
+    negative:
+      # Both of the first two share a surface feature with the happy set — "summarize" and
+      # a time window — while pointing at something other than the session transcript.
+      - Summarize what this file does.
+      - Show me the git log for the last week.
+      - What did we decide about the retry policy yesterday?
+      - What did the last commit change?
+      - Delete the stale notes in docs/scratch/.
+
+  harness-authoring:
+    # Reached two ways: directly, and via /harness-init's subagent fan-out. Only the direct
+    # path is measurable in one session, so that is what these cases cover — and that is the
+    # *minor* path. A skill has to stay model-invoked to be reachable from another skill at
+    # all (a user-invoked one is reachable only by the user typing its name), so this
+    # description exists for harness-init's sake first and autonomous firing second.
+    #
+    # That is why expect_invoke below is 0.10 rather than a specialist's 0.70: judging the
+    # primary path by the secondary one's rate would judge the wrong thing. The ratchet still
+    # applies, so a collapse from whatever it measures today is still caught.
+    # `test_a_programmatic_reach_claim_names_a_real_caller` checks this claim against the
+    # shipped skills rather than taking it on trust.
+    reached_programmatically: true
+    invoked_by: harness-init/SKILL.md
+    fixture: null
+    # Low by design, not by disappointment: the primary reach is harness-init invoking it (see
+    # reached_programmatically above), so the autonomous rate only has to prove the description
+    # is still alive rather than carry the skill.
+    expect_invoke: 0.10
+    expect_why: >-
+      its primary reach is harness-init invoking it (see reached_programmatically above); the
+      autonomous rate only has to prove the description is still alive.
+    happy:
+      - Write a skill for this project that runs the deploy checklist.
+      - Author a CLAUDE.md for this repo.
+      - Create an agent definition for reviewing migrations.
+      - I need a rules file that fires when someone edits the schema.
+      - Draft the technical docs for this service's harness.
+    negative:
+      - Write a Python function that parses ISO dates.
+      - Write the README for this library.
+      - Explain what a Claude Code skill is.
+      - Fix the failing test.
+      - Add type hints to this module.

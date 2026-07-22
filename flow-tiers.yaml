@@ -33,3 +33,23 @@ tiers:
       - review
       - security-scan
       - security
+
+# Merge strategy enforcement (branch flow → required/forbidden `git merge` flags).
+# `source`/`target`: a value containing `/` is a branch-prefix glob; otherwise it is a key of
+# flow-config.branches (integration | staging | production). `require`/`forbid` are single flag
+# strings. `warn_unless_rebased` only warns — it never blocks.
+# Removing this whole key disables the check (the gate then fails open).
+merge_strategy:
+  - source: "feature/*"
+    target: integration
+    require: "--squash"
+    warn_unless_rebased: true
+  - source: "hotfix/*"
+    target: production
+    require: "--squash"
+  - source: staging
+    target: production
+    require: "--no-ff"
+  - source: "fix/*"
+    target: integration
+    forbid: "--no-ff"

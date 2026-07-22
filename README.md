@@ -155,7 +155,7 @@ After that, start day-to-day work with **`/flow <task description>`**.
 | Skills | `playwright-scaffold` · `integration` · `performance` | E2E scaffold / integration & performance checks (non-enforcing manual skills) |
 | Agents | `harness-researcher` · `harness-code-analyzer` · `harness-critic` | Research / code analysis / output verification for harness generation |
 | Rule | `risk-tiers` | The single source of truth for risk classification + commit discipline |
-| Hooks | SessionStart · Notification · PreToolUse(commit) | Rule injection · Teams alerts · commit gate |
+| Hooks | SessionStart · Notification · PreToolUse(commit·merge) | Rule injection · Teams alerts · commit gate + merge-strategy gate |
 
 > **Release CI token** — the rendered release workflow runs on the default `GITHUB_TOKEN`
 > out of the box (just grant Actions write permission); a `RELEASE_TOKEN` secret is an
