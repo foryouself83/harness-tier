@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.1.11-rc.1 (2026-07-22)
+
+### Bug Fixes
+
+- **skills**: Rust-cratesio token out of argv
+  ([`86a92e5`](https://github.com/foryouself83/harness-tier/commit/86a92e58eba52fed0b2ac41fd565bd2c7661fa71))
+
+
 ## v0.1.10-rc.1 (2026-07-22)
 
 ### Bug Fixes
