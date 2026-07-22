@@ -1,13 +1,13 @@
 # Registry Publish — Rust (crates.io)
 
 ## Official action / build command
-- Publish: there is no dedicated deploy action — set up the toolchain with `dtolnay/rust-toolchain@stable`, then run `cargo publish --token <token>`.
+- Publish: there is no dedicated deploy action — set up the toolchain with `dtolnay/rust-toolchain@stable`, then run `cargo publish` with `CARGO_REGISTRY_TOKEN` in `env:` (cargo reads it natively — no `--token` flag).
 - Build: `cargo build --release` (publish itself includes packaging, so a separate build is for verification).
 
 ## Secrets
 | Method | What's needed | Workflow config |
 |---|---|---|
-| Long-lived token (current default template) | `CARGO_REGISTRY_TOKEN` | `cargo publish --token "${{ secrets.CARGO_REGISTRY_TOKEN }}"` |
+| Long-lived token (current default template) | `CARGO_REGISTRY_TOKEN` | `env: CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}` + `cargo publish` (cargo reads it natively — no `--token` flag; never interpolate into `run:`) |
 | **crates.io Trusted Publishing (OIDC)** | None | `permissions: id-token: write` + issue a temporary token with `rust-lang/crates-io-auth-action@v1` |
 
 ## Gotchas
