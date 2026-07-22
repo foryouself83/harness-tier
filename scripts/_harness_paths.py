@@ -171,6 +171,14 @@ _BRANCH_PREFIX = "branch "
 _HEADS_PREFIX = "refs/heads/"
 # path token: "double-quoted" | 'single-quoted' | bare (up to whitespace)
 _PATH_TOKEN = r'"([^"]*)"|\'([^\']*)\'|(\S+)'
+# A leading `cd <dir> &&` — the execution directory a chained command moves into before running
+# git. Anchored at the start, so a match is necessarily *before* any later subcommand.
+# `&&` only, deliberately: a match here re-points ROOT to another worktree for
+# status/diff/tier-marker/module-lint, and Invariant #6 requires that path to stay conservative
+# ("any uncertainty → main; never newly block"), so widening the separators is a live behaviour
+# change, not a clean-up. flow_gate_check's merge path — where the same match only FAILs OPEN —
+# states its own separators in _MERGE_CD_PREFIX_RE.
+_CD_PREFIX_RE = re.compile(rf"\s*cd\s+(?:{_PATH_TOKEN})\s*&&")
 
 
 def _git(args: list[str], cwd: str | Path) -> str | None:
@@ -204,7 +212,7 @@ def _dir_from_command(command: str | None) -> str | None:
     head = command.split(" commit", 1)[0]  # ① global-options region only
     m = re.search(rf"(?:^|\s)-C\s+(?:{_PATH_TOKEN})", head)
     if not m:  # ② leading `cd <dir> &&`
-        m = re.match(rf"\s*cd\s+(?:{_PATH_TOKEN})\s*&&", command)
+        m = _CD_PREFIX_RE.match(command)
     if not m:
         return None
     return next(g for g in m.groups() if g is not None)

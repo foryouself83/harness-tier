@@ -1,21 +1,21 @@
-# App Deploy — AWS ECS (저작 레시피)
+# App Deploy — AWS ECS (authoring recipe)
 
-> 정적 템플릿이 아니다 — `/harness-deployments`가 AWS 계정/리전/클러스터/서비스/task-definition을 채워
-> `.github/workflows/deploy-<name>.yml`을 직접 저작할 때 따르는 스켈레톤 + 결정 포인트.
+> Not a static template — the skeleton + decision points to follow when `/harness-deployments` fills in
+> the AWS account/region/cluster/service/task-definition and authors `.github/workflows/deploy-<name>.yml` directly.
 
-## 공식 액션
-- 인증(OIDC role assume): `aws-actions/configure-aws-credentials@v4`.
-- ECR 로그인: `aws-actions/amazon-ecr-login@v2`.
-- task-definition에 새 이미지 반영: `aws-actions/amazon-ecs-render-task-definition@v1`.
-- 서비스 배포: `aws-actions/amazon-ecs-deploy-task-definition@v2` — 새 리비전 등록 + 서비스 갱신 + `wait-for-service-stability` 대기까지 처리.
+## Official actions
+- Auth (OIDC role assume): `aws-actions/configure-aws-credentials@v4`.
+- ECR login: `aws-actions/amazon-ecr-login@v2`.
+- Apply the new image to the task-definition: `aws-actions/amazon-ecs-render-task-definition@v1`.
+- Service deploy: `aws-actions/amazon-ecs-deploy-task-definition@v2` — handles registering the new revision + updating the service + waiting on `wait-for-service-stability`.
 
-## 인증 (OIDC 역할 assume — 시크릿 아님)
-장수 `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`를 시크릿으로 두지 않는다. 대신:
-1. AWS IAM에 GitHub OIDC 프로바이더(`token.actions.githubusercontent.com`, audience `sts.amazonaws.com`)를 **1회 등록**.
-2. 그 프로바이더를 신뢰하는 IAM 역할을 만들고, trust policy의 `sub` 조건을 `repo:<owner>/<repo>:ref:refs/heads/<branch>`(또는 environment)로 제한.
-3. 워크플로에서 `role-to-assume: arn:aws:iam::<account-id>:role/<GitHubActionsEcsRole>`로 assume.
+## Auth (OIDC role assume — not a secret)
+Do not keep long-lived `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` as secrets. Instead:
+1. **Register once** a GitHub OIDC provider (`token.actions.githubusercontent.com`, audience `sts.amazonaws.com`) in AWS IAM.
+2. Create an IAM role that trusts that provider, and restrict the trust policy's `sub` condition to `repo:<owner>/<repo>:ref:refs/heads/<branch>` (or an environment).
+3. Assume it in the workflow via `role-to-assume: arn:aws:iam::<account-id>:role/<GitHubActionsEcsRole>`.
 
-## 워크플로우 스켈레톤
+## Workflow skeleton
 
 ```yaml
 name: deploy-<name>
@@ -29,7 +29,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "배포할 태그 (예: v1.2.3)"
+        description: "Tag to deploy (e.g. v1.2.3)"
         required: true
         type: string
 
@@ -71,29 +71,29 @@ jobs:
           wait-for-service-stability: true
 ```
 
-컴포넌트는 오케스트레이터 `deploy.yml`이 `uses:`로 호출한다(`on: workflow_call` — `inputs.tag`는
-release.yml이 해석한 실제 태그, 자기 해석 안 함). `workflow_dispatch`는 단독 수동 실행용.
+The orchestrator `deploy.yml` calls the component via `uses:` (`on: workflow_call` — `inputs.tag` is the
+actual tag resolved by release.yml, not resolved by the component itself). `workflow_dispatch` is for standalone manual runs.
 
-## 결정 포인트 (스킬이 질문/판단할 것)
-- task-definition JSON을 리포에 보관할지(권장 — 리비전 이력이 git에 남음) 아니면 AWS에 이미 등록된 최신 리비전을 `describe-task-definition`으로 가져올지.
-- ECR(이 배포의 상류가 container-image 단계와 같은 리포지토리인지) vs 다른 레지스트리.
-- 클러스터/서비스명/컨테이너명 — 감지 불가하면 사용자에게 확인.
+## Decision points (what the skill asks/decides)
+- Whether to keep the task-definition JSON in the repo (recommended — the revision history stays in git) or to fetch the latest revision already registered in AWS via `describe-task-definition`.
+- ECR (whether this deploy's upstream is the same repository as the container-image stage) vs a different registry.
+- Cluster/service name/container name — if not detectable, confirm with the user.
 
-## 롤백
-ECS task definition은 불변(immutable)·버전 관리되므로, 롤백 = 이전 리비전을 다시 "현재"로 지정:
+## Rollback
+ECS task definitions are immutable and versioned, so rollback = designating a previous revision as "current" again:
 ```bash
 aws ecs update-service --cluster <cluster> --service <service> \
   --task-definition <family>:<prev-revision> --force-new-deployment
 ```
-또는 `amazon-ecs-deploy-task-definition`에 이전 리비전 ARN을 다시 넘겨 재실행.
+Or re-run `amazon-ecs-deploy-task-definition` passing the previous revision ARN again.
 
-## 주의사항 (gotchas)
-- task **execution** role(ECR pull, 로그 전송 권한)과 task **role**(애플리케이션이 실제 사용하는 AWS 권한)을 혼동하지 말 것 — 둘은 다른 IAM 역할이다.
-- `wait-for-service-stability: true`를 빼면 배포 스텝이 태스크 기동 실패를 기다리지 않고 성공 처리될 수 있다 — 반드시 켠다.
-- IAM 역할 trust policy의 audience는 `sts.amazonaws.com`이어야 한다(다르면 OIDC 토큰 교환이 거부된다).
+## Gotchas
+- Do not confuse the task **execution** role (ECR pull and log shipping permissions) with the task **role** (the AWS permissions the application actually uses) — they are different IAM roles.
+- Omitting `wait-for-service-stability: true` can let the deploy step be treated as successful without waiting for a task start-up failure — always turn it on.
+- The IAM role trust policy's audience must be `sts.amazonaws.com` (otherwise the OIDC token exchange is rejected).
 
 ## SSOT
-| 항목 | URL |
+| Item | URL |
 |---|---|
 | aws-actions/amazon-ecs-deploy-task-definition | https://github.com/aws-actions/amazon-ecs-deploy-task-definition |
 | aws-actions/configure-aws-credentials | https://github.com/aws-actions/configure-aws-credentials |

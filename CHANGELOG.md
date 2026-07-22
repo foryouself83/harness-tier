@@ -2,6 +2,33 @@
 
 <!-- version list -->
 
+## v0.1.11-rc.1 (2026-07-22)
+
+### Bug Fixes
+
+- **skills**: Rust-cratesio token out of argv
+  ([`86a92e5`](https://github.com/foryouself83/harness-tier/commit/86a92e58eba52fed0b2ac41fd565bd2c7661fa71))
+
+
+## v0.1.10-rc.1 (2026-07-22)
+
+### Bug Fixes
+
+- **github**: Keep context values out of run blocks
+  ([`1fe6c75`](https://github.com/foryouself83/harness-tier/commit/1fe6c75f33c12e7442cf50d14ce3f18c99a2b1d1))
+
+- **skills**: Drop dead frontmatter, fix stale refs
+  ([`3f171bd`](https://github.com/foryouself83/harness-tier/commit/3f171bd93b1839898a099e2063054656b5abb63b))
+
+- **skills**: Test skill invocation against a measured baseline
+  ([`5311332`](https://github.com/foryouself83/harness-tier/commit/5311332e3c929bc28ff73837e49a98a0bba04536))
+
+### Features
+
+- **flow**: Gate git merge on the strategy table
+  ([`8340fc4`](https://github.com/foryouself83/harness-tier/commit/8340fc4768fdb9eeebb4707c9d56b06b0940530d))
+
+
 ## v0.1.9-rc.1 (2026-07-16)
 
 ### Features

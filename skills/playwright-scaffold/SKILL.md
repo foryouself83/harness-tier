@@ -1,7 +1,6 @@
 ---
 name: playwright-scaffold
-description: Automatically generates a deterministic "main-screen smoke" Playwright case for a web project. Finds the baseURL from playwright.config → the codebase (docker-compose.yml, .env, framework config, package.json), confirms it with the user, and idempotently generates main.smoke.spec (goto('/') + response OK + non-empty title) in testDir. A starting point for integration verification of a new/case-less web project — invoked by the integration skill when there are zero cases.
-allowed-tools: Bash, Read, Write, Grep, Glob, AskUserQuestion
+description: Use when a web project needs its first Playwright integration case — no test cases exist yet, or the integration skill found zero cases. Not for adding scenarios to a project that already has a suite.
 ---
 
 # playwright-scaffold
@@ -9,7 +8,6 @@ allowed-tools: Bash, Read, Write, Grep, Glob, AskUserQuestion
 Generates a single **deterministic main-screen smoke** Playwright case for a web project. It creates only
 the universal, deterministic check of "does the app come up?" and **does not generate arbitrary user
 scenarios** (that is the job of a human or codegen).
-Since it only writes files without any browser interaction, it is safe in CI/automation.
 
 > **When**: when a new/empty web project needs its first integration case. When the integration skill
 > detects web + zero cases, it invokes this skill to create a main-screen smoke and then runs it immediately.
@@ -43,36 +41,66 @@ Since it only writes files without any browser interaction, it is safe in CI/aut
 ## Step 2 — Detect testDir and Language
 
 ```bash
-# testDir: testDir from playwright.config, else ./tests
-grep -n "testDir" playwright.config.* 2>/dev/null
-# Language: .spec.ts for a TS project, otherwise .spec.js
-ls tsconfig.json 2>/dev/null; grep -E '"(typescript|@playwright/test)"' package.json 2>/dev/null
+# testDir from playwright.config, falling back to Playwright's ./tests default
+grep -hoE "testDir:[[:space:]]*['\"][^'\"]+" playwright.config.* 2>/dev/null | head -1 | sed -E "s/.*['\"]//"
+# Language: any of these three means TypeScript
+ls tsconfig.json playwright.config.ts 2>/dev/null; grep -E '"typescript"' package.json 2>/dev/null
 ```
-- `testDir` unset → `tests/`. TS (tsconfig.json or a typescript dependency) → `.spec.ts`, otherwise `.spec.js`.
+- `testDir` unset → `tests/`.
+- **TypeScript when *any* of `tsconfig.json`, `playwright.config.ts`, or a `typescript`
+  dependency is present** → `.spec.ts`; otherwise `.spec.js`. A `playwright.config.ts`
+  counts on its own: `@playwright/test` bundles its own TypeScript, so a TS Playwright
+  project routinely has neither a `tsconfig.json` nor a `typescript` dependency, and
+  keying only on those two drops a `.js` spec into a TypeScript suite.
+- Carry the resolved `testDir` forward as a literal in Step 3 — each `bash` call is a fresh
+  shell, so a variable set here is gone by the next command.
 
 ---
 
 ## Step 3 — Idempotent Generation (skip if already present)
 
+The starter is for empty projects, so an existing case means report-and-stop. Resolve
+`testDir` and search it in one command — the same regex `integration/SKILL.md` and
+`web-playwright.md` use, so all three agree on what counts as an existing case.
+
 ```bash
-# Do not generate if any existing case is present (the starter is for empty projects only)
-# Matches the testMatch default exactly — same pattern used by integration/SKILL.md and web-playwright.md,
-# so all three files agree on what counts as "an existing case" (previously this used a broader `*.spec.*`
-# wildcard that could also match non-Playwright files like `foo.spec.md`).
-find "${TESTDIR:-tests}" -regextype posix-extended -regex '.*\.(spec|test)\.(c|m)?[jt]sx?' 2>/dev/null | head -1
+# POSIX find + grep -E: -regextype is GNU-only (BSD/macOS find rejects it, exits 1, and an
+# `&& … || echo MISSING` chain then reports every healthy project as MISSING — conflating
+# any find failure with an absent directory). `|| true`: grep exits 1 on zero matches, and
+# an empty suite is an answer, not an error. MISSING comes only from the [ -d ] test.
+TESTDIR=$(grep -hoE "testDir:[[:space:]]*['\"][^'\"]+" playwright.config.* 2>/dev/null | head -1 | sed -E "s/.*['\"]//")
+TESTDIR="${TESTDIR:-./tests}"
+if [ -d "$TESTDIR" ]; then find "$TESTDIR" -type f 2>/dev/null | grep -E '\.(spec|test)\.(c|m)?[jt]sx?$' || true; else echo "MISSING: $TESTDIR"; fi
 ```
-- If cases already exist or `main.smoke.spec.*` exists, **only report and do not generate** (no overwriting).
+- Any case path means cases already exist → **only report and do not generate** (no
+  overwriting). The regex already matches `main.smoke.spec.ts`, so a previous run's smoke
+  counts as a hit.
+- `MISSING:` for a **config-declared** `testDir` is a misconfiguration — report it and
+  stop. Generating into a directory the config does not point at leaves a spec Playwright
+  will never run. `MISSING: ./tests` with no `testDir` in the config is just a new project:
+  create the directory and generate.
 - Only when absent, write `<testDir>/main.smoke.spec.<ts|js>` based on
-  [`examples/main.smoke.spec.ts`](examples/main.smoke.spec.ts). Do not hardcode baseURL into the spec;
-  inject it via **`use.baseURL` in playwright.config** (the spec uses only the `'/'` relative path). If the
-  config has no baseURL, add it to the config in Step 4.
+  [`examples/main.smoke.spec.ts`](examples/main.smoke.spec.ts). The spec navigates to `'/'`
+  and nothing else — Playwright resolves that against **`use.baseURL` in playwright.config**,
+  which is where the baseURL belongs. Step 4 puts it there.
 
 ---
 
-## Step 4 — Playwright Not Installed / Config Absent (opt-in)
+## Step 4 — Settle playwright.config (opt-in)
 
-- If `@playwright/test` is not installed or `playwright.config.*` is absent, scaffold a minimal config and
-  **guide** installation (do not force auto-install — only with consent):
+Three states, each with somewhere to go — a config that exists but declares no `baseURL`
+is the common one, and the spec written in Step 3 resolves `'/'` against nothing until it
+is handled:
+
+| State | Action |
+|---|---|
+| `playwright.config.*` exists **with** a `use.baseURL` | nothing to do config-wise — but if `@playwright/test` itself is missing, still guide the install below |
+| `playwright.config.*` exists, **no** `use.baseURL` | add `use: { baseURL: '<the value confirmed in Step 1>' }` to the existing config — edit it, do not replace it |
+| `playwright.config.*` absent | scaffold the minimal config below |
+
+- If `playwright.config.*` is absent, scaffold the minimal config below. If
+  `@playwright/test` is not installed (config present or not), **guide** installation —
+  do not force auto-install, only with consent:
   ```bash
   npm install -D @playwright/test && npx playwright install chromium
   ```
@@ -96,7 +124,9 @@ find "${TESTDIR:-tests}" -regextype posix-extended -regex '.*\.(spec|test)\.(c|m
 ---
 
 ## Discipline
-- **Deterministic and non-interactive** — generate files only, without browser interaction (no arbitrary scenarios, main-screen smoke only).
+- **Files only** — write the spec and stop; leave running it to `npx playwright test`. The
+  one case to write is the main-screen smoke. Step 1's baseURL confirmation and Step 4's
+  install consent both still apply — ask the user for each.
 - **No overwriting, idempotent** — do not generate if existing cases are present.
 - **Do not assert a guessed baseURL** — gather candidates from codebase evidence and confirm with the user.
 - Free OSS only — Playwright (Apache-2.0). Source: https://playwright.dev/docs/writing-tests ·

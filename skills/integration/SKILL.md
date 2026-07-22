@@ -1,20 +1,15 @@
 ---
 name: integration
-description: When the project is a web frontend, deterministically runs the existing Playwright cases (--reporter=json) and reports the integration-verification result as PASS/FAIL. If it is web but has zero cases, generates a main-screen smoke via playwright-scaffold and runs it immediately; if it is not web, asks a human for scenarios and pass criteria (human-in-the-loop). A manual skill, not a gate — invoke it when integration verification is needed.
-allowed-tools: Bash, Read, Grep, Glob, AskUserQuestion, Skill
+description: Use when integration or end-to-end verification is needed — running a project's existing suite, or establishing one where none exists. Covers web frontends (Playwright), Electron, and non-web projects. A manual skill, not a gate.
+# Running the suite is the point of the skill. `npx playwright install` is absent: it
+# downloads browsers into the host, which §3.2 routes through playwright-scaffold's
+# consent step.
+allowed-tools: Bash(npx playwright test *)
 ---
 
 # integration
 
 **Manually runs the project's integration tests**, or, when there is no automation, **collects scenarios from a human**.
-This is a manual skill, not a gate — it is not tied to the `/flow` gate.
-
-> **Positioning**: This skill **deterministically runs existing Playwright cases**. If it is web but has
-> no cases, it uses `playwright-scaffold` to generate only a **main-screen smoke** (a deterministic
-> "does the app come up?" check) and run it (it does not generate arbitrary scenarios); if it is not
-> web, it is handled human-in-the-loop.
-> Web-frontend detection is a heuristic, not a definitive SSOT — for details, see
-> [`references/web-playwright.md`](references/web-playwright.md).
 
 ---
 
@@ -66,8 +61,13 @@ ls metro.config.js pubspec.yaml go.mod main.go 2>/dev/null
 | Verdict | Condition |
 |---|---|
 | **Electron** | An `"electron"` dependency exists (checked **before** any other signal) |
-| **Web** | No Electron signal + an allowlist dependency exists + no other non-web signal |
-| **Non-web** | No Electron signal + a non-web signal exists (CLI/RN/Flutter/Go/etc.), or no allowlist match |
+| **Web** | No Electron signal + no non-web signal + **either** an allowlist dependency **or** a supporting signal (`index.html` / a bundler config / `public/`) |
+| **Non-web** | No Electron signal + a non-web signal exists (CLI/RN/Flutter/Go/etc.), or none of the above matched |
+
+The supporting signals stand on their own so that a framework-less web app — plain
+`index.html` plus a bundler, no entry in the allowlist — is not filed as non-web and
+routed to a human. A non-web signal still outranks them: an Electron or React Native
+project also ships an `index.html`.
 
 > For the full **Electron** procedure (renderer automation + main-process human-in-the-loop), see
 > [`references/electron.md`](references/electron.md) — the single source of truth for this exception.
@@ -92,10 +92,33 @@ Read `testDir` and `testMatch` from the config file. The defaults are:
 
 ### 3.2 Discover Existing Cases
 
+Cases live wherever the config points, so derive `testDir` in the same command rather
+than assuming `./tests` — that is what makes a zero-case verdict trustworthy enough to
+scaffold on.
+
 ```bash
-# Matches the testMatch default exactly: **/*.@(spec|test).?(c|m)[jt]s?(x)
-find ./tests -regextype posix-extended -regex '.*\.(spec|test)\.(c|m)?[jt]sx?' 2>/dev/null | wc -l
+# testDir from playwright.config (§3.1), falling back to Playwright's ./tests default.
+# Regex matches the testMatch default exactly: **/*.@(spec|test).?(c|m)[jt]s?(x)
+# POSIX find + grep -E: -regextype is GNU-only (BSD/macOS find rejects it, exits 1, and an
+# `&& … || echo MISSING` chain then reports every healthy project as MISSING — conflating
+# any find failure with an absent directory). `|| true`: grep exits 1 on zero matches, and
+# an empty suite is an answer, not an error. MISSING comes only from the [ -d ] test.
+TESTDIR=$(grep -hoE "testDir:[[:space:]]*['\"][^'\"]+" playwright.config.* 2>/dev/null | head -1 | sed -E "s/.*['\"]//")
+TESTDIR="${TESTDIR:-./tests}"
+if [ -d "$TESTDIR" ]; then find "$TESTDIR" -type f 2>/dev/null | grep -E '\.(spec|test)\.(c|m)?[jt]sx?$' || true; else echo "MISSING: $TESTDIR"; fi
 ```
+
+Four outcomes, and only two of them authorise scaffolding:
+
+| Output | Meaning | Next |
+|---|---|---|
+| case paths | the suite exists | §3.3, run it |
+| nothing | the directory is there but holds **no Playwright cases** — it may still be full of other tests (pytest, vitest); the regex only matches `testMatch` | scaffold branch below |
+| `MISSING: <dir>` **from the config** | the config points at a directory that is not there | report the misconfiguration; **do not** scaffold |
+| `MISSING: ./tests` **with no config testDir** | a project that has never had tests | scaffold branch below |
+
+An empty result says "no Playwright cases here", never "this directory is empty" — the
+two diverge in any project that keeps its unit tests under the same roof.
 
 **If there are zero cases**, invoke the `playwright-scaffold` skill to **generate a main-screen smoke and run it immediately**
 (not an arbitrary scenario, but a deterministic "does the app come up?" check):
@@ -202,7 +225,7 @@ Based on the collected scenarios, write a manual verification checklist and poin
 
 ## References
 
-- [`references/web-playwright.md`](references/web-playwright.md) — web detection signals, testDir/testMatch, reporters, best practices, SSOT URLs (§10.7)
+- [`references/web-playwright.md`](references/web-playwright.md) — web detection signals, testDir/testMatch, reporters, best practices, SSOT URLs (§6)
 - [`references/electron.md`](references/electron.md) — Electron detection + hybrid renderer/main-process procedure, combined report template
 - [`references/non-web.md`](references/non-web.md) — non-web type signals, human-in-the-loop procedure, reference OSS
 - [`playwright-scaffold`](../playwright-scaffold/SKILL.md) — main-screen smoke generator for web + zero cases (invoked by this skill)

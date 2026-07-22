@@ -1,6 +1,6 @@
 ---
 name: harness-authoring
-description: "Authoring discipline and templates for generating framework-appropriate AI harnesses (.md components). Invoked by /harness-init. Fills the skeletons of 3 component types (skill/agent/rule) + CLAUDE.md + technical docs (folders by category) using the authoring guides and mandatory rules in references. Does not generate commands."
+description: "Use when authoring or filling AI-harness .md components for a host project — skills, agents, rules, CLAUDE.md, or technical docs. Invoked by /harness-init."
 ---
 
 # harness-authoring
@@ -42,7 +42,7 @@ The generation engine of `/harness-init`. It fills `templates/` (skeletons) with
 
 ## Generation Procedure
 1. Take the detect results + research results (`.harness/research/*.md`) + user choices.
-2. For each output, clone the corresponding `templates/*.template.md` and fill placeholders (there is no command template).
+2. For each output, clone the corresponding `templates/*.template.md` and fill placeholders.
 3. Read the 5 mandatory rule blocks from `references/` and merge them into the CLAUDE.md block (preserve anchors). Do
    **not** put the `harness:baseline` BEGIN/END lines into the marker_upsert content — body only (apply wraps it).
 4. Fill the technical docs following the folder structure and authoring order of `tech-doc-guide.md`

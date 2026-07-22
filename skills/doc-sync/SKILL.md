@@ -1,6 +1,10 @@
 ---
 name: doc-sync
-description: "Sync documentation with BOTH code and documentation changes via git diff. For code changes, update related markdown. For doc changes, harmonize the whole doc set (the targets declared in flow-config.doc_sync — index, dirs, service_docs) for consistency, including creating or updating each module's local CLAUDE.md against a best-practice template. Use when docs need updating, when code/doc changes affect docs, or to verify documentation consistency (the /flow doc-sync gate)."
+description: "Use when a change may have left the documentation drifted or inconsistent — after editing code that docs describe, after editing docs themselves, when verifying doc consistency, or when a module has no local CLAUDE.md. Also the /flow doc-sync gate."
+# The gate marker this skill writes on pass — an exact path, no trailing glob (a glob's
+# `*` crosses path separators including `..`, so `.flow/*` pre-approved touch of any path
+# on disk). Doc edits themselves stay promptable.
+allowed-tools: Bash(mkdir -p .claude/harness-tier/.flow) Bash(touch .claude/harness-tier/.flow/doc-sync.done)
 ---
 
 # doc-sync
@@ -18,9 +22,12 @@ harmonize the whole doc set for consistency.
 ## 1. Determine the change scope
 
 ```bash
-git diff HEAD
-git diff --name-only HEAD
-git ls-files --others --exclude-standard
+git diff HEAD                                   # the change itself — hunks per file
+git diff --name-only HEAD                       # the complete file list — a large refactor's
+                                                # diff can be truncated by tool-output caps,
+                                                # and a file dropped here is a file never
+                                                # classified into Mode A/B
+git ls-files --others --exclude-standard        # new files, which the diff does not show
 ```
 
 Classify changed files into two tracks (if both, run **A → B** in order):

@@ -1,26 +1,26 @@
 # Registry Publish — Java (Maven Central)
 
-## 공식 액션 / 빌드 명령
-- 배포: 전용 GitHub Action은 없다 — `actions/setup-java@v5`(Temurin) 설치 후 Maven CLI로 `mvn -B -DskipTests deploy`를 실행한다. `deploy` 목표가 `org.sonatype.central:central-publishing-maven-plugin`(pom.xml에 설정) 경유로 Sonatype **Central Portal**에 업로드한다.
-- **2025-06-30부로 레거시 OSSRH(oss.sonatype.org)가 완전히 종료**됐다 — 신규/기존 프로젝트 모두 Central Portal(central.sonatype.com) 경로로만 배포 가능. `nexus-staging-maven-plugin` 기반의 옛 가이드는 더 이상 유효하지 않다.
+## Official action / build command
+- Publish: there is no dedicated GitHub Action — install `actions/setup-java@v5` (Temurin), then run `mvn -B -DskipTests deploy` via the Maven CLI. The `deploy` goal uploads to the Sonatype **Central Portal** via `org.sonatype.central:central-publishing-maven-plugin` (configured in pom.xml).
+- **As of 2025-06-30 the legacy OSSRH (oss.sonatype.org) is fully shut down** — both new and existing projects can only publish through the Central Portal (central.sonatype.com) path. Old guides based on `nexus-staging-maven-plugin` are no longer valid.
 
-## 시크릿
-| 방식 | 필요한 것 | 워크플로 설정 |
+## Secrets
+| Method | What's needed | Workflow config |
 |---|---|---|
-| Central Portal user token (유일한 경로) | `MAVEN_CENTRAL_USERNAME` / `MAVEN_CENTRAL_PASSWORD` | Central Portal에서 발급한 **User Token** 쌍(계정 로그인 비밀번호 아님) — `env`로 주입 |
-| GPG 서명(별도 필수) | `MAVEN_GPG_PRIVATE_KEY` / `MAVEN_GPG_PASSPHRASE` | `maven-gpg-plugin`을 `deploy` 단계에 바인딩해 아티팩트에 서명 |
+| Central Portal user token (the only path) | `MAVEN_CENTRAL_USERNAME` / `MAVEN_CENTRAL_PASSWORD` | The **User Token** pair issued by the Central Portal (not the account login password) — injected via `env` |
+| GPG signing (separately required) | `MAVEN_GPG_PRIVATE_KEY` / `MAVEN_GPG_PASSPHRASE` | Bind `maven-gpg-plugin` to the `deploy` phase to sign the artifacts |
 
-## 주의사항 (gotchas)
-- **OIDC/trusted-publishing 대안이 없다** — PyPI·npm·NuGet·crates.io와 달리 Maven Central은 이 문서 작성 시점 기준 GitHub OIDC 기반 trusted publishing을 지원하지 않는다. Portal user token이 유일한 인증 경로.
-- `central-publishing-maven-plugin`은 유효한 배포 번들(체크섬 + **GPG 서명 파일**)을 자동으로 만들어주지 않는다 — `maven-gpg-plugin`으로 서명 스텝을 pom.xml에 별도 구성해야 하며, 빠지면 Central 검증에서 거부된다.
-- Central Portal User Token은 Sonatype 계정 → *View Account* → *Generate User Token*에서 발급하며, 로그인 자격증명과는 별개다.
-- groupId 네임스페이스(도메인 소유권 또는 GitHub 계정 기반)를 Central Portal에 먼저 등록·검증해야 첫 배포가 가능하다.
+## Gotchas
+- **There is no OIDC/trusted-publishing alternative** — unlike PyPI, npm, NuGet, and crates.io, Maven Central does not support GitHub OIDC-based trusted publishing as of this writing. The Portal user token is the only authentication path.
+- `central-publishing-maven-plugin` does not automatically build a valid deployment bundle (checksums + **GPG signature files**) — the signing step must be configured separately in pom.xml with `maven-gpg-plugin`, and if it is missing, Central validation rejects it.
+- The Central Portal User Token is issued from the Sonatype account → *View Account* → *Generate User Token*, and is separate from the login credentials.
+- The groupId namespace (based on domain ownership or a GitHub account) must be registered and verified with the Central Portal before the first publish is possible.
 
-## 대응 템플릿
-`github/deploy.maven-central.workflow.example.yml` — registry+java(및 kotlin) 조합은 `/flow-init --render-deploy`가 정적 렌더링한다.
+## Corresponding template
+`github/deploy.maven-central.workflow.example.yml` — the registry+java (and kotlin) combination is statically rendered by `/flow-init --render-deploy`.
 
 ## SSOT
-| 항목 | URL |
+| Item | URL |
 |---|---|
-| OSSRH sunset 공지 | https://central.sonatype.org/pages/ossrh-eol/ |
-| Central Portal Maven 플러그인 가이드 | https://central.sonatype.org/publish/publish-portal-maven/ |
+| OSSRH sunset notice | https://central.sonatype.org/pages/ossrh-eol/ |
+| Central Portal Maven plugin guide | https://central.sonatype.org/publish/publish-portal-maven/ |

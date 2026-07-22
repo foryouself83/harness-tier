@@ -1,33 +1,35 @@
 # Registry Publish — .NET (NuGet)
 
-## 공식 액션 / 빌드 명령
-- 배포: 전용 GitHub Action은 없다 — `actions/setup-dotnet@v4` 설치 후 `dotnet nuget push "**/*.nupkg" --source https://api.nuget.org/v3/index.json`을 실행한다.
-- 빌드/패키징: `dotnet pack -c Release` (또는 프로젝트 컨벤션의 pack 명령).
+## Official action / build command
+- Publish: there is no dedicated GitHub Action — install `actions/setup-dotnet@v4`, then run `dotnet nuget push "**/*.nupkg" --source https://api.nuget.org/v3/index.json`.
+- Build/packaging: `dotnet pack -c Release` (or the pack command of the project's convention).
 
-## 시크릿
-| 방식 | 필요한 것 | 워크플로 설정 |
+## Secrets
+| Method | What's needed | Workflow config |
 |---|---|---|
-| Long-lived API key(현재 기본 템플릿) | `NUGET_API_KEY` | `--api-key "${{ secrets.NUGET_API_KEY }}"` |
-| **NuGet Trusted Publishing (OIDC, 순차 롤아웃 중)** | 없음(nuget.org 사용자명만) | `permissions: id-token: write` + `NuGet/login@v1` 액션으로 1시간짜리 임시 API key 발급 |
+| Long-lived API key (current default template) | `NUGET_API_KEY` | `env: NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}` + `--api-key "$NUGET_API_KEY"` (never interpolate into `run:`) |
+| **NuGet Trusted Publishing (OIDC, phased rollout in progress)** | None (only the nuget.org username) | `permissions: id-token: write` + the `NuGet/login@v1` action to issue a 1-hour temporary API key |
 
-## 주의사항 (gotchas)
-- Trusted Publishing 사용 시 워크플로에 `NuGet/login@v1` 스텝을 추가해 임시 키를 받아야 한다:
+## Gotchas
+- When using Trusted Publishing, add a `NuGet/login@v1` step to the workflow to receive a temporary key:
   ```yaml
   - uses: NuGet/login@v1
     id: login
     with:
-      user: ${{ secrets.NUGET_USER }}   # nuget.org 프로필 이름(이메일 아님) — 시크릿로 보관 권장
-  - run: dotnet nuget push "**/*.nupkg" --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
+      user: ${{ secrets.NUGET_USER }}   # nuget.org profile name (not the email) — keeping it in a secret is recommended
+  - env:
+      NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}   # dotnet does not read this natively, so --api-key stays — but via env, never interpolated into run:
+    run: dotnet nuget push "**/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json
   ```
-- nuget.org에서 **Trusted Publishing** 정책을 사전 등록해야 한다: 계정 메뉴 → *Trusted Publishing* → repository owner/repo/workflow **파일명만**(경로 제외, 예: `deploy-nuget.yml`)/선택적 environment.
-- 발급되는 임시 API key는 **1시간**만 유효 — push 직전에 발급받아야 하며, 발급 후 오래 대기하면 만료된다.
-- 이 기능은 **순차 롤아웃 중**이라 계정에 아직 노출되지 않을 수 있다 — 안 보이면 `NUGET_API_KEY` 경로로 폴백.
-- private repo에서 처음 정책을 만들면 7일간 "임시 활성" 상태이며, 그 기간 안에 실제 publish가 한 번 성공해야 영구 활성화된다.
+- The **Trusted Publishing** policy must be pre-registered on nuget.org: account menu → *Trusted Publishing* → repository owner/repo/workflow **filename only** (excluding the path, e.g. `deploy-nuget.yml`)/optional environment.
+- The issued temporary API key is valid for **1 hour** only — it must be issued right before the push, and expires if you wait long after issuance.
+- This feature is **in phased rollout**, so it may not be exposed on your account yet — if you don't see it, fall back to the `NUGET_API_KEY` path.
+- When the policy is first created on a private repo, it is in a "temporarily active" state for 7 days, and an actual publish must succeed once within that period for it to become permanently active.
 
-## 대응 템플릿
-`github/deploy.nuget.workflow.example.yml` — registry+c# 조합은 `/flow-init --render-deploy`가 정적 렌더링한다.
+## Corresponding template
+`github/deploy.nuget.workflow.example.yml` — the registry+c# combination is statically rendered by `/flow-init --render-deploy`.
 
 ## SSOT
-| 항목 | URL |
+| Item | URL |
 |---|---|
 | NuGet.org Trusted Publishing | https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing |

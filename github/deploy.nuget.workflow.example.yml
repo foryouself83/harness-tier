@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "배포할 태그 (예: v1.2.3)"
+        description: "Tag to deploy (e.g. v1.2.3)"
         required: true
         type: string
 
@@ -37,4 +37,6 @@ jobs:
       - name: Pack
         run: __HARNESS_BUILD__
       - name: Push to NuGet
-        run: dotnet nuget push "**/*.nupkg" --api-key "${{ secrets.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: dotnet nuget push "**/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate

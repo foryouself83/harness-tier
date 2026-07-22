@@ -119,6 +119,28 @@ It sits in the same `config/` folder but is **plugin-owned**. It is overwritten 
 install, so **do not edit it directly** (if you need to change it, edit the plugin SOURCE
 and re-run `/flow-init`). This file defines which gates are mandatory for each tier.
 
+It also carries `merge_strategy`, which checks the flags of a `git merge` against the
+branch flow it belongs to (branch names resolve from your `flow-config.branches`):
+
+| Merge | Enforced |
+|-------|----------|
+| `feature/*` → integration | `--squash` required |
+| `staging` → production | `--no-ff` required |
+| `hotfix/*` → production | `--squash` required |
+| `fix/*` → integration | `--no-ff` refused |
+
+Scope is deliberately narrow. Only rows where the strategy is a single choice can be
+checked — `integration → staging` allows rebase *or* merge, so there is nothing to
+enforce. Rebasing before a `feature/*` merge is **warned about, not blocked** (a stale
+`origin` ref would otherwise produce false alarms). And like every layer-2 gate this
+only sees **merges made inside a Claude session** — merging from your own terminal
+bypasses it entirely.
+
+Anything the gate cannot decide lets the merge through: no matching rule, a command it
+cannot parse, or a command naming another worktree. To turn the check off, delete the
+whole `merge_strategy` key from the plugin SOURCE and re-run `/flow-init` (or remove the
+gate altogether with `/flow-uninstall`).
+
 ### 2.3 Risk tiers and gates
 
 Work is classified into four tiers (two axes), and the tier determines **which gates must

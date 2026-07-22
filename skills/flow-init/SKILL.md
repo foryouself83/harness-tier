@@ -1,8 +1,6 @@
 ---
 name: flow-init
-description: Idempotent setup & update wizard for a host repo — first run installs deps and gathers config; re-runs re-sync the host gate scripts, backfill new config slots, and optionally reconfigure values/webhooks
-allowed-tools: Bash, Read, Write, Edit, AskUserQuestion, Glob, Grep
-argument-hint: (none)
+description: Set up harness-tier in this repo, or re-sync it after a plugin update. Idempotent — safe to re-run.
 disable-model-invocation: true
 ---
 
@@ -15,7 +13,7 @@ config and wiring that the plugin's runtime pieces (`/flow`, `flow_gate_check.py
 
 **Split of labor**: the deterministic, error-prone wiring (file copies, idempotent
 `settings.json` / pre-commit / `.gitignore` merges) is done by
-**`scripts/flow_init_setup.py`** so it is repeatable and unit-tested. This command
+**`scripts/flow_init_setup.py`** so it is repeatable and unit-tested. This skill
 (Claude) only does the **interactive / judgment** parts — gathering config,
 collecting webhook URLs, writing the language-matched CLAUDE.md block — and
 orchestrates by calling the scripts and relaying their reports.
@@ -119,7 +117,7 @@ consent; never mutate machine-wide state.
 ### Step 1 — Generate `flow-config.yaml` (interactive — Claude)
 
 1. **When this step runs:** on a first run (config absent), build the file from
-   scratch via items 2-4 below. On a re-run, this step runs **only if the user
+   scratch via item 2 below. On a re-run, this step runs **only if the user
    selected "flow-config.yaml values"** in the reconfigure menu (see Execution modes)
    — then edit only the specific values the user wants, showing current values as
    defaults; never a full re-entry, never a blind rewrite. (Missing-slot backfill
@@ -172,11 +170,11 @@ python3 "${PLUGIN}/scripts/flow_init_setup.py"
 ```
 
 It performs, idempotently, and prints a report to relay:
-- **Copies** `precommit-runner.sh`, `flow_gate_check.py`, `teams_alert.py`,
-  `notify-push.sh`, and `check-deps.sh` into `.claude/harness-tier/scripts/`, and the
+- **Copies** the gate scripts into `.claude/harness-tier/scripts/`, and the
   `flow-tiers.yaml` policy into `.claude/harness-tier/config/` (copied — not symlinked —
-  so a host `settings.json` hook can run the scripts by `${CLAUDE_PROJECT_DIR}` path;
-  the gate resolves `flow-tiers.yaml` from its sibling `config/` directory).
+  so a host `settings.json` hook can run the scripts by `${CLAUDE_PROJECT_DIR}` path; the
+  gate resolves `flow-tiers.yaml` from its sibling `config/` directory). The script's
+  printed report is the single source of truth for which files it copied — relay it verbatim.
 - **Registers** the commit gate in `.claude/settings.json` `hooks.PreToolUse` (skips
   if already present; no `if` field — `precommit-runner.sh` self-filters on stdin).
 - **Registers** the `harness-tier` marketplace in `.claude/settings.json`
