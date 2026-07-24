@@ -350,15 +350,14 @@ def session_env(config_dir: Path) -> dict[str, str]:
     return env
 
 
-def run_session(
+def _claude_stream(
     prompt: str, fixture: str | None, workdir: Path, config_dir: Path, restricted: bool = False
-) -> tuple[stream.Observation, str]:
-    """Returns the observation plus the session's stderr.
+) -> tuple[str, str]:
+    """Run one headless `claude -p` session; return (stdout_text, stderr_text), both utf-8.
 
-    stderr is carried alongside rather than folded into the Observation because
-    `stream.observe` answers questions about the transcript and knows nothing about the
-    process that produced it. It is the only record of *why* a session produced no usable
-    stream, and capturing it without ever reading it is how that cause got lost."""
+    Extracted from run_session so a caller that needs the raw stream (outcome_probe) can
+    reuse the subprocess + timeout-kill + decode logic without duplicating it. run_session
+    keeps its (obs, err) contract by observing the returned text itself."""
     if fixture:
         # build() creates workdir/<scenario> and returns it — run *there*. Staying in the
         # parent would put the agent in a directory holding a single subdirectory, which is
@@ -415,15 +414,27 @@ def run_session(
             except ProcessLookupError:
                 proc.kill()  # the group is already gone; reap whatever is left
         out, err = proc.communicate()
+    return out.decode("utf-8", errors="replace"), err.decode("utf-8", errors="replace")
+
+
+def run_session(
+    prompt: str, fixture: str | None, workdir: Path, config_dir: Path, restricted: bool = False
+) -> tuple[stream.Observation, str]:
+    """Returns the observation plus the session's stderr.
+
+    stderr is carried alongside rather than folded into the Observation because
+    `stream.observe` answers questions about the transcript and knows nothing about the
+    process that produced it. It is the only record of *why* a session produced no usable
+    stream, and capturing it without ever reading it is how that cause got lost."""
     # The turn cap exits 1 with the stream fully written, and a timeout kill leaves no exit
     # code worth reading either. Parse, then judge.
-    text = out.decode("utf-8", errors="replace")
+    text, err = _claude_stream(prompt, fixture, workdir, config_dir, restricted)
     obs = stream.observe(text)
     # Riding along with a real run is the whole point: a re-capture on its own would have to
     # spend sessions hunting for a turn-capped firing, while measuring one skill already runs
     # 35 and the conditions fall out of them.
     maybe_capture(obs, text)
-    return obs, err.decode("utf-8", errors="replace")
+    return obs, err
 
 
 def _one(prompt: str, fixture: str | None, config_dir: Path, restricted: bool):
