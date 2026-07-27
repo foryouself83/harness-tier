@@ -54,6 +54,9 @@ branches:
   production: main           # 프로덕션 릴리스 브랜치
   feature_prefix: "feature/" # 일상 작업 브랜치 접두사
 
+merge_workflow:
+  pull_request: []          # 직접 머지 대신 PR 로 돌릴 흐름; [] = 전부 직접 머지(기본값)
+
 modules:                     # 모노레포 모듈 단위 사전검사 (모듈별 언어·도구가 다를 때)
   - name: api
     path: services/api/      # 이 경로 아래가 바뀌면 checks 실행
@@ -77,6 +80,17 @@ doc_sync:                    # doc-sync 대상
     - ".claude/rules/"
   service_docs: "services/*/CLAUDE.md"
 ```
+
+**`merge_workflow.pull_request`** — 직접 `git merge` 대신 PR 로 돌릴 흐름들. 값:
+`daily`(`feature/*`/`fix/*` → integration) · `promotion`(integration → staging,
+staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머지로 남습니다 — 이
+설정이 생기기 전과 동일합니다. 어느 쪽이든 커밋 규율(gitlint, 등급 게이트)은 그대로
+영향받지 않습니다 — 바뀌는 것은 머지 자체뿐입니다. PR 로 도는 흐름은 머지 방식 강제가
+서버 쪽 GitHub 브랜치 룰셋으로 옮겨갑니다 — `promotion` 은 그대로, `daily` 는 일부만
+옮겨갑니다(아래 §2.2). `/flow-init` Step 2.7 이 저장소의 현재 룰셋 상태를 읽어
+간극(브랜치 · 허용 머지 방식 · bypass actor)을 보고하지만, 대신 바꿔주지는 않습니다. 왜 promotion 룰셋에 bypass actor 가 필요한지,
+백머지가 `daily` 룰셋과 어떻게 맞물리는지를 포함한 전체 상세는
+[`rules/risk-tiers.md`](rules/risk-tiers.md) 의 **PR workflow** 절에 있습니다.
 
 **`checks` 키의 실행 시점** (모듈 사전검사):
 
@@ -120,15 +134,33 @@ doc_sync:                    # doc-sync 대상
 | 머지 | 강제 |
 |------|------|
 | `feature/*` → integration | `--squash` 필수 |
+| `integration` → staging | `--no-ff` 필수 |
 | `staging` → production | `--no-ff` 필수 |
 | `hotfix/*` → production | `--squash` 필수 |
 | `fix/*` → integration | `--no-ff` 금지 |
 
 범위는 의도적으로 좁습니다. 전략이 하나로 정해진 행만 검사할 수 있습니다 —
-`integration → staging` 은 rebase 든 merge 든 되므로 강제할 것이 없습니다. `feature/*`
-머지 전 rebase 는 **경고만 하고 차단하지 않습니다**(로컬 `origin` ref 가 낡았을 때
-헛경고가 나기 때문). 그리고 다른 layer-2 게이트와 마찬가지로 **Claude 세션 안의 머지만**
-봅니다 — 터미널에서 직접 머지하면 걸리지 않습니다.
+백머지(`production` → integration, 릴리스 후)는 fast-forward 든 `--no-ff` 든 되므로
+거기엔 강제할 것이 없습니다. `feature/*` 머지 전 rebase 는 **경고만 하고 차단하지
+않습니다**(로컬 `origin` ref 가 낡았을 때 헛경고가 나기 때문). 그리고 다른 layer-2
+게이트와 마찬가지로 **Claude 세션 안의 머지만** 봅니다 — 터미널에서 직접 머지하면
+걸리지 않습니다.
+
+이 로컬 훅 강제는 그 흐름의 머지가 직접 `git merge` 로 남아있는 동안에만 적용됩니다.
+`flow-config.merge_workflow.pull_request` 가 어떤 흐름을 PR 경유로 돌리면(`rules/risk-tiers.md`
+의 **PR workflow** 절 참고), 훅은 애초에 `git merge` 명령을 보지 못하므로 위 표의 해당
+행은 더 이상 발동하지 않습니다 — 강제는 서버 쪽 GitHub 브랜치 룰셋(허용 머지 방식)으로
+옮겨가며, `/flow-init` Step 2.7 이 이를 점검하지만 대신 바꿔주지는 않습니다.
+
+**이 맞교환이 정확히 성립하는 것은 `promotion` 뿐입니다** — 브랜치당 허용 방식이
+`merge` 하나뿐이기 때문입니다. 브랜치 룰셋은 *대상(destination)* 브랜치를 겨냥하므로
+`daily` 에서는 `feature/*` PR 과 `fix/*` PR 을 구분하지 못합니다: `squash`+`rebase` 허용이
+보장하는 것은 "integration 에 머지 커밋이 생기지 않는다" 하나뿐이고, 둘 중 무엇을 쓸지는
+여전히 규율로 남습니다 — PR 을 넘길 때 어느 머지 방식을 써야 하는지 함께 말해 주세요.
+같은 이유로 룰셋은 선택하지 않은 흐름까지 끌어들입니다: integration 의 "PR 필수"는 릴리스
+후 백머지 push 도 막고, production 의 그것은 `hotfix/*` 까지 잡습니다. 둘 다 처리가
+필요합니다 — bypass actor 를 두거나, 그 흐름도 PR 로 돌리거나. 각 경우의 상세는
+`rules/risk-tiers.md` 의 **PR workflow** 절에 있습니다.
 
 판단할 수 없는 것은 전부 통과시킵니다: 매칭되는 규칙이 없거나, 명령을 파싱할 수 없거나,
 명령이 다른 워크트리를 지목하는 경우. 검사를 끄려면 플러그인 SOURCE 에서 `merge_strategy`
