@@ -239,13 +239,19 @@ work started on. `hotfix/*` off the production branch is the exception
      → ⑦ only then the minimum code that works. The ladder runs
      *after* understanding the problem, not instead of it — read the
      task and the code it touches and trace the flow end to end
-     first ("lazy about the solution, never about reading"). It cuts
-     volume, never validation / error handling / security /
-     accessibility: that floor is enforced by the selective TDD and
-     domain-review overlays below and the Release security gate
-     (non-trivial logic keeps selective TDD's one-check minimum).
-     Mark intentional simplifications with a comment noting the
-     ceiling and upgrade path. (Concept from ponytail, MIT.)
+     first ("lazy about the solution, never about reading"). A fix
+     targets the root cause, not the symptom — before editing, grep
+     every caller of the function you are about to touch: one guard
+     in the shared function is a smaller diff than a guard per
+     caller, and patching only the path the report names leaves the
+     sibling callers broken. It cuts volume, never validation /
+     error handling / security / accessibility: that floor is
+     enforced by the selective TDD and domain-review overlays below
+     and the Release security gate (non-trivial logic keeps
+     selective TDD's one-check minimum). Mark intentional
+     simplifications with a comment noting the ceiling and upgrade
+     path. (Concept from
+     [ponytail](https://github.com/DietrichGebert/ponytail), MIT.)
    - **Selective TDD** — business logic / core nodes / validators /
      workflow orchestration only; not every change.
    - **Domain review** — an independent `general-purpose` review agent
