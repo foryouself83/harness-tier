@@ -128,6 +128,12 @@ by each check's `when`; removing one from a tier's list in
    use `git -C <worktree> commit …` — rule 5) → merge **applying the risk-tiers
    Merge strategy** (rule 3 — not a plain merge). (The commit hook blocks until
    `doc-sync.done` exists.)
+   When `flow-config.merge_workflow.pull_request` includes `daily`, open a **PR** instead
+   of merging: rebase → integration-test human gate (unchanged) → push → `gh pr create` →
+   hand over the PR URL **and name the merge method it must use** — **"Squash and merge"**
+   from a `feature/*` branch, **"Rebase and merge"** from `fix/*` (Merge strategy rows 1·2;
+   the integration ruleset allows both and cannot tell them apart, so this one is on you) —
+   then stop. Without `gh`, print the compare URL and let the user create it — never block.
 
 ### Dev — any code (`superpowers` ON)
 
@@ -150,6 +156,12 @@ by each check's `when`; removing one from a tier's list in
 3. Commit → merge **applying the risk-tiers Merge strategy** (rule 3 — not a plain
    merge; from a worktree use `git -C <worktree> commit …` — rule 5). (The commit
    hook blocks until `review.done` and `doc-sync.done`.)
+   When `flow-config.merge_workflow.pull_request` includes `daily`, open a **PR** instead
+   of merging: rebase → integration-test human gate (unchanged) → push → `gh pr create` →
+   hand over the PR URL **and name the merge method it must use** — **"Squash and merge"**
+   from a `feature/*` branch, **"Rebase and merge"** from `fix/*` (Merge strategy rows 1·2;
+   the integration ruleset allows both and cannot tell them apart, so this one is on you) —
+   then stop. Without `gh`, print the compare URL and let the user create it — never block.
 
 ## Promotion — Staging (integration → staging) / Release (staging → production)
 
@@ -183,14 +195,30 @@ needed — the branch drives it). Record each gate before committing the promoti
   is lost (e.g. `0.2.0` instead of `0.1.2`). Always `git fetch origin` first.
   Deploy (project-specific / offline) — not gated; the production-branch commit
   is the gate.
+- **PR-mode promotion** (`merge_workflow.pull_request` includes `promotion`) — gate
+  recording is unchanged; instead of committing on the target branch, open a PR. It **must**
+  be merged as a merge commit (a rebase stops the release, a squash destroys the history —
+  [`risk-tiers.md`](../../rules/risk-tiers.md) PR workflow). A **`hotfix/*` → production**
+  landing takes the same path under this mode: the production ruleset governs every merge
+  into that branch, and its "require a pull request" rule rejects the local
+  squash-and-push — so open a PR for the hotfix too and merge it as a merge commit. With a
+  forced bump level, pin the trailer in the merge command (`PR` is a literal number, not a
+  `<n>` placeholder — bash would read `<n` as a redirection and eat the next word):
+
+  ```bash
+  PR=123
+  gh pr merge "$PR" --merge --subject "Merge <staging>: release X.Y.Z" --body "Release-Level: <level>"
+  ```
 - **Back-merge after the production release (not optional)** — once the finalize
   CI has pushed its `chore(release)` version-bump + marketplace-sha-pin commits to
-  production, back-merge them **production → integration and → staging** so the
-  released tag returns to the day-to-day branches: `git fetch origin`, then
-  `git switch <integration> && git merge --ff-only origin/<production>` (same for
-  `<staging>`), and push each (FF when strictly behind, else `--no-ff`). Skipping it
-  leaves the released tag unreachable from integration/staging → semantic-release
-  miscomputes the next version. Rationale/steps:
+  production, back-merge **production → integration** so the released tag returns
+  to the day-to-day branch: `git fetch origin`, then
+  `git switch <integration> && git merge --ff-only origin/<production>`, and push
+  (FF when strictly behind, else `--no-ff`). Skipping it leaves the released tag
+  unreachable from integration → semantic-release miscomputes the next version.
+  **staging needs no leg** — the next `integration → staging` promotion carries
+  the release commits forward on its own, which is why that row is now a
+  gate-enforced `--no-ff` merge. Rationale/steps:
   [`risk-tiers.md`](../../rules/risk-tiers.md) "Back-merge after release".
 
 The commit hook ([`flow_gate_check.py`](../../scripts/flow_gate_check.py)) blocks
@@ -199,8 +227,12 @@ the staging/production commit until those markers exist.
 ## Phase 4 — Finalize
 
 After the commit/merge completes — and, for a **production release**, after the
-back-merge in the Release step above (production → integration/staging, not
-optional) — clear the flow state:
+back-merge in the Release step above (production → integration, not
+optional) — clear the flow state.
+
+**Under PR mode, clear only after the PR is merged.** Markers are branch-bound, so a
+review-feedback commit on the same branch needs its marker alive to pass the gate. Clearing
+at PR-creation time leaves the follow-up commit unclassified and blocked.
 
 ```bash
 rm -rf .claude/harness-tier/.flow
