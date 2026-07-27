@@ -1,6 +1,6 @@
 ---
 name: performance
-description: Use when a performance check is needed — code suspected of anti-patterns (N+1, query plans, algorithmic complexity, re-render churn), or an API that needs load-testing for latency/throughput against SLOs. A manual skill, not a gate.
+description: Use when asked to investigate or measure runtime performance — profile a slow endpoint or query, hunt anti-patterns (N+1, bad query plans, algorithmic complexity, React re-render churn), judge whether code will scale at higher load or data volume, or load-test an API for latency/throughput against an SLO. A manual skill, not a gate.
 # The measurement tools this skill drives. `pip install lizard` is absent on purpose —
 # installing into the host's environment is the user's call, not a pre-approved one.
 # `npx @grafana/openapi-to-k6` is absent for the same reason: on first use npx *fetches

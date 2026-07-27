@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v0.1.12-rc.1 (2026-07-27)
+
+### Bug Fixes
+
+- **flow**: Target the root cause, not the symptom
+  ([`7187dc1`](https://github.com/foryouself83/harness-tier/commit/7187dc164679a88ebc6cedb802f20eece6be1de8))
+
+- **performance**: Broaden invocation triggers
+  ([`1113f05`](https://github.com/foryouself83/harness-tier/commit/1113f057236effffbb087cce363b816e443ba460))
+
+### Documentation
+
+- Record outcome-probe finding — outcome eval viable via permission grant
+  ([`7c36cec`](https://github.com/foryouself83/harness-tier/commit/7c36cecad3693a396cee85c2fa3efb2e5c2d7d44))
+
+- Router outcome-probe spec, plan, and finding
+  ([`02bd81b`](https://github.com/foryouself83/harness-tier/commit/02bd81b57d87dc1820f6ea569f294bff9ab0ad21))
+
+
 ## v0.1.11-rc.1 (2026-07-22)
 
 ### Bug Fixes
