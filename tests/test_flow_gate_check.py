@@ -500,10 +500,11 @@ def test_runner_ignores_commit_graph_subcommand(tmp_path: Path):
 
 
 # ── merge gate (git merge branches before the `git status` early-exit) ────────────
-# Relies on this repo's own shipped flow-tiers.yaml merge_strategy (staging → production
-# requires --no-ff — see risk-tiers.md Merge strategy), since _run_runner points
-# CLAUDE_PLUGIN_ROOT at this repo, and tiers_path() prefers CLAUDE_PLUGIN_ROOT/flow-tiers.yaml
-# over any host config copy (dogfooding the real policy end-to-end).
+# Relies on this repo's own shipped flow-tiers.yaml merge_strategy — both promotion rows
+# (integration → staging and staging → production require --no-ff; see risk-tiers.md Merge
+# strategy) — since _run_runner points CLAUDE_PLUGIN_ROOT at this repo, and tiers_path()
+# prefers CLAUDE_PLUGIN_ROOT/flow-tiers.yaml over any host config copy (dogfooding the real
+# policy end-to-end).
 
 
 @requires_bash_git
@@ -525,6 +526,27 @@ def test_runner_merge_gate_survives_clean_tree(tmp_path: Path):
     _rg(["add", "-A"], main)
     _rg(["commit", "-m", "cfg"], main)
     r = _run_runner(main, "git merge origin/stage")  # missing the required --no-ff
+    assert r.returncode == fgc.BLOCK_EXIT_CODE
+    assert "--no-ff" in (r.stdout + r.stderr)
+
+
+@requires_bash_git
+def test_runner_merge_gate_blocks_ff_promotion_to_staging(tmp_path: Path):
+    # integration → staging must be a --no-ff merge. A bare `git merge <integration>` would
+    # fast-forward and land staging's `[skip ci]` rc commit as HEAD, so release.yml's
+    # `!contains(head_commit.message, '[skip ci]')` guard would skip the release entirely.
+    main = tmp_path / "main"
+    _init_repo(main)  # branch "main"
+    _rg(["switch", "-c", "stage"], main)  # HEAD = staging branch → target resolves to staging
+    cfg = main / ".claude" / "harness-tier" / "config"
+    cfg.mkdir(parents=True)
+    (cfg / "flow-config.yaml").write_text(
+        "branches:\n  integration: dev\n  staging: stage\n  production: main\n",
+        encoding="utf-8",
+    )
+    _rg(["add", "-A"], main)
+    _rg(["commit", "-m", "cfg"], main)
+    r = _run_runner(main, "git merge dev")  # missing the required --no-ff
     assert r.returncode == fgc.BLOCK_EXIT_CODE
     assert "--no-ff" in (r.stdout + r.stderr)
 
@@ -703,6 +725,24 @@ def test_shipped_policy_staging_has_bump():
     data = yaml.safe_load((root / "flow-tiers.yaml").read_text(encoding="utf-8"))
     assert "bump" in data["tiers"]["staging"]["gates"]
     assert "bump" not in data["tiers"]["release"]["gates"]  # asked at staging only
+
+
+def test_shipped_policy_integration_to_staging_requires_no_ff():
+    # the shipped policy is the SSOT the gate reads. integration → staging must be a merge
+    # commit: the rc self-heal (main → dev back-merge only) relies on the release commits
+    # reaching staging through a descendant merge. A rebase promotion replays them under new
+    # SHAs, so the stable tag leaves staging's ancestry and semantic-release miscomputes.
+    import yaml
+
+    root = Path(__file__).resolve().parent.parent
+    data = yaml.safe_load((root / "flow-tiers.yaml").read_text(encoding="utf-8"))
+    rows = [
+        r
+        for r in data["merge_strategy"]
+        if r.get("source") == "integration" and r.get("target") == "staging"
+    ]
+    assert len(rows) == 1, "exactly one integration → staging rule"
+    assert rows[0]["require"] == "--no-ff"
 
 
 # ── per-check timing (_parse_check / _default_timing) ─────────────────────────────
@@ -947,6 +987,11 @@ BRANCHES = {
     "feature_prefix": "feature/",
 }
 
+# Mirrors the shipped flow-tiers.yaml `merge_strategy`, row for row and in order. It is a
+# fixture, not the contract (test_shipped_policy_* owns that) — but a fixture that drifts from
+# the policy silently tests a shape nobody ships, and a missing row reads as a row that may be
+# deleted. The one flow deliberately absent here is absent there too: the back-merge
+# (production → integration) states a choice, so there is nothing to enforce.
 RULES = [
     {
         "source": "feature/*",
@@ -955,6 +1000,7 @@ RULES = [
         "warn_unless_rebased": True,
     },
     {"source": "hotfix/*", "target": "production", "require": "--squash"},
+    {"source": "integration", "target": "staging", "require": "--no-ff"},
     {"source": "staging", "target": "production", "require": "--no-ff"},
     {"source": "fix/*", "target": "integration", "forbid": "--no-ff"},
 ]
@@ -1127,9 +1173,19 @@ def test_match_rule_fix_to_integration():
     assert rule["forbid"] == "--no-ff"
 
 
+def test_match_rule_integration_to_staging():
+    # The promotion is a MERGE, not a rebase: the release commits must reach staging under
+    # their original SHAs or the stable tag drops out of its ancestry (risk-tiers.md
+    # "Back-merge after release"). This row is why staging needs no back-merge leg.
+    rule = match_merge_rule(RULES, "dev", "stage", BRANCHES)
+    assert rule is not None
+    assert rule["require"] == "--no-ff"
+
+
 def test_match_rule_no_match_returns_none():
-    # integration → staging has no rule (policy says "Rebase or Merge")
-    assert match_merge_rule(RULES, "dev", "stage", BRANCHES) is None
+    # The back-merge (production → integration) is the one flow with no rule: the policy
+    # states a choice there ("FF / --no-ff Merge"), so there is nothing to enforce.
+    assert match_merge_rule(RULES, "main", "dev", BRANCHES) is None
 
 
 def test_match_rule_empty_rules_returns_none():
