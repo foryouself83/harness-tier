@@ -351,13 +351,28 @@ def session_env(config_dir: Path) -> dict[str, str]:
 
 
 def _claude_stream(
-    prompt: str, fixture: str | None, workdir: Path, config_dir: Path, restricted: bool = False
+    prompt: str,
+    fixture: str | None,
+    workdir: Path,
+    config_dir: Path,
+    restricted: bool = False,
+    *,
+    permission_mode: str | None = None,
+    add_dirs: tuple[Path, ...] = (),
+    max_turns: int = MAX_TURNS,
+    timeout: int = SESSION_TIMEOUT,
 ) -> tuple[str, str]:
     """Run one headless `claude -p` session; return (stdout_text, stderr_text), both utf-8.
 
-    Extracted from run_session so a caller that needs the raw stream (outcome_probe) can
+    Extracted from run_session so a caller that needs the raw stream (the outcome arm) can
     reuse the subprocess + timeout-kill + decode logic without duplicating it. run_session
-    keeps its (obs, err) contract by observing the returned text itself."""
+    keeps its (obs, err) contract by observing the returned text itself.
+
+    The keyword-only tail exists for the outcome arm and defaults to reproduce the scored
+    command byte-for-byte: run_session passes none of them, so the invocation measurement is
+    unchanged. outcome.run_outcome passes `permission_mode="bypassPermissions"`,
+    `add_dirs=(REPO,)`, a higher `max_turns`, and a longer `timeout` so the session can
+    actually edit files and run to a natural end."""
     if fixture:
         # build() creates workdir/<scenario> and returns it — run *there*. Staying in the
         # parent would put the agent in a directory holding a single subdirectory, which is
@@ -372,7 +387,7 @@ def _claude_stream(
         "stream-json",
         "--verbose",
         "--max-turns",
-        str(MAX_TURNS),
+        str(max_turns),
         "--model",
         scores.MODEL,
         "--plugin-dir",
@@ -383,6 +398,11 @@ def _claude_stream(
         # work itself, so what is left is whether the prompt matches the description at all.
         # It answers a different question from the scored arms and is never gated.
         cmd += ["--allowedTools", "Skill"]
+    # Outcome arm only — the defaults above leave the scored command byte-identical.
+    if permission_mode:
+        cmd += ["--permission-mode", permission_mode]
+    for d in add_dirs:
+        cmd += ["--add-dir", str(d)]
     proc = subprocess.Popen(
         cmd,
         cwd=workdir,
@@ -395,7 +415,7 @@ def _claude_stream(
         start_new_session=os.name != "nt",
     )
     try:
-        out, err = proc.communicate(timeout=SESSION_TIMEOUT)
+        out, err = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
         # subprocess.run()'s timeout path kills only the direct child and then drains the
         # pipes with an UNBOUNDED communicate(); a surviving grandchild holding the

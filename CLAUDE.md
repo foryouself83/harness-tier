@@ -21,6 +21,7 @@ uv run pre-commit run --all-files                        # full static analysis
 uv run python -m evals.run --dry-run --all               # session count + wall-clock, no model calls
 uv run python -m evals.run                               # measure only skills whose description changed
 uv run python -m evals.run --skill integration --capture-fixtures   # …+ stream fixture candidates (*.jsonl.new)
+uv run python -m evals.outcome                           # measure the outcome arm (doc-sync end-state, reps 3)
 ```
 
 When modifying `*.sh`, verify with ShellCheck (the hook runtime is Windows, so bugs are hidden as FAIL-OPEN — see Invariants).
@@ -61,7 +62,7 @@ evals/           skill-invocation measurement (cases.yaml · run.py · scores.py
   1. **Hygiene** — the host's `.pre-commit-config.yaml` (git-native): gitlint · teams-notify-push · language-agnostic checks.
   2. **Flow gate** — `precommit-runner.sh` (PreToolUse), **Claude-session commits & merges only** (terminal commits and CI bypass it). Blocks unclassified commits, then runs the tier's `gates`; `git merge` takes a separate path judged against `merge_strategy`. Gate internals & the FAIL-OPEN rules → **Invariants** below.
   3. **CI (GitHub Actions)** — `/flow-init` renders `api-contract.yml` + `unit-test.yml`, closing layer 2's blind spot (it never sees direct/terminal/CI commits). Every job is timeout-capped.
-- **Skill invocation is measured, not assumed** — `tests/test_skills.py` checks a skill *file* is well-formed; `evals/` checks it is actually *reached* (half a skill's failure modes live in its `description`). Gate SSOT = [`evals/scores.py`](evals/scores.py); mechanics in [`evals/`](evals/).
+- **Skill invocation is measured, not assumed** — `tests/test_skills.py` checks a skill *file* is well-formed; `evals/` checks it is actually *reached* (half a skill's failure modes live in its `description`). Gate SSOT = [`evals/scores.py`](evals/scores.py); mechanics in [`evals/`](evals/). A second **outcome arm** ([`evals/outcome.py`](evals/outcome.py)) checks a skill actually *executed* correctly — it runs the skill in a golden fixture under `bypassPermissions` and scores the end-state deterministically (SWE-bench style); baseline [`evals/outcome_scores.json`](evals/outcome_scores.json), fingerprinted separately (`outcome_sha` = SKILL.md body + prompt + fixture + golden, since `description_sha` covers none of them).
 - **Deployment is not a verification layer** — a release-decoupled opt-in: `/harness-deployments` writes `flow-config.deploy` and renders per-target `deploy-<name>.yml` components + a generated `deploy.yml` orchestrator; `release.yml` calls it via `workflow_call` in-run (no PAT). None of it gates a commit.
 
 ## Invariants (break these and the gate is silently neutralized)
