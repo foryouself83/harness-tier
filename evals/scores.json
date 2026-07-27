@@ -83,18 +83,20 @@
       "truncated_quiet": 0.0
     },
     "performance": {
-      "description_sha": "796f490c9122",
+      "description_sha": "a3174ba516c0",
       "false_fire": 0.0,
       "false_hits": 0,
       "false_n": 15,
-      "invoke_hits": 8,
+      "invoke_hits": 14,
       "invoke_n": 15,
-      "invoke_rate": 0.53,
-      "lost_to": {},
-      "measured_at": "2026-07-19",
+      "invoke_rate": 0.93,
+      "lost_to": {
+        "flow": 1
+      },
+      "measured_at": "2026-07-24",
       "model": "claude-opus-4-8",
       "reps": 3,
-      "restricted": 0.4,
+      "restricted": 1.0,
       "truncated": 0.0,
       "truncated_quiet": 0.0
     },

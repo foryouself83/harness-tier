@@ -10,11 +10,13 @@ import subprocess
 import sys
 import threading
 import warnings
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 import yaml
 
+import evals.outcome as outcome
 import evals.run as run
 import evals.scores as scores
 import evals.stream as stream
@@ -1353,3 +1355,283 @@ def test_git_tracks_exactly_the_two_committed_fixtures():
         "unexpected tracked file under evals/fixtures — a captured `.jsonl.new` candidate is "
         "meant to be reviewed and renamed over the committed fixture, never committed beside it"
     )
+
+
+# ── outcome arm ──────────────────────────────────────────────────────────────────────────
+# A second arm, separate from the scored invocation arm above. It asks whether a skill, run
+# for real in a golden fixture, reaches the right end-state — scored by deterministic file
+# assertions (SWE-bench style), not by whether it fired. Everything here is model-free: the
+# pure gate (outcome_sha/outcome_check) needs only disk, and the runner is exercised by
+# patching run._claude_stream, so no session is spawned.
+
+
+def test_doc_sync_drift_declares_a_machine_checkable_outcome():
+    s = sandbox.BY_NAME["doc-sync-drift"]
+    assert s.outcome, "doc-sync-drift must declare a golden end-state"
+    assert set(s.outcome) == {"README.md", "docs/api.md", "app/server.py"}
+
+
+def test_check_outcome_passes_the_golden_end_state(tmp_path):
+    s = sandbox.BY_NAME["doc-sync-drift"]
+    built = sandbox.build(s, tmp_path)
+    (built / "README.md").write_text(
+        "# Sandbox\n\nThe server listens on port 9090.\n", encoding="utf-8"
+    )
+    (built / "docs/api.md").write_text(
+        "# API\n\nBase URL: `http://localhost:9090`\n", encoding="utf-8"
+    )
+    passed, failures = sandbox.check_outcome(s, built)
+    assert passed, failures
+
+
+def test_check_outcome_fails_on_the_original_drift(tmp_path):
+    s = sandbox.BY_NAME["doc-sync-drift"]
+    built = sandbox.build(s, tmp_path)  # ships 8080 / 3000 — unsynced drift
+    passed, failures = sandbox.check_outcome(s, built)
+    assert not passed
+    assert any("8080" in f for f in failures)
+
+
+def test_check_outcome_treats_a_missing_file_as_failure(tmp_path):
+    s = sandbox.BY_NAME["doc-sync-drift"]
+    built = sandbox.build(s, tmp_path)
+    (built / "README.md").unlink()
+    passed, failures = sandbox.check_outcome(s, built)
+    assert not passed
+    assert any("README.md: missing" in f for f in failures)
+
+
+class _CapturingSubprocess:
+    """Records the argv and communicate timeout without spawning claude. A test that needs to
+    inspect the command overrides the autouse no_real_sessions guard with an instance of this."""
+
+    DEVNULL = subprocess.DEVNULL
+    PIPE = subprocess.PIPE
+    TimeoutExpired = subprocess.TimeoutExpired
+
+    def __init__(self):
+        self.captured = {}
+
+    def Popen(self, cmd, **kwargs):
+        self.captured["cmd"] = cmd
+        cap = self.captured
+
+        class _Proc:
+            def communicate(self, timeout=None):
+                cap["timeout"] = timeout
+                return (b"", b"")
+
+        return _Proc()
+
+
+def test_claude_stream_defaults_reproduce_the_scored_command(monkeypatch):
+    fake = _CapturingSubprocess()
+    monkeypatch.setattr(run, "subprocess", fake)
+    run._claude_stream("p", None, Path("."), Path("cfg"))
+    cmd = fake.captured["cmd"]
+    assert cmd[cmd.index("--max-turns") + 1] == str(run.MAX_TURNS)
+    assert "--permission-mode" not in cmd
+    assert "--add-dir" not in cmd
+    assert fake.captured["timeout"] == run.SESSION_TIMEOUT
+
+
+def test_claude_stream_threads_the_outcome_flags(monkeypatch):
+    fake = _CapturingSubprocess()
+    monkeypatch.setattr(run, "subprocess", fake)
+    run._claude_stream(
+        "p",
+        None,
+        Path("."),
+        Path("cfg"),
+        permission_mode="bypassPermissions",
+        add_dirs=(run.REPO,),
+        max_turns=25,
+        timeout=300,
+    )
+    cmd = fake.captured["cmd"]
+    assert cmd[cmd.index("--permission-mode") + 1] == "bypassPermissions"
+    assert cmd[cmd.index("--add-dir") + 1] == str(run.REPO)
+    assert cmd[cmd.index("--max-turns") + 1] == "25"
+    assert fake.captured["timeout"] == 300
+
+
+def test_outcome_sha_is_sensitive_to_body_fixture_and_golden():
+    s = sandbox.BY_NAME["doc-sync-drift"]
+    base = outcome.outcome_sha("doc-sync", s)
+    assert outcome.outcome_sha("doc-sync", s) == base  # stable when nothing changes
+    moved_golden = replace(s, outcome={**s.outcome, "README.md": {"must_contain": ["7070"]}})
+    assert outcome.outcome_sha("doc-sync", moved_golden) != base
+    moved_files = replace(s, files={**s.files, "README.md": "port 1234\n"})
+    assert outcome.outcome_sha("doc-sync", moved_files) != base
+    # The prompt drives what the agent does, so it is part of the outcome's validity.
+    moved_prompt = replace(s, prompt="Do something else entirely.")
+    assert outcome.outcome_sha("doc-sync", moved_prompt) != base
+    # A different skill's SKILL.md is a different body.
+    assert outcome.outcome_sha("integration", s) != base
+
+
+def test_outcome_check_warns_when_unmeasured():
+    assert outcome.outcome_check("doc-sync", None, "abc").level == "warn"
+
+
+def test_outcome_check_fails_on_a_stale_fingerprint():
+    entry = {"outcome_hits": 3, "outcome_n": 3, "outcome_sha": "old", "model": scores.MODEL}
+    v = outcome.outcome_check("doc-sync", entry, "new")
+    assert v.level == "fail"
+    assert "re-measure" in v.message
+
+
+def test_outcome_check_fails_on_a_model_mismatch():
+    entry = {"outcome_hits": 3, "outcome_n": 3, "outcome_sha": "s", "model": "claude-sonnet-5"}
+    assert outcome.outcome_check("doc-sync", entry, "s").level == "fail"
+
+
+def test_outcome_check_fails_an_all_zero_baseline():
+    entry = {"outcome_hits": 0, "outcome_n": 3, "outcome_sha": "s", "model": scores.MODEL}
+    assert outcome.outcome_check("doc-sync", entry, "s").level == "fail"
+
+
+def test_outcome_check_passes_a_fresh_nonzero_entry():
+    entry = {"outcome_hits": 3, "outcome_n": 3, "outcome_sha": "s", "model": scores.MODEL}
+    assert outcome.outcome_check("doc-sync", entry, "s").level == "ok"
+
+
+def _fake_doc_sync_session(writes_9090: bool, fires: bool):
+    """Stands in for run._claude_stream: edits the built fixture like a doc-sync run would,
+    then returns a stream carrying an init event (so obs.available is populated) and,
+    optionally, a doc-sync Skill firing (for the fired diagnostic)."""
+
+    def fake(prompt, fixture, workdir, config_dir, **kw):
+        port = "9090" if writes_9090 else "8080"
+        (workdir / "README.md").write_text(f"port {port}\n", encoding="utf-8")
+        (workdir / "docs/api.md").write_text(f"http://localhost:{port}\n", encoding="utf-8")
+        # app/server.py already ships 9090 from sandbox.build()
+        events = [json.dumps({"subtype": "init", "skills": ["harness-tier:doc-sync"]})]
+        if fires:
+            events.append(
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "tool_use",
+                                    "name": "Skill",
+                                    "input": {"skill": "harness-tier:doc-sync"},
+                                }
+                            ]
+                        },
+                    }
+                )
+            )
+        events.append(json.dumps({"type": "result", "subtype": "success", "is_error": False}))
+        return "\n".join(events), ""
+
+    return fake
+
+
+def test_run_outcome_scores_the_end_state_and_records_fired(monkeypatch):
+    monkeypatch.setattr(run, "_claude_stream", _fake_doc_sync_session(writes_9090=True, fires=True))
+    s = sandbox.BY_NAME["doc-sync-drift"]
+    result = outcome.run_outcome("doc-sync", s, reps=2, config_dir=Path("."))
+    assert result["outcome_hits"] == 2
+    assert result["outcome_pass_rate"] == 1.0
+    assert result["fired_rate"] == 1.0
+    assert result["model"] == scores.MODEL
+    assert result["outcome_sha"] == outcome.outcome_sha("doc-sync", s)
+
+
+def test_run_outcome_records_a_miss_when_the_end_state_is_wrong(monkeypatch):
+    monkeypatch.setattr(
+        run, "_claude_stream", _fake_doc_sync_session(writes_9090=False, fires=True)
+    )
+    s = sandbox.BY_NAME["doc-sync-drift"]
+    result = outcome.run_outcome("doc-sync", s, reps=2, config_dir=Path("."))
+    assert result["outcome_hits"] == 0
+    assert result["outcome_pass_rate"] == 0.0
+
+
+def test_run_outcome_aborts_on_an_errored_session(monkeypatch):
+    def fake(prompt, fixture, workdir, config_dir, **kw):
+        events = [
+            json.dumps({"subtype": "init", "skills": ["harness-tier:doc-sync"]}),
+            json.dumps({"type": "result", "subtype": "error_during_execution", "is_error": True}),
+        ]
+        return "\n".join(events), "boom\n"
+
+    monkeypatch.setattr(run, "_claude_stream", fake)
+    s = sandbox.BY_NAME["doc-sync-drift"]
+    with pytest.raises(SystemExit):
+        outcome.run_outcome("doc-sync", s, reps=1, config_dir=Path("."))
+
+
+def test_run_outcome_aborts_when_the_target_skill_is_not_offered(monkeypatch):
+    """Parity with run.measure: the plugin loaded but doc-sync was not among its skills (a
+    broken frontmatter). A recorded 0 there is about the missing skill, not the end-state, so
+    it must abort rather than fabricate a miss."""
+
+    def fake(prompt, fixture, workdir, config_dir, **kw):
+        # init lists a *different* skill — doc-sync loaded nothing, but `available` is non-empty
+        events = [
+            json.dumps({"subtype": "init", "skills": ["harness-tier:integration"]}),
+            json.dumps({"type": "result", "subtype": "success", "is_error": False}),
+        ]
+        return "\n".join(events), ""
+
+    monkeypatch.setattr(run, "_claude_stream", fake)
+    s = sandbox.BY_NAME["doc-sync-drift"]
+    with pytest.raises(SystemExit, match="not among its skills"):
+        outcome.run_outcome("doc-sync", s, reps=1, config_dir=Path("."))
+
+
+def test_outcome_main_returns_nonzero_on_rate_limit(monkeypatch):
+    """A rate-limited run is not a success. The single-skill v1 records nothing (its partial
+    reps are lost by design), so main must return non-zero rather than fall through to the
+    success message. The real outcome_scores.json is untouched: run_outcome raises before any
+    write."""
+    import contextlib
+
+    @contextlib.contextmanager
+    def fake_config():
+        yield Path(".")
+
+    def fake(prompt, fixture, workdir, config_dir, **kw):
+        events = [
+            json.dumps({"subtype": "init", "skills": ["harness-tier:doc-sync"]}),
+            json.dumps({"type": "rate_limit_event", "rate_limit_info": {"status": "rejected"}}),
+            json.dumps({"type": "result", "subtype": "success", "is_error": False}),
+        ]
+        return "\n".join(events), ""
+
+    monkeypatch.setattr(run, "isolated_config_dir", fake_config)
+    monkeypatch.setattr(run, "_claude_stream", fake)
+    monkeypatch.setattr(sys, "argv", ["evals.outcome", "--reps", "1"])
+    assert outcome.main() == 1
+
+
+def test_outcome_dry_run_spawns_no_session(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["evals.outcome", "--dry-run"])
+    assert outcome.main() == 0
+    assert "outcome sessions" in capsys.readouterr().out
+
+
+def test_outcome_reps_zero_is_rejected(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["evals.outcome", "--reps", "0", "--dry-run"])
+    with pytest.raises(SystemExit) as e:
+        outcome.main()
+    assert e.value.code == 2
+
+
+def test_committed_outcome_baseline_is_never_stale_or_zero():
+    """The outcome mirror of test_a_stale_measurement_fails: whatever is committed in
+    outcome_scores.json must be fresh (ok) or absent (warn) — never a stale or all-zero lie
+    that would let a broken outcome ride a green suite. After seeding it is ok; before seeding
+    it is warn, keeping the suite green until the first live measure."""
+    baseline: dict = {}
+    if outcome.OUTCOME_SCORES.exists():
+        baseline = json.loads(outcome.OUTCOME_SCORES.read_text(encoding="utf-8"))
+    s = sandbox.BY_NAME["doc-sync-drift"]
+    v = outcome.outcome_check(
+        "doc-sync", baseline.get("doc-sync"), outcome.outcome_sha("doc-sync", s)
+    )
+    assert v.level in ("ok", "warn"), v.message

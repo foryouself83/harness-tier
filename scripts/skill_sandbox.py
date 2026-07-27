@@ -59,6 +59,10 @@ class Scenario:
     reject: list[str]
     files: dict[str, str] = field(default_factory=dict)
     dirs: list[str] = field(default_factory=list)
+    # Machine-checkable golden end-state for the outcome arm (evals/outcome.py). The prose
+    # expect/reject above stay for the human-judged invocation sandbox; this is asserted.
+    # { "<relpath>": {"must_contain": [...], "must_not_contain": [...]} }
+    outcome: dict[str, dict[str, list[str]]] = field(default_factory=dict)
 
 
 PLAYWRIGHT_CONFIG_E2E = """\
@@ -375,6 +379,12 @@ SCENARIOS: list[Scenario] = [
             "README.md": "# Sandbox\n\nThe server listens on port 8080.\n",
             "docs/api.md": "# API\n\nBase URL: `http://localhost:3000`\n",
         },
+        outcome={
+            "README.md": {"must_contain": ["9090"], "must_not_contain": ["8080"]},
+            "docs/api.md": {"must_contain": ["9090"], "must_not_contain": ["3000"]},
+            # server.py must keep 9090: the scenario's reject forbids rewriting code to docs.
+            "app/server.py": {"must_contain": ["9090"]},
+        },
     ),
 ]
 
@@ -395,6 +405,28 @@ def build(scenario: Scenario, root: Path) -> Path:
         # directory that does not exist, which would read as a skill bug.
         path.write_text(content, encoding="utf-8", newline="")
     return target
+
+
+def check_outcome(scenario: Scenario, built: Path) -> tuple[bool, list[str]]:
+    """Assert a built fixture reached the scenario's golden end-state.
+
+    Deterministic substring checks per file — the SWE-bench-style score for the outcome arm.
+    A missing file is a failure, not a crash: an agent that deleted or renamed the doc it was
+    asked to sync did not reach the end-state either."""
+    failures: list[str] = []
+    for rel, spec in scenario.outcome.items():
+        path = built / rel
+        if not path.exists():
+            failures.append(f"{rel}: missing")
+            continue
+        text = path.read_text(encoding="utf-8")
+        for needle in spec.get("must_contain", []):
+            if needle not in text:
+                failures.append(f"{rel}: missing {needle!r}")
+        for needle in spec.get("must_not_contain", []):
+            if needle in text:
+                failures.append(f"{rel}: still contains {needle!r}")
+    return not failures, failures
 
 
 def render(scenario: Scenario, path: Path) -> str:
