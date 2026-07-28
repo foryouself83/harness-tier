@@ -148,9 +148,13 @@ by each check's `when`; removing one from a tier's list in
    - **Selective TDD** — only business logic / core nodes / validators / workflow
      orchestration (see [`risk-tiers.md`](../../rules/risk-tiers.md) Step 3), not
      every change.
-   - **Domain review** — an independent `general-purpose` review agent (separate
-     context) against `flow-config.review_checklist` (regression, cross-service
-     contract, DB/migration & transactions, async task idempotency, API errors).
+   - **Domain review** — an independent **`general-purpose`** review agent
+     (separate context; it runs shell commands). `git` is the authority on the
+     changed-file list — **every** file is reviewed and the count is reported —
+     judged against `flow-config.review_checklist` (regression, cross-service
+     contract, DB/migration & transactions, async task idempotency, API errors),
+     plus the callers of every changed public symbol. Procedure in
+     [`risk-tiers.md`](../../rules/risk-tiers.md) Step 3.
      On pass → `touch .claude/harness-tier/.flow/review.done`.
    - **invoke the `doc-sync` skill** (not part of `superpowers`) → `touch .claude/harness-tier/.flow/doc-sync.done`.
 3. Commit → merge **applying the risk-tiers Merge strategy** (rule 3 — not a plain
@@ -169,7 +173,9 @@ Promotions are gated at the **commit on the target branch** (no tier marker
 needed — the branch drives it). Record each gate before committing the promotion:
 
 - **Staging** (integration → staging): regression `review` (independent
-  `general-purpose` agent) **and bump-level selection**:
+  `general-purpose` agent; the tree is clean at promotion, so list the files with
+  `git diff --name-only "$BASE..$HEAD"` — see
+  [`risk-tiers.md`](../../rules/risk-tiers.md) Step 3) **and bump-level selection**:
   1. Compute the commit-derived level as the default: `semantic-release version --print`
      (best-effort) — compare to the current version to suggest major/minor/patch.
   2. `AskUserQuestion`: **major / minor / patch** (default = the derived level).

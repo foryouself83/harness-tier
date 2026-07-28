@@ -68,7 +68,8 @@ modules:
       static: "npm --prefix services/web run typecheck"
       test:   "npm --prefix services/web test"
 
-# Regression / contract / idempotency review checklist
+# Regression / contract / idempotency review checklist — what the Dev `review` gate
+# judges every changed file against.
 review_checklist:
   - "regression / regression tests pass"
   - "cross-service contract / cross-service contract validity"

@@ -70,7 +70,7 @@ modules:                     # per-module monorepo pre-checks (when modules use 
       test:        "uv run pytest services/api"
       security:    "uv run bandit -r services/api"
 
-review_checklist:            # items to check in the Dev-tier domain review
+review_checklist:            # what the Dev review gate judges every changed file against
   - "regression / regression tests pass"
   - "cross-service contract / cross-service contract validity"
   - "DB transaction / migration safety"
@@ -219,7 +219,7 @@ The **mandatory first step for all code changes**. Sequence:
 4. **Execute** — run the tier's process and gates.
    - **Docs**: edit directly → reconcile docs via `doc-sync` → commit
    - **Dev**: `superpowers` pipeline (design → plan → implement → verify → review) →
-     domain review (against `review_checklist`) → `doc-sync` → commit
+     domain review (`review_checklist` + callers of changed symbols) → `doc-sync` → commit
 
 > **Promotion (Staging/Release)**: integration→staging and staging→production merges are
 > driven by the **target branch** (no separate marker needed). Each tier's mandatory gates

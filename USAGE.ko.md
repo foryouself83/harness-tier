@@ -67,7 +67,7 @@ modules:                     # 모노레포 모듈 단위 사전검사 (모듈�
       test:        "uv run pytest services/api"
       security:    "uv run bandit -r services/api"
 
-review_checklist:            # Dev 등급 도메인 리뷰에서 점검할 항목
+review_checklist:            # Dev 리뷰 게이트가 변경 파일마다 대조하는 항목
   - "regression / 회귀 테스트 통과"
   - "cross-service contract / 서비스 간 계약 유효성"
   - "DB transaction / migration 안전성"
@@ -211,7 +211,7 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
 4. **실행** — 등급별 절차와 게이트를 수행합니다.
    - **Docs**: 직접 편집 → `doc-sync` 로 문서 정합화 → 커밋
    - **Dev**: `superpowers` 파이프라인(설계→계획→구현→검증→리뷰) → 도메인 리뷰
-     (`review_checklist` 점검) → `doc-sync` → 커밋
+     (`review_checklist` + 변경 심볼 호출자 점검) → `doc-sync` → 커밋
 
 > **승격(Staging/Release)**: integration→staging, staging→production 머지는 **타깃
 > 브랜치**가 등급을 결정합니다(별도 표시 불필요). 각 등급의 필수 게이트(§2.3)를 통과해야

@@ -69,10 +69,11 @@ Two kinds:
   are not gated (add a CI safety net if you need hard enforcement).
 - **Marker gates** — recorded as `<gate>.done` only after the work genuinely
   passes (a marker is an audit trail + forcing function, not proof of quality):
-  - **`review`** — an independent `general-purpose` review agent (separate
-    context) against the domain/regression checklist: regression,
-    cross-service contract, DB/migration & transactions, async task
-    idempotency & queue routing, API error conventions.
+  - **`review`** — an independent `general-purpose` agent (separate context)
+    reviewing **every** changed file — git's list, count reported — against the
+    checklist: regression, cross-service contract, DB/migration & transactions,
+    async task idempotency & queue routing, API error conventions, plus the
+    callers of every changed public symbol. Step 3.
   - **`doc-sync`** — `/doc-sync` harmonizes the doc set (root CLAUDE.md,
     per-service docs, rules) and reconciles code↔doc drift.
   - **`bump`** (Staging) — the human major/minor/patch choice; fail-closed
@@ -255,11 +256,32 @@ work started on. `hotfix/*` off the production branch is the exception
      [ponytail](https://github.com/DietrichGebert/ponytail), MIT.)
    - **Selective TDD** — business logic / core nodes / validators /
      workflow orchestration only; not every change.
-   - **Domain review** — an independent `general-purpose` review agent
-     (separate context) against the checklist: regression,
-     cross-service contract, DB/migration & transactions, async task
-     idempotency & queue routing, API error conventions
-     → record `review`.
+   - **Domain review** — the last gate before commit, and *not* a
+     repeat of the `superpowers` reviews: those run per task for
+     plan-conformance (recall); this one runs once, at commit, for
+     **coverage**. Dispatch an independent **`general-purpose`** review
+     agent (separate context; it runs shell commands, so not a
+     read-only reviewer type):
+     ① **git is the authority on what changed** — every path it lists
+     gets reviewed, and that count goes in the report:
+     `git diff --name-only HEAD` plus
+     `git ls-files --others --exclude-standard`. At a promotion the
+     working tree is clean, so set `BASE`/`HEAD` to the two
+     `flow-config.branches` refs and list with
+     `git diff --name-only "$BASE..$HEAD"` instead.
+     ② Read each file's diff and judge it against the checklist —
+     regression, cross-service contract, DB/migration & transactions,
+     async task idempotency & queue routing, API error conventions.
+     ③ For every changed **public symbol** (signature, schema, event,
+     error contract) find its callers — `LSP documentSymbol` for the
+     symbol's line/character, then `incomingCalls` (functions) or
+     `findReferences`; no language server, or no `LSP` tool in this
+     client → `grep`, and say which you used. An unreviewed caller is
+     where a regression lands. Callers only, not the whole import
+     graph: dynamic dispatch, DI wiring, and HTTP contracts stay with
+     the checklist's cross-service row.
+     ④ Report High + Medium, discard Low, and state the reviewed-file
+     count against ①'s list → record `review`.
    - **`/doc-sync`** → record `doc-sync`.
 3. Integration human gate (feature → integration branch; see Merge
    Strategy below) → commit → merge, or open a PR when
@@ -267,8 +289,9 @@ work started on. `hotfix/*` off the production branch is the exception
 
 ### Staging (integration → staging)
 
-1. Regression review (independent `general-purpose` agent)
-   → record `review`. `precommit` and `security-scan` run automatically on
+1. Regression review — Dev Step 3's procedure with ①'s promotion form
+   (`git diff --name-only "$BASE..$HEAD"` between the integration and
+   staging refs; the workspace form would list nothing) → record `review`. `precommit` and `security-scan` run automatically on
    promotion commits (runtime gates — no marker; see Gate glossary).
 2. Promote integration → staging (rc), or open a PR when
    `merge_workflow.pull_request` includes `promotion` (see PR workflow).
