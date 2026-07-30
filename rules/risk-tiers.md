@@ -69,10 +69,11 @@ Two kinds:
   are not gated (add a CI safety net if you need hard enforcement).
 - **Marker gates** — recorded as `<gate>.done` only after the work genuinely
   passes (a marker is an audit trail + forcing function, not proof of quality):
-  - **`review`** — an independent `general-purpose` review agent (separate
-    context) against the domain/regression checklist: regression,
-    cross-service contract, DB/migration & transactions, async task
-    idempotency & queue routing, API error conventions.
+  - **`review`** — an independent `general-purpose` agent (separate context)
+    reviewing **every** changed file — git's list, count reported — against the
+    checklist: regression, cross-service contract, DB/migration & transactions,
+    async task idempotency & queue routing, API error conventions, plus the
+    callers of every changed public symbol. Step 3.
   - **`doc-sync`** — `/doc-sync` harmonizes the doc set (root CLAUDE.md,
     per-service docs, rules) and reconciles code↔doc drift.
   - **`bump`** (Staging) — the human major/minor/patch choice; fail-closed
@@ -222,7 +223,8 @@ work started on. `hotfix/*` off the production branch is the exception
    per-service docs, rules; also reconciles code↔doc drift)
    → record `doc-sync`.
 3. Commit (Conventional Commits, 50/72 rule — see Commit Discipline
-   below) → direct merge.
+   below) → merge per **Merge strategy**, or open a PR when
+   `merge_workflow.pull_request` includes `daily` (see PR workflow).
 
 ### Dev (any code)
 
@@ -254,21 +256,45 @@ work started on. `hotfix/*` off the production branch is the exception
      [ponytail](https://github.com/DietrichGebert/ponytail), MIT.)
    - **Selective TDD** — business logic / core nodes / validators /
      workflow orchestration only; not every change.
-   - **Domain review** — an independent `general-purpose` review agent
-     (separate context) against the checklist: regression,
-     cross-service contract, DB/migration & transactions, async task
-     idempotency & queue routing, API error conventions
-     → record `review`.
+   - **Domain review** — the last gate before commit, and *not* a
+     repeat of the `superpowers` reviews: those run per task for
+     plan-conformance (recall); this one runs once, at commit, for
+     **coverage**. Dispatch an independent **`general-purpose`** review
+     agent (separate context; it runs shell commands, so not a
+     read-only reviewer type):
+     ① **git is the authority on what changed** — every path it lists
+     gets reviewed, and that count goes in the report:
+     `git diff --name-only HEAD` plus
+     `git ls-files --others --exclude-standard`. At a promotion the
+     working tree is clean, so set `BASE`/`HEAD` to the two
+     `flow-config.branches` refs and list with
+     `git diff --name-only "$BASE..$HEAD"` instead.
+     ② Read each file's diff and judge it against the checklist —
+     regression, cross-service contract, DB/migration & transactions,
+     async task idempotency & queue routing, API error conventions.
+     ③ For every changed **public symbol** (signature, schema, event,
+     error contract) find its callers — `LSP documentSymbol` for the
+     symbol's line/character, then `incomingCalls` (functions) or
+     `findReferences`; no language server, or no `LSP` tool in this
+     client → `grep`, and say which you used. An unreviewed caller is
+     where a regression lands. Callers only, not the whole import
+     graph: dynamic dispatch, DI wiring, and HTTP contracts stay with
+     the checklist's cross-service row.
+     ④ Report High + Medium, discard Low, and state the reviewed-file
+     count against ①'s list → record `review`.
    - **`/doc-sync`** → record `doc-sync`.
 3. Integration human gate (feature → integration branch; see Merge
-   Strategy below) → commit → direct merge.
+   Strategy below) → commit → merge, or open a PR when
+   `merge_workflow.pull_request` includes `daily` (see PR workflow).
 
 ### Staging (integration → staging)
 
-1. Regression review (independent `general-purpose` agent)
-   → record `review`. `precommit` and `security-scan` run automatically on
+1. Regression review — Dev Step 3's procedure with ①'s promotion form
+   (`git diff --name-only "$BASE..$HEAD"` between the integration and
+   staging refs; the workspace form would list nothing) → record `review`. `precommit` and `security-scan` run automatically on
    promotion commits (runtime gates — no marker; see Gate glossary).
-2. Promote integration → staging (rc).
+2. Promote integration → staging (rc), or open a PR when
+   `merge_workflow.pull_request` includes `promotion` (see PR workflow).
 
 ### Release (staging → production)
 
@@ -279,7 +305,11 @@ Staging gates **plus**:
 2. Security review — `/security-review` → record `security`.
 3. Release note — Conventional Commits + semantic-release; the grouped, plumbing-filtered
    CHANGELOG section becomes the GitHub Release body (auto-notes fallback).
-4. Promote staging → production and/or deploy.
+4. Promote staging → production and/or deploy, or open a PR for the
+   promotion when `merge_workflow.pull_request` includes `promotion`
+   (see PR workflow). A `hotfix/*` → production landing takes the same
+   conditional — under `promotion` it is a PR too, never a local squash
+   and push.
 
 ## Commit Discipline
 
@@ -352,10 +382,10 @@ Branch names refer to `flow-config.branches` keys.
 |-------------|----------|------|
 | `feature/*` → integration | **Rebase onto integration → integration-test gate → Squash** | ✅ enforced |
 | `fix/*` / non-`feature/*` → integration | **Rebase** | ✅ `fix/*` only: `--no-ff` blocked |
-| integration → staging | **Rebase** or **Merge** | — |
+| integration → staging | **`--no-ff` Merge** | ✅ enforced |
 | staging → production | **`--no-ff` Merge** | ✅ enforced |
-| `hotfix/*` → production | **Squash** | ✅ enforced |
-| production → integration/staging (after release) | **FF / `--no-ff` Merge** (back-merge) | — |
+| `hotfix/*` → production | **Squash** — under `promotion` PR mode a **PR** (merge commit) | ✅ enforced |
+| production → integration (after release) | **FF / `--no-ff` Merge** (back-merge) | — |
 
 > The **Gate** column reflects `flow-tiers.yaml`'s `merge_strategy` policy, checked by the
 > PreToolUse hook on `git merge`. Every ✅ row blocks (exit 2) a merge whose flags violate the
@@ -371,8 +401,10 @@ Branch names refer to `flow-config.branches` keys.
 > semantic-release must parse the individual conventional commits, and
 > the merge commit's non-`[skip ci]` title is what makes the release
 > workflow fire — FF would land staging's `[skip ci]` rc commit as the
-> head and skip the release. (`hotfix/*` → production stays Squash — a
-> single `fix:` commit is still a valid, non-`[skip ci]` release input.)
+> head and skip the release. (A direct `hotfix/*` → production merge stays
+> Squash — a single `fix:` commit is still a valid, non-`[skip ci]` release
+> input. Under `promotion` PR mode that flow becomes a PR merge commit
+> instead; see PR workflow.)
 
 > ⚠️ **Merge the *post-rc* `origin/<staging>`, never a stale local ref.**
 > The `staging → production` merge must take the **freshly fetched
@@ -384,6 +416,99 @@ Branch names refer to `flow-config.branches` keys.
 > the forced bump-level override** (e.g. releasing `0.2.0` instead of the
 > intended `0.1.2`). Always `git fetch origin` first and merge
 > `origin/<staging>`.
+
+### PR workflow (`flow-config.merge_workflow`)
+
+Flows listed in `merge_workflow.pull_request` go through a **pull request** instead of a
+local merge. An empty list (the default) means every flow is a direct merge and this
+section does not apply.
+
+| Value | Flows |
+|---|---|
+| `daily` | `feature/*` · `fix/*` → integration |
+| `promotion` | integration → staging, staging → production — **and `hotfix/*` → production**, because the production ruleset governs every merge into that branch (see below) |
+
+**Commit discipline does not change.** Commits are still made locally under PR mode, so
+gitlint (50/72 · Conventional Commits) and the tier gate (markers, unclassified block)
+fire exactly as before. What moves is the **merge**, and only the merge.
+
+The `require`/`forbid` cells in the Merge strategy table are enforced by a hook watching
+`git merge`, so they **do not fire** for a flow that goes through a PR. A GitHub Ruleset
+carries what it can of that enforcement instead, as allowed merge methods per branch —
+exactly for the promotion rows, partially for integration (caveat under the table):
+
+| Target branch | Allowed merge methods | Source rows |
+|---|---|---|
+| integration | `squash` + `rebase` (no merge commit) | row 1 `feature/*`=Squash, row 2 `fix/*`=Rebase |
+| staging · production | `merge` only | rows 3·4 = `--no-ff` Merge |
+
+> ⚠️ **On integration this is a relaxation, not a translation.** A branch ruleset targets the
+> **destination** ref, so it cannot tell a `feature/*` PR from a `fix/*` one. All it
+> guarantees is **"no merge commit into integration"**. Row 1's `--squash` and row 2's Rebase
+> become **discipline the ruleset cannot separate**: a `feature/*` PR merged with "Rebase and
+> merge" lands N replayed commits where row 1 wants one squashed commit, and nothing objects
+> (the local gate never sees a `git merge`, and the ruleset permits rebase). Name the method
+> when you hand over the PR — **"Squash and merge" for `feature/*`, "Rebase and merge" for
+> `fix/*`** — the way the promotion PR names "Create a merge commit". On staging · production
+> the single allowed method makes the ruleset an exact translation; only integration carries
+> this gap.
+
+> **A branch ruleset covers every merge into that branch, not just the flow named above.**
+> The `daily` ruleset's "require a PR" + `rebase,squash` on integration also governs the
+> **back-merge** (table row 6, `production → integration`): it blocks the documented
+> `git push origin <integration>` step outright, and routing the back-merge through a PR
+> instead is worse — rebase and squash both rewrite SHAs, so the released tag never
+> becomes an ancestor of integration, which is exactly the failure the Back-merge section
+> calls **not optional**. An integration ruleset therefore also needs a bypass actor, for
+> whoever performs the back-merge (the maintainer or the release automation) — the same
+> requirement `daily` alone does not otherwise carry.
+>
+> The `promotion` ruleset's `merge`-only rule on production also governs `hotfix/* →
+> production` (table row 5, Squash) — and allowed merge methods hang off **"Require a pull
+> request before merging"** (see the bypass warning below), which **rejects a direct push to
+> production**. So the documented local path — `git switch <production>` ·
+> `git merge --squash hotfix/x` · `git commit` · `git push origin <production>` — is
+> rejected *during the incident*, and the release-automation bypass actor does not rescue it
+> (that identity is the `github-actions` app or the `RELEASE_TOKEN` owner, not the maintainer
+> running the hotfix). **Under `promotion` PR mode a hotfix therefore goes through a PR too**,
+> merged with "Create a merge commit". The merge commit is harmless — its title is not
+> `[skip ci]`, so the release workflow still fires, no rc is pending to strip, and
+> semantic-release computes the release from the `fix:` commit inside it. (A team that would
+> rather keep the local squash must instead add a **maintainer** bypass actor to the
+> production ruleset — and then nothing enforces the merge method on that path at all.)
+
+`/flow-init` Step 2.7 reads the current state and reports the gap; it does not change repo
+settings.
+
+> ⚠️ **Merge a promotion PR with "Create a merge commit" only.** The release workflow reads
+> a single pushed **head commit** — it gates execution on `[skip ci]` and reads the
+> `Release-Level:` trailer from that same message. A rebase-merge replays staging's commits
+> and leaves `chore(release): … [skip ci]` as the head, so **the release never runs**; a
+> squash destroys the individual release-commit history.
+
+> ⚠️ **A promotion ruleset MUST carry a release-automation bypass actor.** Allowed merge
+> methods hang off the "require a pull request before merging" rule, so applying it without
+> a bypass blocks semantic-release's direct `chore(release)` version-bump push and **halts
+> the release pipeline**.
+>
+> The actor's **`bypass_mode` must be `always`, not `pull_request`** — here and for the
+> integration back-merge actor above. A `pull_request` actor may merge a PR that fails the
+> rule but **may not push directly**, and a direct push is the whole point in both cases. An
+> actor in the wrong mode is present-but-useless: it reads as configured and still stops the
+> release. `check-merge-ruleset.sh` treats it as a gap for that reason.
+
+With a forced bump level, pin the trailer in the merge command rather than typing it into
+the web UI:
+
+```bash
+PR=123    # the promotion PR's number — a literal, never a `<n>` placeholder: bash reads
+          # `<n` as "stdin from a file named n" and silently eats the next word as its target
+gh pr merge "$PR" --merge \
+  --subject "Merge <staging>: release X.Y.Z" \
+  --body "Release-Level: patch"
+```
+
+An automatic (commit-derived) level needs no trailer at all.
 
 ### Merging `feature/*` → integration (integration-test gate)
 
@@ -405,7 +530,11 @@ three-step gated flow. The integration-test confirmation is a
    which do not satisfy this gate). Merge ONLY if the user explicitly
    confirms they tested. If unconfirmed, do not merge.
 
-3. **Squash, then merge.** Choose squash granularity by change size:
+3. **Squash, then merge** — or, when `merge_workflow.pull_request` includes
+   `daily`, open a PR instead of this step's `git merge --squash` and say it
+   must be merged with **"Squash and merge"** (the integration ruleset allows
+   rebase too and cannot tell the two flows apart — see PR workflow above).
+   For a direct merge, choose squash granularity by change size:
    - **Small change** → collapse to **1 commit**.
    - **Larger change** → keep **one commit per category** (e.g. a
      `feat` commit + a separate `test` commit + a `docs` commit),
@@ -434,6 +563,10 @@ exempts it from the type/50-char checks.
 Do not attach a Conventional type to a merge commit. The version is
 decided by semantic-release parsing the **individual merged commits**.
 
+Under `promotion` PR mode the same merge commit is created by GitHub's
+"Create a merge commit"; pin its title with `gh pr merge --subject`
+(see PR workflow) so this rule still holds.
+
 ### Back-merge after release (production → integration)
 
 semantic-release writes the version bump (`plugin.json` / `pyproject`)
@@ -441,23 +574,41 @@ and the marketplace sha pin **only on `production`** (as `[skip ci]`
 `chore(release)` commits). They never reach integration on their own,
 so integration's `plugin.json` drifts to a stale version.
 
-After every production release, **back-merge** the release commits
-production → integration (and → staging), so those commits and the
-reachable stable tag return to the day-to-day branches:
+After every production release, **back-merge production → integration**
+— one merge, nothing else:
 
 ```bash
 git fetch origin
 git switch <integration> && git merge --ff-only origin/<production>
-git switch <staging>     && git merge --ff-only origin/<production>
-# then push each
+git push origin <integration>
 ```
 
 Fast-forward when the branch is strictly behind; else `--no-ff` Merge.
-This is standard git-flow, **not optional**: without it semantic-release
-miscomputes the next version (the released tag is unreachable from
-integration/staging). It is needed because Explicit-version gating
-forces the version into a **committed file** (not a tag-only release,
-which would never drift).
+Under `daily` PR mode the integration ruleset **rejects this push** unless it
+carries a bypass actor for whoever back-merges — routing the back-merge
+through a PR instead does not work (see PR workflow).
+This one is **not optional**: without it the released tag is unreachable
+from integration and semantic-release miscomputes the next version. It is
+needed because Explicit-version gating forces the version into a
+**committed file** (not a tag-only release, which would never drift).
+
+**staging needs no back-merge** — the next `integration → staging`
+promotion carries the release commits forward on its own. The chain is
+`integration → staging → production`, and it closes: staging's rc bump
+reaches production through the promotion merge, and production's release
+commits reach integration through the back-merge above. staging therefore
+stays an **ancestor of integration**, so the next promotion is a
+descendant merge and the version file cannot conflict.
+
+Measured 2026-07-27 (0.1.12): the 0.1.11 back-merge to staging was
+skipped, so `v0.1.11` was **unreachable** from staging (nearest reachable
+tag: `v0.1.11-rc.1`). The `integration → staging` merge pulled it into
+ancestry and the rc came out correct — `0.1.12-rc.1`.
+
+This holds **only because the promotion is a merge.** A rebase promotion
+would replay the release commits under new SHAs, dropping the stable tag
+out of staging's ancestry — which is why the Merge strategy table above
+enforces `--no-ff` on that row.
 
 ### Feature branch base
 

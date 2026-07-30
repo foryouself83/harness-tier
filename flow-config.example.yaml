@@ -16,6 +16,23 @@ branches:
   # feature branch name prefix (e.g. feature/, feat/)
   feature_prefix: "feature/"
 
+# How work reaches its target branch. Only the flows listed here go through a PR; the rest
+# stay direct merges. An empty list (the default) = all direct — the existing behaviour.
+#   daily     — feature/* · fix/* → integration
+#   promotion — integration → staging, staging → production, and hotfix/* → production
+#               (the production ruleset governs every merge into that branch)
+# A PR replaces the local `git merge`, so that flow's merge_strategy gate does not fire.
+# Enforce the merge method server-side with a GitHub Ruleset instead — /flow-init reads the
+# current state and reports what to apply (it never changes repo settings). A ruleset targets
+# the DESTINATION branch, so on integration it only guarantees "no merge commit"; which of
+# squash (feature/*) or rebase (fix/*) is used stays discipline — say so on the PR.
+# Commit discipline (gitlint · tier gates) is unaffected: commits are still made locally.
+# Either ruleset MUST carry a bypass actor: promotion for the release automation (else the
+# chore(release) push is blocked and releases stop), daily for the post-release back-merge
+# push (else the released tag never returns to integration). See rules/risk-tiers.md.
+merge_workflow:
+  pull_request: []
+
 # Per-module pre-checks (monorepo — when each module uses a different language/toolset). A single-stack project is expressed as one module too.
 # Enforced by the layer-2 flow gate (Claude-session commits only — terminal/CI commits bypass it, same as every runtime gate).
 # Each key under `checks` is ONE check; its VALUE is either a command string or an extended form
@@ -51,7 +68,8 @@ modules:
       static: "npm --prefix services/web run typecheck"
       test:   "npm --prefix services/web test"
 
-# Regression / contract / idempotency review checklist
+# Regression / contract / idempotency review checklist — what the Dev `review` gate
+# judges every changed file against.
 review_checklist:
   - "regression / regression tests pass"
   - "cross-service contract / cross-service contract validity"
