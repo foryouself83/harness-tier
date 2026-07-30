@@ -490,6 +490,12 @@ settings.
 > methods hang off the "require a pull request before merging" rule, so applying it without
 > a bypass blocks semantic-release's direct `chore(release)` version-bump push and **halts
 > the release pipeline**.
+>
+> The actor's **`bypass_mode` must be `always`, not `pull_request`** — here and for the
+> integration back-merge actor above. A `pull_request` actor may merge a PR that fails the
+> rule but **may not push directly**, and a direct push is the whole point in both cases. An
+> actor in the wrong mode is present-but-useless: it reads as configured and still stops the
+> release. `check-merge-ruleset.sh` treats it as a gap for that reason.
 
 With a forced bump level, pin the trailer in the merge command rather than typing it into
 the web UI:

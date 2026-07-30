@@ -12,12 +12,21 @@ SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "check-merge-rules
 BASH = shutil.which("bash") or "bash"
 
 
-def _ruleset(ref: str, methods: list[str] | None, enforcement: str = "active") -> dict:
-    """One ruleset object as GET /repos/{o}/{r}/rulesets/{id} returns it."""
+def _ruleset(
+    ref: str,
+    methods: list[str] | None,
+    enforcement: str = "active",
+    bypass_actors: list[dict] | None = None,
+) -> dict:
+    """One ruleset object as GET /repos/{o}/{r}/rulesets/{id} returns it.
+
+    `bypass_actors=None` omits the key entirely — an older/likely payload shape, and the
+    one the merge-method tests below do not care about either way.
+    """
     rules = []
     if methods is not None:
         rules.append({"type": "pull_request", "parameters": {"allowed_merge_methods": methods}})
-    return {
+    rs = {
         "id": 1,
         "name": "x",
         "target": "branch",
@@ -25,11 +34,34 @@ def _ruleset(ref: str, methods: list[str] | None, enforcement: str = "active") -
         "conditions": {"ref_name": {"include": [ref], "exclude": []}},
         "rules": rules,
     }
+    if bypass_actors is not None:
+        rs["bypass_actors"] = bypass_actors
+    return rs
+
+
+ACTOR = [{"actor_id": 1, "actor_type": "Integration", "bypass_mode": "always"}]
+
+
+def _actor(mode: str | None) -> dict:
+    """One bypass actor. `mode=None` omits `bypass_mode` entirely."""
+    a = {"actor_id": 1, "actor_type": "Integration"}
+    if mode is not None:
+        a["bypass_mode"] = mode
+    return a
 
 
 def _decode(sets: list[dict], branch: str, want: str, env: dict | None = None) -> int:
     return subprocess.run(
         [BASH, str(SCRIPT), "--decode", branch, want],
+        input=json.dumps(sets, ensure_ascii=False).encode("utf-8"),
+        capture_output=True,
+        env=env,
+    ).returncode
+
+
+def _decode_bypass(sets: list[dict], branch: str, env: dict | None = None) -> int:
+    return subprocess.run(
+        [BASH, str(SCRIPT), "--decode-bypass", branch],
         input=json.dumps(sets, ensure_ascii=False).encode("utf-8"),
         capture_output=True,
         env=env,
@@ -73,6 +105,114 @@ def test_multiple_rulesets_intersect():
         _ruleset("refs/heads/dev", ["squash", "rebase"]),
     ]
     assert _decode(sets, "dev", "rebase,squash") == 0
+
+
+# --- bypass actors -----------------------------------------------------------------
+# Allowed merge methods hang off "Require a pull request before merging", and that rule also
+# rejects the direct pushes the release pipeline depends on. A bypass actor is therefore a
+# SECOND, independent requirement — a repo can have exactly the right merge methods and still
+# be broken. These decode it on its own axis, never as a by-product of the method verdict.
+
+
+def test_bypass_actor_present_exits_0():
+    sets = [_ruleset("refs/heads/stage", ["merge"], bypass_actors=ACTOR)]
+    assert _decode_bypass(sets, "stage") == 0
+
+
+def test_bypass_actor_empty_list_exits_10():
+    sets = [_ruleset("refs/heads/stage", ["merge"], bypass_actors=[])]
+    assert _decode_bypass(sets, "stage") == 10
+
+
+def test_bypass_actors_key_absent_exits_10():
+    # absent is treated as empty — the conservative reading, and the one that matches what
+    # GitHub enforces (no listed actor = nobody bypasses)
+    assert _decode_bypass([_ruleset("refs/heads/stage", ["merge"])], "stage") == 10
+
+
+def test_bypass_not_required_without_a_pull_request_rule_exits_0():
+    # no "require a pull request" rule means nothing is blocking the release push, so there
+    # is nothing to bypass. Not a skipped check — a real determination.
+    assert _decode_bypass([_ruleset("refs/heads/stage", None)], "stage") == 0
+
+
+def test_bypass_ruleset_for_another_branch_is_ignored_exits_0():
+    assert _decode_bypass([_ruleset("refs/heads/other", ["merge"])], "stage") == 0
+
+
+def test_bypass_inactive_ruleset_is_ignored_exits_0():
+    sets = [_ruleset("refs/heads/stage", ["merge"], enforcement="evaluate")]
+    assert _decode_bypass(sets, "stage") == 0
+
+
+def test_bypass_all_refs_wildcard_is_checked():
+    assert _decode_bypass([_ruleset("~ALL", ["merge"])], "stage") == 10
+
+
+def test_bypass_missing_on_any_matching_ruleset_exits_10():
+    # bypass is per-ruleset: an actor listed on ruleset A does not exempt it from ruleset B.
+    # So EVERY matching pull_request ruleset needs one — a single gap blocks the push.
+    sets = [
+        _ruleset("refs/heads/stage", ["merge"], bypass_actors=ACTOR),
+        _ruleset("refs/heads/stage", ["merge"], bypass_actors=[]),
+    ]
+    assert _decode_bypass(sets, "stage") == 10
+
+
+def test_bypass_mode_pull_request_does_not_count_exits_10():
+    # `bypass_mode` decides WHAT the actor may bypass. A "pull_request" actor may merge a PR
+    # that fails the rule — it may NOT push directly. So a ruleset whose only bypass actor is
+    # in that mode still rejects semantic-release's chore(release) push and the back-merge
+    # push: present-but-useless. Counting mere presence here would reproduce, one level down,
+    # the same "reports fine for the config that breaks releases" bug this check exists for.
+    sets = [_ruleset("refs/heads/main", ["merge"], bypass_actors=[_actor("pull_request")])]
+    assert _decode_bypass(sets, "main") == 10
+
+
+def test_bypass_mode_always_alongside_a_pull_request_actor_exits_0():
+    # One actor that can push directly is enough; the useless one next to it is irrelevant.
+    sets = [
+        _ruleset(
+            "refs/heads/main",
+            ["merge"],
+            bypass_actors=[_actor("pull_request"), _actor("always")],
+        )
+    ]
+    assert _decode_bypass(sets, "main") == 0
+
+
+def test_bypass_mode_absent_is_read_as_permissive_exits_0():
+    # Payload tolerance: only "pull_request" is known to be insufficient. An actor whose mode
+    # the payload omits (or names something this script has not seen) must not be called a
+    # gap — that would fail a correctly configured repo on a field it could not read.
+    sets = [_ruleset("refs/heads/main", ["merge"], bypass_actors=[_actor(None)])]
+    assert _decode_bypass(sets, "main") == 0
+
+
+def test_bypass_malformed_json_exits_20():
+    r = subprocess.run(
+        [BASH, str(SCRIPT), "--decode-bypass", "stage"],
+        input="{not json",
+        text=True,
+        capture_output=True,
+    )
+    assert r.returncode == 20
+    # 20 must come from the decoder itself. Every other route to 20 — the unknown-flow arm,
+    # the "gh/python3/repo unavailable" skip — narrates on stderr first, so silence is what
+    # proves `--decode-bypass` was dispatched before any of them, the way `--decode` is.
+    assert r.stderr == ""
+
+
+def test_bypass_object_instead_of_array_exits_20():
+    # same shape contract as --decode: unreadable must never read as "no gap"
+    r = subprocess.run(
+        [BASH, str(SCRIPT), "--decode-bypass", "stage"],
+        input="{}",
+        text=True,
+        capture_output=True,
+    )
+    assert r.returncode == 20
+    assert r.stderr == ""
 
 
 def _cp949_env() -> dict:
@@ -201,8 +341,8 @@ def test_release_bypass_warning_only_fires_for_promotion_failure():
     # problem — the daily arm has its own, different bypass reason (see below).
     rulesets = {
         1: _ruleset("refs/heads/dev", ["squash"]),
-        2: _ruleset("refs/heads/stage", ["merge"]),
-        3: _ruleset("refs/heads/main", ["merge"]),
+        2: _ruleset("refs/heads/stage", ["merge"], bypass_actors=ACTOR),
+        3: _ruleset("refs/heads/main", ["merge"], bypass_actors=ACTOR),
     }
     r = _run_dispatch(
         rulesets,
@@ -254,6 +394,107 @@ def test_bypass_warning_fires_for_promotion_failure():
     assert r.returncode == 10
     assert "stage: allowed merge methods" in r.stderr
     assert "BYPASS ACTOR" in r.stderr
+
+
+def test_promotion_bypass_gap_is_reported_even_when_methods_match():
+    # THE regression this check exists for. stage/main allow exactly "merge" — the merge-method
+    # verdict is a clean pass — but neither ruleset lists a bypass actor. That is precisely the
+    # configuration that breaks releases: "Require a pull request" rejects semantic-release's
+    # direct chore(release) push, so the pipeline stops. Reporting "merge rulesets match" here
+    # tells the repo owner everything is fine about the one setting that is not.
+    rulesets = {
+        1: _ruleset("refs/heads/stage", ["merge"], bypass_actors=[]),
+        2: _ruleset("refs/heads/main", ["merge"], bypass_actors=[]),
+    }
+    r = _run_dispatch(
+        rulesets,
+        ["promotion"],
+        {"HARNESS_BRANCH_STAGING": "stage", "HARNESS_BRANCH_PRODUCTION": "main"},
+    )
+    assert r.returncode == 10
+    assert "BYPASS ACTOR for the release automation" in r.stderr
+    assert "chore(release)" in r.stderr
+    # the merge methods really are correct, so no method guidance should be printed…
+    assert "allowed merge methods must be exactly" not in r.stderr
+    # …and the run must not simultaneously claim the rulesets are fine
+    assert "match the required methods" not in r.stderr
+
+
+def test_daily_bypass_gap_is_reported_even_when_methods_match():
+    # Same failure, the other flow: dev allows exactly rebase,squash but has no bypass actor,
+    # so `git push origin dev` — how the post-release back-merge lands — is rejected.
+    rulesets = {1: _ruleset("refs/heads/dev", ["rebase", "squash"], bypass_actors=[])}
+    r = _run_dispatch(rulesets, ["daily"], {"HARNESS_BRANCH_INTEGRATION": "dev"})
+    assert r.returncode == 10
+    assert "BYPASS ACTOR for the post-release back-merge" in r.stderr
+    assert "allowed merge methods must be exactly" not in r.stderr
+    assert "match the required methods" not in r.stderr
+
+
+def test_fully_correct_setup_reports_match():
+    # The other half of the contract: with methods right AND a bypass actor on every branch,
+    # the run passes clean. Without this, a check that always warns would also pass the test
+    # above while being useless.
+    rulesets = {
+        1: _ruleset("refs/heads/dev", ["rebase", "squash"], bypass_actors=ACTOR),
+        2: _ruleset("refs/heads/stage", ["merge"], bypass_actors=ACTOR),
+        3: _ruleset("refs/heads/main", ["merge"], bypass_actors=ACTOR),
+    }
+    r = _run_dispatch(
+        rulesets,
+        ["daily", "promotion"],
+        {
+            "HARNESS_BRANCH_INTEGRATION": "dev",
+            "HARNESS_BRANCH_STAGING": "stage",
+            "HARNESS_BRANCH_PRODUCTION": "main",
+        },
+    )
+    assert r.returncode == 0
+    assert "BYPASS ACTOR" not in r.stderr
+    assert "match the required methods" in r.stderr
+
+
+def test_bypass_warning_is_printed_once_when_methods_also_differ():
+    # Both gaps at once on the same flow. The bypass reason is one paragraph of guidance; the
+    # method check and the bypass check must not each emit their own copy.
+    rulesets = {
+        1: _ruleset("refs/heads/stage", ["merge", "squash"], bypass_actors=[]),
+        2: _ruleset("refs/heads/main", ["merge"], bypass_actors=[]),
+    }
+    r = _run_dispatch(
+        rulesets,
+        ["promotion"],
+        {"HARNESS_BRANCH_STAGING": "stage", "HARNESS_BRANCH_PRODUCTION": "main"},
+    )
+    assert r.returncode == 10
+    assert "stage: allowed merge methods" in r.stderr
+    assert r.stderr.count("BYPASS ACTOR for the release automation") == 1
+
+
+def test_bypass_guidance_names_the_required_mode():
+    # A repo can reach this warning WITH an actor already listed — one in "pull_request" mode,
+    # which the check counts as a gap. Guidance that only says "add a bypass actor" is a dead
+    # end for exactly that reader: they look, see an actor, and conclude the check is wrong.
+    rulesets = {
+        1: _ruleset("refs/heads/stage", ["merge"], bypass_actors=[_actor("pull_request")]),
+        2: _ruleset("refs/heads/main", ["merge"], bypass_actors=[_actor("pull_request")]),
+    }
+    r = _run_dispatch(
+        rulesets,
+        ["promotion"],
+        {"HARNESS_BRANCH_STAGING": "stage", "HARNESS_BRANCH_PRODUCTION": "main"},
+    )
+    assert r.returncode == 10
+    assert "bypass_mode" in r.stderr
+    assert "pull_request" in r.stderr
+
+
+def test_bypass_check_undecodable_reports_undetermined_not_a_gap():
+    # The bypass axis inherits the same 20-never-collapses-to-10 contract as the method axis:
+    # a ruleset that could not be read must not be reported as "you are missing a bypass actor".
+    r = _run_dispatch({1: "{not json"}, ["promotion"], {"HARNESS_BRANCH_STAGING": "stage"})
+    assert r.returncode == 20
+    assert "BYPASS ACTOR" not in r.stderr
 
 
 def test_undecodable_response_reports_undetermined_not_a_mismatch():
