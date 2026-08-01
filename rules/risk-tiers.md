@@ -263,12 +263,46 @@ work started on. `hotfix/*` off the production branch is the exception
      agent (separate context; it runs shell commands, so not a
      read-only reviewer type):
      ① **git is the authority on what changed** — every path it lists
-     gets reviewed, and that count goes in the report:
-     `git diff --name-only HEAD` plus
-     `git ls-files --others --exclude-standard`. At a promotion the
-     working tree is clean, so set `BASE`/`HEAD` to the two
-     `flow-config.branches` refs and list with
-     `git diff --name-only "$BASE..$HEAD"` instead.
+     gets reviewed, and that count goes in the report. Run
+     `git fetch origin` first, then take the **union of three
+     lists**, deduplicated:
+
+     ```bash
+     git fetch origin
+     # Probe the BRANCH POINT first, not merely the ref. Inside the brace group a failing
+     # term writes to stderr, contributes nothing, and the pipeline still exits 0 — a short
+     # list that looks complete. `rev-parse --verify` is not enough: on a shallow clone, or
+     # against an unrelated history, the ref resolves fine and the three-dot diff still dies
+     # with "no merge base". `merge-base` fails in both cases and covers a missing ref too.
+     # Per-term `|| exit 1` inside the braces does NOT work — it exits only the pipeline's
+     # subshell and `sort`'s status masks it. Abort here; never review the remainder.
+     git merge-base "origin/<integration>" HEAD >/dev/null || exit 1
+     { git diff --name-only "origin/<integration>...HEAD"   # committed on the branch
+       git diff --name-only HEAD                            # staged + unstaged
+       git ls-files --others --exclude-standard             # untracked
+     } | sort -u
+     ```
+
+     All three are needed and none subsumes another. The three-dot
+     form is commit-to-commit from the branch point, so on its own it
+     reports **zero** files for the ordinary case — review runs
+     *before* the commit. `HEAD` on its own misses everything already
+     committed on the branch, and since the `review` marker is
+     branch-bound and survives across commits, those files would
+     never appear in *any* review's list. `ls-files --others`
+     recovers untracked files only, never modified tracked ones.
+
+     At a promotion the working tree is clean and both ends are
+     branches, so use the two adjacent `flow-config.branches` refs
+     for the promotion in hand — **destination first**, so the diff
+     is what the promotion would add:
+     `git diff --name-only "origin/<staging>..origin/<integration>"`
+     for Staging, and
+     `git diff --name-only "origin/<production>..origin/<staging>"`
+     for Release. Always the **freshly fetched `origin/` refs**,
+     never a bare local ref: a stale local ref silently *shrinks* the
+     reviewed set, which is the one direction a coverage gate must
+     never fail in.
      ② Read each file's diff and judge it against the checklist —
      regression, cross-service contract, DB/migration & transactions,
      async task idempotency & queue routing, API error conventions.
@@ -290,15 +324,26 @@ work started on. `hotfix/*` off the production branch is the exception
 ### Staging (integration → staging)
 
 1. Regression review — Dev Step 3's procedure with ①'s promotion form
-   (`git diff --name-only "$BASE..$HEAD"` between the integration and
-   staging refs; the workspace form would list nothing) → record `review`. `precommit` and `security-scan` run automatically on
+   for **this** pair (`git fetch origin`, then
+   `git diff --name-only "origin/<staging>..origin/<integration>"`;
+   the workspace form would list nothing here) → record `review`.
+   `precommit` and `security-scan` run automatically on
    promotion commits (runtime gates — no marker; see Gate glossary).
 2. Promote integration → staging (rc), or open a PR when
    `merge_workflow.pull_request` includes `promotion` (see PR workflow).
 
 ### Release (staging → production)
 
-Staging gates **plus**:
+Staging gates **plus** — but the regression `review` re-runs against
+**this** promotion's pair, `git fetch origin` then
+`git diff --name-only "origin/<production>..origin/<staging>"`.
+Inheriting Staging's pair is the trap here, and it does not announce
+itself: staging is not empty relative to integration, it is *ahead* by
+the rc bump CI just pushed, so the wrong pair returns a plausible
+handful of release plumbing (`plugin.json`, `CHANGELOG.md`,
+`pyproject.toml`, `uv.lock`) while hiding every substantive change in
+the release. The highest-risk gate then reports full coverage of the
+wrong set, with no empty result to give it away.
 
 1. Extra independent review — `/code-review` at `ultra` effort
    (high-risk layer).

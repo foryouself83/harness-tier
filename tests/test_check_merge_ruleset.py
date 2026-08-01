@@ -1,7 +1,9 @@
 import json
 import os
+import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -17,6 +19,7 @@ def _ruleset(
     methods: list[str] | None,
     enforcement: str = "active",
     bypass_actors: list[dict] | None = None,
+    exclude: list[str] | None = None,
 ) -> dict:
     """One ruleset object as GET /repos/{o}/{r}/rulesets/{id} returns it.
 
@@ -31,7 +34,7 @@ def _ruleset(
         "name": "x",
         "target": "branch",
         "enforcement": enforcement,
-        "conditions": {"ref_name": {"include": [ref], "exclude": []}},
+        "conditions": {"ref_name": {"include": [ref], "exclude": exclude or []}},
         "rules": rules,
     }
     if bypass_actors is not None:
@@ -50,18 +53,35 @@ def _actor(mode: str | None) -> dict:
     return a
 
 
-def _decode(sets: list[dict], branch: str, want: str, env: dict | None = None) -> int:
+def _decode(
+    sets: list[dict],
+    branch: str,
+    want: str,
+    env: dict | None = None,
+    default_branch: str | None = None,
+) -> int:
+    argv = [BASH, str(SCRIPT), "--decode", branch, want]
+    if default_branch is not None:
+        argv.append(default_branch)
     return subprocess.run(
-        [BASH, str(SCRIPT), "--decode", branch, want],
+        argv,
         input=json.dumps(sets, ensure_ascii=False).encode("utf-8"),
         capture_output=True,
         env=env,
     ).returncode
 
 
-def _decode_bypass(sets: list[dict], branch: str, env: dict | None = None) -> int:
+def _decode_bypass(
+    sets: list[dict],
+    branch: str,
+    env: dict | None = None,
+    default_branch: str | None = None,
+) -> int:
+    argv = [BASH, str(SCRIPT), "--decode-bypass", branch]
+    if default_branch is not None:
+        argv.append(default_branch)
     return subprocess.run(
-        [BASH, str(SCRIPT), "--decode-bypass", branch],
+        argv,
         input=json.dumps(sets, ensure_ascii=False).encode("utf-8"),
         capture_output=True,
         env=env,
@@ -105,6 +125,73 @@ def test_multiple_rulesets_intersect():
         _ruleset("refs/heads/dev", ["squash", "rebase"]),
     ]
     assert _decode(sets, "dev", "rebase,squash") == 0
+
+
+# --- which rulesets apply to a ref ---------------------------------------------------
+# GitHub decides this from conditions.ref_name: `exclude` wins over `include`, and both
+# accept fnmatch patterns plus the ~ALL / ~DEFAULT_BRANCH aliases. Counting a ruleset that
+# does NOT apply is the unsafe direction — it reports "match" for a repo that is not
+# actually protected. Failing to count one that does apply is only noise.
+
+
+def test_excluded_ref_is_not_counted():
+    # ~ALL include with this very branch excluded: the ruleset does not govern `dev` at all,
+    # so its methods must not be intersected into the verdict. Counting it made a repo with
+    # ONE such ruleset report a clean "match" for a branch it never protected.
+    sets = [_ruleset("~ALL", ["merge"], exclude=["refs/heads/dev"])]
+    assert _decode(sets, "dev", "merge") == 10
+
+
+def test_excluded_ref_is_not_counted_on_the_bypass_axis():
+    # Same predicate, other axis: an excluded ruleset imposes no PR requirement here, so
+    # there is nothing to bypass and no gap to report.
+    sets = [_ruleset("~ALL", ["merge"], exclude=["refs/heads/dev"], bypass_actors=[])]
+    assert _decode_bypass(sets, "dev") == 0
+
+
+def test_exclude_wins_over_an_explicit_include():
+    # Both name the ref. GitHub applies exclude last; so must we.
+    sets = [_ruleset("refs/heads/dev", ["merge"], exclude=["refs/heads/dev"])]
+    assert _decode(sets, "dev", "merge") == 10
+
+
+def test_glob_include_matches():
+    sets = [_ruleset("refs/heads/*", ["merge"])]
+    assert _decode(sets, "stage", "merge") == 0
+
+
+def test_glob_star_does_not_cross_a_slash():
+    # GitHub's ref patterns are path-aware: `*` matches within one segment, `**` spans them.
+    # Python's fnmatch has no such rule — its `*` swallows `/` — so `refs/heads/*` would
+    # count a ruleset that GitHub does not apply to `team/dev` at all. That is the unsafe
+    # direction: a clean verdict for a branch nothing protects. Bites any host whose
+    # flow-config branch names contain a slash.
+    assert _decode([_ruleset("refs/heads/*", ["merge"])], "team/dev", "merge") == 10
+
+
+def test_globstar_crosses_a_slash():
+    assert _decode([_ruleset("refs/heads/**", ["merge"])], "team/dev", "merge") == 0
+
+
+def test_glob_exclude_matches():
+    sets = [_ruleset("~ALL", ["merge"], exclude=["refs/heads/fix/*"])]
+    assert _decode(sets, "fix/thing", "merge") == 10
+
+
+def test_default_branch_alias_matches_the_named_default():
+    sets = [_ruleset("~DEFAULT_BRANCH", ["merge"])]
+    assert _decode(sets, "main", "merge", default_branch="main") == 0
+
+
+def test_default_branch_alias_does_not_match_another_branch():
+    sets = [_ruleset("~DEFAULT_BRANCH", ["merge"])]
+    assert _decode(sets, "dev", "merge", default_branch="main") == 10
+
+
+def test_default_branch_alias_without_a_known_default_does_not_match():
+    # The pure --decode path has no repo to ask. Guessing "it probably applies" would be the
+    # unsafe direction (a false "match"); declining to count it is only noise.
+    assert _decode([_ruleset("~DEFAULT_BRANCH", ["merge"])], "main", "merge") == 10
 
 
 # --- bypass actors -----------------------------------------------------------------
@@ -288,24 +375,52 @@ def test_object_instead_of_array_exits_20():
     assert r.returncode == 20
 
 
-def _gh_stub_script(rulesets_by_id: dict) -> str:
+def _body(rs) -> str:
+    # a plain str value is emitted verbatim, so a test can serve a body that is not JSON
+    return rs if isinstance(rs, str) else json.dumps(rs)
+
+
+def _gh_stub_script(
+    rulesets_by_id: dict,
+    org_rulesets_by_id: dict | None = None,
+    default_branch: str | None = None,
+) -> str:
     """A fake `gh` placed on PATH so the non-`--decode` dispatch path (list ids, then
     fetch each ruleset) can be driven without a real `gh` install or network access.
-    Serves `gh api /repos/.../rulesets` (the id list) and `gh api /repos/.../rulesets/<id>`
-    (one full ruleset object each) from a fixed table.
+
+    `rulesets_by_id` is the id list AND the repo-scoped bodies. An id mapped to `None`
+    serves the list but makes `repos/.../rulesets/<id>` fail — how GitHub answers for a
+    ruleset inherited from the org. `org_rulesets_by_id` then serves those from
+    `orgs/.../rulesets/<id>`. `default_branch` answers `repos/{owner}/{repo}`.
     """
     ids_out = "\n".join(str(rid) for rid in rulesets_by_id)
-    cases = "\n".join(
-        # a plain str value is emitted verbatim, so a test can serve a body that is not JSON
-        f"    */rulesets/{rid}) printf '%s' '{rs if isinstance(rs, str) else json.dumps(rs)}' ;;"
+    repo_cases = "\n".join(
+        f"    repos/*/rulesets/{rid}) "
+        + ("exit 1 ;;" if rs is None else f"printf '%s' '{_body(rs)}' ;;")
         for rid, rs in rulesets_by_id.items()
+    )
+    org_cases = "\n".join(
+        f"    orgs/*/rulesets/{rid}) printf '%s' '{_body(rs)}' ;;"
+        for rid, rs in (org_rulesets_by_id or {}).items()
+    )
+    # the stub answers as the caller's `--jq` would (same convention as the id list above),
+    # so this is the bare branch name, not the repo object
+    repo_meta = (
+        f"    repos/*) printf '{default_branch}\\n' ;;\n" if default_branch is not None else ""
     )
     return (
         "#!/usr/bin/env bash\n"
+        # every api path is appended to GH_STUB_LOG when set, so a test can assert on which
+        # endpoints were actually reached — an exit code alone cannot tell "fetched id 2 and
+        # found a gap" apart from "gave up at id 1"
+        'if [ -n "${GH_STUB_LOG:-}" ]; then printf "%s\\n" "$2" >> "$GH_STUB_LOG"; fi\n'
         'if [ "$1" = "api" ]; then\n'
         '  case "$2" in\n'
-        f"    */rulesets) printf '{ids_out}\\n' ;;\n"
-        f"{cases}\n"
+        f"{repo_cases}\n"
+        f"{org_cases}\n"
+        f"    repos/*/rulesets) printf '{ids_out}\\n' ;;\n"
+        # last among the repos/* patterns: it would otherwise swallow the rulesets paths
+        f"{repo_meta}"
         "    *) exit 1 ;;\n"
         "  esac\n"
         "  exit 0\n"
@@ -315,15 +430,25 @@ def _gh_stub_script(rulesets_by_id: dict) -> str:
 
 
 def _run_dispatch(
-    rulesets_by_id: dict, flows: list[str], branch_env: dict
+    rulesets_by_id: dict,
+    flows: list[str],
+    branch_env: dict,
+    org_rulesets_by_id: dict | None = None,
+    default_branch: str | None = None,
+    fetch_log: Path | None = None,
 ) -> subprocess.CompletedProcess:
     with tempfile.TemporaryDirectory() as d:
         gh_path = Path(d) / "gh"
-        gh_path.write_text(_gh_stub_script(rulesets_by_id), encoding="utf-8")
+        gh_path.write_text(
+            _gh_stub_script(rulesets_by_id, org_rulesets_by_id, default_branch),
+            encoding="utf-8",
+        )
         gh_path.chmod(0o755)
         env = dict(os.environ)
         env["PATH"] = str(d) + os.pathsep + env.get("PATH", "")
         env["HARNESS_REPO"] = "test/repo"
+        if fetch_log is not None:
+            env["GH_STUB_LOG"] = str(fetch_log)
         env.update(branch_env)
         return subprocess.run(
             [BASH, str(SCRIPT), *flows],
@@ -497,6 +622,69 @@ def test_bypass_check_undecodable_reports_undetermined_not_a_gap():
     assert "BYPASS ACTOR" not in r.stderr
 
 
+def test_org_inherited_ruleset_is_read_from_the_org_endpoint():
+    # `GET repos/{o}/{r}/rulesets` lists rulesets inherited from the org, but their CONTENT
+    # is not readable at the repo-scoped id endpoint. Treating that one failure as fatal
+    # turned the whole check into a permanent exit 20 for every org that manages rulesets
+    # centrally — the check silently switched itself off for exactly those repos.
+    r = _run_dispatch(
+        {1: None},
+        ["promotion"],
+        {"HARNESS_BRANCH_STAGING": "stage", "HARNESS_BRANCH_PRODUCTION": "main"},
+        org_rulesets_by_id={
+            1: _ruleset("~ALL", ["merge"], bypass_actors=ACTOR),
+        },
+    )
+    assert r.returncode == 0
+    assert "match the required methods" in r.stderr
+
+
+def test_a_ruleset_readable_from_neither_endpoint_is_undetermined():
+    # When the content cannot be read at all we do not know whether that ruleset governs
+    # these branches, so no verdict is honest. 20, never 0 and never 10.
+    r = _run_dispatch(
+        {1: None},
+        ["promotion"],
+        {"HARNESS_BRANCH_STAGING": "stage", "HARNESS_BRANCH_PRODUCTION": "main"},
+    )
+    assert r.returncode == 20
+    assert "match" not in r.stderr.lower()
+    assert "allowed merge methods must be exactly" not in r.stderr
+
+
+def test_one_unreadable_ruleset_does_not_discard_the_readable_ones(tmp_path: Path):
+    # The failure must stay scoped to its own id. The exit code cannot show that — the old
+    # `|| exit 1` produced 20 here too, by abandoning the whole list — so assert on what
+    # actually distinguishes the two: whether id 2 was ever fetched.
+    log = tmp_path / "fetches.txt"
+    r = _run_dispatch(
+        {1: None, 2: _ruleset("refs/heads/stage", ["merge"], bypass_actors=ACTOR)},
+        ["promotion"],
+        {"HARNESS_BRANCH_STAGING": "stage", "HARNESS_BRANCH_PRODUCTION": "main"},
+        fetch_log=log,
+    )
+    assert r.returncode == 20
+    fetched = log.read_text(encoding="utf-8").split()
+    assert "repos/test/repo/rulesets/1" in fetched
+    assert "orgs/test/rulesets/1" in fetched, "the org fallback was not attempted"
+    assert "repos/test/repo/rulesets/2" in fetched, "the loop abandoned the remaining ids"
+
+
+def test_default_branch_alias_is_resolved_through_the_dispatch():
+    # ~DEFAULT_BRANCH is only decidable with the repo's default branch in hand; the dispatch
+    # is what resolves it and hands it to both decoders.
+    r = _run_dispatch(
+        {1: _ruleset("~DEFAULT_BRANCH", ["merge"], bypass_actors=ACTOR)},
+        ["promotion"],
+        {"HARNESS_BRANCH_STAGING": "stage", "HARNESS_BRANCH_PRODUCTION": "main"},
+        default_branch="main",
+    )
+    # main matches the alias and is exactly "merge"; stage matches nothing, so it differs
+    assert r.returncode == 10
+    assert "stage: allowed merge methods" in r.stderr
+    assert "main: allowed merge methods" not in r.stderr
+
+
 def test_undecodable_response_reports_undetermined_not_a_mismatch():
     # `decode`'s 20 must survive the dispatch. Collapsing it into rc=10 tells a repo its
     # ruleset "must be exactly: rebase,squash" — a verdict about a ruleset that was never
@@ -524,6 +712,116 @@ def test_unrecognized_flow_only_does_not_report_match():
     assert r.returncode == 20
     assert "unknown flow: bogus" in r.stderr
     assert "match" not in r.stderr.lower()
+
+
+SKILL = Path(__file__).resolve().parent.parent / "skills" / "flow-init" / "SKILL.md"
+PLUGIN_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _step_27_block() -> str:
+    """The Step 2.7 shell block, lifted verbatim out of the skill so it can be RUN.
+
+    Asserting on the block's *text* is not enough: the pre-fix hard error can be restored on
+    a line of its own and still satisfy any grep-shaped check. Only executing it proves the
+    behavior.
+    """
+    blocks = re.findall(r"```bash\n(.*?)```", SKILL.read_text(encoding="utf-8"), re.DOTALL)
+    hits = [b for b in blocks if "check-merge-ruleset.sh" in b]
+    assert len(hits) == 1, f"expected exactly one Step 2.7 bash block, found {len(hits)}"
+    return hits[0]
+
+
+def _run_step_27(tmp: Path, gh_stub: str | None) -> subprocess.CompletedProcess:
+    """Run the block against a real config, with `gh` absent or failing.
+
+    `python3` is shimmed onto the venv interpreter because the block imports PyYAML, and the
+    system python3 on a dev box generally has not got it.
+    """
+    root = tmp / "host"
+    cfgdir = root / ".claude" / "harness-tier" / "config"
+    cfgdir.mkdir(parents=True)
+    (cfgdir / "flow-config.yaml").write_text(
+        "branches:\n"
+        "  integration: dev\n"
+        "  staging: stage\n"
+        "  production: main\n"
+        "merge_workflow:\n"
+        "  pull_request: [promotion]\n",
+        encoding="utf-8",
+    )
+    shim = tmp / "bin"
+    shim.mkdir()
+    (shim / "python3").write_text(
+        f'#!/usr/bin/env bash\nexec "{sys.executable}" "$@"\n', encoding="utf-8"
+    )
+    (shim / "python3").chmod(0o755)
+    if gh_stub is not None:
+        (shim / "gh").write_text(gh_stub, encoding="utf-8")
+        (shim / "gh").chmod(0o755)
+
+    # every PATH entry that carries a real `gh` is dropped, so "absent" really is absent
+    keep = [
+        d
+        for d in os.environ.get("PATH", "").split(os.pathsep)
+        if d and not any((Path(d) / n).exists() for n in ("gh", "gh.exe"))
+    ]
+    env = dict(os.environ)
+    env["PATH"] = os.pathsep.join([str(shim), *keep])
+    env["ROOT"] = str(root)
+    env["PLUGIN"] = str(PLUGIN_ROOT)
+
+    script = tmp / "step27.sh"
+    script.write_text(_step_27_block(), encoding="utf-8")
+    return subprocess.run([BASH, str(script)], capture_output=True, text=True, env=env)
+
+
+def test_step_27_skips_instead_of_dying_when_gh_is_absent(tmp_path: Path):
+    """The caller must not be stricter than the script it calls.
+
+    `check-merge-ruleset.sh` degrades a missing/unauthenticated `gh` to exit 20 ("skipping"),
+    and Step 2.7 documents continuing on 10 and 20 alike. But the block reached the script
+    through `REPO="$(gh repo view …)" || exit 1`, so on a host without `gh` the step died
+    with a hard error before the graceful path could ever run — stopping `/flow-init` for a
+    team whose only sin was not having the GitHub CLI installed.
+    """
+    r = _run_step_27(tmp_path, gh_stub=None)
+    assert r.returncode == 0, f"stdout={r.stdout!r} stderr={r.stderr!r}"
+    assert "skipping" in (r.stdout + r.stderr)
+
+
+def test_step_27_skips_when_gh_cannot_resolve_a_repo(tmp_path: Path):
+    # `gh` installed but unauthenticated, or a repo with no GitHub remote: also not a config
+    # defect, also not a reason to stop /flow-init.
+    r = _run_step_27(tmp_path, gh_stub="#!/usr/bin/env bash\nexit 1\n")
+    assert r.returncode == 0, f"stdout={r.stdout!r} stderr={r.stderr!r}"
+    assert "skipping" in (r.stdout + r.stderr)
+
+
+def test_step_27_still_stops_on_a_broken_branches_config(tmp_path: Path):
+    # The other half of the distinction: a config error must still be fatal. Without this,
+    # "skip on anything that fails" would pass both tests above and silence real defects.
+    root = tmp_path / "host"
+    cfgdir = root / ".claude" / "harness-tier" / "config"
+    cfgdir.mkdir(parents=True)
+    (cfgdir / "flow-config.yaml").write_text(
+        "branches:\n  integration: dev\nmerge_workflow:\n  pull_request: [promotion]\n",
+        encoding="utf-8",
+    )
+    shim = tmp_path / "bin"
+    shim.mkdir()
+    (shim / "python3").write_text(
+        f'#!/usr/bin/env bash\nexec "{sys.executable}" "$@"\n', encoding="utf-8"
+    )
+    (shim / "python3").chmod(0o755)
+    env = dict(os.environ)
+    env["PATH"] = os.pathsep.join([str(shim), env.get("PATH", "")])
+    env["ROOT"] = str(root)
+    env["PLUGIN"] = str(PLUGIN_ROOT)
+    script = tmp_path / "step27.sh"
+    script.write_text(_step_27_block(), encoding="utf-8")
+    r = subprocess.run([BASH, str(script)], capture_output=True, text=True, env=env)
+    assert r.returncode == 1
+    assert "branches.staging" in r.stderr
 
 
 def test_script_never_calls_a_write_api():

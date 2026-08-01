@@ -334,8 +334,15 @@ fi
 BR_INTEGRATION="$(br integration)" || exit 1
 BR_STAGING="$(br staging)" || exit 1
 BR_PRODUCTION="$(br production)" || exit 1
-REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)" || exit 1
-[ -n "$REPO" ] || { echo "gh returned no repo — is this a GitHub remote?" >&2; exit 1; }
+if ! command -v gh >/dev/null 2>&1; then
+  echo "  [=] gh not installed — skipping the ruleset check (install gh to enable it)"
+  exit 0
+fi
+REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)" || REPO=""
+if [ -z "$REPO" ]; then
+  echo "  [=] no GitHub repo resolved (no remote, or gh not authenticated) — skipping"
+  exit 0
+fi
 HARNESS_REPO="$REPO" \
 HARNESS_BRANCH_INTEGRATION="$BR_INTEGRATION" \
 HARNESS_BRANCH_STAGING="$BR_STAGING" \
@@ -352,15 +359,21 @@ the `gh repo view` — is captured into its own variable and checked **before** 
 line, not left inline inside it, because only a real assignment statement gives `||`
 something to fire on; a broken `branches` subtree (missing key, typo'd name, deleted
 value) must stop the block here, never reach the script as a silently empty env var that
-`${VAR:-dev}` would absorb into a check against the wrong branch. `REPO` gets the same
-treatment plus an explicit non-empty test: inline, an empty `HARNESS_REPO` falls through to
-`${GITHUB_REPOSITORY:-}`, and if *that* happens to be set the script would cheerfully report
-"merge rulesets match" for a repo this block never derived.)
+`${VAR:-dev}` would absorb into a check against the wrong branch. `REPO` is captured the
+same way and non-empty-tested for a related reason: inline, an empty `HARNESS_REPO` falls
+through to `${GITHUB_REPOSITORY:-}`, and if *that* happens to be set the script would
+cheerfully report "merge rulesets match" for a repo this block never derived. But `REPO`
+**skips rather than stops** — a broken `branches` subtree is a config error the user must
+fix, whereas an absent or unauthenticated `gh`, or a repo with no GitHub remote, only means
+this check is not applicable. The script itself already degrades that case to exit 20, so a
+caller that hard-errors on it is stricter than the thing it calls, and would stop
+`/flow-init` over a missing CLI.)
 
 The script is **read-only** — it never changes repo settings. It reports the gap between the
 current state and what is required, plus how to apply it (the same posture as
 `check_precommit`, which reports missing hooks instead of merging them). Relay its output
-**verbatim** and continue `/flow-init` on exit 10 (mismatch) and 20 (tool absent) alike.
+**verbatim** and continue `/flow-init` on exit 10 (mismatch) and 20 (undetermined — no
+`python3`, or a ruleset whose body could not be read) alike.
 On a re-run this step doubles as a drift check.
 
 ### Step 3 — Teams webhook URLs + CLAUDE.md block (interactive — Claude, skippable)

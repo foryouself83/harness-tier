@@ -173,8 +173,11 @@ Promotions are gated at the **commit on the target branch** (no tier marker
 needed — the branch drives it). Record each gate before committing the promotion:
 
 - **Staging** (integration → staging): regression `review` (independent
-  `general-purpose` agent; the tree is clean at promotion, so list the files with
-  `git diff --name-only "$BASE..$HEAD"` — see
+  `general-purpose` agent; the tree is clean at promotion, so `git fetch origin` and list
+  the files with the pair **for this promotion** —
+  `git diff --name-only "origin/<staging>..origin/<integration>"`; the Release bullet below
+  has its own pair, do not reuse this one there. Always the fetched `origin/` refs, since a
+  stale local ref shrinks the reviewed set; see
   [`risk-tiers.md`](../../rules/risk-tiers.md) Step 3) **and bump-level selection**:
   1. Compute the commit-derived level as the default: `semantic-release version --print`
      (best-effort) — compare to the current version to suggest major/minor/patch.
@@ -195,6 +198,11 @@ needed — the branch drives it). Record each gate before committing the promoti
 - **Release** (staging → production): Staging gates **plus** `/code-review` at
   `ultra` effort (extra independent layer) and `/security-review` →
   `touch .claude/harness-tier/.flow/security.done`, then commit on the production branch.
+  ⚠️ The regression `review` here takes **its own** file list —
+  `git diff --name-only "origin/<production>..origin/<staging>"`, not the Staging bullet's
+  pair. Reusing that pair does not fail loudly: staging is *ahead* of integration by the rc
+  bump CI just pushed, so it returns a plausible handful of release plumbing and hides every
+  substantive change — full coverage of the wrong set, with no empty result to give it away.
   ⚠️ **Merge the freshly fetched `origin/<staging>`** (post-rc — it carries the
   `X.Y.Z-rc.N` bump), not a stale local staging ref: otherwise the rc-strip finalize
   has no prerelease to strip, falls back to plain compute, and the bump-level override
