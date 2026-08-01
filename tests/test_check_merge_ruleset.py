@@ -731,42 +731,53 @@ def _step_27_block() -> str:
     return hits[0]
 
 
-def _run_step_27(tmp: Path, gh_stub: str | None) -> subprocess.CompletedProcess:
-    """Run the block against a real config, with `gh` absent or failing.
-
-    `python3` is shimmed onto the venv interpreter because the block imports PyYAML, and the
-    system python3 on a dev box generally has not got it.
-    """
-    root = tmp / "host"
+def _write_config(root: Path, body: str) -> None:
     cfgdir = root / ".claude" / "harness-tier" / "config"
     cfgdir.mkdir(parents=True)
-    (cfgdir / "flow-config.yaml").write_text(
-        "branches:\n"
-        "  integration: dev\n"
-        "  staging: stage\n"
-        "  production: main\n"
-        "merge_workflow:\n"
-        "  pull_request: [promotion]\n",
-        encoding="utf-8",
-    )
+    (cfgdir / "flow-config.yaml").write_text(body, encoding="utf-8")
+
+
+FULL_CONFIG = (
+    "branches:\n"
+    "  integration: dev\n"
+    "  staging: stage\n"
+    "  production: main\n"
+    "merge_workflow:\n"
+    "  pull_request: [promotion]\n"
+)
+
+
+def _shim_dir(tmp: Path, gh_stub: str | None) -> Path:
+    """A PATH containing `python3` and nothing else (plus `gh` when a stub is asked for).
+
+    `python3` is shimmed onto the venv interpreter because the block imports PyYAML and the
+    system python3 generally has not got it. Both shims use an ABSOLUTE `/bin/sh` shebang,
+    never `/usr/bin/env bash` — the whole point of this directory is to be the entire PATH,
+    so nothing may be resolved through it.
+    """
     shim = tmp / "bin"
     shim.mkdir()
-    (shim / "python3").write_text(
-        f'#!/usr/bin/env bash\nexec "{sys.executable}" "$@"\n', encoding="utf-8"
-    )
+    (shim / "python3").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
     (shim / "python3").chmod(0o755)
     if gh_stub is not None:
         (shim / "gh").write_text(gh_stub, encoding="utf-8")
         (shim / "gh").chmod(0o755)
+    return shim
 
-    # every PATH entry that carries a real `gh` is dropped, so "absent" really is absent
-    keep = [
-        d
-        for d in os.environ.get("PATH", "").split(os.pathsep)
-        if d and not any((Path(d) / n).exists() for n in ("gh", "gh.exe"))
-    ]
+
+def _run_step_27(tmp: Path, gh_stub: str | None, config: str = FULL_CONFIG):
+    """Run the extracted block with `gh` absent or failing.
+
+    PATH is the shim directory ALONE. An earlier version instead dropped every PATH entry
+    that carried a `gh`, which on a Linux runner deletes `/usr/bin` — taking `bash` with it
+    — so the test passed on Windows only by accident of where `gh` happens to live. Making
+    PATH exhaustive removes the guesswork: `command -v gh` cannot find what is not there.
+    The block exits at the `gh` probe, before the line that needs `bash` on PATH.
+    """
+    root = tmp / "host"
+    _write_config(root, config)
     env = dict(os.environ)
-    env["PATH"] = os.pathsep.join([str(shim), *keep])
+    env["PATH"] = str(_shim_dir(tmp, gh_stub))
     env["ROOT"] = str(root)
     env["PLUGIN"] = str(PLUGIN_ROOT)
 
@@ -792,7 +803,7 @@ def test_step_27_skips_instead_of_dying_when_gh_is_absent(tmp_path: Path):
 def test_step_27_skips_when_gh_cannot_resolve_a_repo(tmp_path: Path):
     # `gh` installed but unauthenticated, or a repo with no GitHub remote: also not a config
     # defect, also not a reason to stop /flow-init.
-    r = _run_step_27(tmp_path, gh_stub="#!/usr/bin/env bash\nexit 1\n")
+    r = _run_step_27(tmp_path, gh_stub="#!/bin/sh\nexit 1\n")
     assert r.returncode == 0, f"stdout={r.stdout!r} stderr={r.stderr!r}"
     assert "skipping" in (r.stdout + r.stderr)
 
@@ -800,26 +811,12 @@ def test_step_27_skips_when_gh_cannot_resolve_a_repo(tmp_path: Path):
 def test_step_27_still_stops_on_a_broken_branches_config(tmp_path: Path):
     # The other half of the distinction: a config error must still be fatal. Without this,
     # "skip on anything that fails" would pass both tests above and silence real defects.
-    root = tmp_path / "host"
-    cfgdir = root / ".claude" / "harness-tier" / "config"
-    cfgdir.mkdir(parents=True)
-    (cfgdir / "flow-config.yaml").write_text(
-        "branches:\n  integration: dev\nmerge_workflow:\n  pull_request: [promotion]\n",
-        encoding="utf-8",
+    # `gh` is present and working here, so the run reaches the config error on its merits.
+    r = _run_step_27(
+        tmp_path,
+        gh_stub="#!/bin/sh\necho owner/repo\n",
+        config="branches:\n  integration: dev\nmerge_workflow:\n  pull_request: [promotion]\n",
     )
-    shim = tmp_path / "bin"
-    shim.mkdir()
-    (shim / "python3").write_text(
-        f'#!/usr/bin/env bash\nexec "{sys.executable}" "$@"\n', encoding="utf-8"
-    )
-    (shim / "python3").chmod(0o755)
-    env = dict(os.environ)
-    env["PATH"] = os.pathsep.join([str(shim), env.get("PATH", "")])
-    env["ROOT"] = str(root)
-    env["PLUGIN"] = str(PLUGIN_ROOT)
-    script = tmp_path / "step27.sh"
-    script.write_text(_step_27_block(), encoding="utf-8")
-    r = subprocess.run([BASH, str(script)], capture_output=True, text=True, env=env)
     assert r.returncode == 1
     assert "branches.staging" in r.stderr
 
