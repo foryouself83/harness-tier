@@ -2,6 +2,27 @@
 
 <!-- version list -->
 
+## v0.1.13-rc.1 (2026-07-30)
+
+### Bug Fixes
+
+- **flow**: Check bypass actors on their own axis
+  ([`4d35a73`](https://github.com/foryouself83/harness-tier/commit/4d35a734c9545604b16452a6af2fef6d09c8c663))
+
+### Documentation
+
+- Record the PR workflow design decisions
+  ([`604bf0c`](https://github.com/foryouself83/harness-tier/commit/604bf0c6ff379472b67d63cce752ddd9d8da2f08))
+
+### Features
+
+- **flow**: Make PR workflow an init choice
+  ([`d202cb3`](https://github.com/foryouself83/harness-tier/commit/d202cb3347a4b8c250b358d8d0dc484b99276082))
+
+- **flow**: Make review-gate coverage verifiable
+  ([`31c200b`](https://github.com/foryouself83/harness-tier/commit/31c200bb2f04a70cfcfb993c3ac84573b687899c))
+
+
 ## v0.1.12-rc.1 (2026-07-27)
 
 ### Bug Fixes

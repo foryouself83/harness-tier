@@ -57,6 +57,9 @@ branches:
   production: main           # production release branch
   feature_prefix: "feature/" # prefix for day-to-day work branches
 
+merge_workflow:
+  pull_request: []          # flows routed through a PR instead of a direct merge; [] = all direct (default)
+
 modules:                     # per-module monorepo pre-checks (when modules use different languages/tools)
   - name: api
     path: services/api/      # run checks when something under this path changes
@@ -67,7 +70,7 @@ modules:                     # per-module monorepo pre-checks (when modules use 
       test:        "uv run pytest services/api"
       security:    "uv run bandit -r services/api"
 
-review_checklist:            # items to check in the Dev-tier domain review
+review_checklist:            # what the Dev review gate judges every changed file against
   - "regression / regression tests pass"
   - "cross-service contract / cross-service contract validity"
   - "DB transaction / migration safety"
@@ -80,6 +83,18 @@ doc_sync:                    # doc-sync targets
     - ".claude/rules/"
   service_docs: "services/*/CLAUDE.md"
 ```
+
+**`merge_workflow.pull_request`** — flows to route through a PR instead of a direct
+`git merge`. Values: `daily` (`feature/*`/`fix/*` → integration) · `promotion`
+(integration → staging, staging → production). Empty (the default) means every flow
+stays a direct merge, unchanged from before this setting existed. Commit discipline
+(gitlint, tier gates) is unaffected either way — only the merge itself moves. For a
+PR-routed flow, enforcement of the merge method moves server-side to a GitHub branch
+ruleset — exactly so for `promotion`, only partly for `daily` (§2.2 below). `/flow-init`
+Step 2.7 reads the repo's current ruleset state and reports the gap (branches · allowed
+merge methods · a bypass actor), but never edits it for you. Full detail — including why a promotion ruleset needs a bypass actor
+and how the back-merge interacts with a `daily` ruleset — lives in
+[`rules/risk-tiers.md`](rules/risk-tiers.md)'s **PR workflow** section.
 
 **When each `checks` key runs** (module pre-checks):
 
@@ -125,16 +140,34 @@ branch flow it belongs to (branch names resolve from your `flow-config.branches`
 | Merge | Enforced |
 |-------|----------|
 | `feature/*` → integration | `--squash` required |
+| `integration` → staging | `--no-ff` required |
 | `staging` → production | `--no-ff` required |
 | `hotfix/*` → production | `--squash` required |
 | `fix/*` → integration | `--no-ff` refused |
 
 Scope is deliberately narrow. Only rows where the strategy is a single choice can be
-checked — `integration → staging` allows rebase *or* merge, so there is nothing to
-enforce. Rebasing before a `feature/*` merge is **warned about, not blocked** (a stale
-`origin` ref would otherwise produce false alarms). And like every layer-2 gate this
-only sees **merges made inside a Claude session** — merging from your own terminal
-bypasses it entirely.
+checked — the back-merge (`production` → integration, after a release) allows fast-forward
+*or* `--no-ff`, so there is nothing to enforce there. Rebasing before a `feature/*` merge is
+**warned about, not blocked** (a stale `origin` ref would otherwise produce false alarms).
+And like every layer-2 gate this only sees **merges made inside a Claude session** —
+merging from your own terminal bypasses it entirely.
+
+This local-hook enforcement applies only while the flow's merge stays a direct `git merge`.
+When `flow-config.merge_workflow.pull_request` routes a flow through a PR instead (see
+`rules/risk-tiers.md`'s **PR workflow** section), the hook never sees a `git merge`
+command, so the corresponding row above stops firing — enforcement moves server-side to a
+GitHub branch ruleset (allowed merge methods), which `/flow-init` Step 2.7 checks but never
+changes for you.
+
+**The ruleset is an exact swap only for `promotion`**, where one method (`merge`) is allowed
+per branch. A branch ruleset targets the *destination* branch, so under `daily` it cannot
+tell a `feature/*` PR from a `fix/*` one: allowing `squash`+`rebase` guarantees only "no
+merge commit into integration", and picking the right one of the two stays discipline — say
+which method the PR must use when you hand it over. The same destination-wide reach pulls in
+flows you did not select: "require a pull request" on integration also blocks the
+post-release back-merge push, and on production it also catches `hotfix/*`. Both need
+handling — a bypass actor, or routing that flow through a PR as well. `rules/risk-tiers.md`'s
+**PR workflow** section spells out each case.
 
 Anything the gate cannot decide lets the merge through: no matching rule, a command it
 cannot parse, or a command naming another worktree. To turn the check off, delete the
@@ -186,7 +219,7 @@ The **mandatory first step for all code changes**. Sequence:
 4. **Execute** — run the tier's process and gates.
    - **Docs**: edit directly → reconcile docs via `doc-sync` → commit
    - **Dev**: `superpowers` pipeline (design → plan → implement → verify → review) →
-     domain review (against `review_checklist`) → `doc-sync` → commit
+     domain review (`review_checklist` + callers of changed symbols) → `doc-sync` → commit
 
 > **Promotion (Staging/Release)**: integration→staging and staging→production merges are
 > driven by the **target branch** (no separate marker needed). Each tier's mandatory gates

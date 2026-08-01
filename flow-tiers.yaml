@@ -47,6 +47,9 @@ merge_strategy:
   - source: "hotfix/*"
     target: production
     require: "--squash"
+  - source: integration
+    target: staging
+    require: "--no-ff"
   - source: staging
     target: production
     require: "--no-ff"
