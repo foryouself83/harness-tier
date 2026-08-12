@@ -181,13 +181,25 @@ pass before it can commit**.
 
 | Tier | When | superpowers | Mandatory gates |
 |------|------|:---:|-----------------|
-| `docs` | no-code change (docs/comments/config values) | ✗ | `doc-sync` |
-| `dev` | change with code (feature/fix) | ✓ | `precommit` (changed-module every-commit checks) · `review` (domain review) · `doc-sync` |
-| `staging` | QA/RC promotion (integration→staging) | ✓ | `precommit` · `review` · `security-scan` (all-module promotion checks) |
-| `release` | production deploy (staging→production) | ✓ | `precommit` · `review` · `security-scan` · `security` (security review) |
+| `docs` | no-code change (docs/comments/config values) | ✗ | `doc-sync` · `wiki` |
+| `dev` | change with code (feature/fix) | ✓ | `precommit` (changed-module every-commit checks) · `review` (domain review) · `doc-sync` · `wiki` |
+| `staging` | QA/RC promotion (integration→staging) | ✓ | `precommit` · `review` · `security-scan` (all-module promotion checks) · `wiki` |
+| `release` | production deploy (staging→production) | ✓ | `precommit` · `review` · `security-scan` · `security` (security review) · `wiki` |
 
 - **`precommit` · `security-scan`** are executed by the commit hook itself (no marker).
   Removing one from a tier's `gates` list disables just that check.
+- **`wiki`** is likewise executed by the commit hook itself (no marker), in its own step
+  separate from the module checks, but only when `flow-config.wiki` is enabled —
+  otherwise nothing runs. Its graph-quality warnings (orphans, over-size documents,
+  `sources` paths that are not on disk, defect→rule promotion, front matter that fails to
+  parse without a `wiki_id:` line, a wiki-only field present without a `wiki_id`) come back
+  as a `systemMessage` even when the commit passes. A blocked commit's structure-violation
+  list is capped at 10 entries plus a count. Read-only: it
+  checks `docs/graph/graph.yaml` against the docs' front matter (§3.9). It reads the
+  **working tree** — the hook fires before `git commit` stages anything, so there is no
+  commit to inspect yet. Stage `graph.yaml` together with the documents it was built
+  from; a rebuilt-but-unstaged graph satisfies the gate while the commit records the
+  stale one.
 - **`review` · `doc-sync` · `security`** leave an evidence marker after `/flow` passes the
   gate; the commit hook passes only when the marker exists.
 - The single source of truth for risk classification is the `risk-tiers` rule, injected
@@ -438,6 +450,19 @@ optional `target` to redeploy just one).
 **Decoupled from release** — release (`versioning`) produces the tag and notes; deployment
 is a separate, opt-in layer (`flow-config.deploy.enable`) on top of it, not part of the
 release process itself.
+
+### 3.9 `/wiki-init` — LLM Wiki setup wizard
+
+```text
+/wiki-init   # no arguments — interactive; disable-model-invocation, call it explicitly
+```
+
+Builds docs into a knowledge graph, no embeddings — migrates existing docs into
+one-concept-per-file nodes with YAML front matter and generates `docs/graph/graph.yaml`;
+relationships are the front matter you write by hand, mechanically read into the graph.
+Idempotent: a document that already carries a `wiki_id` is never re-offered on a later
+run. Once built, `doc-sync` (Mode W) keeps the graph and each node's `sources` sha in
+sync, and the `wiki` runtime gate (§2.3) verifies that sync, read-only, at every commit.
 
 ---
 

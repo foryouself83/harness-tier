@@ -48,6 +48,16 @@
    (distinguishing them from omissions — isomorphic to 9-2). If still unknown after asking, mark it "needs confirmation" in the SRS
    (no fabrication — rule 4). The produced **scope summary** is the single input source for research · rationale · SRS. Brownfield skips
    this gate and uses code-analyzer's code analysis as its scope (only intent that code cannot resolve becomes a selective question).
+8-2. **Technical docs are wiki nodes**: every generated technical doc (rule 8's `docs/` categories — not
+   `.claude/rules/<framework>-conventions.md`, which lives outside the wiki root and is never a node) opens
+   with mandatory YAML front matter (`wiki_id`, `title`; id-derivation mechanics are
+   [wiki-init](../skills/wiki-init/SKILL.md)'s SSOT — not restated here). One concept per file: if a doc
+   grows past ~400 lines or covers two subjects, split it and link the halves with `related`. This is rule 7
+   (SSOT) applied to documentation — a fact lives in one node and the rest link to it. Write front matter
+   **whether or not the project has a wiki installed**: without one it is inert metadata, and it removes any
+   ordering dependency between `/harness-init` and `/wiki-init`. Never write `used_by` or `defects` — those
+   are generated from `depends_on` and `affects`, and a template that shipped either would break a
+   consumer's first commit.
 9. **No command generation**: no deliverable is created under `.claude/commands/` (revfactory alignment).
 
 ## Operational conventions

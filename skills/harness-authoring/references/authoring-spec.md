@@ -32,5 +32,12 @@ Confirm against the official docs, not model knowledge, as the SSOT:
   The template's `{{PATHS_FRONTMATTER_OR_REMOVE}}` is replaced with a `---`/`paths:`/`---` block for a path-scoped rule,
   or with an empty string for a global rule. **The 5 mandatory rules are injected into the CLAUDE.md baseline body for certainty.**
 
+- **doc templates** (`docs/**`): `{{ID}}` is the wiki node id, derived from the file's own
+  **output path** by [wiki-init](../../wiki-init/SKILL.md) Step 5's rule (root-relative, `/`→`.`,
+  extension dropped, lowercased, then anything outside `[a-z0-9-]` replaced with `-`). Never
+  hand-pick it: these templates are cloned once per area, so a hand-picked slug repeated across
+  clones collides on id and blocks every commit once the project has a wiki. Each template's
+  own YAML comment carries a worked example for its output path.
+
 **Common discipline**: concise and lean; **no duplication** — keep a fact in a single
 SSOT and link the rest ([harness-rules.md](../../../rules/harness-rules.md) rule 7·8).

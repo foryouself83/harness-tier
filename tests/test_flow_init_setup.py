@@ -383,6 +383,12 @@ def test_copy_files_includes_new_scripts():
     assert "scripts/finalize_prerelease.py" in COPY_FILES
 
 
+def test_wiki_graph_is_copied_to_the_host():
+    from scripts.flow_init_setup import COPY_FILES
+
+    assert "scripts/wiki_graph.py" in COPY_FILES
+
+
 def _write_flow_config(host: Path, contract: dict) -> None:
     cfg_dir = host / ".claude" / "harness-tier" / "config"
     cfg_dir.mkdir(parents=True, exist_ok=True)

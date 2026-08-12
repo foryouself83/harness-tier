@@ -55,14 +55,43 @@ Two kinds:
   - **`security-scan`** — the **promotion** bucket: the promotion checks of **all
     modules** (`security` + any custom `when: promotion`), on staging/release
     promotion.
+  - **`wiki`** — not a timing bucket, and not a module check either: the hook runs it as
+    its own step. When `flow-config.wiki` is enabled it verifies, read-only, that
+    `graph.yaml` still matches the docs' front matter and that no structural rule is
+    broken. It runs on **every tier including `docs`** — a docs commit is exactly when the
+    graph drifts. No wiki configured (absent · `enable: false` · missing root) → nothing
+    runs, so a repo without a wiki never notices this gate. The graph is **built** by
+    `/doc-sync` or `/wiki-init`, never by the hook and never by CI, and it is built from
+    **git's index** — `git add` is what admits a document to the wiki, so stage new documents
+    before building. Only a real verification failure blocks; an internal error passes
+    (Invariant #1) — including a git that cannot list its own index, where the node set falls
+    back to the filesystem and would otherwise count the very files git hides. Its
+    non-blocking quality warnings — orphans, over-size documents, `sources` paths that are
+    not on disk, defect→rule promotion, front matter that fails to parse without a
+    `wiki_id:` line, a wiki-only field (`related`/`depends_on`/`affects`/`sources`) present
+    without a `wiki_id` — come back as a `systemMessage` on a passing commit, each kind
+    capped at three entries plus a count. A defect node's `regression_test` /
+    `promoted_to_rule` path is the one file reference that *does* block when it is missing,
+    unlike `sources`: those two assert a tracked repository artifact exists, and both the fix
+    and the escape hatch are one edit in the document, whereas a `sources` entry may
+    legitimately name a generated or gitignored file that no edit can conjure.
+    Two things it cannot see. It reads the **working tree**, because the hook fires before
+    `git commit` stages anything — so `graph.yaml` must be staged with the documents it
+    was built from, or the commit records new front matter beside the old graph and
+    nothing catches it until the next session commit. And on a **promotion** (Staging /
+    Release) no gate rebuilds the graph — `doc-sync` is not a promotion gate — so a drift
+    that arrived via a terminal commit surfaces here as a blocked promotion: run
+    `python3 .claude/harness-tier/scripts/wiki_graph.py --build` and include the result in
+    the promotion commit.
 
   Hosts add their own runtime checks by putting extra keys under
   `flow-config.modules[].checks` — a command string (timing defaults by key name:
   `security` → promotion, else every-commit) or `{ run, when }` to set timing
   explicitly (use `when`, not `on` — YAML reads a bare `on` key as a boolean).
-  **Timing is bound to that bucket's gate existing in the tier**: the `docs` tier
-  has neither runtime gate (and is short-circuited), so custom checks never run on
-  a docs commit. Both gates are ordinary entries in each tier's `flow-tiers.yaml`
+  **Timing is bound to that bucket's gate existing in the tier**: the `docs` tier has
+  neither *bucket* gate, so host custom checks never run on a docs commit — the module
+  pre-check short-circuits there. (`wiki` still runs on a docs commit; it is not a module
+  check and never enters that path.) Both gates are ordinary entries in each tier's `flow-tiers.yaml`
   `gates` list, so **removing one disables that whole bucket** for that tier (the
   gates list is the single on/off switch, not a hardcoded branch). Like all
   layer-2 checks these run **only on Claude-session commits** — terminal/CI commits
@@ -76,6 +105,9 @@ Two kinds:
     callers of every changed public symbol. Step 3.
   - **`doc-sync`** — `/doc-sync` harmonizes the doc set (root CLAUDE.md,
     per-service docs, rules) and reconciles code↔doc drift.
+    Where the project has an LLM Wiki, it also refreshes each node's front matter
+    `sources` sha and rebuilds `graph.yaml` (Mode W) — the `wiki` runtime gate then
+    verifies that rebuild.
   - **`bump`** (Staging) — the human major/minor/patch choice; fail-closed
     (the staging commit is blocked until `bump.done` exists). Detail in Step 1b.
   - **`security`** (Release) — `/security-review`.
@@ -122,7 +154,7 @@ promotion gates run once over the accumulated work.
 ### Staging — integration → staging branch (QA / rc cut)
 
 The release candidate enters QA/staging. Gates: `precommit`, `review`,
-`security-scan`, `bump` (see Gate glossary). Performance and integration are
+`security-scan`, `bump`, `wiki` (see Gate glossary). Performance and integration are
 independent skills; the `/security-review` LLM review is added at Release.
 
 Staging also **forces a human bump-level choice**: `/flow` asks major/minor/patch
@@ -163,8 +195,8 @@ production→main). No branch is literally named `integration`.
 
 | Moment | Tier | Gates |
 |--------|------|-------|
-| Work on `feature/*` / `fix/*` → integration branch | **Docs** (no code) / **Dev** (any code) | Docs: doc-sync · Dev: precommit, review, doc-sync |
-| integration → staging (QA / rc cut) | **Staging** | precommit, review, security-scan, bump |
+| Work on `feature/*` / `fix/*` → integration branch | **Docs** (no code) / **Dev** (any code) | Docs: doc-sync, wiki · Dev: precommit, review, doc-sync, wiki |
+| integration → staging (QA / rc cut) | **Staging** | precommit, review, security-scan, bump, wiki |
 | staging → production, or prod deploy | **Release** | + security |
 | A feature-branch change that is irreversible / prod-critical / security | escalate to **Release** | — |
 
@@ -175,9 +207,9 @@ tiers you pick during feature development.
 
 | Tier | `superpowers` pipeline | Validation skills | Suppressed |
 |------|------------------------|-------------------|------------|
-| **Docs** | OFF — no code | `/doc-sync` (harmonize docs) | brainstorming, writing-plans, TDD |
-| **Dev** | ON | selective TDD, domain review, verification, `/doc-sync` | — |
-| **Staging** | (promotion gate) | precommit, review, security-scan | — |
+| **Docs** | OFF — no code | `/doc-sync` (harmonize docs), `wiki` (verify graph) | brainstorming, writing-plans, TDD |
+| **Dev** | ON | selective TDD, domain review, verification, `/doc-sync`, `wiki` | — |
+| **Staging** | (promotion gate) | precommit, review, security-scan, `wiki` | — |
 | **Release** | (promotion gate) | + security | — |
 
 **Docs = `superpowers` OFF** (no-code edit, made directly).

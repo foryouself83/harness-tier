@@ -4,7 +4,10 @@
 # Inspects the commit in two stages, emitting deny JSON on stdout only when blocking:
 #   1) flow gate — flow_gate_check.py (plugin) verifies the required gate evidence for
 #      the declared tier / lifecycle branch. If unmet: exit 2 + reason → deny.
-#   2) module pre-check — every-commit module checks for changed modules (+ promotion checks
+#   2) wiki runtime gate — flow_gate_check.py --wiki-check verifies the knowledge graph against
+#      the docs' front matter when flow-config.wiki is enabled. exit 2 + reason → deny; any other
+#      exit passes (its stderr is a warning stream, shown either way).
+#   3) module pre-check — every-commit module checks for changed modules (+ promotion checks
 #      for all modules on promotion), routed by each check's `when` in flow-config. Config parse
 #      failure / no command is FAIL-OPEN (skip); if any fails, deny.
 # `git merge` is inspected separately (--merge-check) before both stages above and before the
@@ -31,7 +34,24 @@ set -uo pipefail
 export PYTHONUTF8=1
 
 deny() {  # $1=reason → block commit (exit 2 is the actual blocking mechanism; JSON is for forward compat)
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$1"
+  # The reason is interpolated into a JSON string, so it must be escaped first. Reasons carry
+  # the failing command verbatim, and a module command is arbitrary host text — the wiki gate's
+  # own command contains double quotes and, on Windows, backslashes. Unescaped, the `"` closes
+  # the JSON string early and `\r`/`\P` are invalid escapes, so the payload is malformed exactly
+  # when the gate blocks. Pure bash substitution: python3 is not available on every deny path
+  # (the first denies below fire *because* python3 is missing). Order matters — backslash first,
+  # else the escapes added afterwards get escaped again; the control-character sweep comes last,
+  # so the three characters that have a short escape keep it.
+  _deny_json=${1//\\/\\\\}
+  _deny_json=${_deny_json//\"/\\\"}
+  _deny_json=${_deny_json//$'\n'/\\n}
+  _deny_json=${_deny_json//$'\r'/\\r}
+  _deny_json=${_deny_json//$'\t'/\\t}
+  # JSON forbids every raw character below U+0020, not just those three. The wiki gate quotes a
+  # git subject line back into its reason, and a subject is whatever was pasted into it — one
+  # stray ESC would malform the payload the same way an unescaped quote does.
+  _deny_json=${_deny_json//[[:cntrl:]]/ }
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$_deny_json"
   printf 'harness-tier 게이트 차단: %s\n' "$1" >&2
   exit 2
 }
@@ -151,17 +171,41 @@ if [ "$flow_rc" -eq 2 ] && [ -n "$flow_reason" ]; then
   deny "$flow_reason"
 fi
 
-# 2) module pre-check. Per tier, runs the every-commit checks of the changed modules
-#    (+ all-module promotion checks on promotion). Commands arrive on stdout, the uncovered report on
-#    stderr (stderr is not captured and is shown to the user as-is). On config parse failure /
+# 2) wiki runtime gate. Its own step, NOT one of the module commands below, because the two have
+#    incompatible error contracts: down there any nonzero exit means "the check failed", while a
+#    runtime gate must fail OPEN on anything that is not a real verdict (Invariant #1 — wiki is
+#    not one of the three fail-closed exceptions). Same exit-2-only, stdout-only shape as the
+#    flow gate above, and stdout-only is load-bearing: `python3 <missing file>` ALSO exits 2,
+#    with its complaint on stderr, so reading stderr here would turn a half-copied install into
+#    a repo-wide block. On exit 0 the payload is a systemMessage JSON, held until the commit is
+#    allowed (a hook's stdout and stderr both go to the debug log at exit 0 — systemMessage is
+#    the documented field for a warning the user actually sees).
+if [ "${HARNESS_PRECOMMIT_DRYRUN:-0}" != "1" ]; then
+  wiki_out="$(CLAUDE_PROJECT_DIR="$ROOT" python3 "$PLUGIN_SCRIPTS/flow_gate_check.py" --wiki-check 2>/dev/null)"
+  wiki_rc=$?
+  if [ "$wiki_rc" -eq 2 ] && [ -n "$wiki_out" ]; then
+    deny "$wiki_out"
+  fi
+  [ "$wiki_rc" -eq 0 ] && wiki_note="$wiki_out"
+fi
+
+allow() {  # emit any held non-blocking notice, then let the commit through
+  [ -n "${wiki_note:-}" ] && printf '%s\n' "$wiki_note"
+  exit 0
+}
+
+# 3) module pre-check. Per tier, runs the every-commit checks of the changed modules
+#    (+ all-module promotion checks on promotion). Commands arrive on stdout, the uncovered report
+#    on stderr (uncaptured — but note that a hook's stderr only reaches the user when the hook
+#    exits non-zero, so this report is visible only alongside a deny). On config parse failure /
 #    no command: FAIL-OPEN (skip). If any one fails, deny.
 mod_cmds="$(CLAUDE_PROJECT_DIR="$ROOT" python3 "$PLUGIN_SCRIPTS/flow_gate_check.py" --module-commands)"
-[ -n "$mod_cmds" ] || exit 0
+[ -n "$mod_cmds" ] || allow
 
 if [ "${HARNESS_PRECOMMIT_DRYRUN:-0}" = "1" ]; then
   echo "DRYRUN: 모듈 사전검사 명령 →" 1>&2
   printf '%s\n' "$mod_cmds" 1>&2
-  exit 0
+  allow
 fi
 
 LOG_DIR="${TMPDIR:-/tmp}"
@@ -177,4 +221,4 @@ done <<EOF
 $mod_cmds
 EOF
 
-exit 0
+allow

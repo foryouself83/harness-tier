@@ -12,6 +12,7 @@ through run._claude_stream.
 
     uv run python -m evals.outcome            # measure the outcome arm (reps 3)
     uv run python -m evals.outcome --dry-run  # session count + wall-clock, no model calls
+    uv run python -m evals.outcome --skill wiki-init   # one skill; others keep their baseline
 """
 
 import argparse
@@ -19,6 +20,7 @@ import hashlib
 import json
 import sys
 import tempfile
+from dataclasses import asdict
 from datetime import date
 from pathlib import Path
 
@@ -31,30 +33,38 @@ REPO = Path(__file__).resolve().parent.parent
 OUTCOME_SCORES = REPO / "evals/outcome_scores.json"
 
 
+# Scenario fields that describe the run for a human instead of shaping it: the sandbox's
+# prose pass/fail criteria and the rationale behind them. Nothing build() or check_outcome
+# touches, so rewording one must not cost a re-measurement. Everything else is fingerprinted,
+# including fields added later — see outcome_sha.
+SHA_EXEMPT = frozenset({"why", "expect", "reject"})
+
+
 def outcome_sha(skill: str, scenario: sandbox.Scenario) -> str:
     """Freshness fingerprint for the outcome baseline.
 
     Covers everything the outcome claim depends on: the skill body that executes, the prompt
-    that drives it, the fixture (files + dirs) it runs against, and the golden it is scored by.
+    that drives it, the fixture it runs against, and the golden it is scored by.
     description_sha covers none of these — it hashes the description only, because invocation is
-    decided by the description while outcome is decided by the body."""
+    decided by the description while outcome is decided by the body.
+
+    The scenario goes in whole, minus SHA_EXEMPT. Listing the fields to *include* is what
+    let `copy_from_repo` and `git` ship outside the payload — the fixture could then change
+    while every baseline still reported fresh, which is the one thing this exists to
+    prevent. An allowlist cannot cover the field nobody remembered to add to it, so the
+    default is now inclusion and each exemption has to argue for itself."""
     body = (REPO / f"skills/{skill}/SKILL.md").read_text(encoding="utf-8")
-    payload = (
-        body
-        + scenario.prompt
-        + json.dumps(scenario.files, sort_keys=True)
-        + json.dumps(scenario.dirs, sort_keys=True)
-        + json.dumps(scenario.outcome, sort_keys=True)
-    )
+    fixture = {k: v for k, v in asdict(scenario).items() if k not in SHA_EXEMPT}
+    payload = body + json.dumps(fixture, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
 
 def outcome_check(skill: str, entry: dict | None, sha: str) -> scores.Verdict:
     """Model-free gate for a committed outcome entry — freshness + a non-zero floor.
 
-    Mirrors scores.check's shape without its ratchet: one skill at reps=3 has no family to
-    ratchet against yet. What it enforces is that a committed baseline cannot be a stale or
-    all-zero lie riding a green suite."""
+    Mirrors scores.check's shape without its ratchet: at reps=3 a skill has no history to
+    ratchet against yet, so a 1.0 sliding to 0.33 passes. What it enforces is that a
+    committed baseline cannot be a stale or all-zero lie riding a green suite."""
     if entry is None:
         return scores.Verdict(
             "warn", f"{skill}: outcome not measured yet — run python -m evals.outcome"
@@ -87,20 +97,38 @@ OUTCOME_TIMEOUT = 300
 REPS = 3
 
 
-def _outcome_targets() -> list[tuple[str, sandbox.Scenario]]:
+def _outcome_targets(only: str | None = None) -> list[tuple[str, sandbox.Scenario]]:
     """(skill, scenario) for every sandbox scenario that declares a golden end-state.
 
     Driven by Scenario.outcome, not cases.yaml — the invocation arm's data stays untouched.
-    v1 has exactly one: doc-sync via doc-sync-drift."""
-    return [(s.skill, s) for s in sandbox.SCENARIOS if s.outcome]
+
+    `only` narrows to one skill (--skill), matching run.py. Re-measuring one skill must not
+    spend the others' sessions or overwrite baselines that nothing changed. An unknown name
+    exits rather than measuring nothing: an empty run still writes and prints "wrote", which
+    reads as a completed measurement."""
+    targets = [(s.skill, s) for s in sandbox.SCENARIOS if s.outcome]
+    if only is None:
+        return targets
+    picked = [t for t in targets if t[0] == only]
+    if not picked:
+        raise SystemExit(
+            f"unknown skill {only!r}; scenarios declaring a golden end-state: "
+            f"{sorted({s for s, _ in targets})}"
+        )
+    return picked
 
 
 def run_outcome(skill: str, scenario: sandbox.Scenario, reps: int, config_dir: Path) -> dict:
     """Run one skill against its golden fixture `reps` times; score each by end-state.
 
+    `fired_hits` is a diagnostic, never the score, and it is structurally 0 for a scenario
+    whose prompt IS a slash command: a `disable-model-invocation` skill is entered by the
+    user typing it, so no Skill tool_use is ever emitted for stream.observe to see. A 0
+    beside another skill's 1.0 is that, not a regression — the end-state is the verdict.
+
     Each rep gets a throwaway fixture dir so bypassPermissions edits stay contained. Judged by
-    the final end-state (chain-agnostic): whether doc-sync ran directly or via flow's routing,
-    a synced doc set is the outcome. `fired` is recorded as a diagnostic only.
+    the final end-state (chain-agnostic): whether the skill ran directly or via another's
+    routing, the files it left behind are the outcome. `fired` is a diagnostic only.
 
     Aborts rather than recording a fabricated 0 when a session errored or never loaded the
     plugin — the same discipline run.measure applies to the invocation arm."""
@@ -163,11 +191,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     ap.add_argument("--reps", type=int, default=REPS)
     ap.add_argument("--dry-run", action="store_true", help="print the plan, run nothing")
+    ap.add_argument("--skill", help="measure one skill (default: every skill with a golden)")
     args = ap.parse_args()
     if args.reps < 1:
         ap.error("--reps must be >= 1")
 
-    targets = _outcome_targets()
+    targets = _outcome_targets(args.skill)
     sessions = len(targets) * args.reps
     minutes = sessions * run.SECONDS_PER_SESSION / 60
     print(f"{len(targets)} skill(s), {sessions} outcome sessions, ~{minutes:.0f} min")
@@ -195,7 +224,8 @@ def main() -> int:
             )
     if interrupted:
         # A rate-limited run is not a success: return non-zero and skip the "wrote" line so a
-        # partial (or, in single-skill v1, empty) run is never read as a completed one.
+        # partial (or, when the first skill measured is the one that hit the limit, empty)
+        # run is never read as a completed one.
         return 1
     print(f"wrote {OUTCOME_SCORES}")
     return 0

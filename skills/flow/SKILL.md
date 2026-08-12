@@ -59,7 +59,7 @@ Output the verdict — tier, reason, gates (from [`flow-tiers.yaml`](../../flow-
 ## Tier Classification
 - Tier: DEV
 - Reason: changes src/*.py (source code)
-- Gates: precommit, review, doc-sync
+- Gates: precommit, review, doc-sync, wiki
 ```
 
 ## Phase 2 — Confirm the tier & switch to a work branch (human gate)
@@ -109,7 +109,11 @@ Record each completed gate as `.claude/harness-tier/.flow/<gate>.done`. `precomm
 checks of all modules) are executed by the commit hook itself — no marker (both are
 ordinary `gates` entries and timing buckets over `flow-config.modules[].checks`, routed
 by each check's `when`; removing one from a tier's list in
-[`flow-tiers.yaml`](../../flow-tiers.yaml) disables it for that tier).
+[`flow-tiers.yaml`](../../flow-tiers.yaml) disables it for that tier). **`wiki`** is a
+third runtime gate needing no marker — not a timing bucket, it runs
+`wiki_graph.py --verify` directly whenever `flow-config.wiki` is enabled (no-op
+otherwise). Do **not** `touch .claude/harness-tier/.flow/wiki.done` and do not go
+looking for a `wiki` gate skill — none exists; the hook runs the script itself.
 
 > **Precondition (Dev / Staging / Release)** — the `superpowers` plugin must
 > be installed. If `superpowers:using-superpowers` is **not** among the available
@@ -170,7 +174,21 @@ by each check's `when`; removing one from a tier's list in
 ## Promotion — Staging (integration → staging) / Release (staging → production)
 
 Promotions are gated at the **commit on the target branch** (no tier marker
-needed — the branch drives it). Record each gate before committing the promotion:
+needed — the branch drives it). Record each gate before committing the promotion.
+`precommit`, `security-scan`, and `wiki` need no marker at all — they are runtime
+gates the commit hook runs directly on both the staging and the production commit
+(per [`flow-tiers.yaml`](../../flow-tiers.yaml)); the bullets below cover only the
+gates that **do** need a recorded marker.
+
+`wiki` is the one runtime gate with no skill behind it in a promotion. `doc-sync` — the
+only thing that rebuilds `graph.yaml` — is not a promotion gate, so a graph drift that
+arrived on the integration branch via a terminal commit (layer 2 never saw it) surfaces
+here as a blocked promotion commit. Resolve it in place: run
+`python3 .claude/harness-tier/scripts/wiki_graph.py --build` and stage the rebuilt
+`graph.yaml` into the promotion commit. If instead the failure names a structure
+violation (`wiki_id` format/duplicate · missing `title` · dangling `depends_on` · cycle ·
+front matter that does not parse while carrying a `wiki_id`), the fix is the document's
+front matter — `--build` cannot resolve those.
 
 - **Staging** (integration → staging): regression `review` (independent
   `general-purpose` agent; the tree is clean at promotion, so `git fetch origin` and list

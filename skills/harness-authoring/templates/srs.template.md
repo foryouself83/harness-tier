@@ -1,3 +1,20 @@
+<!-- Wiki front matter for this doc. Fill every {{…}} below, then delete this comment line
+     so the "---" that follows becomes the literal first line of the generated file
+     (wiki_graph.py only recognizes front matter starting at byte 0 — leaving this comment
+     in place keeps the file harmlessly outside the wiki, same as a plain markdown file). -->
+---
+# wiki_id: derive mechanically from this file's output path relative to the wiki root, the
+# same way wiki-init Step 5 does (e.g. docs/srs/README.md -> srs.readme). Never hand-pick a
+# slug — this template is cloned once per requirement area, and a hand-picked value repeated
+# across clones collides on id.
+wiki_id: {{ID}}
+title: <requirement area>
+tags: [srs]
+# sources is optional — requirements rarely map to specific code paths; uncomment only if
+# this SRS genuinely does, else leave it deleted.
+# sources:
+#   src/path/to/code.py: null
+---
 # {{PROJECT_NAME}} Software Requirements Specification (SRS)
 
 > Greenfield only — the SSOT for what the system must do (requirements). Write this first. Sources: {{SOURCES}}

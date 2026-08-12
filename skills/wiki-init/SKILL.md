@@ -1,0 +1,175 @@
+---
+name: wiki-init
+description: Set up an LLM Wiki in this repo — migrate existing docs into one-concept-per-file nodes with YAML front matter, then build the knowledge graph. Idempotent, incremental on re-run.
+disable-model-invocation: true
+---
+
+# Wiki-Init — LLM Wiki Setup Wizard
+
+Migrates existing docs into wiki nodes and builds `graph.yaml`. No embeddings —
+relationships are written by hand in front matter, and the graph mechanically reads
+them.
+
+**Precondition**: `.claude/harness-tier/config/flow-config.yaml` must exist. If it
+doesn't, tell the user to run [`/flow-init`](../flow-init/SKILL.md) first and
+**stop**.
+
+Re-running is incremental. Documents that already carry a `wiki_id` are left
+untouched.
+
+## 1. Confirm the wiki root
+
+Confirm via `AskUserQuestion`. Default is `docs/` — keeping it in the same tree as
+`/harness-init`'s output keeps the doc set unified.
+
+## 2. Scan
+
+Walk the `.md` files under root and build a migration-candidate table. Each row is:
+file path · line count · H2 count · whether the front matter carries a `wiki_id`. **A file
+with a high line count and multiple H2s is a file holding multiple concepts.** A row
+whose front matter has a `wiki_id` is already a wiki node — keep it in the table for
+context, but it is not a migration candidate.
+
+**`wiki_id` is the node marker — not the `---` block, and not `id`.** A doc site's own
+metadata (MkDocs · Docusaurus · Jekyll: `id`, `sidebar_position`, `slug`, `layout`, …) is
+front matter too, and `id` in particular is a documented first-class field in several of
+them — which is why the wiki does not use it. Those files are *not* nodes; validation
+ignores them. They are ordinary migration candidates: merge the wiki fields into the
+existing block rather than adding a second one, and leave their `id` alone.
+
+## 3. Select
+
+The candidate list offers only documents **without a `wiki_id`** — a document that already
+has one is already a node and is never re-offered, on this run or any later one. That is
+what makes re-running incremental. Let the user pick which of the remaining documents to
+migrate. If there are many candidates, ask in batches. Documents not chosen are left
+as-is — without a `wiki_id` they sit outside the wiki and are not subject to validation.
+
+## 4. Split
+
+Branch on the H2 count recorded in Step 2:
+
+- **Zero H2s** — nothing to split. The document becomes one node as-is: add
+  front matter to it directly, no new files.
+- **Exactly one H2** — splitting would produce one new file plus an original
+  reduced to a stub, for no benefit. Treat it like the zero-H2 case: add front
+  matter to the original as a single node.
+- **Two or more H2s** — split by H2 into new files. **Do not delete the
+  original** — leave a link to the new document in each section's place. The
+  goal is to keep the change easy to revert.
+
+  The leftover original becomes a node too, not a bare shell of links to
+  elsewhere: give it front matter with a `wiki_id` derived from its own path (Step
+  5) and `related` entries pointing at every document split out of it.
+  Otherwise it would hold links while sitting outside the wiki itself, and
+  nothing in the graph would ever reach it.
+
+## 5. Assign front matter
+
+`wiki_id` is derived mechanically from the path **relative to the wiki root**: with
+root `docs/`, `docs/code-style/python.md` → `code-style.python` (strip the root
+first, drop the extension, lowercase, then join the remaining path segments with `.`).
+
+Sanitize **each segment before joining them**: an id must match
+`^[a-z0-9-]+(\.[a-z0-9-]+)*$`, so inside a segment replace every character outside
+`[a-z0-9-]` with `-` and collapse runs of `-` into one. Underscored filenames are
+common and the raw derivation does not survive validation — `docs/api_spec.md` →
+`api-spec`, not `api_spec`. A dot inside a filename is the same case and the reason
+the order matters: sanitizing it keeps `docs/a.b.md` (→ `a-b`) distinct from
+`docs/a/b.md` (→ `a.b`), which is what makes the derivation collision-free. Skipping
+this step produces an id that `--verify` rejects — as a bad format, or as a duplicate
+of the document next to it — which blocks every commit until it is fixed.
+
+`related` · `depends_on`: read the existing docs, **propose** values, then confirm
+with the user before finalizing. **Never write** `used_by` · `defects` — they are
+generated fields, and writing them by hand blocks validation.
+
+`sources` records the code paths the document describes, as a map. Leave `sha` as
+`null` — [`doc-sync`](../doc-sync/SKILL.md) fills it in. Never write an empty string for
+an unknown sha: `""` compares equal to everything, so the node reports fresh forever.
+
+**Quote every sha, and any `title` that could read as a keyword.** Front matter is YAML
+1.1: unquoted `0123456` is octal and parses as the number 42798, and `title: no` parses
+as `false`. Validation rejects both by type, but quoting avoids the round trip.
+
+When authoring a defect document, follow the five-section body structure in
+[`defect-template.md`](references/defect-template.md).
+
+## 6. Generate the index
+
+`<root>/index.md` is itself a wiki node, not just a human landing page — reachability
+is computed **only** from front-matter edges (`related` · `depends_on` · `used_by`,
+direction ignored); markdown links in the body are never read for it (design §3). Give
+it front matter with its own `wiki_id` (conventionally `index`) and a `related:` list
+carrying **every** node id in the wiki. A node whose id is missing from that
+`related:` list is unreachable from the graph and reports as an orphan no matter how
+many markdown links point at it — a body-only bullet list of links, with no front
+matter or an empty `related:`, silently disables the whole orphan check (every node
+then reports as unreachable, or `_index_id` finds no node at all and skips the check).
+
+Still write the human-readable markdown link list too — that's for people browsing the
+file — but treat it as separate from and secondary to `related:`. Keep the two in
+sync: every id in `related:` should have a matching link in the body, and vice versa.
+
+## 7. Update flow-config
+
+`flow-config.example.yaml` already ships a `wiki:` key with `enable: false`, so
+on a `/flow-init`'d host this is normally **editing that key's existing values
+in place** (starting with `enable: true`), not inserting a new block at an
+undefined location. If the key is somehow absent, insert it as its own
+top-level section. Either way, touch only the `wiki` key — preserve the rest of
+the config.
+
+```yaml
+wiki:
+  enable: true
+  root: docs/
+  index: docs/index.md
+  max_lines: 400
+  context_lines: 2000
+  defect_rule_threshold: 3
+```
+
+## 8. Build and verify the graph
+
+`git add` every document you created or split out first. The graph is built from git's index,
+not from the filesystem — a file git does not know about is not a node, because a graph that
+named it would be unreproducible for anyone who cloned the repo.
+
+```bash
+python3 .claude/harness-tier/scripts/wiki_graph.py --build
+python3 .claude/harness-tier/scripts/wiki_graph.py --verify
+```
+
+If `--verify` fails, fix the reported reason and re-run. Do not finish until it
+passes. Two failure classes, two different fixes — the output says which:
+
+- **structure violation** (`wiki_id` format or duplicate · missing `title` · a `depends_on`
+  pointing at nothing · a cycle · a scalar YAML read as a number or boolean · front matter
+  that does not parse while carrying a `wiki_id`) — fix the **document's front matter**.
+  `--build` cannot help; it only makes the graph match whatever the front matter already
+  says. This list is capped at 10 entries plus a count when printed — fix those and re-run
+  to see the rest.
+- **graph mismatch** — re-run `--build`.
+
+Everything else it prints is a warning and does not block: orphans, over-size documents,
+`sources` paths that are not on disk, rule-promotion candidates, front matter that fails to
+parse without a `wiki_id:` line, and a wiki-only field (`related`/`depends_on`/`affects`/
+`sources`) present without a `wiki_id`. Each is capped at three entries plus a count.
+
+If you cannot make `--verify` pass within this session, set Step 7's `enable` back to
+`false` before you finish and report the violations you left behind. `--build` requires
+`enable: true`, so the gate is necessarily on from Step 7 onward — finishing with it on and
+the graph invalid blocks every commit in the repository until someone fixes it by hand.
+
+`--verify` reads the **working tree**, so a fresh `graph.yaml` on disk satisfies it even
+if the commit does not carry it. `docs/graph/graph.yaml` must be staged together with the
+documents it was built from, or the commit records the new front matter beside the old
+graph — a drift nothing catches until someone else's next session commit.
+
+## 9. Report
+
+Report what was split and what `id`s were assigned, plus any remaining orphans and
+over-size documents.
+
+**Do not commit** — committing is [`/flow`](../flow/SKILL.md)'s job.

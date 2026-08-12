@@ -78,6 +78,7 @@ COPY_FILES = [
     "scripts/_harness_paths.py",
     "scripts/precommit-runner.sh",
     "scripts/flow_gate_check.py",
+    "scripts/wiki_graph.py",
     "scripts/teams_alert.py",
     "scripts/notify-push.sh",
     "scripts/check-deps.sh",

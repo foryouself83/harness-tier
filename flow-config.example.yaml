@@ -89,6 +89,16 @@ doc_sync:
   # Per-service local CLAUDE.md (glob pattern)
   service_docs: "services/*/CLAUDE.md"
 
+# LLM Wiki (no embeddings). Absent or enable:false → the wiki gate does nothing.
+# doc-sync generates graph.yaml; the commit gate is read-only — it verifies, never generates.
+wiki:
+  enable: false
+  root: docs/                # wiki root. same tree as harness-init output
+  index: docs/index.md       # graph entry point (orphan determination baseline)
+  max_lines: 400              # one file, one concept lint. 0 = off
+  context_lines: 2000         # --neighbors default budget (lines). ~20k tokens
+  defect_rule_threshold: 3    # same tag firing N times → Rule promotion warn. 0 = off
+
 # REST API contract testing (CI only — GitHub Actions). No REST API → enable:false → not installed.
 # /flow-init reads these values and renders .github/workflows/api-contract.yml.
 contract_test:

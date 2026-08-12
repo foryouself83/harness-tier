@@ -3,8 +3,11 @@ name: doc-sync
 description: "Use when a change may have left the documentation drifted or inconsistent — after editing code that docs describe, after editing docs themselves, when verifying doc consistency, or when a module has no local CLAUDE.md. Also the /flow doc-sync gate."
 # The gate marker this skill writes on pass — an exact path, no trailing glob (a glob's
 # `*` crosses path separators including `..`, so `.flow/*` pre-approved touch of any path
-# on disk). Doc edits themselves stay promptable.
-allowed-tools: Bash(mkdir -p .claude/harness-tier/.flow) Bash(touch .claude/harness-tier/.flow/doc-sync.done)
+# on disk). Doc edits themselves stay promptable. `--neighbors <id>` is deliberately absent:
+# its argument is a node id, so the only rule that would cover it ends in `*`, and a trailing
+# `*` is a prefix match — `… --neighbors x && <anything>` would be pre-approved too. The
+# per-node prompt is the cost of not granting that.
+allowed-tools: Bash(mkdir -p .claude/harness-tier/.flow) Bash(touch .claude/harness-tier/.flow/doc-sync.done) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --build) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --verify) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --stale)
 ---
 
 # doc-sync
@@ -34,6 +37,7 @@ Classify changed files into two tracks (if both, run **A → B** in order):
 
 - **Code changes** (`.py` / `.js` / `.ts` / config / router …) → **Mode A**
 - **Doc changes** (`.md`: the index doc, the doc dirs, the rule dir) → **Mode B**
+- If the project has a wiki, run **A → B → W** in order.
 
 ## Mode A — code → doc sync
 
@@ -106,6 +110,74 @@ why** in the Report. If a new rule/doc was added but is missing from the index,
 add the index row. A newly generated module `CLAUDE.md` also gets an index row
 (service-map table) if the index doesn't already list that module.
 
+## Mode W — wiki sync
+
+Runs only when the project has an LLM Wiki (`flow-config.wiki` present and enabled).
+Without it, skip this whole mode — the commands below no-op and exit 0.
+
+1. **Find what the code change made stale**:
+
+```bash
+python3 .claude/harness-tier/scripts/wiki_graph.py --stale
+```
+
+   Each JSON entry names a wiki node whose `sources` sha no longer matches the file's
+   last commit. An entry with `"missing": true` is a different problem: that source **path**
+   no longer exists (the file was renamed or deleted). Fix the path — or drop the entry —
+   in the node's front matter. Do **not** stamp a sha on it: `--verify` blocks on the
+   missing path itself, and a fresh sha leaves the block exactly where it was.
+
+2. **Narrow the harmonize set**. For each stale node, ask the graph for its neighbourhood
+   instead of guessing — run `wiki_graph.py --neighbors` once per stale node, substituting
+   that node's own id from step 1's JSON (the `id` key of the JSON entry — the graph's
+   node id, which is what the document's `wiki_id` becomes):
+   `python3 .claude/harness-tier/scripts/wiki_graph.py --neighbors auth.jwt`.
+   (Not shown as a copyable block on purpose: there is no id to hardcode, and an id the
+   graph does not know exits non-zero with the reason on stderr.)
+
+   Mode A keyword-greps every markdown file and scores relevance. Where a wiki exists the
+   graph already holds those relations, so this is a lookup, not an estimate.
+
+3. **Update the bodies**, then bump `sources[path]` to the current sha **only for nodes
+   whose body you actually changed**. A stale node you did not touch stays stale and goes
+   in the Report — do not stamp its sha. Do not touch the sha of any node you have not
+   just read and edited: stamping it without reading the code behind it turns the marker
+   into a lie, and every later `--stale` run then reports nothing for a node that is
+   actually still stale. A bulk sha refresh across untouched nodes is never acceptable.
+
+4. **Give any new `.md` under the wiki root its front matter** — `wiki_id` (mechanics owned
+   by [wiki-init](../wiki-init/SKILL.md) Step 5: derived from the path **relative to
+   the wiki root**), `title`, and the `sources` it documents. Never write `used_by` or
+   `defects`; they are generated. **Add the new id to the index node's `related:`
+   list** ([wiki-init](../wiki-init/SKILL.md) Step 6) — orphan detection reads
+   front-matter edges only, never markdown links, so a node missing from the index's
+   `related:` reports as an orphan forever even if the index links it in prose.
+
+5. **Split any node over `max_lines`**. `--verify` (below) warns on this but nothing acts
+   on the warning — `/wiki-init` refuses to re-offer a document that already carries a
+   `wiki_id`, so the migration wizard never revisits it either. Split it exactly as
+   [`wiki-init`](../wiki-init/SKILL.md) Steps 4-5 direct, including their zero- and
+   one-H2 branches — do not assume an H2 split always applies. Record the outcome in the
+   Report.
+
+6. **Stage new documents, then rebuild and verify**. A document joins the wiki by being in
+   git — the graph is built from the index, not the filesystem, so an unstaged new `.md` is
+   not yet a node and a rebuild would omit it. `git add` the new documents first, then:
+
+```bash
+python3 .claude/harness-tier/scripts/wiki_graph.py --build
+python3 .claude/harness-tier/scripts/wiki_graph.py --verify
+```
+
+   `--verify` must exit 0 before the gate marker is written — the commit gate runs the
+   same command and will block otherwise. A structure violation (`wiki_id` format/duplicate ·
+   missing `title` · dangling `depends_on` · cycle · front matter that does not parse while
+   carrying a `wiki_id`) is not fixed by `--build`; fix the document's front matter instead.
+   `--verify` reads the **working tree**, so
+   `docs/graph/graph.yaml` must be staged alongside the documents it was built from —
+   otherwise the commit records the new front matter beside the old graph and the drift
+   goes unnoticed until someone else's next session commit.
+
 ## 2. Gate marker (when called by `/flow`)
 
 After checking/updating, leave the gate evidence (the commit is blocked without it):
@@ -123,6 +195,9 @@ doc-sync result:
 - [B] <index> rule index — missing risk-tiers.md row → added
 - [B] services/<svc>/CLAUDE.md — generated from module-claude-md-template.md (Commands/Architecture/Gotchas filled from source); added to index service map
 - fixed 1 cross-reference (broken link)
+- [W] docs/auth/jwt.md — sources sha refreshed; graph.yaml rebuilt (12 nodes)
+- [W] docs/auth/session.md — still stale, body not updated (needs a human call)
+- [W] docs/api/auth.md — split by H2 into 3 nodes (over max_lines); original kept as a node with related back-links
 ```
 
 ## Tips
