@@ -174,15 +174,27 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
 
 | 등급 | 언제 | superpowers | 필수 게이트 |
 |------|------|:---:|------------|
-| `docs` | 코드 없는 변경(문서·주석·설정값) | ✗ | `doc-sync` |
-| `dev` | 코드 포함 변경(feature/fix) | ✓ | `precommit`(변경 모듈 every-commit 검사) · `review`(도메인 리뷰) · `doc-sync` |
-| `staging` | QA/RC 승격(integration→staging) | ✓ | `precommit` · `review` · `security-scan`(전체 모듈 promotion 검사) |
-| `release` | 프로덕션 배포(staging→production) | ✓ | `precommit` · `review` · `security-scan` · `security`(보안 리뷰) |
+| `docs` | 코드 없는 변경(문서·주석·설정값) | ✗ | `doc-sync` · `wiki` |
+| `dev` | 코드 포함 변경(feature/fix) | ✓ | `precommit`(변경 모듈 every-commit 검사) · `review`(도메인 리뷰) · `doc-sync` · `wiki` |
+| `staging` | QA/RC 승격(integration→staging) | ✓ | `precommit` · `review` · `security-scan`(전체 모듈 promotion 검사) · `bump`(사람이 고르는 릴리스 레벨) · `wiki` |
+| `release` | 프로덕션 배포(staging→production) | ✓ | `precommit` · `review` · `security-scan` · `security`(보안 리뷰) · `wiki` |
 
 - **`precommit` · `security-scan`** 은 커밋 훅이 직접 실행합니다(별도 마커 없음). 해당
   등급의 `gates` 목록에서 빼면 그 검사만 꺼집니다.
-- **`review` · `doc-sync` · `security`** 는 `/flow` 가 게이트를 통과시킨 뒤 증거 마커를
-  남기고, 커밋 훅은 그 마커가 있어야 통과시킵니다.
+- **`wiki`** 도 커밋 훅이 직접 실행하지만(별도 마커 없음), 모듈 검사와는 분리된 자체
+  단계에서 돌고 `flow-config.wiki` 가 켜져 있을 때만 동작합니다 — 아니면 아무것도
+  실행되지 않습니다. 그래프 품질 경고(orphan, 크기 초과 문서, 디스크에 없는 `sources`
+  경로, defect→rule 승격, `wiki_id:` 줄 없이 파싱에 실패한 front matter, `wiki_id` 없이
+  wiki 전용 필드만 있는 문서)는 커밋이 통과해도 `systemMessage` 로 돌아옵니다. 커밋이
+  막힌 경우 구조 위반 목록은 10건 + 건수로 잘립니다. 읽기 전용으로, `docs/graph/graph.yaml`
+  을 문서들의 front matter 와 대조합니다(§3.9). **작업 트리**를 읽습니다 — 훅은
+  `git commit` 이 무언가를 스테이징하기 전에 뜨므로 검사할 커밋이 아직 없습니다.
+  `graph.yaml` 은 그것을 만들어낸 문서들과 **함께 스테이징**하세요. 다시 빌드했지만
+  스테이징하지 않은 그래프는 게이트를 통과시키면서 커밋에는 낡은 것을 기록합니다.
+- **`review` · `doc-sync` · `security` · `bump`** 은 `/flow` 가 게이트를 통과시킨 뒤 증거
+  마커를 남기고, 커밋 훅은 그 마커가 있어야 통과시킵니다. `bump` 은 staging 승격 때 사람이
+  고르는 major/minor/patch 선택으로, fail-closed 라 선택하기 전까지 staging 커밋이 계속
+  막힙니다.
 - 위험도 분류의 단일 기준은 룰 `risk-tiers` 이며, 세션마다 자동으로 주입됩니다.
 
 > 성능·통합 검증은 게이트에서 분리되어 **수동 스킬** `/performance` · `/integration` 으로
@@ -410,6 +422,19 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
 **릴리스와 분리** — 릴리스(`versioning`)는 태그와 노트를 만들고, 배포는 그 위에 얹히는
 별도의 opt-in 계층(`flow-config.deploy.enable`)으로, 릴리스 프로세스 자체의 일부가
 아닙니다.
+
+### 3.9 `/wiki-init` — LLM Wiki 설치 마법사
+
+```text
+/wiki-init   # 인자 없음 — 대화형. disable-model-invocation 이라 직접 호출해야 합니다
+```
+
+문서를 지식 그래프로 만듭니다. 임베딩은 쓰지 않습니다 — 기존 문서를 한 파일 한 개념의
+노드로 이관하며 YAML front matter 를 부여하고 `docs/graph/graph.yaml` 을 생성합니다.
+관계는 사람이 손으로 쓰는 front matter 이고, 그래프는 그것을 기계적으로 읽을 뿐입니다.
+멱등적입니다: 이미 `wiki_id` 를 가진 문서는 다음 실행에서 다시 후보로 제시되지 않습니다.
+한 번 만들어두면 `doc-sync`(Mode W)가 그래프와 각 노드의 `sources` sha 를 동기 상태로
+유지하고, `wiki` 런타임 게이트(§2.3)가 매 커밋에서 그 동기를 읽기 전용으로 검증합니다.
 
 ---
 

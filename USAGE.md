@@ -183,7 +183,7 @@ pass before it can commit**.
 |------|------|:---:|-----------------|
 | `docs` | no-code change (docs/comments/config values) | ✗ | `doc-sync` · `wiki` |
 | `dev` | change with code (feature/fix) | ✓ | `precommit` (changed-module every-commit checks) · `review` (domain review) · `doc-sync` · `wiki` |
-| `staging` | QA/RC promotion (integration→staging) | ✓ | `precommit` · `review` · `security-scan` (all-module promotion checks) · `wiki` |
+| `staging` | QA/RC promotion (integration→staging) | ✓ | `precommit` · `review` · `security-scan` (all-module promotion checks) · `bump` (human release-level choice) · `wiki` |
 | `release` | production deploy (staging→production) | ✓ | `precommit` · `review` · `security-scan` · `security` (security review) · `wiki` |
 
 - **`precommit` · `security-scan`** are executed by the commit hook itself (no marker).
@@ -200,8 +200,10 @@ pass before it can commit**.
   commit to inspect yet. Stage `graph.yaml` together with the documents it was built
   from; a rebuilt-but-unstaged graph satisfies the gate while the commit records the
   stale one.
-- **`review` · `doc-sync` · `security`** leave an evidence marker after `/flow` passes the
-  gate; the commit hook passes only when the marker exists.
+- **`review` · `doc-sync` · `security` · `bump`** leave an evidence marker after `/flow`
+  passes the gate; the commit hook passes only when the marker exists. `bump` is the
+  human major/minor/patch choice at a staging promotion — fail-closed, so the staging
+  commit stays blocked until the choice is made.
 - The single source of truth for risk classification is the `risk-tiers` rule, injected
   automatically every session.
 

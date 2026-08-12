@@ -102,6 +102,15 @@ Check every target; track the index by following its links.
      criteria (commands work, architecture explained, gotchas captured,
      concise, current, actionable) and fix only what falls short — preserve
      existing project-specific content, do not rewrite wholesale.
+6. **Translation parity** — for each changed `.md`, look for sibling files whose
+   name is the same stem plus a language tag (`README.md` → `README.ko.md`,
+   `docs/guide.md` → `docs/guide.ja.md`). A repo with none skips this entirely.
+   Where one exists it is a **translation of the file you just changed**, so the
+   same change belongs in it: carry it over and note it in the Report. Do not
+   create a translation that does not already exist, and do not rewrite one
+   wholesale — port the delta.
+   Nothing else catches this: a translation drifts silently, staying valid
+   markdown while describing a version of the product that no longer exists.
 
 ### Action
 
@@ -194,6 +203,7 @@ doc-sync result:
 - [B] <index> ↔ services/<svc>/CLAUDE.md — harmonized model-name mismatch (SSOT: .env.example)
 - [B] <index> rule index — missing risk-tiers.md row → added
 - [B] services/<svc>/CLAUDE.md — generated from module-claude-md-template.md (Commands/Architecture/Gotchas filled from source); added to index service map
+- [B] README.ko.md — ported the same change from README.md (translation parity)
 - fixed 1 cross-reference (broken link)
 - [W] docs/auth/jwt.md — sources sha refreshed; graph.yaml rebuilt (12 nodes)
 - [W] docs/auth/session.md — still stale, body not updated (needs a human call)

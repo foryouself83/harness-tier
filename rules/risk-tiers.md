@@ -166,6 +166,12 @@ dropping the token deterministically (an overridden level would otherwise be los
 python-semantic-release recomputes on the stable branch). `major` on a 0.x project
 jumps to `1.0.0`.
 
+The trailer is for the **first** forced promotion only. `version --<level>` bumps the
+**base** version every time it is applied, so re-promoting with the trailer to fold in
+a follow-up takes `X.Y.Z-rc.1` → `X.Y.(Z+1)-rc.1`, skipping `X.Y.Z` as a stable
+release rather than continuing to `rc.2`. To iterate an rc on the same target version,
+re-promote **without** the trailer — the auto-derive path continues the series.
+
 ### Release — staging → production branch
 
 Two entry points:

@@ -3,6 +3,7 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 This repo is the **Claude Code plugin itself** (not a consumer of it). For usage, see [README.md](README.md)·[USAGE.md](USAGE.md).
+Both have Korean twins ([README.ko.md](README.ko.md)·[USAGE.ko.md](USAGE.ko.md)); `doc-sync` carries a change across the pair.
 For component authoring specs (agent/hook/skill frontmatter), verify against the official docs as the SSOT, not model knowledge:
 [plugins-reference](https://code.claude.com/docs/en/plugins-reference.md) · [hooks](https://code.claude.com/docs/en/hooks.md) · [skills](https://code.claude.com/docs/en/skills.md) · [permissions](https://code.claude.com/docs/en/permissions.md).
 (`allowed-tools` pre-approves tools, it does not restrict — enforced at point of use by
@@ -27,6 +28,17 @@ uv run python -m evals.outcome --skill wiki-init         # …one skill only (ot
 
 When modifying `*.sh`, verify with ShellCheck (the hook runtime is Windows, so bugs are hidden as FAIL-OPEN — see Invariants).
 
+## Conventions
+
+- **English in the repo** — docs · commit messages · comments/docstrings. The exception is
+  `docs/superpowers/specs/`·`plans/` (internal working surface, never shipped), written in Korean.
+  Gate scripts are both: Korean for what the user reads, English for comments and docstrings.
+- **Dogfood new CI** — a workflow-rendering feature also lands in this repo's OWN `.github/workflows/`,
+  not just as a `github/*.example.yml` consumer template. Every job carries a tight `timeout-minutes`.
+- **Mutation-test a fix, and assert the mutation applied** — a no-op edit runs the original code, so the
+  suite passes and reads as verified (it has silently failed here twice). Read-modify-write in Python with
+  `assert old in text`, never `sed -i`; revert with `git checkout --` from an already-clean tree.
+
 ## Folder structure
 
 `agents/`·`hooks/hooks.json`·`skills/` declare no path in the manifest — they are **auto-discovered from their default locations** (adding a component = just adding a file). Each entry below is folder + purpose; the per-file detail lives in the folder itself.
@@ -38,7 +50,8 @@ hooks/           hooks.json (SessionStart rule injection + Notification) · inje
 skills/          /slash = skill — one dir each; open the dir for its SKILL.md
 rules/           risk-tiers.md (SSOT: tier classification + commit discipline) · harness-rules.md (SSOT: harness-gen)
                  — both SHIP to consumers, unlike .claude/rules/ which never leaves this repo
-.claude/rules/   skill-frontmatter.md — dev-only, fires on opening a skills/**/*.md (never ships)
+.claude/rules/   dev-only, never ships: skill-frontmatter.md (fires on a skills/**/*.md) ·
+                 claude-md-authoring.md (fires on this file)
 scripts/         gate + setup scripts incl. wiki_graph.py (build/verify the LLM Wiki graph) — authoritative copy list = flow_init_setup.py COPY_FILES (open the dir for the rest)
 github/          *.workflow.example.yml SOURCEs /flow-init renders (CI · release.<tool> · deploy.<target>);
                  authoring gotchas (timeout-minutes cap · no ${{ }} in a run: block) guarded by test_flow_init_setup.py
