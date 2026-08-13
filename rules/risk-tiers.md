@@ -411,10 +411,14 @@ Always apply before every `git commit -m` and every merge.
 - **Subject** — `type(scope): description`; ≤50 chars (non-ASCII = 1
   each); lowercase, imperative; no trailing period. Over 50 →
   **REWRITE**, no exceptions.
-- **Body** — what & why as `-` bullets (one fact each), not prose;
-  each line ≤72, wrap at word boundaries. Fragments over sentences
-  (noun phrases + `cause → effect`); cut filler — drop anything that
-  restates another.
+- **Body** — what & why as `-` bullets, **one sentence each**, not
+  prose; each line ≤72, wrap at word boundaries. Fragments over
+  sentences (noun phrases + `cause → effect`). Never prefix a bullet
+  with `feat:`/`fix:` — the subject owns the type. Drop anything that
+  restates another bullet, and anything the reader need not know.
+- **No history narration in the body** — no "previously X", no
+  migration note, no account of what an earlier round of the same
+  work did. The commit *is* the history entry.
 - **Footer** — `BREAKING CHANGE: …`, `Refs: #123`; same ≤72.
 
 Subject/body limits (the **50/72 rule**) + no-trailing-period are

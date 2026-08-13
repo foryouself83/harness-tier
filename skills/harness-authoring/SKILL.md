@@ -10,6 +10,8 @@ The generation engine of `/harness-init`. It fills `templates/` (skeletons) with
 
 ## Principles
 - **Concise and lean** — keep generated .md short. State a fact in one SSOT, link the rest.
+  Comments, docstrings, `.md`, and rule files carry only what the artifact cannot say itself
+  (`rules/harness-rules.md` 5-2).
 - **Always inject the 5 mandatory rules** — put `references/karpathy-principles.md`, `rule-dry-constants.md`,
   `rule-version-pinning.md`, `security-rule.md`, and `rule-reuse-first.md` into the CLAUDE.md `harness:baseline`
   block. Preserve each rule's anchor (`<!-- rule:<key> -->`) (guarantees the load path — do not place them

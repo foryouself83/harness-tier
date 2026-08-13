@@ -18,6 +18,18 @@
 ## Deliverables
 5. **`.md` by default**; real configuration (bandit, CI, pre-commit, real folders, actual `==` pins) is opt-in per item.
 5-1. **Skill helper folders**: when creating a skill, if its role warrants references/examples, include `references/`·`examples/` alongside it (YAGNI — not forced for simple skills).
+5-2. **Write only what the artifact cannot say itself** — binds every generated comment, docstring,
+   `.md`, and rule file.
+   - **Comments·docstrings**: the purpose plus the contract that is not evident from the code. Drop a
+     parameter list that only restates the signature.
+   - **No ornamental structure**: no numbered index, nested section scaffolding, or divider bars the
+     content does not need. A schema this file mandates (SRS §-numbering, code-style lens blocks) is
+     content, not ornament.
+   - **Never restate what the next line already says.**
+   - **No change history, migration note, or "previously X" narration** — the commit owns that
+     ([risk-tiers.md](risk-tiers.md) Commit Discipline).
+   - **Rule files** (`CLAUDE.md`, `.claude/rules/**`) carry the rule in force, never the one it replaced.
+   - **Markdown**: terse lists over prose; one fact in one place and a link everywhere else (rule 7).
 6. **The five mandatory rules are always injected**: Karpathy's 4 principles + DRY/constants + `==` version pinning + security + **reuse-first**
    ([rule-reuse-first.md](../skills/harness-authoring/references/rule-reuse-first.md)).
    **Load-path guarantee** — CLAUDE.md body / explicit import (`.claude/rules/` alone is not enough). The anchor `<!-- rule:<key> -->`

@@ -32,6 +32,10 @@ When modifying `*.sh`, verify with ShellCheck (the hook runtime is Windows, so b
 
 - **English in the repo** — docs · commit messages · comments/docstrings. The exception is
   `docs/superpowers/specs/`·`plans/` (internal working surface, never shipped), written in Korean.
+- **Write only what the code can't say** — comments · docstrings · `.md` · rules. No change-history
+  narration, no restating the next line, no ornamental structure; a rule file holds the rule in force.
+  Same discipline in a commit body ([`rules/risk-tiers.md`](rules/risk-tiers.md) Commit Discipline) and
+  in generated harness artifacts ([`rules/harness-rules.md`](rules/harness-rules.md) 5-2).
 - **Dogfood new CI** — a workflow-rendering feature also lands in this repo's OWN `.github/workflows/`,
   not just as a `github/*.example.yml` consumer template. Every job carries a tight `timeout-minutes`.
 - **Mutation-test a fix, and assert the mutation applied** — a no-op edit runs the original code, so the
