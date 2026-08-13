@@ -120,8 +120,10 @@ asks and renders them):
   `branches` · `timeout_minutes` (per-job cap, default 10) · `jobs[]` — one entry per
   language/module (`name`/`language`/`version`/`setup`/`test`), rendered into a
   `strategy.matrix.include`. A `language` of python/node/java/go/rust uses that official setup
-  action; any other value lets the `setup` command prepare the runtime. Declared independently
-  of `modules[]` (local gate and CI run in different contexts).
+  action; any other value lets the `setup` command prepare the runtime. The match is
+  case-sensitive, so `/flow-init` warns on a capitalised variant like `Python` — it would skip
+  the setup action silently and test against whatever runtime the runner already has. Declared
+  independently of `modules[]` (local gate and CI run in different contexts).
 - **`versioning`** — release automation such as python-semantic-release. With `enable: true`
   it renders the release / branch-naming / entropy-check workflows. The **GitHub Release
   body** is the latest grouped `CHANGELOG.md` section (semantic-release output — grouped by

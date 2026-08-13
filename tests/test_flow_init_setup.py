@@ -810,6 +810,60 @@ def test_render_unit_test_creates_and_substitutes(tmp_path: Path):
     assert api["setup"] == "pip install uv && uv sync" and api["test"] == "uv run pytest"
 
 
+def test_supported_setup_languages_matches_the_template_gates():
+    # One fact in three places: the template's `if: matrix.language == '<lang>'` steps, the
+    # constant that copies them, and the list flow-config.example advertises to hosts. A copy
+    # drifts silently — adding a setup-* step without the constant makes that language warn as a
+    # typo, dropping one lets the real typo through, and a stale example teaches the wrong value.
+    # Read all three back out of their files so none can diverge unnoticed.
+    from scripts.flow_init_setup import (
+        EXAMPLE_CONFIG,
+        SUPPORTED_SETUP_LANGUAGES,
+        UNIT_TEST_TEMPLATE,
+    )
+
+    template = (PLUGIN / UNIT_TEST_TEMPLATE).read_text(encoding="utf-8")
+    gates = set(re.findall(r"matrix\.language == '([^']+)'", template))
+    assert gates == set(SUPPORTED_SETUP_LANGUAGES)
+
+    # Split on the bare pipe and strip, so respacing the list is a formatting edit rather than a
+    # failure that reads like a real divergence. Both asserts carry a message for the same reason.
+    example = (PLUGIN / EXAMPLE_CONFIG).read_text(encoding="utf-8")
+    documented = re.search(r"#\s+language:\s+([a-z |]+?)\s+→", example)
+    assert documented, "flow-config.example's `language:` slot line moved or was rewrapped"
+    listed = {word.strip() for word in documented.group(1).split("|")}
+    assert listed == set(SUPPORTED_SETUP_LANGUAGES), f"example documents {sorted(listed)}"
+
+
+def test_unit_test_language_warnings_flags_case_variant_only():
+    # only a case variant of a supported language (near-certain typo) warns; an exact match and a
+    # genuinely custom language (the escape hatch flow-config.example documents) do not, and a job
+    # without `language` is ignored.
+    from scripts.flow_init_setup import _unit_test_language_warnings
+
+    warnings = _unit_test_language_warnings(
+        [
+            {"name": "api", "language": "Python"},  # case variant → warn
+            {"name": "web", "language": "node"},  # exact supported → no warn
+            {"name": "edge", "language": "deno"},  # custom runtime → escape hatch, no warn
+            {"name": "nolang"},  # no language key → no warn
+        ]
+    )
+    assert len(warnings) == 1
+    assert "'api'" in warnings[0] and "'Python'" in warnings[0]
+
+
+def test_render_unit_test_surfaces_language_warning(tmp_path: Path):
+    # the case-variant warning must reach the render log, and rendering still succeeds (non-fatal).
+    _write_unit_test_config(
+        tmp_path,
+        {"enable": True, "jobs": [{"name": "api", "language": "GO", "test": "go test ./..."}]},
+    )
+    out = render_unit_test_workflow(tmp_path, PLUGIN)
+    assert any("'GO'" in line and "매칭" in line for line in out)
+    assert any("생성" in line for line in out)
+
+
 def test_render_unit_test_default_timeout(tmp_path: Path):
     # timeout_minutes omitted → falls back to UNIT_TEST_DEFAULT_TIMEOUT (10). Locks the default so
     # a drift between the constant and the docs that quote it is caught.

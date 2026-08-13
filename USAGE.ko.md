@@ -115,7 +115,9 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
   돌립니다. 슬롯: `branches` · `timeout_minutes`(잡별 상한, 기본 10) · `jobs[]` — 언어/모듈당
   한 항목(`name`/`language`/`version`/`setup`/`test`), `strategy.matrix.include` 로 렌더링됩니다.
   `language` 가 python/node/java/go/rust 면 해당 공식 setup action 을 쓰고, 그 외 값이면
-  `setup` 커맨드가 런타임을 준비합니다. `modules[]` 와 별개로 선언합니다(로컬 게이트와 CI 는
+  `setup` 커맨드가 런타임을 준비합니다. 대소문자를 구분하므로 `Python` 같은 변종은
+  `/flow-init` 이 경고합니다 — 그대로 두면 setup action 이 조용히 스킵되고 러너에 이미 깔린
+  런타임으로 테스트가 돕니다. `modules[]` 와 별개로 선언합니다(로컬 게이트와 CI 는
   실행 맥락이 다름).
 - **`versioning`** — python-semantic-release 등 릴리스 자동화. `enable: true` 이면
   release / branch-naming / entropy-check 워크플로우를 렌더링합니다. **GitHub Release

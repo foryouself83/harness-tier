@@ -67,6 +67,12 @@ UNIT_TEST_TEMPLATE = "github/unit-test.workflow.example.yml"  # SOURCE (plugin-o
 UNIT_TEST_DEST = ".github/workflows/unit-test.yml"  # host (GitHub-forced — HARNESS_DIR exception)
 # per-job wall-clock cap (minutes) when unit_test.timeout_minutes is unset
 UNIT_TEST_DEFAULT_TIMEOUT = 10
+# Languages the unit-test template runs an official setup-* action for (its `if: matrix.language ==`
+# gates, lowercase literals). A value outside this set is a legitimate escape hatch (the job's own
+# `setup` command preps the runtime), but a *case variant* of one of these (e.g. "Python") almost
+# certainly means the setup step will be silently skipped — flagged as a warning at render time.
+# Copied from the template, so test_flow_init_setup.py asserts the two stay equal.
+SUPPORTED_SETUP_LANGUAGES = frozenset({"python", "node", "java", "go", "rust"})
 
 EXAMPLE_CONFIG = "flow-config.example.yaml"  # plugin SOURCE (basis for config-slot diff)
 
@@ -960,6 +966,31 @@ def _unit_test_matrix_include(jobs: list) -> str:
     return "\n          - ".join(flows)
 
 
+def _unit_test_language_warnings(jobs: list) -> list[str]:
+    """Warn on a job whose `language` is a case variant of a supported one (e.g. "Python").
+
+    The template's setup-* steps gate on lowercase literals (`if: matrix.language == 'python'`),
+    so "Python"/"GO"/… silently skip the official setup and fall through to the job's own `setup`
+    command — often a false-green against the runner's default runtime. A value that isn't a
+    supported language at all is left alone: that's the documented custom-runtime escape hatch, so
+    we only flag values that match a supported language up to case (a near-certain typo).
+    """
+    warnings: list[str] = []
+    for job in jobs:
+        if not isinstance(job, dict):
+            continue
+        lang = job.get("language")
+        if not isinstance(lang, str):
+            continue
+        if lang not in SUPPORTED_SETUP_LANGUAGES and lang.lower() in SUPPORTED_SETUP_LANGUAGES:
+            name = job.get("name", "?")
+            warnings.append(
+                f"  [!] unit_test job '{name}' language '{lang}' — 공식 setup 스텝은 소문자 "
+                f"'{lang.lower()}' 만 매칭합니다. 대소문자를 맞추세요(안 그러면 setup 스킵)."
+            )
+    return warnings
+
+
 def render_unit_test_workflow(host: Path, plugin: Path) -> list[str]:
     """Render .github/workflows/unit-test.yml from the unit_test configuration.
 
@@ -987,6 +1018,7 @@ def render_unit_test_workflow(host: Path, plugin: Path) -> list[str]:
             "  [i] 갱신하려면 기존 파일을 지우고 /flow-init 을 재실행하거나 직접 수정하세요.",
         ]
     branches = ut.get("branches") or ["dev", "stage", "main"]
+    warnings = _unit_test_language_warnings(jobs)
     replacements = {
         "__HARNESS_BRANCHES__": ", ".join(str(b) for b in branches),
         "__HARNESS_TIMEOUT__": str(ut.get("timeout_minutes") or UNIT_TEST_DEFAULT_TIMEOUT),
@@ -1000,7 +1032,7 @@ def render_unit_test_workflow(host: Path, plugin: Path) -> list[str]:
         dest.write_text(text, encoding="utf-8")
     except OSError as exc:
         return [f"  [!] unit-test 워크플로우 렌더링 실패(수동 확인): {exc}"]
-    return ["  [+] .github/workflows/unit-test.yml 생성 (unit_test 렌더링)"]
+    return [*warnings, "  [+] .github/workflows/unit-test.yml 생성 (unit_test 렌더링)"]
 
 
 def run_setup(host: Path, plugin: Path) -> None:
