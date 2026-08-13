@@ -55,7 +55,9 @@ rules/           risk-tiers.md (SSOT: tier classification + commit discipline) �
                  — both SHIP to consumers, unlike .claude/rules/ which never leaves this repo
 .claude/rules/   dev-only, never ships: skill-frontmatter.md (fires on a skills/**/*.md) ·
                  claude-md-authoring.md (fires on this file)
-scripts/         gate + setup scripts incl. wiki_graph.py (build/verify the LLM Wiki graph) — authoritative copy list = flow_init_setup.py COPY_FILES (open the dir for the rest)
+scripts/         gate + setup scripts incl. wiki_graph.py (build/verify the LLM Wiki graph;
+                 owns `derive_wiki_id`/`--derive-id`, the executable SSOT for the `wiki_id` rule) —
+                 authoritative copy list = flow_init_setup.py COPY_FILES (open the dir for the rest)
 github/          *.workflow.example.yml SOURCEs /flow-init renders (CI · release.<tool> · deploy.<target>);
                  authoring gotchas (timeout-minutes cap · no ${{ }} in a run: block) guarded by test_flow_init_setup.py
 .github/         this repo's OWN CI (release · branch-naming · entropy-check · unit-test, all timeout-capped) · scripts/pin-marketplace-sha.py

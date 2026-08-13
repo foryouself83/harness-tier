@@ -21,6 +21,11 @@ try:
 except ImportError:
     from scripts._harness_paths import force_utf8_io
 
+try:
+    from wiki_graph import _wiki_root_hint, derive_wiki_id
+except ImportError:
+    from scripts.wiki_graph import _wiki_root_hint, derive_wiki_id
+
 VENDOR_DIRS = {
     ".git",
     "node_modules",
@@ -683,6 +688,10 @@ _INLINE_CODE_RE = re.compile(r"`[^`]+`")
 _WIN_ABS_RE = re.compile(r"[a-zA-Z]:[\\/]")
 OPS_ANCHOR_RE = re.compile(r"<!--\s*ops-conventions\s*-->")
 OPS_MAX_LINES = 3
+# Sentinel for dict.get(key, _NO_WIKI_ID): tells "key absent" (not a wiki node) apart from a
+# present-but-falsy value (dict.get(key) alone returns None for both a missing key and an
+# explicit `wiki_id: null`, which would be indistinguishable from a truly absent key).
+_NO_WIKI_ID = object()
 
 
 def _ops_directive_blocks(body: str) -> list[list[str]]:
@@ -753,6 +762,7 @@ def validate_plan(root: Path, plan: dict) -> dict:
     files = plan.get("files", [])
     # Paths are always normalized before comparison — normalizing one side only would mismatch.
     plan_paths = {_norm_rel(e.get("path", "")) for e in files}
+    wiki_root = _wiki_root_hint(root)
 
     existing = scan_components(root / ".claude")
     existing_by_name: dict = {}  # name → root-relative canonical path of the existing file
@@ -829,6 +839,56 @@ def validate_plan(root: Path, plan: dict) -> dict:
                         }
                     )
                 new_names.setdefault(nm, rel)
+
+        # Wiki-node id parity: a hand-derived wiki_id that disagrees with the mechanical
+        # derivation surfaces later as a duplicate/format --verify block on every commit —
+        # catch it at plan time instead. Only .md under the wiki root whose front matter
+        # starts at byte 0 and carries wiki_id are nodes (same marker semantics as
+        # wiki_graph; _parse_frontmatter already returns {} otherwise). A root of "." or ""
+        # (repo root configured as the wiki root) means every .md in the plan qualifies —
+        # `rel.startswith(f"{wiki_root}/")` would never match since rel never carries a
+        # leading "./" once normalized.
+        if rel.endswith(".md") and (wiki_root in ("", ".") or rel.startswith(f"{wiki_root}/")):
+            wid = _parse_frontmatter(content).get("wiki_id", _NO_WIKI_ID)
+            if wid is _NO_WIKI_ID or wid is None:
+                pass  # no wiki_id at all — a plain doc, not a wiki node
+            elif not isinstance(wid, str):
+                # YAML 1.1 resolves an unquoted scalar to a non-string type: `wiki_id: no` reads
+                # as the bool False and `wiki_id: 0123456` reads as an octal int. Left unflagged,
+                # both silently fall out of the parity check below (a falsy wid reads as "no
+                # wiki_id"), which is exactly what this check exists to catch one gate earlier —
+                # wiki_graph reports the identical condition at --verify time
+                # (_wrong_type/_text_type_problems); wording mirrors it for one vocabulary.
+                issues.append(
+                    {
+                        "severity": "high",
+                        "kind": "wiki-id",
+                        "path": rel,
+                        "detail": (
+                            f"wiki_id 가 문자열이 아닙니다 — YAML 이 {type(wid).__name__} 로 "
+                            f"읽었습니다 (값 {wid!r}). 따옴표로 감싸세요"
+                        ),
+                    }
+                )
+            elif wid:
+                try:
+                    expected = derive_wiki_id(rel, wiki_root)
+                    if wid != expected:
+                        issues.append(
+                            {
+                                "severity": "high",
+                                "kind": "wiki-id",
+                                "path": rel,
+                                "detail": (
+                                    f"wiki_id '{wid}' ≠ 경로 파생값 '{expected}' — "
+                                    "--derive-id 로 얻으세요"
+                                ),
+                            }
+                        )
+                except ValueError as exc:
+                    issues.append(
+                        {"severity": "high", "kind": "wiki-id", "path": rel, "detail": str(exc)}
+                    )
 
         # Link scanning covers only the body (excludes frontmatter·code·images; paths outside
         # root are out of scope).

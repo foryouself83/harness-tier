@@ -7,6 +7,7 @@ description: "Use when a change may have left the documentation drifted or incon
 # its argument is a node id, so the only rule that would cover it ends in `*`, and a trailing
 # `*` is a prefix match — `… --neighbors x && <anything>` would be pre-approved too. The
 # per-node prompt is the cost of not granting that.
+# `--derive-id <paths>` is absent for the same reason — path arguments force a trailing `*`.
 allowed-tools: Bash(mkdir -p .claude/harness-tier/.flow) Bash(touch .claude/harness-tier/.flow/doc-sync.done) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --build) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --verify) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --stale)
 ---
 
@@ -154,9 +155,17 @@ python3 .claude/harness-tier/scripts/wiki_graph.py --stale
    into a lie, and every later `--stale` run then reports nothing for a node that is
    actually still stale. A bulk sha refresh across untouched nodes is never acceptable.
 
-4. **Give any new `.md` under the wiki root its front matter** — `wiki_id` (mechanics owned
-   by [wiki-init](../wiki-init/SKILL.md) Step 5: derived from the path **relative to
-   the wiki root**), `title`, and the `sources` it documents. Never write `used_by` or
+4. **Give any new `.md` under the wiki root its front matter** — get `wiki_id` from one
+   derivation call for all the new documents, substituting their real paths (e.g.
+   `python3 .claude/harness-tier/scripts/wiki_graph.py --derive-id docs/auth/jwt.md
+   docs/auth/session.md`; each stdout line is `path<TAB>id`, a failure names its path
+   on stderr and the call exits nonzero, though every path that succeeded still prints
+   its line — fix that path and re-run; rationale in
+   [wiki-init](../wiki-init/SKILL.md) Step 5). A defect document is the exception: its
+   `wiki_id` follows the `defect.<slug>` convention in
+   [`defect-template.md`](../wiki-init/references/defect-template.md), not this
+   derivation. Then `title`, and the `sources` it
+   documents. Never write `used_by` or
    `defects`; they are generated. **Add the new id to the index node's `related:`
    list** ([wiki-init](../wiki-init/SKILL.md) Step 6) — orphan detection reads
    front-matter edges only, never markdown links, so a node missing from the index's

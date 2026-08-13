@@ -66,19 +66,32 @@ Branch on the H2 count recorded in Step 2:
 
 ## 5. Assign front matter
 
-`wiki_id` is derived mechanically from the path **relative to the wiki root**: with
-root `docs/`, `docs/code-style/python.md` → `code-style.python` (strip the root
-first, drop the extension, lowercase, then join the remaining path segments with `.`).
+`wiki_id` is derived mechanically from the path **relative to the wiki root** — never
+pick one by hand, and never derive it by hand either: run
+[`wiki_graph.py`](../../scripts/wiki_graph.py) `--derive-id`, one call for all the
+selected documents, substituting their real paths (e.g. `python3
+.claude/harness-tier/scripts/wiki_graph.py --derive-id docs/code-style/python.md
+docs/api_spec.md`). Each stdout line is `path<TAB>id`. A path that cannot produce an
+id — a segment with no `[a-z0-9]` left after sanitizing, e.g. a Korean-only
+filename — is named on stderr with the reason and the call exits nonzero, though every
+path that succeeded still prints its line: rename only the named file(s) and re-run.
+`derive_wiki_id` owns the mechanics; this table is parity-tested against it
+(`tests/test_wiki_graph.py`), so adding a row here adds a test case:
 
-Sanitize **each segment before joining them**: an id must match
-`^[a-z0-9-]+(\.[a-z0-9-]+)*$`, so inside a segment replace every character outside
-`[a-z0-9-]` with `-` and collapse runs of `-` into one. Underscored filenames are
-common and the raw derivation does not survive validation — `docs/api_spec.md` →
-`api-spec`, not `api_spec`. A dot inside a filename is the same case and the reason
-the order matters: sanitizing it keeps `docs/a.b.md` (→ `a-b`) distinct from
-`docs/a/b.md` (→ `a.b`), which is what makes the derivation collision-free. Skipping
-this step produces an id that `--verify` rejects — as a bad format, or as a duplicate
-of the document next to it — which blocks every commit until it is fixed.
+| path (root `docs/`) | wiki_id |
+|---|---|
+| `docs/code-style/python.md` | `code-style.python` |
+| `docs/a.b.md` | `a-b` |
+| `docs/a/b.md` | `a.b` |
+| `docs/api_spec.md` | `api-spec` |
+| `docs/sds/README.md` | `sds.readme` |
+| `docs/onboarding/README.md` | `onboarding.readme` |
+
+The order inside the rule is what makes it collision-free — each segment is sanitized
+**before** the segments are joined with `.`, which keeps `docs/a.b.md` (→ `a-b`)
+distinct from `docs/a/b.md` (→ `a.b`). An id derived by hand in the wrong order still
+satisfies the shape regex and fails later as a duplicate — `--verify` then blocks
+every commit until it is fixed.
 
 `related` · `depends_on`: read the existing docs, **propose** values, then confirm
 with the user before finalizing. **Never write** `used_by` · `defects` — they are
@@ -93,7 +106,8 @@ an unknown sha: `""` compares equal to everything, so the node reports fresh for
 as `false`. Validation rejects both by type, but quoting avoids the round trip.
 
 When authoring a defect document, follow the five-section body structure in
-[`defect-template.md`](references/defect-template.md).
+[`defect-template.md`](references/defect-template.md) — its `wiki_id` follows that
+template's `defect.<slug>` convention, not this section's path derivation.
 
 ## 6. Generate the index
 

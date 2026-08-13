@@ -84,6 +84,23 @@ def load_wiki_config(root: Path) -> dict | None:
     return out
 
 
+def _wiki_root_hint(root: Path) -> str:
+    """flow-config wiki.root read WITHOUT the enable gate, fail-soft to "docs".
+
+    load_wiki_config() returns None on enable:false, but derivation must work before
+    /wiki-init ever runs (harness-rules 8-2 removed that ordering dependency) — going
+    through it would silently derive against the default root in a repo whose wiki is
+    configured but not yet enabled.
+    """
+    try:
+        import yaml
+
+        data = yaml.safe_load(config_path(root).read_text(encoding="utf-8")) or {}
+        return _norm_rel((data.get("wiki") or {}).get("root") or "docs") or "docs"
+    except Exception:
+        return "docs"
+
+
 _FM_DELIM = "---"
 
 
@@ -346,6 +363,44 @@ DEFECT_FIELDS = ("affects", "commit", "regression_test", "promoted_to_rule")
 _SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 
 WIKI_ID_RE = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)*$")
+
+
+def derive_wiki_id(path: str, root: str = "docs") -> str:
+    """Derive a wiki node id from a document path — the executable SSOT for the id rule.
+
+    Each segment is sanitized BEFORE the segments are joined with ".": sanitizing after
+    joining would fold the just-created "." separators into "-", collapsing
+    docs/a.b.md (a-b) and docs/a/b.md (a.b) onto one id. wiki-init Step 5's example
+    table is parity-tested against this function (tests/test_wiki_graph.py).
+
+    Raises ValueError (Korean reason) for a path that cannot produce an id. Unlike the
+    gate commands this must not fail open: a silent empty success sends the caller
+    back to hand-deriving — the failure mode this function exists to remove.
+    """
+    text = str(path).replace("\\", "/").strip()
+    parts = [seg for seg in PurePosixPath(text).parts if seg not in (".", "/")]
+    if not parts:
+        raise ValueError("빈 경로에서는 wiki_id 를 만들 수 없습니다")
+    root_norm = _norm_rel(root) if root else ""
+    root_parts = [seg for seg in PurePosixPath(root_norm).parts if seg != "."]
+    # Segment-boundary prefix only — "docs-old/a.md" is not under root "docs" (the same
+    # footgun as Invariant #6's path-prefix identity).
+    if root_parts and parts[: len(root_parts)] == root_parts:
+        parts = parts[len(root_parts) :]
+    if not parts:
+        raise ValueError(f"경로가 wiki root 자체입니다 — 문서 경로가 필요합니다: {path}")
+    segs = parts[:-1] + [PurePosixPath(parts[-1]).stem]
+    out = []
+    for seg in segs:
+        cleaned = re.sub(r"-+", "-", re.sub(r"[^a-z0-9-]", "-", seg.lower()))
+        if not re.search(r"[a-z0-9]", cleaned):
+            raise ValueError(
+                f"세그먼트 '{seg}' 는 정규화 후 [a-z0-9] 가 남지 않습니다 — "
+                f"파일/폴더명을 영문으로 바꿔주세요: {path}"
+            )
+        out.append(cleaned)
+    return ".".join(out)
+
 
 # Front-matter fields that must be text. PyYAML resolves YAML 1.1 scalars, so an unquoted value
 # can arrive as something the author never typed: `commit: 0123456` is octal → int 42798, and
@@ -1056,25 +1111,59 @@ def cmd_stale(root: Path) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    """CLI entry point. Every exception raised here fails open.
+def cmd_derive_id(paths: list[str], root_arg: str | None) -> int:
+    """--derive-id: one `path<TAB>id` stdout line per success.
 
-    The exit code is the gate's verdict, and wiki is none of Invariant #1's three
-    fail-closed exceptions (missing-dependency, unclassified-commit, merge-strategy). An
-    argparse usage error is a `SystemExit`, which passes straight through
-    `except Exception` and keeps exit 2 — the gate builds this command itself, so a
-    mistyped flag cannot happen at runtime.
+    Successes still print when a sibling path fails; each failure names its path and
+    reason on stderr and the call exits 1 — the caller fixes only what is named and
+    re-runs. TAB pairs, not positional zip: a partial failure must not silently shift
+    the path→id mapping.
+    """
+    # `is not None` — an explicit `--root ""` is still a caller-typed root, not "no root
+    # given". Branching on truthiness would silently fall back to the config/default root
+    # instead (the same footgun `main()` guards against for `--neighbors ""` below).
+    root = _norm_rel(root_arg) if root_arg is not None else _wiki_root_hint(host_root())
+    failed = False
+    for p in paths:
+        try:
+            print(f"{p}\t{derive_wiki_id(p, root)}")
+        except ValueError as exc:
+            print(f"{p}: {exc}", file=sys.stderr)
+            failed = True
+    return 1 if failed else 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point. Gate commands fail open; --derive-id does not.
+
+    For --build/--verify/--stale/--neighbors the exit code is the gate's verdict, and
+    wiki is none of Invariant #1's three fail-closed exceptions — they stay inside the
+    blanket except. --derive-id never runs in the commit hook, so it dispatches BEFORE
+    the try: swallowing its failure into a silent exit 0 would hand the caller back
+    the hand-derivation it exists to remove. An argparse usage error is a `SystemExit`
+    either way — the gate builds its own commands, so a mistyped flag cannot happen at
+    runtime.
     """
     force_utf8_io()
+    parser = argparse.ArgumentParser(prog="wiki_graph.py", description="LLM Wiki graph tool")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--build", action="store_true", help="graph.yaml 생성 (doc-sync 전용)")
+    group.add_argument("--verify", action="store_true", help="읽기 전용 검증 (flow gate 전용)")
+    group.add_argument("--stale", action="store_true", help="코드 stale 목록 (JSON)")
+    group.add_argument("--neighbors", metavar="ID", help="예산 내 이웃 문서 경로")
+    group.add_argument(
+        "--derive-id", nargs="+", metavar="PATH", help="경로별 wiki_id 파생 (경로<TAB>id 출력)"
+    )
+    parser.add_argument("--budget", type=int, default=None, help="줄 예산 (기본값: config)")
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="--derive-id 의 wiki root (기본: flow-config wiki.root 또는 docs)",
+    )
+    args = parser.parse_args(argv)
+    if args.derive_id:
+        return cmd_derive_id(args.derive_id, args.root)
     try:
-        parser = argparse.ArgumentParser(prog="wiki_graph.py", description="LLM Wiki graph tool")
-        group = parser.add_mutually_exclusive_group(required=True)
-        group.add_argument("--build", action="store_true", help="graph.yaml 생성 (doc-sync 전용)")
-        group.add_argument("--verify", action="store_true", help="읽기 전용 검증 (flow gate 전용)")
-        group.add_argument("--stale", action="store_true", help="코드 stale 목록 (JSON)")
-        group.add_argument("--neighbors", metavar="ID", help="예산 내 이웃 문서 경로")
-        parser.add_argument("--budget", type=int, default=None, help="줄 예산 (기본값: config)")
-        args = parser.parse_args(argv)
         root = host_root()
         if args.build:
             return cmd_build(root)
