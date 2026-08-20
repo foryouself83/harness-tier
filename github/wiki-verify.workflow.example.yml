@@ -5,7 +5,8 @@
 # graph.yaml (doc-sync and /wiki-init own --build).
 # Rendered unconditionally: with no wiki installed (flow-config.wiki absent or enable: false)
 # wiki_graph.py --verify exits 0 silently, so the job is green — which keeps /flow-init
-# independent of whether /wiki-init has run yet.
+# independent of whether /wiki-init has run yet. The same holds when the script is not in the
+# checkout (a repo that gitignores .claude/), which the step's own guard covers.
 name: wiki-verify
 
 on:
@@ -27,4 +28,12 @@ jobs:
         run: python3 -m pip install pyyaml
 
       - name: Verify wiki graph
-        run: python3 .claude/harness-tier/scripts/wiki_graph.py --verify
+        # The guard is the other half of the unconditional render: a repo that gitignores
+        # .claude/ has no script in the checkout at all, and python3 would exit 2 on the
+        # missing file — red on every push, for a repo that never opted into a wiki.
+        run: |
+          if [ ! -f .claude/harness-tier/scripts/wiki_graph.py ]; then
+            echo "no wiki_graph.py in the checkout - nothing to verify"
+            exit 0
+          fi
+          python3 .claude/harness-tier/scripts/wiki_graph.py --verify

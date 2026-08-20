@@ -1045,8 +1045,9 @@ def _wiki_plan(path: str, content: str) -> dict:
 
 
 def test_validate_plan_flags_hand_derived_wiki_id(tmp_path):
-    # 손 파생이 기계 파생과 어긋나면 나중에 duplicate/format 으로 --verify 가 모든 커밋을
-    # 막는다 — plan 시점에 잡는 유일한 강제점.
+    # A hand-derived id that disagrees with the mechanical one comes back later as a
+    # duplicate or a format failure, and --verify then blocks every commit. Plan time is
+    # the only point that catches it.
     content = "---\nwiki_id: code-style-python\ntitle: t\n---\n본문\n"
     res = hs.validate_plan(tmp_path, _wiki_plan("docs/code-style/python.md", content))
     hits = [i for i in res["issues"] if i["kind"] == "wiki-id"]
@@ -1060,15 +1061,16 @@ def test_validate_plan_accepts_the_derived_wiki_id(tmp_path):
 
 
 def test_validate_plan_exempts_defect_ids_from_path_parity(tmp_path):
-    # defect 문서의 wiki_id 는 defect-template 의 `defect.<slug>` 관례를 따른다(wiki-init §5
-    # 명시) — 경로 파생이 아니므로 패리티 검사가 high 로 오탐하면 안 된다.
+    # A defect document's wiki_id follows defect-template's `defect.<slug>` convention
+    # (stated in wiki-init §5), not path derivation, so the parity check must not raise a
+    # high on it.
     content = "---\nwiki_id: defect.login-timeout\ntitle: t\n---\n본문\n"
     res = hs.validate_plan(tmp_path, _wiki_plan("docs/defects/login-timeout.md", content))
     assert not any(i["kind"] == "wiki-id" for i in res["issues"])
 
 
 def test_validate_plan_flags_unfilled_id_placeholder(tmp_path):
-    # {{ID}} 를 안 채운 템플릿 복제도 같은 검사에 걸린다.
+    # A template copied without filling {{ID}} in trips the same check.
     content = "---\nwiki_id: '{{ID}}'\ntitle: t\n---\n본문\n"
     res = hs.validate_plan(tmp_path, _wiki_plan("docs/sds/README.md", content))
     assert any(i["kind"] == "wiki-id" for i in res["issues"])
@@ -1103,7 +1105,8 @@ def test_validate_plan_flags_numeric_wiki_id(tmp_path):
 
 
 def test_validate_plan_skips_front_matter_not_at_byte_zero(tmp_path):
-    # 선행 HTML 주석 = "위키 밖" 마커 (wiki_graph 와 같은 의미론) — 노드가 아니므로 스킵.
+    # A leading HTML comment marks the document as outside the wiki, the same semantics
+    # wiki_graph reads: not a node, so it is skipped.
     content = "<!-- note -->\n---\nwiki_id: wrong\ntitle: t\n---\n본문\n"
     res = hs.validate_plan(tmp_path, _wiki_plan("docs/guide.md", content))
     assert not any(i["kind"] == "wiki-id" for i in res["issues"])

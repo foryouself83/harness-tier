@@ -212,8 +212,10 @@ It performs, idempotently, and prints a report to relay:
 - **Renders** `.github/workflows/wiki-verify.yml` (same create-if-absent /
   never-overwrite rules) — **unconditionally**, no config gate: without a wiki the
   script exits 0 silently, so the job stays green and the render carries no ordering
-  dependency on `/wiki-init`. It runs `wiki_graph.py --verify` read-only in CI, closing
-  the wiki gate's terminal/merge-commit blind spot.
+  dependency on `/wiki-init`. The step guards on the script being present too, since a
+  repo that gitignores `.claude/` has none in the checkout and would otherwise go red on
+  every push. It runs `wiki_graph.py --verify` read-only in CI, closing the wiki gate's
+  terminal/merge-commit blind spot.
 
 Then remind the user to run `pre-commit install --hook-type pre-commit --hook-type commit-msg
 --hook-type pre-push` (activates gitlint, the push notifier, and the file-hygiene hooks) and

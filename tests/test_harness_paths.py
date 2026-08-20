@@ -139,9 +139,10 @@ requires_git = pytest.mark.skipif(not _has_git(), reason="git not available")
 
 
 def test_git_survives_non_utf8_output(tmp_path: Path):
-    # git 출력에 UTF-8 이 아닌 바이트가 하나라도 있으면 decode 예외가 호출 전체를 None 으로
-    # 만든다 — 게이트가 그 저장소에서 통째로 무음 fail-open 된다. errors="replace" 로 값을
-    # 살린다 (대체문자 섞인 경로는 어차피 매칭 실패로 그 항목만 fail-open — 더 좁다).
+    # A single non-UTF-8 byte anywhere in git's output makes the decode raise and the whole
+    # call return None — the gate then fails open silently for that entire repository.
+    # errors="replace" keeps the value: a path carrying a replacement character simply fails
+    # to match, so only that one entry falls open, which is far narrower.
     if not _has_git():
         pytest.skip("git not available")
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)

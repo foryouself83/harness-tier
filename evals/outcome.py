@@ -40,6 +40,18 @@ OUTCOME_SCORES = REPO / "evals/outcome_scores.json"
 SHA_EXEMPT = frozenset({"why", "expect", "reject"})
 
 
+def _copied_file_sha(src: str) -> str:
+    """Digest of one file `copy_from_repo` brings into the fixture.
+
+    A path that does not resolve still fingerprints, under its own name: such a scenario is
+    already broken and build() is where that gets said, while outcome_sha is walked
+    field-by-field by the tests, so raising here would turn a fingerprint into a crash."""
+    try:
+        return hashlib.sha256((REPO / src).read_bytes()).hexdigest()
+    except OSError:
+        return "unreadable"
+
+
 def outcome_sha(skill: str, scenario: sandbox.Scenario) -> str:
     """Freshness fingerprint for the outcome baseline.
 
@@ -52,9 +64,17 @@ def outcome_sha(skill: str, scenario: sandbox.Scenario) -> str:
     let `copy_from_repo` and `git` ship outside the payload — the fixture could then change
     while every baseline still reported fresh, which is the one thing this exists to
     prevent. An allowlist cannot cover the field nobody remembered to add to it, so the
-    default is now inclusion and each exemption has to argue for itself."""
+    default is now inclusion and each exemption has to argue for itself.
+
+    `copy_from_repo` needs one thing more than its own value: the files it names are fixture
+    content, and the mapping is identical whether or not they were edited. A gate script
+    copied in by path can be rewritten under a baseline that keeps reporting fresh, so the
+    digest of each source travels beside its path."""
     body = (REPO / f"skills/{skill}/SKILL.md").read_text(encoding="utf-8")
     fixture = {k: v for k, v in asdict(scenario).items() if k not in SHA_EXEMPT}
+    fixture["copy_from_repo"] = {
+        dest: [src, _copied_file_sha(src)] for dest, src in scenario.copy_from_repo.items()
+    }
     payload = body + json.dumps(fixture, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
