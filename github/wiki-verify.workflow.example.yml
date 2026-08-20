@@ -1,0 +1,30 @@
+# harness-tier wiki-verify CI — copied as-is by /flow-init (no config tokens).
+# Layer-3 safety net for the LLM Wiki: the layer-2 wiki gate sees only Claude-session commits,
+# so graph drift arriving via terminal/direct/CI commits would otherwise surface only at the
+# next session commit — here it fails the push/PR instead. Read-only: CI never builds
+# graph.yaml (doc-sync and /wiki-init own --build).
+# Rendered unconditionally: with no wiki installed (flow-config.wiki absent or enable: false)
+# wiki_graph.py --verify exits 0 silently, so the job is green — which keeps /flow-init
+# independent of whether /wiki-init has run yet.
+name: wiki-verify
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  wiki-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install PyYAML
+        run: python3 -m pip install pyyaml
+
+      - name: Verify wiki graph
+        run: python3 .claude/harness-tier/scripts/wiki_graph.py --verify

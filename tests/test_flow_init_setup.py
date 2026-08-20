@@ -25,9 +25,11 @@ from scripts.flow_init_setup import (
     remove_gitignore_lines,
     remove_harness_dir,
     render_unit_test_workflow,
+    render_wiki_verify_workflow,
     render_workflow,
     report_missing_config_slots,
     run_setup,
+    run_uninstall,
     unregister_gate,
     unregister_marketplace,
 )
@@ -271,6 +273,14 @@ def test_uninstall_idempotent(tmp_path: Path):
     assert "skip" in remove_harness_dir(tmp_path)
 
 
+def test_uninstall_names_the_workflows_that_break(tmp_path: Path, capsys):
+    # uninstall 은 .claude/harness-tier/scripts/ 를 지운다 — 그 스크립트를 실행하는
+    # wiki-verify.yml 이 남으면 push 마다 CI red 다. 안내가 그 파일을 지목해야 한다.
+    run_uninstall(tmp_path)
+    out = capsys.readouterr().out
+    assert "wiki-verify.yml" in out
+
+
 def test_uninstall_preserves_other_settings(tmp_path: Path):
     # PreToolUse hooks other than the gate are preserved
     settings = tmp_path / ".claude" / "settings.json"
@@ -383,6 +393,12 @@ def test_copy_files_includes_new_scripts():
     assert "scripts/finalize_prerelease.py" in COPY_FILES
 
 
+def test_wiki_graph_is_copied_to_the_host():
+    from scripts.flow_init_setup import COPY_FILES
+
+    assert "scripts/wiki_graph.py" in COPY_FILES
+
+
 def _write_flow_config(host: Path, contract: dict) -> None:
     cfg_dir = host / ".claude" / "harness-tier" / "config"
     cfg_dir.mkdir(parents=True, exist_ok=True)
@@ -461,6 +477,33 @@ def test_run_setup_renders_workflow(tmp_path: Path, capsys):
     captured = capsys.readouterr().out
     assert "계약 테스트" in captured
     assert (tmp_path / ".github" / "workflows" / "api-contract.yml").is_file()
+
+
+def test_render_wiki_verify_workflow_unconditional(tmp_path: Path):
+    # flow-config 유무·wiki enable 여부와 무관하게 렌더 — 스크립트가 no-op green 을 보장하므로
+    # /flow-init 이 /wiki-init 실행 순서에 의존하지 않는다.
+    out = render_wiki_verify_workflow(tmp_path, PLUGIN)
+    assert any("생성" in line for line in out)
+    dest = tmp_path / ".github" / "workflows" / "wiki-verify.yml"
+    text = dest.read_text(encoding="utf-8")
+    assert "__HARNESS_" not in text
+    data = _yaml.safe_load(text)
+    assert data["jobs"]["wiki-verify"]["timeout-minutes"] == 5
+
+
+def test_render_wiki_verify_workflow_preserves_existing(tmp_path: Path):
+    dest = tmp_path / ".github" / "workflows" / "wiki-verify.yml"
+    dest.parent.mkdir(parents=True)
+    dest.write_text("# custom\n", encoding="utf-8")
+    out = render_wiki_verify_workflow(tmp_path, PLUGIN)
+    assert any("이미" in line for line in out)
+    assert dest.read_text(encoding="utf-8") == "# custom\n"
+
+
+def test_run_setup_renders_wiki_verify(tmp_path: Path, capsys):
+    run_setup(tmp_path, PLUGIN)
+    assert (tmp_path / ".github" / "workflows" / "wiki-verify.yml").is_file()
+    assert "wiki 검증" in capsys.readouterr().out
 
 
 def test_render_workflow_idempotent_reports_only(tmp_path: Path):
@@ -802,6 +845,60 @@ def test_render_unit_test_creates_and_substitutes(tmp_path: Path):
     api = include[0]
     assert api["language"] == "python" and api["version"] == "3.12"
     assert api["setup"] == "pip install uv && uv sync" and api["test"] == "uv run pytest"
+
+
+def test_supported_setup_languages_matches_the_template_gates():
+    # One fact in three places: the template's `if: matrix.language == '<lang>'` steps, the
+    # constant that copies them, and the list flow-config.example advertises to hosts. A copy
+    # drifts silently — adding a setup-* step without the constant makes that language warn as a
+    # typo, dropping one lets the real typo through, and a stale example teaches the wrong value.
+    # Read all three back out of their files so none can diverge unnoticed.
+    from scripts.flow_init_setup import (
+        EXAMPLE_CONFIG,
+        SUPPORTED_SETUP_LANGUAGES,
+        UNIT_TEST_TEMPLATE,
+    )
+
+    template = (PLUGIN / UNIT_TEST_TEMPLATE).read_text(encoding="utf-8")
+    gates = set(re.findall(r"matrix\.language == '([^']+)'", template))
+    assert gates == set(SUPPORTED_SETUP_LANGUAGES)
+
+    # Split on the bare pipe and strip, so respacing the list is a formatting edit rather than a
+    # failure that reads like a real divergence. Both asserts carry a message for the same reason.
+    example = (PLUGIN / EXAMPLE_CONFIG).read_text(encoding="utf-8")
+    documented = re.search(r"#\s+language:\s+([a-z |]+?)\s+→", example)
+    assert documented, "flow-config.example's `language:` slot line moved or was rewrapped"
+    listed = {word.strip() for word in documented.group(1).split("|")}
+    assert listed == set(SUPPORTED_SETUP_LANGUAGES), f"example documents {sorted(listed)}"
+
+
+def test_unit_test_language_warnings_flags_case_variant_only():
+    # only a case variant of a supported language (near-certain typo) warns; an exact match and a
+    # genuinely custom language (the escape hatch flow-config.example documents) do not, and a job
+    # without `language` is ignored.
+    from scripts.flow_init_setup import _unit_test_language_warnings
+
+    warnings = _unit_test_language_warnings(
+        [
+            {"name": "api", "language": "Python"},  # case variant → warn
+            {"name": "web", "language": "node"},  # exact supported → no warn
+            {"name": "edge", "language": "deno"},  # custom runtime → escape hatch, no warn
+            {"name": "nolang"},  # no language key → no warn
+        ]
+    )
+    assert len(warnings) == 1
+    assert "'api'" in warnings[0] and "'Python'" in warnings[0]
+
+
+def test_render_unit_test_surfaces_language_warning(tmp_path: Path):
+    # the case-variant warning must reach the render log, and rendering still succeeds (non-fatal).
+    _write_unit_test_config(
+        tmp_path,
+        {"enable": True, "jobs": [{"name": "api", "language": "GO", "test": "go test ./..."}]},
+    )
+    out = render_unit_test_workflow(tmp_path, PLUGIN)
+    assert any("'GO'" in line and "매칭" in line for line in out)
+    assert any("생성" in line for line in out)
 
 
 def test_render_unit_test_default_timeout(tmp_path: Path):

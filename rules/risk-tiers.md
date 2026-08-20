@@ -55,14 +55,45 @@ Two kinds:
   - **`security-scan`** — the **promotion** bucket: the promotion checks of **all
     modules** (`security` + any custom `when: promotion`), on staging/release
     promotion.
+  - **`wiki`** — not a timing bucket, and not a module check either: the hook's gate
+    script runs it in-process as its final stage, plus a new blocking rule: a commit whose
+    only change to a node is its `sources` sha (no body edit) is rejected — see
+    doc-sync's stamp discipline. When `flow-config.wiki` is enabled it verifies, read-only, that
+    `graph.yaml` still matches the docs' front matter and that no structural rule is
+    broken. It runs on **every tier including `docs`** — a docs commit is exactly when the
+    graph drifts. No wiki configured (absent · `enable: false` · missing root) → nothing
+    runs, so a repo without a wiki never notices this gate. The graph is **built** by
+    `/doc-sync` or `/wiki-init`, never by the hook and never by CI, and it is built from
+    **git's index** — `git add` is what admits a document to the wiki, so stage new documents
+    before building. Only a real verification failure blocks; an internal error passes
+    (Invariant #1) — including a git that cannot list its own index, where the node set falls
+    back to the filesystem and would otherwise count the very files git hides. Its
+    non-blocking quality warnings — orphans, over-size documents, `sources` paths that are
+    not on disk, defect→rule promotion, front matter that fails to parse without a
+    `wiki_id:` line, a wiki-only field (`related`/`depends_on`/`affects`/`sources`) present
+    without a `wiki_id` — come back as a `systemMessage` on a passing commit, each kind
+    capped at three entries plus a count. A defect node's `regression_test` /
+    `promoted_to_rule` path is the one file reference that *does* block when it is missing,
+    unlike `sources`: those two assert a tracked repository artifact exists, and both the fix
+    and the escape hatch are one edit in the document, whereas a `sources` entry may
+    legitimately name a generated or gitignored file that no edit can conjure.
+    Two things it cannot see. It reads the **working tree**, because the hook fires before
+    `git commit` stages anything — so `graph.yaml` must be staged with the documents it
+    was built from, or the commit records new front matter beside the old graph and
+    nothing catches it until the next session commit. And on a **promotion** (Staging /
+    Release) no gate rebuilds the graph — `doc-sync` is not a promotion gate — so a drift
+    that arrived via a terminal commit surfaces here as a blocked promotion: run
+    `python3 .claude/harness-tier/scripts/wiki_graph.py --build` and include the result in
+    the promotion commit.
 
   Hosts add their own runtime checks by putting extra keys under
   `flow-config.modules[].checks` — a command string (timing defaults by key name:
   `security` → promotion, else every-commit) or `{ run, when }` to set timing
   explicitly (use `when`, not `on` — YAML reads a bare `on` key as a boolean).
-  **Timing is bound to that bucket's gate existing in the tier**: the `docs` tier
-  has neither runtime gate (and is short-circuited), so custom checks never run on
-  a docs commit. Both gates are ordinary entries in each tier's `flow-tiers.yaml`
+  **Timing is bound to that bucket's gate existing in the tier**: the `docs` tier has
+  neither *bucket* gate, so host custom checks never run on a docs commit — the module
+  pre-check short-circuits there. (`wiki` still runs on a docs commit; it is not a module
+  check and never enters that path.) Both gates are ordinary entries in each tier's `flow-tiers.yaml`
   `gates` list, so **removing one disables that whole bucket** for that tier (the
   gates list is the single on/off switch, not a hardcoded branch). Like all
   layer-2 checks these run **only on Claude-session commits** — terminal/CI commits
@@ -76,6 +107,10 @@ Two kinds:
     callers of every changed public symbol. Step 3.
   - **`doc-sync`** — `/doc-sync` harmonizes the doc set (root CLAUDE.md,
     per-service docs, rules) and reconciles code↔doc drift.
+    Where the project has an LLM Wiki, it also refreshes each node's front matter
+    `sources` marker (the file's working-tree **blob hash**, so history rewrites
+    cannot fake staleness) and rebuilds `graph.yaml` (Mode W) — the `wiki` runtime
+    gate then verifies that rebuild.
   - **`bump`** (Staging) — the human major/minor/patch choice; fail-closed
     (the staging commit is blocked until `bump.done` exists). Detail in Step 1b.
   - **`security`** (Release) — `/security-review`.
@@ -122,7 +157,7 @@ promotion gates run once over the accumulated work.
 ### Staging — integration → staging branch (QA / rc cut)
 
 The release candidate enters QA/staging. Gates: `precommit`, `review`,
-`security-scan`, `bump` (see Gate glossary). Performance and integration are
+`security-scan`, `bump`, `wiki` (see Gate glossary). Performance and integration are
 independent skills; the `/security-review` LLM review is added at Release.
 
 Staging also **forces a human bump-level choice**: `/flow` asks major/minor/patch
@@ -133,6 +168,12 @@ staging commit as a `Release-Level:` trailer and CI forces
 dropping the token deterministically (an overridden level would otherwise be lost —
 python-semantic-release recomputes on the stable branch). `major` on a 0.x project
 jumps to `1.0.0`.
+
+The trailer is for the **first** forced promotion only. `version --<level>` bumps the
+**base** version every time it is applied, so re-promoting with the trailer to fold in
+a follow-up takes `X.Y.Z-rc.1` → `X.Y.(Z+1)-rc.1`, skipping `X.Y.Z` as a stable
+release rather than continuing to `rc.2`. To iterate an rc on the same target version,
+re-promote **without** the trailer — the auto-derive path continues the series.
 
 ### Release — staging → production branch
 
@@ -163,8 +204,8 @@ production→main). No branch is literally named `integration`.
 
 | Moment | Tier | Gates |
 |--------|------|-------|
-| Work on `feature/*` / `fix/*` → integration branch | **Docs** (no code) / **Dev** (any code) | Docs: doc-sync · Dev: precommit, review, doc-sync |
-| integration → staging (QA / rc cut) | **Staging** | precommit, review, security-scan, bump |
+| Work on `feature/*` / `fix/*` → integration branch | **Docs** (no code) / **Dev** (any code) | Docs: doc-sync, wiki · Dev: precommit, review, doc-sync, wiki |
+| integration → staging (QA / rc cut) | **Staging** | precommit, review, security-scan, bump, wiki |
 | staging → production, or prod deploy | **Release** | + security |
 | A feature-branch change that is irreversible / prod-critical / security | escalate to **Release** | — |
 
@@ -175,9 +216,9 @@ tiers you pick during feature development.
 
 | Tier | `superpowers` pipeline | Validation skills | Suppressed |
 |------|------------------------|-------------------|------------|
-| **Docs** | OFF — no code | `/doc-sync` (harmonize docs) | brainstorming, writing-plans, TDD |
-| **Dev** | ON | selective TDD, domain review, verification, `/doc-sync` | — |
-| **Staging** | (promotion gate) | precommit, review, security-scan | — |
+| **Docs** | OFF — no code | `/doc-sync` (harmonize docs), `wiki` (verify graph) | brainstorming, writing-plans, TDD |
+| **Dev** | ON | selective TDD, domain review, verification, `/doc-sync`, `wiki` | — |
+| **Staging** | (promotion gate) | precommit, review, security-scan, `wiki` | — |
 | **Release** | (promotion gate) | + security | — |
 
 **Docs = `superpowers` OFF** (no-code edit, made directly).
@@ -263,12 +304,46 @@ work started on. `hotfix/*` off the production branch is the exception
      agent (separate context; it runs shell commands, so not a
      read-only reviewer type):
      ① **git is the authority on what changed** — every path it lists
-     gets reviewed, and that count goes in the report:
-     `git diff --name-only HEAD` plus
-     `git ls-files --others --exclude-standard`. At a promotion the
-     working tree is clean, so set `BASE`/`HEAD` to the two
-     `flow-config.branches` refs and list with
-     `git diff --name-only "$BASE..$HEAD"` instead.
+     gets reviewed, and that count goes in the report. Run
+     `git fetch origin` first, then take the **union of three
+     lists**, deduplicated:
+
+     ```bash
+     git fetch origin
+     # Probe the BRANCH POINT first, not merely the ref. Inside the brace group a failing
+     # term writes to stderr, contributes nothing, and the pipeline still exits 0 — a short
+     # list that looks complete. `rev-parse --verify` is not enough: on a shallow clone, or
+     # against an unrelated history, the ref resolves fine and the three-dot diff still dies
+     # with "no merge base". `merge-base` fails in both cases and covers a missing ref too.
+     # Per-term `|| exit 1` inside the braces does NOT work — it exits only the pipeline's
+     # subshell and `sort`'s status masks it. Abort here; never review the remainder.
+     git merge-base "origin/<integration>" HEAD >/dev/null || exit 1
+     { git diff --name-only "origin/<integration>...HEAD"   # committed on the branch
+       git diff --name-only HEAD                            # staged + unstaged
+       git ls-files --others --exclude-standard             # untracked
+     } | sort -u
+     ```
+
+     All three are needed and none subsumes another. The three-dot
+     form is commit-to-commit from the branch point, so on its own it
+     reports **zero** files for the ordinary case — review runs
+     *before* the commit. `HEAD` on its own misses everything already
+     committed on the branch, and since the `review` marker is
+     branch-bound and survives across commits, those files would
+     never appear in *any* review's list. `ls-files --others`
+     recovers untracked files only, never modified tracked ones.
+
+     At a promotion the working tree is clean and both ends are
+     branches, so use the two adjacent `flow-config.branches` refs
+     for the promotion in hand — **destination first**, so the diff
+     is what the promotion would add:
+     `git diff --name-only "origin/<staging>..origin/<integration>"`
+     for Staging, and
+     `git diff --name-only "origin/<production>..origin/<staging>"`
+     for Release. Always the **freshly fetched `origin/` refs**,
+     never a bare local ref: a stale local ref silently *shrinks* the
+     reviewed set, which is the one direction a coverage gate must
+     never fail in.
      ② Read each file's diff and judge it against the checklist —
      regression, cross-service contract, DB/migration & transactions,
      async task idempotency & queue routing, API error conventions.
@@ -290,15 +365,26 @@ work started on. `hotfix/*` off the production branch is the exception
 ### Staging (integration → staging)
 
 1. Regression review — Dev Step 3's procedure with ①'s promotion form
-   (`git diff --name-only "$BASE..$HEAD"` between the integration and
-   staging refs; the workspace form would list nothing) → record `review`. `precommit` and `security-scan` run automatically on
+   for **this** pair (`git fetch origin`, then
+   `git diff --name-only "origin/<staging>..origin/<integration>"`;
+   the workspace form would list nothing here) → record `review`.
+   `precommit` and `security-scan` run automatically on
    promotion commits (runtime gates — no marker; see Gate glossary).
 2. Promote integration → staging (rc), or open a PR when
    `merge_workflow.pull_request` includes `promotion` (see PR workflow).
 
 ### Release (staging → production)
 
-Staging gates **plus**:
+Staging gates **plus** — but the regression `review` re-runs against
+**this** promotion's pair, `git fetch origin` then
+`git diff --name-only "origin/<production>..origin/<staging>"`.
+Inheriting Staging's pair is the trap here, and it does not announce
+itself: staging is not empty relative to integration, it is *ahead* by
+the rc bump CI just pushed, so the wrong pair returns a plausible
+handful of release plumbing (`plugin.json`, `CHANGELOG.md`,
+`pyproject.toml`, `uv.lock`) while hiding every substantive change in
+the release. The highest-risk gate then reports full coverage of the
+wrong set, with no empty result to give it away.
 
 1. Extra independent review — `/code-review` at `ultra` effort
    (high-risk layer).
@@ -328,10 +414,14 @@ Always apply before every `git commit -m` and every merge.
 - **Subject** — `type(scope): description`; ≤50 chars (non-ASCII = 1
   each); lowercase, imperative; no trailing period. Over 50 →
   **REWRITE**, no exceptions.
-- **Body** — what & why as `-` bullets (one fact each), not prose;
-  each line ≤72, wrap at word boundaries. Fragments over sentences
-  (noun phrases + `cause → effect`); cut filler — drop anything that
-  restates another.
+- **Body** — what & why as `-` bullets, **one sentence each**, not
+  prose; each line ≤72, wrap at word boundaries. Fragments over
+  sentences (noun phrases + `cause → effect`). Never prefix a bullet
+  with `feat:`/`fix:` — the subject owns the type. Drop anything that
+  restates another bullet, and anything the reader need not know.
+- **No history narration in the body** — no "previously X", no
+  migration note, no account of what an earlier round of the same
+  work did. The commit *is* the history entry.
 - **Footer** — `BREAKING CHANGE: …`, `Refs: #123`; same ≤72.
 
 Subject/body limits (the **50/72 rule**) + no-trailing-period are

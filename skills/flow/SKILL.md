@@ -59,7 +59,7 @@ Output the verdict — tier, reason, gates (from [`flow-tiers.yaml`](../../flow-
 ## Tier Classification
 - Tier: DEV
 - Reason: changes src/*.py (source code)
-- Gates: precommit, review, doc-sync
+- Gates: precommit, review, doc-sync, wiki
 ```
 
 ## Phase 2 — Confirm the tier & switch to a work branch (human gate)
@@ -109,7 +109,11 @@ Record each completed gate as `.claude/harness-tier/.flow/<gate>.done`. `precomm
 checks of all modules) are executed by the commit hook itself — no marker (both are
 ordinary `gates` entries and timing buckets over `flow-config.modules[].checks`, routed
 by each check's `when`; removing one from a tier's list in
-[`flow-tiers.yaml`](../../flow-tiers.yaml) disables it for that tier).
+[`flow-tiers.yaml`](../../flow-tiers.yaml) disables it for that tier). **`wiki`** is a
+third runtime gate needing no marker — not a timing bucket, the hook's gate script runs
+`wiki_graph.py --verify` in-process whenever `flow-config.wiki` is enabled (no-op
+otherwise). Do **not** `touch .claude/harness-tier/.flow/wiki.done` and do not go
+looking for a `wiki` gate skill — none exists; the hook runs the check itself.
 
 > **Precondition (Dev / Staging / Release)** — the `superpowers` plugin must
 > be installed. If `superpowers:using-superpowers` is **not** among the available
@@ -137,10 +141,17 @@ by each check's `when`; removing one from a tier's list in
 
 ### Dev — any code (`superpowers` ON)
 
-1. **Enter `superpowers:using-superpowers`** — it drives the pipeline automatically
+1. **Load the wiki context first** (skip silently when there is no wiki — both
+   commands print nothing and exit 0): name the files you are about to change to
+   `python3 .claude/harness-tier/scripts/wiki_graph.py --nodes-for <paths…>`, then
+   for each printed id run
+   `python3 .claude/harness-tier/scripts/wiki_graph.py --neighbors <id>` and **read
+   the documents it lists** before planning. An empty result is a normal answer (the
+   code is undocumented) — proceed without it.
+2. **Enter `superpowers:using-superpowers`** — it drives the pipeline automatically
    (brainstorm → plan → implement → verify → review; each skill self-triggers).
    Feed the resolved request from Phase 0 in as the task.
-2. Apply the project overlays `superpowers` does not know about:
+3. Apply the project overlays `superpowers` does not know about:
    - **Implementation minimalism** — right after the plan, before writing code,
      climb the reuse-before-build ladder (YAGNI → codebase → stdlib → native →
      dependency → one line → minimum code) and stop at the earliest rung. Detail
@@ -157,7 +168,7 @@ by each check's `when`; removing one from a tier's list in
      [`risk-tiers.md`](../../rules/risk-tiers.md) Step 3.
      On pass → `touch .claude/harness-tier/.flow/review.done`.
    - **invoke the `doc-sync` skill** (not part of `superpowers`) → `touch .claude/harness-tier/.flow/doc-sync.done`.
-3. Commit → merge **applying the risk-tiers Merge strategy** (rule 3 — not a plain
+4. Commit → merge **applying the risk-tiers Merge strategy** (rule 3 — not a plain
    merge; from a worktree use `git -C <worktree> commit …` — rule 5). (The commit
    hook blocks until `review.done` and `doc-sync.done`.)
    When `flow-config.merge_workflow.pull_request` includes `daily`, open a **PR** instead
@@ -170,11 +181,28 @@ by each check's `when`; removing one from a tier's list in
 ## Promotion — Staging (integration → staging) / Release (staging → production)
 
 Promotions are gated at the **commit on the target branch** (no tier marker
-needed — the branch drives it). Record each gate before committing the promotion:
+needed — the branch drives it). Record each gate before committing the promotion.
+`precommit`, `security-scan`, and `wiki` need no marker at all — they are runtime
+gates the commit hook runs directly on both the staging and the production commit
+(per [`flow-tiers.yaml`](../../flow-tiers.yaml)); the bullets below cover only the
+gates that **do** need a recorded marker.
+
+`wiki` is the one runtime gate with no skill behind it in a promotion. `doc-sync` — the
+only thing that rebuilds `graph.yaml` — is not a promotion gate, so a graph drift that
+arrived on the integration branch via a terminal commit (layer 2 never saw it) surfaces
+here as a blocked promotion commit. Resolve it in place: run
+`python3 .claude/harness-tier/scripts/wiki_graph.py --build` and stage the rebuilt
+`graph.yaml` into the promotion commit. If instead the failure names a structure
+violation (`wiki_id` format/duplicate · missing `title` · dangling `depends_on` · cycle ·
+front matter that does not parse while carrying a `wiki_id`), the fix is the document's
+front matter — `--build` cannot resolve those.
 
 - **Staging** (integration → staging): regression `review` (independent
-  `general-purpose` agent; the tree is clean at promotion, so list the files with
-  `git diff --name-only "$BASE..$HEAD"` — see
+  `general-purpose` agent; the tree is clean at promotion, so `git fetch origin` and list
+  the files with the pair **for this promotion** —
+  `git diff --name-only "origin/<staging>..origin/<integration>"`; the Release bullet below
+  has its own pair, do not reuse this one there. Always the fetched `origin/` refs, since a
+  stale local ref shrinks the reviewed set; see
   [`risk-tiers.md`](../../rules/risk-tiers.md) Step 3) **and bump-level selection**:
   1. Compute the commit-derived level as the default: `semantic-release version --print`
      (best-effort) — compare to the current version to suggest major/minor/patch.
@@ -195,6 +223,11 @@ needed — the branch drives it). Record each gate before committing the promoti
 - **Release** (staging → production): Staging gates **plus** `/code-review` at
   `ultra` effort (extra independent layer) and `/security-review` →
   `touch .claude/harness-tier/.flow/security.done`, then commit on the production branch.
+  ⚠️ The regression `review` here takes **its own** file list —
+  `git diff --name-only "origin/<production>..origin/<staging>"`, not the Staging bullet's
+  pair. Reusing that pair does not fail loudly: staging is *ahead* of integration by the rc
+  bump CI just pushed, so it returns a plausible handful of release plumbing and hides every
+  substantive change — full coverage of the wrong set, with no empty result to give it away.
   ⚠️ **Merge the freshly fetched `origin/<staging>`** (post-rc — it carries the
   `X.Y.Z-rc.N` bump), not a stale local staging ref: otherwise the rc-strip finalize
   has no prerelease to strip, falls back to plain compute, and the bump-level override

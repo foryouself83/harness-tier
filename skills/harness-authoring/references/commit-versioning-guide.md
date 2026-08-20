@@ -19,6 +19,10 @@ The discipline `harness-authoring` follows when generating `docs/operations/comm
 - Format: `<type>[optional scope]: <description>` (official spec link required)
 - Key types: `feat` (MINOR) · `fix` (PATCH) · `BREAKING CHANGE` (MAJOR) · `chore`/`docs`/`ci` (no version impact)
 - Source: <https://www.conventionalcommits.org> (link required)
+- Message body: emit the `Body` and `No history narration` bullets of
+  [risk-tiers.md](../../../rules/risk-tiers.md) §Commit Discipline, which owns them (harness-rules 7,
+  no restating). They are body *format*, so a flow-less host still gets them; when flow **is**
+  detected they defer with the rest of the commit discipline (§5) and this doc emits nothing.
 
 ### 2. SemVer Policy
 - Explain the meaning of `MAJOR.MINOR.PATCH` (source: <https://semver.org>).
@@ -99,7 +103,8 @@ git describe --tags --abbrev=0
 ```
 
 ### 5. Guidance When flow Is Detected
-- **flow detected** — defer the `commit-versioning-guide`'s **tier·commit discipline content** to [risk-tiers.md](../../../rules/risk-tiers.md).
+- **flow detected** — defer the `commit-versioning-guide`'s **tier·commit discipline content**, §1's
+  message-body list included, to [risk-tiers.md](../../../rules/risk-tiers.md).
   This doc describes only the *version·release mechanism* and does not duplicate process discipline (approval·merge·PR, etc.).
 - **flow not detected** — propose the actual release-tool setup (CI workflows·hooks) as opt-in (generate only with user consent).
 

@@ -65,8 +65,17 @@ WORKFLOW_DEST = ".github/workflows/api-contract.yml"  # host (GitHub-forced — 
 
 UNIT_TEST_TEMPLATE = "github/unit-test.workflow.example.yml"  # SOURCE (plugin-owned)
 UNIT_TEST_DEST = ".github/workflows/unit-test.yml"  # host (GitHub-forced — HARNESS_DIR exception)
+
+WIKI_VERIFY_TEMPLATE = "github/wiki-verify.workflow.example.yml"  # SOURCE (plugin-owned)
+WIKI_VERIFY_DEST = ".github/workflows/wiki-verify.yml"  # host (GitHub-forced — HARNESS_DIR exc.)
 # per-job wall-clock cap (minutes) when unit_test.timeout_minutes is unset
 UNIT_TEST_DEFAULT_TIMEOUT = 10
+# Languages the unit-test template runs an official setup-* action for (its `if: matrix.language ==`
+# gates, lowercase literals). A value outside this set is a legitimate escape hatch (the job's own
+# `setup` command preps the runtime), but a *case variant* of one of these (e.g. "Python") almost
+# certainly means the setup step will be silently skipped — flagged as a warning at render time.
+# Copied from the template, so test_flow_init_setup.py asserts the two stay equal.
+SUPPORTED_SETUP_LANGUAGES = frozenset({"python", "node", "java", "go", "rust"})
 
 EXAMPLE_CONFIG = "flow-config.example.yaml"  # plugin SOURCE (basis for config-slot diff)
 
@@ -78,6 +87,7 @@ COPY_FILES = [
     "scripts/_harness_paths.py",
     "scripts/precommit-runner.sh",
     "scripts/flow_gate_check.py",
+    "scripts/wiki_graph.py",
     "scripts/teams_alert.py",
     "scripts/notify-push.sh",
     "scripts/check-deps.sh",
@@ -558,7 +568,7 @@ _RELEASE_TEMPLATES = {
 }
 
 
-def _render_one(src: Path, dest: Path, subs: dict) -> list[str]:
+def _render_one(src: Path, dest: Path, subs: dict, label: str = "versioning 렌더") -> list[str]:
     if not src.exists():
         return [f"  [!] 템플릿 없음: {src.name} — skip"]
     if dest.exists():
@@ -568,7 +578,7 @@ def _render_one(src: Path, dest: Path, subs: dict) -> list[str]:
         text = text.replace(k, val)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(text, encoding="utf-8")
-    return [f"  [+] .github/workflows/{dest.name} 생성 (versioning 렌더)"]
+    return [f"  [+] .github/workflows/{dest.name} 생성 ({label})"]
 
 
 def render_versioning_workflows(host: Path, plugin: Path) -> list[str]:
@@ -959,6 +969,31 @@ def _unit_test_matrix_include(jobs: list) -> str:
     return "\n          - ".join(flows)
 
 
+def _unit_test_language_warnings(jobs: list) -> list[str]:
+    """Warn on a job whose `language` is a case variant of a supported one (e.g. "Python").
+
+    The template's setup-* steps gate on lowercase literals (`if: matrix.language == 'python'`),
+    so "Python"/"GO"/… silently skip the official setup and fall through to the job's own `setup`
+    command — often a false-green against the runner's default runtime. A value that isn't a
+    supported language at all is left alone: that's the documented custom-runtime escape hatch, so
+    we only flag values that match a supported language up to case (a near-certain typo).
+    """
+    warnings: list[str] = []
+    for job in jobs:
+        if not isinstance(job, dict):
+            continue
+        lang = job.get("language")
+        if not isinstance(lang, str):
+            continue
+        if lang not in SUPPORTED_SETUP_LANGUAGES and lang.lower() in SUPPORTED_SETUP_LANGUAGES:
+            name = job.get("name", "?")
+            warnings.append(
+                f"  [!] unit_test job '{name}' language '{lang}' — 공식 setup 스텝은 소문자 "
+                f"'{lang.lower()}' 만 매칭합니다. 대소문자를 맞추세요(안 그러면 setup 스킵)."
+            )
+    return warnings
+
+
 def render_unit_test_workflow(host: Path, plugin: Path) -> list[str]:
     """Render .github/workflows/unit-test.yml from the unit_test configuration.
 
@@ -986,6 +1021,7 @@ def render_unit_test_workflow(host: Path, plugin: Path) -> list[str]:
             "  [i] 갱신하려면 기존 파일을 지우고 /flow-init 을 재실행하거나 직접 수정하세요.",
         ]
     branches = ut.get("branches") or ["dev", "stage", "main"]
+    warnings = _unit_test_language_warnings(jobs)
     replacements = {
         "__HARNESS_BRANCHES__": ", ".join(str(b) for b in branches),
         "__HARNESS_TIMEOUT__": str(ut.get("timeout_minutes") or UNIT_TEST_DEFAULT_TIMEOUT),
@@ -999,7 +1035,17 @@ def render_unit_test_workflow(host: Path, plugin: Path) -> list[str]:
         dest.write_text(text, encoding="utf-8")
     except OSError as exc:
         return [f"  [!] unit-test 워크플로우 렌더링 실패(수동 확인): {exc}"]
-    return ["  [+] .github/workflows/unit-test.yml 생성 (unit_test 렌더링)"]
+    return [*warnings, "  [+] .github/workflows/unit-test.yml 생성 (unit_test 렌더링)"]
+
+
+def render_wiki_verify_workflow(host: Path, plugin: Path) -> list[str]:
+    """Copy wiki-verify.yml as-is — no enable gate, no tokens. Unconditional on purpose:
+    without a wiki the script no-ops green, so rendering at /flow-init time removes the
+    ordering dependency on /wiki-init (which usually runs later). Idempotent·non-destructive
+    (existing dest → report only), same as every other workflow render here."""
+    return _render_one(
+        plugin / WIKI_VERIFY_TEMPLATE, host / WIKI_VERIFY_DEST, {}, "wiki-verify 렌더"
+    )
 
 
 def run_setup(host: Path, plugin: Path) -> None:
@@ -1025,6 +1071,9 @@ def run_setup(host: Path, plugin: Path) -> None:
         print(line)
     print("[유닛 테스트 워크플로우]")
     for line in render_unit_test_workflow(host, plugin):
+        print(line)
+    print("[wiki 검증 워크플로우]")
+    for line in render_wiki_verify_workflow(host, plugin):
         print(line)
     print("[배포 워크플로우]")
     for line in render_deploy_workflows(host, plugin):
@@ -1052,6 +1101,9 @@ def run_uninstall(host: Path) -> None:
     print("    않습니다(주석·팀 커스텀 보존). 필요 시 직접 제거하세요.")
     print("  - .github/workflows/api-contract.yml 은 자동 삭제하지 않습니다(팀 커스텀 보존).")
     print("    계약 테스트를 끄려면 직접 제거하세요.")
+    print("  - .github/workflows/wiki-verify.yml 은 방금 삭제된 .claude/harness-tier/scripts/")
+    print("    의 스크립트를 실행하므로, 남겨두면 push 마다 CI 가 실패합니다 — 함께 제거하세요.")
+    print("    release 계열 워크플로우도 같은 경로를 참조하면 동일하게 손봐야 합니다.")
     print("  - 설치했던 git 훅 비활성화:")
     print("      pre-commit uninstall --hook-type pre-commit --hook-type commit-msg \\")
     print("        --hook-type pre-push")

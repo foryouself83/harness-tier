@@ -3,6 +3,7 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 This repo is the **Claude Code plugin itself** (not a consumer of it). For usage, see [README.md](README.md)·[USAGE.md](USAGE.md).
+Both have Korean twins ([README.ko.md](README.ko.md)·[USAGE.ko.md](USAGE.ko.md)); `doc-sync` carries a change across the pair.
 For component authoring specs (agent/hook/skill frontmatter), verify against the official docs as the SSOT, not model knowledge:
 [plugins-reference](https://code.claude.com/docs/en/plugins-reference.md) · [hooks](https://code.claude.com/docs/en/hooks.md) · [skills](https://code.claude.com/docs/en/skills.md) · [permissions](https://code.claude.com/docs/en/permissions.md).
 (`allowed-tools` pre-approves tools, it does not restrict — enforced at point of use by
@@ -21,10 +22,25 @@ uv run pre-commit run --all-files                        # full static analysis
 uv run python -m evals.run --dry-run --all               # session count + wall-clock, no model calls
 uv run python -m evals.run                               # measure only skills whose description changed
 uv run python -m evals.run --skill integration --capture-fixtures   # …+ stream fixture candidates (*.jsonl.new)
-uv run python -m evals.outcome                           # measure the outcome arm (doc-sync end-state, reps 3)
+uv run python -m evals.outcome                           # measure the outcome arm (end-state, reps 3)
+uv run python -m evals.outcome --skill wiki-init         # …one skill only (others keep their baseline)
 ```
 
 When modifying `*.sh`, verify with ShellCheck (the hook runtime is Windows, so bugs are hidden as FAIL-OPEN — see Invariants).
+
+## Conventions
+
+- **English in the repo** — docs · commit messages · comments/docstrings. The exception is
+  `docs/superpowers/specs/`·`plans/` (internal working surface, never shipped), written in Korean.
+- **Write only what the code can't say** — comments · docstrings · `.md` · rules. No change-history
+  narration, no restating the next line, no ornamental structure; a rule file holds the rule in force.
+  Same discipline in a commit body ([`rules/risk-tiers.md`](rules/risk-tiers.md) Commit Discipline) and
+  in generated harness artifacts ([`rules/harness-rules.md`](rules/harness-rules.md) 5-2).
+- **Dogfood new CI** — a workflow-rendering feature also lands in this repo's OWN `.github/workflows/`,
+  not just as a `github/*.example.yml` consumer template. Every job carries a tight `timeout-minutes`.
+- **Mutation-test a fix, and assert the mutation applied** — a no-op edit runs the original code, so the
+  suite passes and reads as verified (it has silently failed here twice). Read-modify-write in Python with
+  `assert old in text`, never `sed -i`; revert with `git checkout --` from an already-clean tree.
 
 ## Folder structure
 
@@ -37,15 +53,19 @@ hooks/           hooks.json (SessionStart rule injection + Notification) · inje
 skills/          /slash = skill — one dir each; open the dir for its SKILL.md
 rules/           risk-tiers.md (SSOT: tier classification + commit discipline) · harness-rules.md (SSOT: harness-gen)
                  — both SHIP to consumers, unlike .claude/rules/ which never leaves this repo
-.claude/rules/   skill-frontmatter.md — dev-only, fires on opening a skills/**/*.md (never ships)
-scripts/         gate + setup scripts — authoritative copy list = flow_init_setup.py COPY_FILES (open the dir for the rest)
+.claude/rules/   dev-only, never ships: skill-frontmatter.md (fires on a skills/**/*.md) ·
+                 claude-md-authoring.md (fires on this file)
+scripts/         gate + setup scripts incl. wiki_graph.py (build/verify the LLM Wiki graph;
+                 owns `derive_wiki_id`/`--derive-id`, the executable SSOT for the `wiki_id` rule) —
+                 authoritative copy list = flow_init_setup.py COPY_FILES (open the dir for the rest)
 github/          *.workflow.example.yml SOURCEs /flow-init renders (CI · release.<tool> · deploy.<target>);
                  authoring gotchas (timeout-minutes cap · no ${{ }} in a run: block) guarded by test_flow_init_setup.py
 .github/         this repo's OWN CI (release · branch-naming · entropy-check · unit-test, all timeout-capped) · scripts/pin-marketplace-sha.py
 flow-tiers.yaml            tier→gates + merge_strategy — plugin-owned, immutable
 flow-config.example.yaml   host environment slots (real file → host .claude/harness-tier/config/, team-shared)
 tests/           pytest over scripts/ · test_skills.py (skill FILES: frontmatter/links/refs) · test_evals.py (model-free half of evals/)
-evals/           skill-invocation measurement (cases.yaml · run.py · scores.py) — NOT shipped → commit as test:/chore:
+evals/           skill measurement: invocation (cases.yaml · run.py · scores.py) + outcome (outcome.py · outcome_scores.json;
+                 fixtures/goldens live in scripts/skill_sandbox.py) — NOT shipped → commit as test:/chore:
 ```
 
 ## Architecture (must-know)
@@ -61,8 +81,19 @@ evals/           skill-invocation measurement (cases.yaml · run.py · scores.py
 - **Three verification layers**, independent (per-gate mechanism → [`rules/risk-tiers.md`](rules/risk-tiers.md) · [`flow-tiers.yaml`](flow-tiers.yaml)):
   1. **Hygiene** — the host's `.pre-commit-config.yaml` (git-native): gitlint · teams-notify-push · language-agnostic checks.
   2. **Flow gate** — `precommit-runner.sh` (PreToolUse), **Claude-session commits & merges only** (terminal commits and CI bypass it). Blocks unclassified commits, then runs the tier's `gates`; `git merge` takes a separate path judged against `merge_strategy`. When `flow-config.merge_workflow.pull_request` routes a flow through a PR instead of a direct merge, that flow's `merge_strategy` row never fires here (the hook never sees a `git merge`) — enforcement of the merge method shifts server-side to a GitHub branch ruleset, which `scripts/check-merge-ruleset.sh` (read-only) checks the state of at `/flow-init` Step 2.7, without ever writing to GitHub. **That shift is exact only for `promotion`** (one allowed method per branch); a ruleset targets the *destination* ref, so on `daily` it bars merge commits into integration but cannot separate `feature/*`=Squash from `fix/*`=Rebase, and it also makes "require a PR" govern flows nobody selected — the back-merge push and `hotfix/*` → production — which is why both need a bypass actor or a PR of their own ([`rules/risk-tiers.md`](rules/risk-tiers.md) PR workflow). Gate internals & the FAIL-OPEN rules → **Invariants** below.
-  3. **CI (GitHub Actions)** — `/flow-init` renders `api-contract.yml` + `unit-test.yml`, closing layer 2's blind spot (it never sees direct/terminal/CI commits). Every job is timeout-capped.
-- **Skill invocation is measured, not assumed** — `tests/test_skills.py` checks a skill *file* is well-formed; `evals/` checks it is actually *reached* (half a skill's failure modes live in its `description`). Gate SSOT = [`evals/scores.py`](evals/scores.py); mechanics in [`evals/`](evals/). A second **outcome arm** ([`evals/outcome.py`](evals/outcome.py)) checks a skill actually *executed* correctly — it runs the skill in a golden fixture under `bypassPermissions` and scores the end-state deterministically (SWE-bench style); baseline [`evals/outcome_scores.json`](evals/outcome_scores.json), fingerprinted separately (`outcome_sha` = SKILL.md body + prompt + fixture + golden, since `description_sha` covers none of them).
+  The `wiki` runtime gate runs **in-process as the flow gate's final stage** (one spawn;
+  `--wiki-check` remains a compat alias) — never through the module-command channel, whose
+  "any nonzero exit = failure" contract would make an internal error block every commit.
+  It fires whenever `flow-config.wiki` is enabled — read-only, on every tier including docs. The graph itself is
+  built by `doc-sync` or `/wiki-init`, never by the hook or CI, from **git's index** (`git add` admits a document;
+  a gitignored/untracked `.md` is not a node, else the committed graph is unreproducible; a git that cannot answer
+  drops back to the filesystem, which only an outside-a-repo `--build` may use — inside a repo `--build` refuses to
+  write from it and `--verify` refuses to gate on it). Terminal commits bypass
+  this like every layer-2 gate, so drift is caught late (at the next session commit), not lost. It reads working-tree
+  **content** (the hook fires before staging) → `graph.yaml` must be staged with its documents; and no promotion gate
+  rebuilds it, so a blocked promotion is resolved by running `--build` into that commit.
+  3. **CI (GitHub Actions)** — `/flow-init` renders `api-contract.yml` + `unit-test.yml` + `wiki-verify.yml` (read-only graph verify — closes the wiki gate's terminal/merge blind spot; rendered unconditionally since the script no-ops green without a wiki), closing layer 2's blind spot (it never sees direct/terminal/CI commits). Every job is timeout-capped.
+- **Skill invocation is measured, not assumed** — `tests/test_skills.py` checks a skill *file* is well-formed; `evals/` checks it is actually *reached* (half a skill's failure modes live in its `description`). Gate SSOT = [`evals/scores.py`](evals/scores.py); mechanics in [`evals/`](evals/). A second **outcome arm** ([`evals/outcome.py`](evals/outcome.py)) checks a skill actually *executed* correctly — it runs the skill in a golden fixture under `bypassPermissions` and scores the end-state deterministically (SWE-bench style); baseline [`evals/outcome_scores.json`](evals/outcome_scores.json), fingerprinted separately (`outcome_sha` = SKILL.md body + the whole scenario minus `outcome.SHA_EXEMPT` prose, since `description_sha` covers none of them — a **denylist**, so a field added to `Scenario` is fingerprinted by default; the allowlist it replaced let a fixture field ship uncovered). A skill enters this arm by a [`scripts/skill_sandbox.py`](scripts/skill_sandbox.py) scenario declaring `outcome=` — that arm, unlike the invocation one, **does cover `disable-model-invocation` skills** (they appear in the session's skill list; only the prompt must be the slash command), which is how `/wiki-init` is measured.
 - **Deployment is not a verification layer** — a release-decoupled opt-in: `/harness-deployments` writes `flow-config.deploy` and renders per-target `deploy-<name>.yml` components + a generated `deploy.yml` orchestrator; `release.yml` calls it via `workflow_call` in-run (no PAT). None of it gates a commit.
 
 ## Invariants (break these and the gate is silently neutralized)

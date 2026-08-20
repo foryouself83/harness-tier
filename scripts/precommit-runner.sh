@@ -2,8 +2,10 @@
 # Claude Code PreToolUse hook — git commit/merge gate (harness-tier).
 #
 # Inspects the commit in two stages, emitting deny JSON on stdout only when blocking:
-#   1) flow gate — flow_gate_check.py (plugin) verifies the required gate evidence for
-#      the declared tier / lifecycle branch. If unmet: exit 2 + reason → deny.
+#   1) flow gate + wiki runtime gate — flow_gate_check.py (plugin) verifies the required gate
+#      evidence for the declared tier / lifecycle branch, then runs the wiki graph verification
+#      in the same process when flow-config.wiki is enabled (spawn 2→1; --wiki-check remains a
+#      compat alias). If either is unmet: exit 2 + reason → deny.
 #   2) module pre-check — every-commit module checks for changed modules (+ promotion checks
 #      for all modules on promotion), routed by each check's `when` in flow-config. Config parse
 #      failure / no command is FAIL-OPEN (skip); if any fails, deny.
@@ -31,7 +33,24 @@ set -uo pipefail
 export PYTHONUTF8=1
 
 deny() {  # $1=reason → block commit (exit 2 is the actual blocking mechanism; JSON is for forward compat)
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$1"
+  # The reason is interpolated into a JSON string, so it must be escaped first. Reasons carry
+  # the failing command verbatim, and a module command is arbitrary host text — the wiki gate's
+  # own command contains double quotes and, on Windows, backslashes. Unescaped, the `"` closes
+  # the JSON string early and `\r`/`\P` are invalid escapes, so the payload is malformed exactly
+  # when the gate blocks. Pure bash substitution: python3 is not available on every deny path
+  # (the first denies below fire *because* python3 is missing). Order matters — backslash first,
+  # else the escapes added afterwards get escaped again; the control-character sweep comes last,
+  # so the three characters that have a short escape keep it.
+  _deny_json=${1//\\/\\\\}
+  _deny_json=${_deny_json//\"/\\\"}
+  _deny_json=${_deny_json//$'\n'/\\n}
+  _deny_json=${_deny_json//$'\r'/\\r}
+  _deny_json=${_deny_json//$'\t'/\\t}
+  # JSON forbids every raw character below U+0020, not just those three. The wiki gate quotes a
+  # git subject line back into its reason, and a subject is whatever was pasted into it — one
+  # stray ESC would malform the payload the same way an unescaped quote does.
+  _deny_json=${_deny_json//[[:cntrl:]]/ }
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$_deny_json"
   printf 'harness-tier 게이트 차단: %s\n' "$1" >&2
   exit 2
 }
@@ -143,25 +162,43 @@ cd "$ROOT" || exit 0
 status="$(git status --porcelain 2>/dev/null)" || exit 0
 [ -z "$status" ] && exit 0
 
-# 1) flow gate. flow_gate_check.py reads the host root from CLAUDE_PROJECT_DIR and
-#    FAIL-OPENs (exit 0) on internal error. It emits exit 2 + reason only when the gate is unmet.
+# 1) flow gate + wiki runtime gate — ONE process. flow_gate_check.py reads the host root from
+#    CLAUDE_PROJECT_DIR and FAIL-OPENs (exit 0) on internal error; after the flow verdict it
+#    runs the wiki gate in the same interpreter (tier resolved once, spawn 2→1 — --wiki-check
+#    survives as a compat alias only). exit 2 + stdout reason → deny, either gate. The wiki
+#    gate stays OUT of the module commands below: that channel reads any nonzero exit as "the
+#    check failed", while a runtime gate must fail OPEN on anything that is not a real verdict
+#    (Invariant #1 — wiki is not one of the three fail-closed exceptions). stdout-only is
+#    load-bearing: `python3 <missing file>` ALSO exits 2, with its complaint on stderr, so
+#    reading stderr here would turn a half-copied install into a repo-wide block. At exit 0 a
+#    non-empty stdout is the wiki gate's systemMessage JSON, held until the commit is allowed
+#    (a hook's stdout and stderr both go to the debug log at exit 0 — systemMessage is the
+#    documented field for a warning the user actually sees). HARNESS_PRECOMMIT_DRYRUN is
+#    consumed inside the script (the wiki stage skips itself).
 flow_reason="$(CLAUDE_PROJECT_DIR="$ROOT" python3 "$PLUGIN_SCRIPTS/flow_gate_check.py" 2>/dev/null)"
 flow_rc=$?
 if [ "$flow_rc" -eq 2 ] && [ -n "$flow_reason" ]; then
   deny "$flow_reason"
 fi
+[ "$flow_rc" -eq 0 ] && wiki_note="$flow_reason"
+
+allow() {  # emit any held non-blocking notice, then let the commit through
+  [ -n "${wiki_note:-}" ] && printf '%s\n' "$wiki_note"
+  exit 0
+}
 
 # 2) module pre-check. Per tier, runs the every-commit checks of the changed modules
-#    (+ all-module promotion checks on promotion). Commands arrive on stdout, the uncovered report on
-#    stderr (stderr is not captured and is shown to the user as-is). On config parse failure /
+#    (+ all-module promotion checks on promotion). Commands arrive on stdout, the uncovered report
+#    on stderr (uncaptured — but note that a hook's stderr only reaches the user when the hook
+#    exits non-zero, so this report is visible only alongside a deny). On config parse failure /
 #    no command: FAIL-OPEN (skip). If any one fails, deny.
 mod_cmds="$(CLAUDE_PROJECT_DIR="$ROOT" python3 "$PLUGIN_SCRIPTS/flow_gate_check.py" --module-commands)"
-[ -n "$mod_cmds" ] || exit 0
+[ -n "$mod_cmds" ] || allow
 
 if [ "${HARNESS_PRECOMMIT_DRYRUN:-0}" = "1" ]; then
   echo "DRYRUN: 모듈 사전검사 명령 →" 1>&2
   printf '%s\n' "$mod_cmds" 1>&2
-  exit 0
+  allow
 fi
 
 LOG_DIR="${TMPDIR:-/tmp}"
@@ -177,4 +214,4 @@ done <<EOF
 $mod_cmds
 EOF
 
-exit 0
+allow
