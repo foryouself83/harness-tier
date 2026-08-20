@@ -2,6 +2,42 @@
 
 <!-- version list -->
 
+## v0.2.0-rc.1 (2026-08-20)
+
+### Bug Fixes
+
+- **flow**: Close five deferred coverage gaps
+  ([`ee6ba4f`](https://github.com/foryouself83/harness-tier/commit/ee6ba4f4cd545a92db4dfaa54dcebe2df49000ba))
+
+- **flow**: Make the step 2.7 tests portable
+  ([`66b7463`](https://github.com/foryouself83/harness-tier/commit/66b7463b7c161e17f424348f94c0d89c81149b62))
+
+- **flow-init**: Flag a miscased unit_test language
+  ([`ed40ded`](https://github.com/foryouself83/harness-tier/commit/ed40dedb2fc44272e340261e3eb2c4ec1b0f2784))
+
+### Documentation
+
+- Drop a convention the scripts state
+  ([`ca6d110`](https://github.com/foryouself83/harness-tier/commit/ca6d1103b4dfa99e2e1ff181760083819c29241d))
+
+### Features
+
+- **doc-sync**: Check sibling translation parity
+  ([`a0d3915`](https://github.com/foryouself83/harness-tier/commit/a0d3915fcd2676c8b067c299ae9aaaec52fcbfb0))
+
+- **rules**: Cut ceremony from authored prose
+  ([`f7487e6`](https://github.com/foryouself83/harness-tier/commit/f7487e678a6749285b9c0f9becdc9de57703e54b))
+
+- **wiki**: Add the LLM Wiki and its verify gate
+  ([`fc24c5d`](https://github.com/foryouself83/harness-tier/commit/fc24c5d000ca63b78842fb126f11c6fc85e94ce8))
+
+- **wiki**: Make wiki_id derivation executable
+  ([`7687680`](https://github.com/foryouself83/harness-tier/commit/76876806ae78373da14f527d18b7aedfc32ea1c5))
+
+- **wiki**: Open a read path and harden the gate
+  ([`19fc296`](https://github.com/foryouself83/harness-tier/commit/19fc296232c94a8e4c6154b44f2f556c571e6c02))
+
+
 ## v0.1.13-rc.1 (2026-07-30)
 
 ### Bug Fixes
