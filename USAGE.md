@@ -120,8 +120,10 @@ asks and renders them):
   `branches` · `timeout_minutes` (per-job cap, default 10) · `jobs[]` — one entry per
   language/module (`name`/`language`/`version`/`setup`/`test`), rendered into a
   `strategy.matrix.include`. A `language` of python/node/java/go/rust uses that official setup
-  action; any other value lets the `setup` command prepare the runtime. Declared independently
-  of `modules[]` (local gate and CI run in different contexts).
+  action; any other value lets the `setup` command prepare the runtime. The match is
+  case-sensitive, so `/flow-init` warns on a capitalised variant like `Python` — it would skip
+  the setup action silently and test against whatever runtime the runner already has. Declared
+  independently of `modules[]` (local gate and CI run in different contexts).
 - **`versioning`** — release automation such as python-semantic-release. With `enable: true`
   it renders the release / branch-naming / entropy-check workflows. The **GitHub Release
   body** is the latest grouped `CHANGELOG.md` section (semantic-release output — grouped by
@@ -181,15 +183,37 @@ pass before it can commit**.
 
 | Tier | When | superpowers | Mandatory gates |
 |------|------|:---:|-----------------|
-| `docs` | no-code change (docs/comments/config values) | ✗ | `doc-sync` |
-| `dev` | change with code (feature/fix) | ✓ | `precommit` (changed-module every-commit checks) · `review` (domain review) · `doc-sync` |
-| `staging` | QA/RC promotion (integration→staging) | ✓ | `precommit` · `review` · `security-scan` (all-module promotion checks) |
-| `release` | production deploy (staging→production) | ✓ | `precommit` · `review` · `security-scan` · `security` (security review) |
+| `docs` | no-code change (docs/comments/config values) | ✗ | `doc-sync` · `wiki` |
+| `dev` | change with code (feature/fix) | ✓ | `precommit` (changed-module every-commit checks) · `review` (domain review) · `doc-sync` · `wiki` |
+| `staging` | QA/RC promotion (integration→staging) | ✓ | `precommit` · `review` · `security-scan` (all-module promotion checks) · `bump` (human release-level choice) · `wiki` |
+| `release` | production deploy (staging→production) | ✓ | `precommit` · `review` · `security-scan` · `security` (security review) · `wiki` |
 
 - **`precommit` · `security-scan`** are executed by the commit hook itself (no marker).
   Removing one from a tier's `gates` list disables just that check.
-- **`review` · `doc-sync` · `security`** leave an evidence marker after `/flow` passes the
-  gate; the commit hook passes only when the marker exists.
+- **`wiki`** is likewise executed by the commit hook itself (no marker), in-process as
+  the flow gate's final stage — never through the module-check channel — but only when
+  `flow-config.wiki` is enabled; otherwise nothing runs. Its graph-quality warnings
+  (orphans, over-size documents, `sources` paths that are not on disk, defect→rule
+  promotion, front matter that fails to parse without a `wiki_id:` line, a wiki-only
+  field present without a `wiki_id`) come back
+  as a `systemMessage` even when the commit passes. A blocked commit's structure-violation
+  list is capped at 10 entries plus a count. Read-only: it
+  checks `docs/graph/graph.yaml` against the docs' front matter (§3.9), and it also
+  blocks a commit whose only change to a node is its `sources` sha with no body edit
+  (stamp discipline — two swaps stay allowed: doc-sync's legacy-marker migration
+  rewrite, and a stamp whose body edit landed in the immediately preceding commit, so
+  stamping or amending the sync you just committed works — the gate follows a rename in
+  that commit, so moving the document does not cost you the allowance). It reads the
+  **working tree** — the hook fires before `git commit` stages anything, so there is no
+  commit to inspect yet. Stage `graph.yaml` together with the documents it was built
+  from; a rebuilt-but-unstaged graph satisfies the gate while the commit records the
+  stale one. `/flow-init` also renders a `wiki-verify.yml` CI workflow that runs the
+  same verification read-only on push/PR, catching drift from terminal and merge
+  commits the hook never sees.
+- **`review` · `doc-sync` · `security` · `bump`** leave an evidence marker after `/flow`
+  passes the gate; the commit hook passes only when the marker exists. `bump` is the
+  human major/minor/patch choice at a staging promotion — fail-closed, so the staging
+  commit stays blocked until the choice is made.
 - The single source of truth for risk classification is the `risk-tiers` rule, injected
   automatically every session.
 
@@ -439,6 +463,24 @@ optional `target` to redeploy just one).
 is a separate, opt-in layer (`flow-config.deploy.enable`) on top of it, not part of the
 release process itself.
 
+### 3.9 `/wiki-init` — LLM Wiki setup wizard
+
+```text
+/wiki-init   # no arguments — interactive; disable-model-invocation, call it explicitly
+```
+
+Builds docs into a knowledge graph, no embeddings — migrates existing docs into
+one-concept-per-file nodes with YAML front matter and generates `docs/graph/graph.yaml`;
+relationships are the front matter you write by hand, mechanically read into the graph.
+Idempotent: a document that already carries a `wiki_id` is never re-offered on a later
+run. Once built, `doc-sync` (Mode W) keeps the graph and each node's `sources` marker
+(the source file's working-tree **blob hash**, so squash/rebase promotions cannot fake
+staleness) in sync, and the `wiki` runtime gate (§2.3) verifies that sync, read-only, at
+every commit. The graph is also the development read path: `/flow`'s Dev track starts by
+mapping the files about to change to their documenting nodes
+(`wiki_graph.py --nodes-for <paths…>`) and loading their neighbourhood
+(`--neighbors <id>`) as working context.
+
 ---
 
 ## 4. Teams notifications
@@ -579,7 +621,11 @@ If `/flow-uninstall` is no longer available, remove things by hand:
    marketplace registration (`extraKnownMarketplaces.harness-tier`).
 3. Remove the harness-tier lines from `.gitignore`.
 4. Remove the `harness-tier:teams` managed block from `CLAUDE.md`.
-5. (Optional) `pre-commit uninstall --hook-type pre-commit --hook-type commit-msg --hook-type pre-push`.
+5. Delete `.github/workflows/wiki-verify.yml`, and any release workflow that calls
+   `.claude/harness-tier/scripts/` — with step 1 done they run a script that is gone, so
+   every push fails. (`api-contract.yml` / `unit-test.yml` reference nothing of ours and
+   simply stay active.)
+6. (Optional) `pre-commit uninstall --hook-type pre-commit --hook-type commit-msg --hook-type pre-push`.
 
 ---
 

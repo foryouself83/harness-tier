@@ -150,6 +150,7 @@ After that, start day-to-day work with **`/flow <task description>`**.
 | Skill | `/flow-init` | Setup/update wizard (initial setup + re-sync/reconfigure on re-run, preserving config) |
 | Skill | `/flow-uninstall` | Remove harness-tier's host-side wiring |
 | Skill | `/harness-init` | Framework detection + research/verification to generate a harness (`.md` by default, no overwrite) |
+| Skill | `/wiki-init` | Build docs into a knowledge graph, no embeddings — front-matter-driven, setup wizard |
 | Skill | `doc-sync` | Code ↔ doc synchronization + doc-set consistency |
 | Skill | `harness-insight` | Aggregate Claude Code activity over a period + insight report |
 | Skill | `/harness-deployments` | Layer deployment (registry publish / container image / app deploy) on the release workflow — detect → ask → render deploy CI (opt-in, after `/flow-init`) |

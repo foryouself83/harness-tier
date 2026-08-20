@@ -18,6 +18,18 @@
 ## Deliverables
 5. **`.md` by default**; real configuration (bandit, CI, pre-commit, real folders, actual `==` pins) is opt-in per item.
 5-1. **Skill helper folders**: when creating a skill, if its role warrants references/examples, include `references/`·`examples/` alongside it (YAGNI — not forced for simple skills).
+5-2. **Write only what the artifact cannot say itself** — binds every generated comment, docstring,
+   `.md`, and rule file.
+   - **Comments·docstrings**: the purpose plus the contract that is not evident from the code. Drop a
+     parameter list that only restates the signature.
+   - **No ornamental structure**: no numbered index, nested section scaffolding, or divider bars the
+     content does not need. A schema this file mandates (SRS §-numbering, code-style lens blocks) is
+     content, not ornament.
+   - **Never restate what the next line already says.**
+   - **No change history, migration note, or "previously X" narration** — the commit owns that
+     ([risk-tiers.md](risk-tiers.md) Commit Discipline).
+   - **Rule files** (`CLAUDE.md`, `.claude/rules/**`) carry the rule in force, never the one it replaced.
+   - **Markdown**: terse lists over prose; one fact in one place and a link everywhere else (rule 7).
 6. **The five mandatory rules are always injected**: Karpathy's 4 principles + DRY/constants + `==` version pinning + security + **reuse-first**
    ([rule-reuse-first.md](../skills/harness-authoring/references/rule-reuse-first.md)).
    **Load-path guarantee** — CLAUDE.md body / explicit import (`.claude/rules/` alone is not enough). The anchor `<!-- rule:<key> -->`
@@ -48,6 +60,16 @@
    (distinguishing them from omissions — isomorphic to 9-2). If still unknown after asking, mark it "needs confirmation" in the SRS
    (no fabrication — rule 4). The produced **scope summary** is the single input source for research · rationale · SRS. Brownfield skips
    this gate and uses code-analyzer's code analysis as its scope (only intent that code cannot resolve becomes a selective question).
+8-2. **Technical docs are wiki nodes**: every generated technical doc (rule 8's `docs/` categories — not
+   `.claude/rules/<framework>-conventions.md`, which lives outside the wiki root and is never a node) opens
+   with mandatory YAML front matter (`wiki_id`, `title`; id-derivation mechanics are
+   [wiki-init](../skills/wiki-init/SKILL.md)'s SSOT — not restated here). One concept per file: if a doc
+   grows past ~400 lines or covers two subjects, split it and link the halves with `related`. This is rule 7
+   (SSOT) applied to documentation — a fact lives in one node and the rest link to it. Write front matter
+   **whether or not the project has a wiki installed**: without one it is inert metadata, and it removes any
+   ordering dependency between `/harness-init` and `/wiki-init`. Never write `used_by` or `defects` — those
+   are generated from `depends_on` and `affects`, and a template that shipped either would break a
+   consumer's first commit.
 9. **No command generation**: no deliverable is created under `.claude/commands/` (revfactory alignment).
 
 ## Operational conventions

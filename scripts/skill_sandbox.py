@@ -23,8 +23,8 @@ against `expect` / `reject`.
 
 **Coverage is deliberately partial.** A scenario is worth writing only where a throwaway
 directory can create the state that decides the skill's answer. That covers /integration,
-/playwright-scaffold, /performance and /doc-sync. The rest are out of reach here, and
-adding hollow scenarios for them would report coverage this file does not have:
+/playwright-scaffold, /performance, /doc-sync and /wiki-init. The rest are out of reach
+here, and adding hollow scenarios for them would report coverage this file does not have:
 
 * `/flow`, `/flow-init`, `/flow-uninstall` — their subject is the *host session*: a
   registered commit hook, an installed plugin cache, `${CLAUDE_PLUGIN_ROOT}`. A fixture
@@ -42,11 +42,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
+import stat
+import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
 
 
 @dataclass
@@ -59,6 +64,16 @@ class Scenario:
     reject: list[str]
     files: dict[str, str] = field(default_factory=dict)
     dirs: list[str] = field(default_factory=list)
+    # { "<relpath in the fixture>": "<relpath in this repo>" } — files copied verbatim
+    # instead of written inline, for the gate scripts a host gets from /flow-init. A skill
+    # that runs one by its documented host path needs it to actually be there; inlining a
+    # 900-line script as a string would go stale the moment the real one changes.
+    copy_from_repo: dict[str, str] = field(default_factory=dict)
+    # Seed the fixture as a git repository with everything committed. For a skill that reads
+    # git state — wiki-init builds the graph from the index — a bare directory measures the
+    # fallback path instead of the real one. Off by default: `git init` costs a subprocess
+    # per build, and no other scenario's answer depends on it.
+    git: bool = False
     # Machine-checkable golden end-state for the outcome arm (evals/outcome.py). The prose
     # expect/reject above stay for the human-judged invocation sandbox; this is asserted.
     # { "<relpath>": {"must_contain": [...], "must_not_contain": [...]} }
@@ -97,6 +112,27 @@ WEB_PACKAGE_JSON = json.dumps(
 CLI_PACKAGE_JSON = json.dumps(
     {"name": "sandbox-cli", "bin": {"sbx": "./bin/sbx.js"}, "dependencies": {}}, indent=2
 )
+
+# The sentence the wiki-init golden tracks. It sits in one of `docs/backend.md`'s two H2
+# sections, so where it ends up says whether the document was split or merely stamped with
+# front matter: a correct run leaves a link in its place, and the claim itself moves to the
+# node about authentication. One sentence rather than the whole section on purpose —
+# a reformatted block would slip a multi-line needle and read as a pass.
+WIKI_JWT_CLAIM = "Access tokens expire after 15 minutes."
+
+WIKI_BACKEND_DOC = f"""\
+# Backend
+
+## JWT authentication
+
+{WIKI_JWT_CLAIM} Refresh tokens live for 30 days and rotate on every use, so a
+stolen refresh token is usable once.
+
+## Postgres schema
+
+`users` owns the identity columns; `sessions` holds one row per refresh token and
+cascades on delete.
+"""
 
 
 SCENARIOS: list[Scenario] = [
@@ -386,15 +422,117 @@ SCENARIOS: list[Scenario] = [
             "app/server.py": {"must_contain": ["9090"]},
         },
     ),
+    Scenario(
+        name="wiki-init-migration",
+        skill="wiki-init",
+        why=(
+            "docs/backend.md holds two concepts under two H2s. The tempting answer is to "
+            "stamp front matter on it and move on — every structural rule still passes, so "
+            "--verify is silent, and the wiki is useless because --neighbors then hands the "
+            "model a blob covering both subjects. docs/deploy.md is the opposite trap: with "
+            "no H2 at all, splitting it would be wrong."
+        ),
+        # /wiki-init is disable-model-invocation, so the slash command IS the prompt — there
+        # is no description for the model to match on. The two clauses stand in for the
+        # answers Steps 3 and 5 ask a human for; the judgement they gate (what to split, how
+        # ids derive, which relations to write) stays the agent's.
+        prompt=(
+            "/wiki-init — migrate every candidate document, and go with the relationships "
+            "you propose rather than waiting on me to confirm them."
+        ),
+        expect=[
+            "splits docs/backend.md by its two H2s and leaves a link in each section's place",
+            "keeps the original as a node too, with related pointing at what came out of it",
+            "leaves docs/deploy.md whole — no H2 means nothing to split",
+            "derives each wiki_id from the path relative to docs/, and never writes used_by",
+            "turns wiki.enable on before building, so --build is not a no-op",
+        ],
+        reject=[
+            "gives docs/backend.md front matter without splitting it",
+            "deletes docs/backend.md after moving its sections out",
+            "writes used_by or defects by hand",
+            "leaves the new ids out of the index's related list",
+        ],
+        files={
+            ".claude/harness-tier/config/flow-config.yaml": (
+                "branches:\n"
+                "  integration: dev\n"
+                "  staging: stage\n"
+                "  production: main\n"
+                "wiki:\n"
+                "  enable: false\n"
+                "  root: docs/\n"
+                "  index: docs/index.md\n"
+                "  max_lines: 400\n"
+                "  context_lines: 2000\n"
+                "  defect_rule_threshold: 3\n"
+            ),
+            "docs/index.md": "# Docs\n\n- [Backend](backend.md)\n- [Deploy](deploy.md)\n",
+            "docs/backend.md": WIKI_BACKEND_DOC,
+            "docs/deploy.md": "# Deploy\n\nPush to main; the release workflow does the rest.\n",
+            "app/auth.py": "ACCESS_TTL_MIN = 15\nREFRESH_TTL_DAYS = 30\n",
+            "app/db.py": "TABLES = ('users', 'sessions')\n",
+        },
+        # Step 8 runs this by its literal host path. /flow-init is what puts it there on a
+        # real host; without it every run fails that command and the score measures how
+        # well the agent guessed a substitute path.
+        copy_from_repo={
+            ".claude/harness-tier/scripts/wiki_graph.py": "scripts/wiki_graph.py",
+            ".claude/harness-tier/scripts/_harness_paths.py": "scripts/_harness_paths.py",
+        },
+        # The graph is built from git's index, so the documents have to be tracked.
+        git=True,
+        outcome={
+            # Split, not stamped: the claim moved out and a link took its place. `related:`
+            # is what separates a split from a deletion — Step 4 keeps the original as a
+            # node pointing at everything that came out of it, so a run that simply dropped
+            # the section would otherwise satisfy the must_not_contain above.
+            "docs/backend.md": {
+                "must_contain": ["wiki_id:", "related:"],
+                "must_not_contain": [WIKI_JWT_CLAIM, "used_by:"],
+            },
+            # The zero-H2 branch: still a node, still not split, still no generated edge.
+            "docs/deploy.md": {"must_contain": ["wiki_id:"], "must_not_contain": ["used_by:"]},
+            # Orphan detection reads front-matter edges only — a body link list is not
+            # enough, and an empty `related: []` is the shape that silently disables it.
+            "docs/index.md": {"must_contain": ["wiki_id:", "related:", "backend", "deploy"]},
+            # Ids are asserted here rather than in the documents: this file is written by
+            # yaml.safe_dump, so its shape is fixed, while an author may legitimately quote
+            # a scalar in front matter. The generated header is the load-bearing needle —
+            # it is the one string a hand-written stub will not have, so it proves --build
+            # actually ran, which in turn proves Step 7 ran (--build no-ops on a disabled
+            # wiki and would leave nothing here at all).
+            "docs/graph/graph.yaml": {
+                "must_contain": ["GENERATED by wiki_graph.py", "nodes:", "backend", "deploy"]
+            },
+            # Step 7 says touch only the `wiki` key: a rewrite that drops the rest of the
+            # host's config is not a migration, it is collateral damage.
+            ".claude/harness-tier/config/flow-config.yaml": {
+                "must_contain": ["enable: true", "integration: dev"]
+            },
+        },
+    ),
 ]
 
 BY_NAME = {s.name: s for s in SCENARIOS}
 
 
+def _force_remove(func, path, _exc):
+    """rmtree callback: clear the read-only bit and retry.
+
+    Git writes its object files read-only, so on Windows a plain rmtree over a seeded
+    fixture dies with PermissionError — which would make `--all --out-dir <dir>` work once
+    and fail every time after."""
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+
 def build(scenario: Scenario, root: Path) -> Path:
     target = root / scenario.name
     if target.exists():
-        shutil.rmtree(target)
+        # onerror, not onexc: the latter is Python 3.12+, and this file runs on the gate's
+        # 3.8 floor. onerror is deprecated there but still honoured.
+        shutil.rmtree(target, onerror=_force_remove)
     target.mkdir(parents=True)
     for rel in scenario.dirs:
         (target / rel).mkdir(parents=True, exist_ok=True)
@@ -404,6 +542,32 @@ def build(scenario: Scenario, root: Path) -> Path:
         # newline="" keeps LF on Windows: a stray CR turns a resolved testDir into a
         # directory that does not exist, which would read as a skill bug.
         path.write_text(content, encoding="utf-8", newline="")
+    for rel, src in scenario.copy_from_repo.items():
+        dest = target / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(REPO / src, dest)
+    if scenario.git:
+        # -c rather than `git config`: a fixture must not depend on the runner's global
+        # identity, and must not write one either. gpgsign and hooksPath are neutralised for
+        # the same reason with more teeth — a developer with global commit signing would hit
+        # a pinentry prompt that hangs every session, and a global hooksPath would run their
+        # hooks against a throwaway directory.
+        identity = [
+            "-c",
+            "user.email=s@s",
+            "-c",
+            "user.name=S",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "core.hooksPath=",
+        ]
+        for cmd in (
+            ["git", "init", "-q"],
+            ["git", "add", "-A"],
+            ["git", *identity, "commit", "-qm", "seed"],
+        ):
+            subprocess.run(cmd, cwd=target, check=True, capture_output=True)
     return target
 
 

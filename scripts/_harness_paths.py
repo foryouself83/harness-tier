@@ -62,14 +62,23 @@ BLOCK_EXIT_CODE = 2
 # list (on desync, missing_gates wrongly reports the gate as unmet — sync required on rename).
 # The gates list is the real switch: module_commands decides whether to run based on membership
 # in this key rather than a hardcoded tier branch — removing it from gates turns that check off.
-# The two gates are timing buckets over the module checks (flow-config modules[].checks); each
-# check routes to one by its `when` (every-commit | promotion), string values defaulting by key
-# name (`security` → promotion, else every-commit). See flow_gate_check._parse_check.
+# precommit and security-scan are timing buckets over the module checks
+# (flow-config modules[].checks); each check routes to one by its `when` (every-commit |
+# promotion), string values defaulting by key name (`security` → promotion, else every-commit).
+# See flow_gate_check._parse_check. wiki is unrelated to modules[] — see below.
 # - precommit: precommit-runner.sh runs it directly — the every-commit checks of the CHANGED
 #   modules (lint/static/import_lint/test + custom `when: every-commit`), on every commit.
 # - security-scan: precommit-runner.sh runs it directly — the promotion checks of ALL modules
 #   (`security` + custom `when: promotion`), on staging/release promotion.
-RUNTIME_GATES = ("precommit", "security-scan")
+# - wiki: flow_gate_check.py main() runs it as its in-process final stage (`--wiki-check`
+#   remains a compat alias), never through the module-command channel above. Only when
+#   flow-config.wiki is alive; then it checks graph drift/structure violations on every tier.
+#   No wiki → nothing runs. It stays out of the module channel because the two have opposite
+#   error contracts: down there any nonzero exit means "the check failed", while a runtime
+#   gate must fail OPEN on anything that is not a real verdict (Invariant #1). Riding main()
+#   also lets the graph's quality warnings reach the user on a passing commit — the module
+#   channel buffers output into a log printed only on failure.
+RUNTIME_GATES = ("precommit", "security-scan", "wiki")
 # Lifecycle branch → tier label. Must byte-match the flow-tiers.yaml tiers: keys for the gate to be
 # enforced (on desync, required_gates returns None → gate silently skipped via FAIL-OPEN).
 STAGING_TIER = "staging"
@@ -182,7 +191,13 @@ _CD_PREFIX_RE = re.compile(rf"\s*cd\s+(?:{_PATH_TOKEN})\s*&&")
 
 
 def _git(args: list[str], cwd: str | Path) -> str | None:
-    """Run a git command with cwd, returning stripped stdout, or None on any failure."""
+    """Run a git command with cwd, returning stripped stdout, or None on any failure.
+
+    errors="replace": one non-UTF-8 byte in the output otherwise kills the whole call — the
+    decode error fires in subprocess's reader thread, so run() returns stdout=None and the
+    .strip() below raises out of this function instead of failing soft. A replacement char in
+    a path merely mismatches that one entry (its own fail-open), which is strictly narrower.
+    """
     try:
         out = subprocess.run(
             ["git", *args],
@@ -190,11 +205,12 @@ def _git(args: list[str], cwd: str | Path) -> str | None:
             capture_output=True,
             text=True,
             encoding="utf-8",
+            errors="replace",
             timeout=5,
         )
     except Exception:
         return None
-    if out.returncode != 0:
+    if out.returncode != 0 or out.stdout is None:
         return None
     return out.stdout.strip()
 

@@ -6,6 +6,8 @@ variable, and internal errors do not block the gate (fail-open).
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import re
@@ -48,6 +50,20 @@ except ImportError:
         host_root,
         working_root,
     )
+
+# The wiki runtime gate, same sibling-vs-package idiom — but with a third branch, because this
+# sibling is genuinely optional. Plugin scripts are copied to the host ONE FILE AT A TIME (see
+# _harness_paths' header), so a host can hold flow_gate_check.py without wiki_graph.py. An
+# unguarded import would make this whole file unimportable there, taking the tier/marker gate
+# down with it and switching enforcement off silently. None → wiki_gate opens, nothing else
+# changes. Not a cycle: wiki_graph imports _harness_paths, never this module.
+try:
+    from wiki_graph import cmd_verify  # direct execution (sibling)
+except ImportError:
+    try:
+        from scripts.wiki_graph import cmd_verify  # package (test/dev)
+    except ImportError:
+        cmd_verify = None
 
 
 def load_lifecycle_branches(config_path: Path) -> dict[str, str]:
@@ -636,15 +652,42 @@ def _check_cmds(mod: dict, *, promotion: bool) -> tuple[list[str], list[str]]:
     return cmds, warns
 
 
+def wiki_gate(root: Path, gates: list[str] | None) -> bool:
+    """Run the wiki runtime gate in-process. True = block, False = allow.
+
+    Deliberately NOT routed through module_commands. That channel's contract is "any nonzero
+    exit means the check failed", which a runtime gate cannot honour: a lost script, a broken
+    interpreter or an OOM kill would then block every commit in the repo, and the wiki gate is
+    none of Invariant #1's three fail-closed exceptions. Here only cmd_verify's own verdict
+    blocks; everything else — no wiki, wiki not in this tier's gates, wiki_graph.py absent from
+    a half-copied install (cmd_verify is None), any exception — allows.
+
+    Running it in-process rather than as an emitted command string also removes the whole class
+    of quoting/interpreter bugs that came with `bash -c`: no sys.executable frozen into a string
+    whose interpreter may be gone by the time the shell runs it, and no shell tokenization of
+    Windows paths.
+    """
+    if not gates or "wiki" not in gates or cmd_verify is None:
+        return False
+    try:
+        # No load_wiki_config guard here: cmd_verify already returns 0 when there is no wiki,
+        # and pre-checking would parse flow-config.yaml a second time on every commit.
+        return cmd_verify(root) != 0
+    except Exception:
+        return False  # FAIL-OPEN — Invariant #1
+
+
 def module_commands(
     root: Path, tier: str | None, gates: list[str] | None
 ) -> tuple[list[str], list[str]]:
     """Build module pre-check commands only for the items enabled in the gates list (tiers.yaml
     gates is the SSOT — not hardcoded by tier label. Removing it from gates turns that check off).
 
-    - docs/None tier, or empty gates → ([], [])
+    - docs/None tier, or empty gates → ([], []) — no module pre-check applies.
     - "precommit" in gates → the changed modules' every-commit checks (+ uncovered report)
     - "security-scan" in gates → all modules' promotion checks (on promotion)
+    The "wiki" gate is NOT here: it is a runtime gate with a different error contract, run by
+    :func:`wiki_gate` through its own ``--wiki-check`` step in precommit-runner.sh.
     Each check is a plain command string or an extended ``{run, when}`` dict routed by timing
     (see :func:`_parse_check`); unknown ``when`` warnings ride the report (deduped).
     config parse failure·absent modules → ([], []) (FAIL-OPEN — Invariant #1)."""
@@ -733,6 +776,9 @@ def main() -> None:
         else:
             print(f"flow 게이트: '{tier}' 티어는 {miss} 증거가 필요합니다.")
         sys.exit(BLOCK_EXIT_CODE)
+    # wiki runtime gate — in the SAME process (spawn 2→1: the runner used to pay a second
+    # python spawn for --wiki-check, resolving the tier a second time on the way).
+    _wiki_stage(root, gates)
     sys.exit(0)
 
 
@@ -757,6 +803,54 @@ def module_commands_output() -> None:
         print(line, file=sys.stderr)
     for cmd in cmds:
         print(cmd)
+
+
+def _wiki_stage(root: Path, gates: list[str] | None) -> None:
+    """The wiki gate as main()'s final stage. Everything it has to say goes to STDOUT.
+
+    Two reasons stdout rather than stderr, both from the hooks contract:
+
+    - ``python3 <missing file>`` exits 2 with its complaint on stderr, exactly the shape of a
+      block. A host whose flow_gate_check.py copy is missing would then deny every commit with
+      an interpreter error as the reason. precommit-runner.sh therefore reads stdout only,
+      which the interpreter never writes to, so that collision cannot fail closed.
+    - At exit 0 a hook's stdout AND stderr both go to the debug log only, so the graph's
+      quality warnings would never reach a human. They come back here as a ``systemMessage``
+      JSON payload — the documented field for "warning shown to the user" — which the runner
+      emits verbatim when it allows the commit.
+
+    ``HARNESS_PRECOMMIT_DRYRUN=1`` skips entirely — the runner's old stage-2 guard, kept
+    behind the env var so a dry run never pays (or fires) the graph walk.
+    """
+    if os.environ.get("HARNESS_PRECOMMIT_DRYRUN") == "1":
+        return
+    captured = io.StringIO()
+    with contextlib.redirect_stderr(captured):
+        blocked = wiki_gate(root, gates)
+    text = captured.getvalue().strip()
+    if blocked:
+        if text:
+            print(text)  # the deny reason precommit-runner.sh hands to deny()
+        sys.exit(BLOCK_EXIT_CODE)
+    if text:
+        print(json.dumps({"systemMessage": f"wiki graph 경고\n{text}"}, ensure_ascii=False))
+
+
+def wiki_check_output() -> None:
+    """Compat alias for the absorbed wiki stage (`--wiki-check`), old contract intact.
+
+    The runner no longer calls this — main() runs the wiki gate in-process — but a
+    half-copied host can hold an older precommit-runner.sh that still does, and answering
+    it here costs one dispatch branch.
+    """
+    force_utf8_io()
+    root = host_root()
+    try:
+        tier, _ = _resolve_context_tier(root, flow_dir(root), _current_branch(root))
+        gates = required_gates(tiers_path(root), tier) if tier else None
+    except Exception:
+        return  # FAIL-OPEN
+    _wiki_stage(root, gates)
 
 
 def resolve_worktree_output() -> None:
@@ -790,6 +884,8 @@ if __name__ == "__main__":
             module_commands_output()
         elif "--resolve-worktree" in sys.argv:
             resolve_worktree_output()
+        elif "--wiki-check" in sys.argv:
+            wiki_check_output()
         elif "--merge-check" in sys.argv:
             merge_check_output()
         else:

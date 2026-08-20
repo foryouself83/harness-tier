@@ -5,12 +5,13 @@ here means `uv run pytest` and `unit-test.yml` both enforce it with no new wirin
 """
 
 import json
+import os
 import re
 import subprocess
 import sys
 import threading
 import warnings
-from dataclasses import replace
+from dataclasses import fields, replace
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,7 @@ import evals.run as run
 import evals.scores as scores
 import evals.stream as stream
 import scripts.skill_sandbox as sandbox
+import scripts.wiki_graph as wiki_graph
 
 REPO = Path(__file__).resolve().parent.parent
 CASES = yaml.safe_load((REPO / "evals/cases.yaml").read_text(encoding="utf-8"))
@@ -1401,6 +1403,222 @@ def test_check_outcome_treats_a_missing_file_as_failure(tmp_path):
     assert any("README.md: missing" in f for f in failures)
 
 
+def test_wiki_init_migration_declares_a_machine_checkable_outcome():
+    s = sandbox.BY_NAME["wiki-init-migration"]
+    assert s.outcome, "wiki-init-migration must declare a golden end-state"
+    assert set(s.outcome) == {
+        "docs/backend.md",
+        "docs/deploy.md",
+        "docs/index.md",
+        "docs/graph/graph.yaml",
+        ".claude/harness-tier/config/flow-config.yaml",
+    }
+
+
+def _migrated_wiki(built: Path, *, split: bool = True) -> None:
+    """Write the end-state a correct /wiki-init run leaves behind.
+
+    `split=False` is the tempting wrong answer: front matter stamped onto the two-concept
+    document without splitting it, which every structural check still passes."""
+    # Step 7 edits the wiki key in place; the rest of the host's config survives, so the
+    # helper flips the one value rather than rewriting the file.
+    cfg = built / ".claude/harness-tier/config/flow-config.yaml"
+    cfg.write_text(
+        cfg.read_text(encoding="utf-8").replace("enable: false", "enable: true"),
+        encoding="utf-8",
+    )
+    kept = "See [JWT authentication](auth.md).\n" if split else sandbox.WIKI_JWT_CLAIM
+    (built / "docs/backend.md").write_text(
+        "---\nwiki_id: backend\ntitle: Backend\nrelated: [auth]\n---\n\n"
+        f"## JWT authentication\n\n{kept}",
+        encoding="utf-8",
+    )
+    (built / "docs/auth.md").write_text(
+        f"---\nwiki_id: auth\ntitle: JWT authentication\n---\n\n{sandbox.WIKI_JWT_CLAIM}",
+        encoding="utf-8",
+    )
+    # Step 8: a document joins the wiki by being in the index. Left untracked it is not a
+    # node, and every `related: [auth]` above becomes a dangling reference that blocks.
+    subprocess.run(["git", "add", "docs/auth.md"], cwd=built, check=True, capture_output=True)
+    (built / "docs/deploy.md").write_text(
+        "---\nwiki_id: deploy\ntitle: Deploy\n---\n\nShip it.\n", encoding="utf-8"
+    )
+    (built / "docs/index.md").write_text(
+        "---\nwiki_id: index\ntitle: Index\nrelated: [backend, auth, deploy]\n---\n\n"
+        "- [Backend](backend.md)\n",
+        encoding="utf-8",
+    )
+    graph = built / "docs/graph/graph.yaml"
+    graph.parent.mkdir(parents=True, exist_ok=True)
+    graph.write_text(
+        wiki_graph.GRAPH_HEADER + "nodes:\n  auth: {}\n  backend: {}\n  deploy: {}\n  index: {}\n",
+        encoding="utf-8",
+    )
+
+
+def test_check_outcome_passes_a_correct_wiki_migration(tmp_path):
+    s = sandbox.BY_NAME["wiki-init-migration"]
+    built = sandbox.build(s, tmp_path)
+    _migrated_wiki(built)
+    passed, failures = sandbox.check_outcome(s, built)
+    assert passed, failures
+
+
+def test_check_outcome_fails_when_the_two_concept_document_was_not_split(tmp_path):
+    """The failure this scenario exists to catch. Stamping front matter on a document that
+    holds two concepts satisfies every structural rule --verify has — the id is valid, the
+    title is there, nothing dangles — so a graph built from it is *valid* and *useless*:
+    --neighbors hands the model a blob covering both subjects. Only the golden sees it."""
+    s = sandbox.BY_NAME["wiki-init-migration"]
+    built = sandbox.build(s, tmp_path)
+    _migrated_wiki(built, split=False)
+    passed, failures = sandbox.check_outcome(s, built)
+    assert not passed
+    assert any("docs/backend.md" in f for f in failures)
+
+
+def test_check_outcome_fails_when_the_section_was_dropped_instead_of_split(tmp_path):
+    # The mirror of the test above, and the reason `related:` is in the golden: deleting the
+    # JWT section outright also removes the claim, so a must_not_contain alone reads a
+    # destructive run as a correct split. Step 4 keeps the original as a node pointing at
+    # what came out of it, so the absence of `related:` is what tells the two apart.
+    s = sandbox.BY_NAME["wiki-init-migration"]
+    built = sandbox.build(s, tmp_path)
+    _migrated_wiki(built)
+    (built / "docs/auth.md").unlink()
+    (built / "docs/backend.md").write_text(
+        "---\nwiki_id: backend\ntitle: Backend\n---\n\n## Postgres schema\n\nSee the code.\n",
+        encoding="utf-8",
+    )
+    passed, failures = sandbox.check_outcome(s, built)
+    assert not passed
+    assert any("related:" in f for f in failures)
+
+
+def test_check_outcome_fails_on_a_hand_written_graph(tmp_path):
+    # --build is the only thing that writes the generated header, so a stub someone typed to
+    # satisfy the golden fails. Without that needle a run that never executed Step 8 — and
+    # therefore never had its front matter validated — would score as a pass.
+    s = sandbox.BY_NAME["wiki-init-migration"]
+    built = sandbox.build(s, tmp_path)
+    _migrated_wiki(built)
+    (built / "docs/graph/graph.yaml").write_text(
+        "nodes:\n  auth: {}\n  backend: {}\n  deploy: {}\n  index: {}\n", encoding="utf-8"
+    )
+    passed, failures = sandbox.check_outcome(s, built)
+    assert not passed
+    assert any("GENERATED by wiki_graph.py" in f for f in failures)
+
+
+def test_check_outcome_fails_when_a_generated_edge_was_written_by_hand(tmp_path):
+    # `used_by` is derived from every other node's `depends_on`; writing it by hand blocks
+    # validation outright, so a run that does it has not reached the end-state.
+    s = sandbox.BY_NAME["wiki-init-migration"]
+    built = sandbox.build(s, tmp_path)
+    _migrated_wiki(built)
+    front = "---\nwiki_id: deploy\ntitle: Deploy\nused_by: [backend]\n---\n\nShip it.\n"
+    (built / "docs/deploy.md").write_text(front, encoding="utf-8")
+    passed, failures = sandbox.check_outcome(s, built)
+    assert not passed
+    assert any("used_by" in f for f in failures)
+
+
+def test_build_can_seed_a_committed_git_repo(tmp_path):
+    """wiki-init builds the graph from git's index, so the fixture has to be a repository
+    with its documents already tracked.
+
+    Without one the run exercises the filesystem fallback instead of the documented path,
+    and it invites a false failure: an agent that meets `fatal: not a git repository`,
+    runs `git init` and then follows Step 8 literally — `git add` the documents it
+    *created* — leaves an index holding only those, so the rebuilt graph drops every
+    pre-existing node and a correct migration scores as a miss."""
+    s = sandbox.BY_NAME["wiki-init-migration"]
+    built = sandbox.build(s, tmp_path)
+    tracked = subprocess.run(
+        ["git", "ls-files", "--cached"], cwd=built, capture_output=True, text=True, check=True
+    ).stdout.split()
+    assert "docs/backend.md" in tracked
+    assert "docs/deploy.md" in tracked
+    assert "docs/index.md" in tracked
+
+
+def test_building_a_git_fixture_twice_into_the_same_dir_works(tmp_path):
+    # git writes its object files read-only, so a plain rmtree over the previous build dies
+    # on Windows with PermissionError — `skill_sandbox.py --all --out-dir <dir>` would work
+    # once and fail every run after.
+    s = sandbox.BY_NAME["wiki-init-migration"]
+    sandbox.build(s, tmp_path)
+    built = sandbox.build(s, tmp_path)
+    assert (built / ".git").exists()
+
+
+def test_build_materializes_the_host_copy_of_a_script(tmp_path):
+    """wiki-init Step 8 runs `.claude/harness-tier/scripts/wiki_graph.py` by that literal
+    path — the host copy /flow-init makes. A fixture without it fails that command every
+    run, and what gets measured is how well the agent improvises a path, not the skill."""
+    s = sandbox.BY_NAME["wiki-init-migration"]
+    built = sandbox.build(s, tmp_path)
+    copied = built / ".claude/harness-tier/scripts/wiki_graph.py"
+    assert copied.is_file()
+    assert copied.read_text(encoding="utf-8") == (REPO / "scripts/wiki_graph.py").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_the_wiki_golden_is_reachable_by_the_real_build(tmp_path):
+    """A golden no correct run can satisfy scores 0 and reads as a broken skill.
+
+    So this performs the migration wiki-init describes and then runs the *real*
+    `wiki_graph.py --build`/`--verify` over it, rather than hand-writing a graph the way
+    the scoring tests above do — the generated header, the derived ids and the structural
+    rules all have to line up for the golden to pass."""
+    s = sandbox.BY_NAME["wiki-init-migration"]
+    built = sandbox.build(s, tmp_path)
+    _migrated_wiki(built)
+    (built / "docs/graph/graph.yaml").unlink()
+    env = {**os.environ, "CLAUDE_PROJECT_DIR": str(built), "PYTHONUTF8": "1"}
+    for flag in ("--build", "--verify"):
+        r = subprocess.run(
+            [sys.executable, str(REPO / "scripts/wiki_graph.py"), flag],
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=built,
+        )
+        assert r.returncode == 0, f"{flag}: {r.stdout} {r.stderr}"
+    passed, failures = sandbox.check_outcome(s, built)
+    assert passed, failures
+
+
+def test_outcome_targets_can_be_narrowed_to_one_skill():
+    # Parity with run.py's --skill. Without it, adding a second scenario makes every
+    # measurement re-run every skill, so re-measuring one costs the others' sessions and
+    # overwrites baselines nobody meant to touch.
+    assert [s for s, _ in outcome._outcome_targets(only="wiki-init")] == ["wiki-init"]
+    assert len(outcome._outcome_targets()) > 1
+
+
+def test_outcome_targets_rejects_a_skill_with_no_scenario():
+    # A typo must not silently measure nothing and then report a completed run.
+    with pytest.raises(SystemExit):
+        outcome._outcome_targets(only="wiki-inti")
+
+
+def test_check_outcome_fails_when_the_wiki_was_never_enabled(tmp_path):
+    # --build no-ops on a disabled wiki, so a run that skipped Step 7 leaves no graph at all.
+    s = sandbox.BY_NAME["wiki-init-migration"]
+    built = sandbox.build(s, tmp_path)
+    _migrated_wiki(built)
+    cfg = built / ".claude/harness-tier/config/flow-config.yaml"
+    cfg.write_text(
+        cfg.read_text(encoding="utf-8").replace("enable: true", "enable: false"),
+        encoding="utf-8",
+    )
+    passed, failures = sandbox.check_outcome(s, built)
+    assert not passed
+    assert any("enable: true" in f for f in failures)
+
+
 class _CapturingSubprocess:
     """Records the argv and communicate timeout without spawning claude. A test that needs to
     inspect the command overrides the autouse no_real_sessions guard with an instance of this."""
@@ -1468,6 +1686,57 @@ def test_outcome_sha_is_sensitive_to_body_fixture_and_golden():
     assert outcome.outcome_sha("doc-sync", moved_prompt) != base
     # A different skill's SKILL.md is a different body.
     assert outcome.outcome_sha("integration", s) != base
+    # The fixture is more than `files`: a copied-in gate script and the git seeding are
+    # both state the run depends on, so a baseline must go stale when either changes.
+    w = sandbox.BY_NAME["wiki-init-migration"]
+    w_base = outcome.outcome_sha("wiki-init", w)
+    assert outcome.outcome_sha("wiki-init", replace(w, copy_from_repo={})) != w_base
+    assert outcome.outcome_sha("wiki-init", replace(w, git=False)) != w_base
+
+
+def _other_value(current):
+    """Some value of the same shape that differs from `current` — for mutating one field of
+    a Scenario without knowing which field it is."""
+    if isinstance(current, bool):
+        return not current
+    if isinstance(current, dict):
+        return {**current, "__sentinel__": "x"}
+    if isinstance(current, list):
+        return [*current, "__sentinel__"]
+    raise AssertionError(f"unhandled Scenario field type {type(current)!r} — extend this helper")
+
+
+def test_outcome_sha_covers_every_scenario_field_without_being_told():
+    """A field added to Scenario must land in the fingerprint on its own.
+
+    The version that listed fields by hand shipped `copy_from_repo` and `git` outside the
+    payload: the fixture could change while every baseline still reported fresh, which is
+    the one thing the fingerprint exists to prevent. An allowlist cannot catch the field
+    nobody remembered to add to it — only reading the whole scenario can. This test is the
+    guard for the *next* field, so it must not name today's.
+
+    The exemptions are asserted in the same loop rather than skipped: an entry quietly added
+    to SHA_EXEMPT reopens the same hole by another route, so each has to be a field that
+    genuinely cannot change what the run does."""
+    s = sandbox.BY_NAME["wiki-init-migration"]
+    base = outcome.outcome_sha("wiki-init", s)
+    for f in fields(sandbox.Scenario):
+        current = getattr(s, f.name)
+        mutated = "sentinel" if isinstance(current, str) else _other_value(current)
+        moved = outcome.outcome_sha("wiki-init", replace(s, **{f.name: mutated}))
+        if f.name in outcome.SHA_EXEMPT:
+            assert moved == base, (
+                f"Scenario.{f.name} is exempt, but changing it moved the fingerprint — the "
+                f"exemption claims it cannot affect the run"
+            )
+        else:
+            assert moved != base, (
+                f"Scenario.{f.name} is outside outcome_sha — the fixture can change under a "
+                f"baseline that still reports fresh"
+            )
+    assert outcome.SHA_EXEMPT == frozenset({"why", "expect", "reject"}), (
+        "SHA_EXEMPT grew: every entry must be prose that build() and check_outcome never read"
+    )
 
 
 def test_outcome_check_warns_when_unmeasured():
@@ -1585,10 +1854,10 @@ def test_run_outcome_aborts_when_the_target_skill_is_not_offered(monkeypatch):
 
 
 def test_outcome_main_returns_nonzero_on_rate_limit(monkeypatch):
-    """A rate-limited run is not a success. The single-skill v1 records nothing (its partial
-    reps are lost by design), so main must return non-zero rather than fall through to the
-    success message. The real outcome_scores.json is untouched: run_outcome raises before any
-    write."""
+    """A rate-limited run is not a success. The skill that hit the limit records nothing (its
+    partial reps are lost by design), so main must return non-zero rather than fall through to
+    the success message. The real outcome_scores.json is untouched: run_outcome raises before
+    any write."""
     import contextlib
 
     @contextlib.contextmanager
@@ -1626,12 +1895,14 @@ def test_committed_outcome_baseline_is_never_stale_or_zero():
     """The outcome mirror of test_a_stale_measurement_fails: whatever is committed in
     outcome_scores.json must be fresh (ok) or absent (warn) — never a stale or all-zero lie
     that would let a broken outcome ride a green suite. After seeding it is ok; before seeding
-    it is warn, keeping the suite green until the first live measure."""
+    it is warn, keeping the suite green until the first live measure.
+
+    Every target, not a named one: with the arm holding more than one skill, a hardcoded
+    name leaves the rest outside the freshness gate — their SKILL.md, fixture or golden
+    could change and only the unchecked `outcome_sha` would disagree, silently."""
     baseline: dict = {}
     if outcome.OUTCOME_SCORES.exists():
         baseline = json.loads(outcome.OUTCOME_SCORES.read_text(encoding="utf-8"))
-    s = sandbox.BY_NAME["doc-sync-drift"]
-    v = outcome.outcome_check(
-        "doc-sync", baseline.get("doc-sync"), outcome.outcome_sha("doc-sync", s)
-    )
-    assert v.level in ("ok", "warn"), v.message
+    for skill, scenario in outcome._outcome_targets():
+        v = outcome.outcome_check(skill, baseline.get(skill), outcome.outcome_sha(skill, scenario))
+        assert v.level in ("ok", "warn"), v.message

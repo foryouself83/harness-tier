@@ -1,3 +1,20 @@
+<!-- Wiki front matter for this doc. Fill every {{…}} below, then delete this comment line
+     so the "---" that follows becomes the literal first line of the generated file
+     (wiki_graph.py only recognizes front matter starting at byte 0 — leaving this comment
+     in place keeps the file harmlessly outside the wiki, same as a plain markdown file). -->
+---
+# wiki_id: derive mechanically from this file's output path relative to the wiki root, the
+# same way wiki-init Step 5 does (e.g. docs/code-style/python.md -> code-style.python). A
+# multi-stack project clones this template once per stack — hand-picking <stack> here
+# instead risks every clone landing on the literal same id and colliding.
+wiki_id: {{ID}}
+title: <stack> code style
+tags: [code-style, <stack>]
+# sources is optional — uncomment and list real code paths this style doc describes; delete
+# these two lines if none apply.
+# sources:
+#   src/path/to/code.py: null
+---
 # {{STACK_LABEL}} Code Style
 
 > {{LANGUAGE}} + {{FRAMEWORK_OR_PLATFORM}}. Describe the discipline in prose, **without code snippets**. Sources: {{SOURCES}}

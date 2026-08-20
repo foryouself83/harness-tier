@@ -138,6 +138,28 @@ def _has_git() -> bool:
 requires_git = pytest.mark.skipif(not _has_git(), reason="git not available")
 
 
+def test_git_survives_non_utf8_output(tmp_path: Path):
+    # git 출력에 UTF-8 이 아닌 바이트가 하나라도 있으면 decode 예외가 호출 전체를 None 으로
+    # 만든다 — 게이트가 그 저장소에서 통째로 무음 fail-open 된다. errors="replace" 로 값을
+    # 살린다 (대체문자 섞인 경로는 어차피 매칭 실패로 그 항목만 fail-open — 더 좁다).
+    if not _has_git():
+        pytest.skip("git not available")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    sha = (
+        subprocess.run(
+            ["git", "hash-object", "-w", "--stdin"],
+            cwd=tmp_path,
+            input=b"caf\xe9 latin-1\n",
+            capture_output=True,
+            check=True,
+        )
+        .stdout.decode()
+        .strip()
+    )
+    out = vp._git(["cat-file", "blob", sha], tmp_path)
+    assert out is not None and "caf" in out
+
+
 def _run_git(args: list[str], cwd: Path) -> None:
     subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True, check=True)
 
