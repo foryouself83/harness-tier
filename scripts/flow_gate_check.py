@@ -776,6 +776,9 @@ def main() -> None:
         else:
             print(f"flow 게이트: '{tier}' 티어는 {miss} 증거가 필요합니다.")
         sys.exit(BLOCK_EXIT_CODE)
+    # wiki runtime gate — in the SAME process (spawn 2→1: the runner used to pay a second
+    # python spawn for --wiki-check, resolving the tier a second time on the way).
+    _wiki_stage(root, gates)
     sys.exit(0)
 
 
@@ -802,8 +805,8 @@ def module_commands_output() -> None:
         print(cmd)
 
 
-def wiki_check_output() -> None:
-    """Run the wiki runtime gate. Everything it has to say goes to STDOUT.
+def _wiki_stage(root: Path, gates: list[str] | None) -> None:
+    """The wiki gate as main()'s final stage. Everything it has to say goes to STDOUT.
 
     Two reasons stdout rather than stderr, both from the hooks contract:
 
@@ -815,14 +818,12 @@ def wiki_check_output() -> None:
       quality warnings would never reach a human. They come back here as a ``systemMessage``
       JSON payload — the documented field for "warning shown to the user" — which the runner
       emits verbatim when it allows the commit.
+
+    ``HARNESS_PRECOMMIT_DRYRUN=1`` skips entirely — the runner's old stage-2 guard, kept
+    behind the env var so a dry run never pays (or fires) the graph walk.
     """
-    force_utf8_io()
-    root = host_root()
-    try:
-        tier, _ = _resolve_context_tier(root, flow_dir(root), _current_branch(root))
-        gates = required_gates(tiers_path(root), tier) if tier else None
-    except Exception:
-        return  # FAIL-OPEN
+    if os.environ.get("HARNESS_PRECOMMIT_DRYRUN") == "1":
+        return
     captured = io.StringIO()
     with contextlib.redirect_stderr(captured):
         blocked = wiki_gate(root, gates)
@@ -833,6 +834,23 @@ def wiki_check_output() -> None:
         sys.exit(BLOCK_EXIT_CODE)
     if text:
         print(json.dumps({"systemMessage": f"wiki graph 경고\n{text}"}, ensure_ascii=False))
+
+
+def wiki_check_output() -> None:
+    """Compat alias for the absorbed wiki stage (`--wiki-check`), old contract intact.
+
+    The runner no longer calls this — main() runs the wiki gate in-process — but a
+    half-copied host can hold an older precommit-runner.sh that still does, and answering
+    it here costs one dispatch branch.
+    """
+    force_utf8_io()
+    root = host_root()
+    try:
+        tier, _ = _resolve_context_tier(root, flow_dir(root), _current_branch(root))
+        gates = required_gates(tiers_path(root), tier) if tier else None
+    except Exception:
+        return  # FAIL-OPEN
+    _wiki_stage(root, gates)
 
 
 def resolve_worktree_output() -> None:

@@ -1,0 +1,29 @@
+# Dogfood of github/wiki-verify.workflow.example.yml (CLAUDE.md: a workflow-rendering feature
+# lands in this repo's OWN CI too). This repo has no host install, so it runs the SOURCE script
+# directly; with no flow-config.wiki here the run exercises the no-op-green contract consumers
+# without a wiki rely on.
+name: wiki-verify
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  wiki-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Sync deps
+        run: uv sync
+
+      - name: Verify wiki graph
+        run: uv run python scripts/wiki_graph.py --verify

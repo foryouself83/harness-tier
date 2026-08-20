@@ -209,6 +209,11 @@ It performs, idempotently, and prints a report to relay:
   GitHub Actions `strategy.matrix.include` (one job per line), so each language/module
   runs in parallel with its own `timeout-minutes`. Skips when `enable: false` or the
   section is absent.
+- **Renders** `.github/workflows/wiki-verify.yml` (same create-if-absent /
+  never-overwrite rules) — **unconditionally**, no config gate: without a wiki the
+  script exits 0 silently, so the job stays green and the render carries no ordering
+  dependency on `/wiki-init`. It runs `wiki_graph.py --verify` read-only in CI, closing
+  the wiki gate's terminal/merge-commit blind spot.
 
 Then remind the user to run `pre-commit install --hook-type pre-commit --hook-type commit-msg
 --hook-type pre-push` (activates gitlint, the push notifier, and the file-hygiene hooks) and

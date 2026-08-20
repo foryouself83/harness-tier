@@ -22,9 +22,9 @@ except ImportError:
     from scripts._harness_paths import force_utf8_io
 
 try:
-    from wiki_graph import _wiki_root_hint, derive_wiki_id
+    from wiki_graph import DEFECT_PREFIX, _wiki_root_hint, derive_wiki_id
 except ImportError:
-    from scripts.wiki_graph import _wiki_root_hint, derive_wiki_id
+    from scripts.wiki_graph import DEFECT_PREFIX, _wiki_root_hint, derive_wiki_id
 
 VENDOR_DIRS = {
     ".git",
@@ -870,6 +870,10 @@ def validate_plan(root: Path, plan: dict) -> dict:
                         ),
                     }
                 )
+            elif wid.startswith(DEFECT_PREFIX):
+                # defect nodes follow the defect-template's `defect.<slug>` convention, not
+                # path derivation (wiki-init Step 5) — parity here would be a false positive.
+                pass
             elif wid:
                 try:
                     expected = derive_wiki_id(rel, wiki_root)

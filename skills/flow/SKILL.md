@@ -110,10 +110,10 @@ checks of all modules) are executed by the commit hook itself — no marker (bot
 ordinary `gates` entries and timing buckets over `flow-config.modules[].checks`, routed
 by each check's `when`; removing one from a tier's list in
 [`flow-tiers.yaml`](../../flow-tiers.yaml) disables it for that tier). **`wiki`** is a
-third runtime gate needing no marker — not a timing bucket, it runs
-`wiki_graph.py --verify` directly whenever `flow-config.wiki` is enabled (no-op
+third runtime gate needing no marker — not a timing bucket, the hook's gate script runs
+`wiki_graph.py --verify` in-process whenever `flow-config.wiki` is enabled (no-op
 otherwise). Do **not** `touch .claude/harness-tier/.flow/wiki.done` and do not go
-looking for a `wiki` gate skill — none exists; the hook runs the script itself.
+looking for a `wiki` gate skill — none exists; the hook runs the check itself.
 
 > **Precondition (Dev / Staging / Release)** — the `superpowers` plugin must
 > be installed. If `superpowers:using-superpowers` is **not** among the available
@@ -141,10 +141,17 @@ looking for a `wiki` gate skill — none exists; the hook runs the script itself
 
 ### Dev — any code (`superpowers` ON)
 
-1. **Enter `superpowers:using-superpowers`** — it drives the pipeline automatically
+1. **Load the wiki context first** (skip silently when there is no wiki — both
+   commands print nothing and exit 0): name the files you are about to change to
+   `python3 .claude/harness-tier/scripts/wiki_graph.py --nodes-for <paths…>`, then
+   for each printed id run
+   `python3 .claude/harness-tier/scripts/wiki_graph.py --neighbors <id>` and **read
+   the documents it lists** before planning. An empty result is a normal answer (the
+   code is undocumented) — proceed without it.
+2. **Enter `superpowers:using-superpowers`** — it drives the pipeline automatically
    (brainstorm → plan → implement → verify → review; each skill self-triggers).
    Feed the resolved request from Phase 0 in as the task.
-2. Apply the project overlays `superpowers` does not know about:
+3. Apply the project overlays `superpowers` does not know about:
    - **Implementation minimalism** — right after the plan, before writing code,
      climb the reuse-before-build ladder (YAGNI → codebase → stdlib → native →
      dependency → one line → minimum code) and stop at the earliest rung. Detail
@@ -161,7 +168,7 @@ looking for a `wiki` gate skill — none exists; the hook runs the script itself
      [`risk-tiers.md`](../../rules/risk-tiers.md) Step 3.
      On pass → `touch .claude/harness-tier/.flow/review.done`.
    - **invoke the `doc-sync` skill** (not part of `superpowers`) → `touch .claude/harness-tier/.flow/doc-sync.done`.
-3. Commit → merge **applying the risk-tiers Merge strategy** (rule 3 — not a plain
+4. Commit → merge **applying the risk-tiers Merge strategy** (rule 3 — not a plain
    merge; from a worktree use `git -C <worktree> commit …` — rule 5). (The commit
    hook blocks until `review.done` and `doc-sync.done`.)
    When `flow-config.merge_workflow.pull_request` includes `daily`, open a **PR** instead

@@ -183,16 +183,23 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
 
 - **`precommit` · `security-scan`** 은 커밋 훅이 직접 실행합니다(별도 마커 없음). 해당
   등급의 `gates` 목록에서 빼면 그 검사만 꺼집니다.
-- **`wiki`** 도 커밋 훅이 직접 실행하지만(별도 마커 없음), 모듈 검사와는 분리된 자체
-  단계에서 돌고 `flow-config.wiki` 가 켜져 있을 때만 동작합니다 — 아니면 아무것도
+- **`wiki`** 도 커밋 훅이 직접 실행하지만(별도 마커 없음), 모듈 검사 통로가 아니라 flow
+  게이트의 **같은 프로세스 마지막 단계**로 돌고 `flow-config.wiki` 가 켜져 있을 때만
+  동작합니다 — 아니면 아무것도
   실행되지 않습니다. 그래프 품질 경고(orphan, 크기 초과 문서, 디스크에 없는 `sources`
   경로, defect→rule 승격, `wiki_id:` 줄 없이 파싱에 실패한 front matter, `wiki_id` 없이
   wiki 전용 필드만 있는 문서)는 커밋이 통과해도 `systemMessage` 로 돌아옵니다. 커밋이
   막힌 경우 구조 위반 목록은 10건 + 건수로 잘립니다. 읽기 전용으로, `docs/graph/graph.yaml`
-  을 문서들의 front matter 와 대조합니다(§3.9). **작업 트리**를 읽습니다 — 훅은
+  을 문서들의 front matter 와 대조하고(§3.9), 노드의 변경이 `sources` sha 교체뿐이고 본문
+  편집이 없는 커밋도 차단합니다(도장 규율 — 허용되는 교체는 둘입니다: doc-sync 의 구형
+  마커 마이그레이션 재작성, 그리고 본문 편집이 직전 커밋에 있는 도장. 방금 커밋한 동기화에
+  도장을 얹거나 amend 로 합치는 것은 통과하고, 그 커밋이 문서를 개명했어도 게이트가 이전
+  경로를 따라가므로 허용이 사라지지 않습니다). **작업 트리**를 읽습니다 — 훅은
   `git commit` 이 무언가를 스테이징하기 전에 뜨므로 검사할 커밋이 아직 없습니다.
   `graph.yaml` 은 그것을 만들어낸 문서들과 **함께 스테이징**하세요. 다시 빌드했지만
   스테이징하지 않은 그래프는 게이트를 통과시키면서 커밋에는 낡은 것을 기록합니다.
+  `/flow-init` 은 같은 검증을 push/PR 에서 읽기 전용으로 돌리는 `wiki-verify.yml` CI
+  워크플로도 렌더합니다 — 훅이 못 보는 터미널·머지 커밋의 drift 를 여기서 잡습니다.
 - **`review` · `doc-sync` · `security` · `bump`** 은 `/flow` 가 게이트를 통과시킨 뒤 증거
   마커를 남기고, 커밋 훅은 그 마커가 있어야 통과시킵니다. `bump` 은 staging 승격 때 사람이
   고르는 major/minor/patch 선택으로, fail-closed 라 선택하기 전까지 staging 커밋이 계속
@@ -435,8 +442,12 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
 노드로 이관하며 YAML front matter 를 부여하고 `docs/graph/graph.yaml` 을 생성합니다.
 관계는 사람이 손으로 쓰는 front matter 이고, 그래프는 그것을 기계적으로 읽을 뿐입니다.
 멱등적입니다: 이미 `wiki_id` 를 가진 문서는 다음 실행에서 다시 후보로 제시되지 않습니다.
-한 번 만들어두면 `doc-sync`(Mode W)가 그래프와 각 노드의 `sources` sha 를 동기 상태로
-유지하고, `wiki` 런타임 게이트(§2.3)가 매 커밋에서 그 동기를 읽기 전용으로 검증합니다.
+한 번 만들어두면 `doc-sync`(Mode W)가 그래프와 각 노드의 `sources` 마커(소스 파일의
+작업 트리 **blob hash** — squash/rebase 승격이 가짜 stale 을 만들 수 없습니다)를 동기
+상태로 유지하고, `wiki` 런타임 게이트(§2.3)가 매 커밋에서 그 동기를 읽기 전용으로
+검증합니다. 그래프는 개발의 읽기 경로이기도 합니다: `/flow` Dev 트랙은 변경할 파일을
+문서화한 노드를 찾고(`wiki_graph.py --nodes-for <경로…>`) 그 이웃을
+로드해(`--neighbors <id>`) 작업 컨텍스트로 삼는 것으로 시작합니다.
 
 ---
 
@@ -568,7 +579,11 @@ Windows 는 Git Bash 가 있는지 확인하세요.
    (`extraKnownMarketplaces.harness-tier`) 제거.
 3. `.gitignore` 에서 harness-tier 라인 제거.
 4. `CLAUDE.md` 의 `harness-tier:teams` 관리 블록 제거.
-5. (선택) `pre-commit uninstall --hook-type pre-commit --hook-type commit-msg --hook-type pre-push`.
+5. `.github/workflows/wiki-verify.yml`, 그리고 `.claude/harness-tier/scripts/` 를 호출하는
+   release 워크플로우 삭제 — 1번을 끝낸 시점에 없는 스크립트를 실행하므로 push 마다
+   실패합니다. (`api-contract.yml`·`unit-test.yml` 은 우리 경로를 참조하지 않아 그대로
+   살아 있을 뿐입니다.)
+6. (선택) `pre-commit uninstall --hook-type pre-commit --hook-type commit-msg --hook-type pre-push`.
 
 ---
 

@@ -101,21 +101,31 @@ def _wiki_root_hint(root: Path) -> str:
         return "docs"
 
 
-_FM_DELIM = "---"
+# Opening: the first line is exactly `---` (trailing blanks tolerated). Closing: a LINE that is
+# `---` — the old `find("\n---")` also matched a `----` ruler and a column-0 `--- note` body
+# line, silently truncating the block there (a wiki_id below the false close vanished without
+# a word). CRLF: `\r?` keeps both delimiters recognizable in files with Windows line endings.
+# Known limit: a line that IS exactly `---` inside a quoted multi-line scalar still closes the
+# block — telling it apart needs a real YAML scanner, and the truncated parse then fails loudly
+# (marker seen → block) rather than dropping the node silently.
+_FM_OPEN_RE = re.compile(r"^---[ \t]*\r?\n")
+_FM_CLOSE_RE = re.compile(r"^---[ \t]*\r?$", re.MULTILINE)
 
 
 def _front_matter_block(text: str) -> str | None:
-    """The text between the opening `---` and the closing one, or None when there is no block.
+    """The text between the opening `---` line and the closing one, or None when there is no
+    block.
 
-    Both readers below share this so the delimiter rule — including the `end + 1` boundary —
-    lives in one place. A copy would let one of them drift.
+    Both readers below share this so the delimiter rule lives in one place. A copy would let
+    one of them drift.
     """
-    if not text.startswith(_FM_DELIM):
+    m_open = _FM_OPEN_RE.match(text)
+    if m_open is None:
         return None
-    end = text.find(f"\n{_FM_DELIM}", len(_FM_DELIM))
-    if end < 0:
+    m_close = _FM_CLOSE_RE.search(text, m_open.end())
+    if m_close is None:
         return None
-    return text[len(_FM_DELIM) : end + 1]
+    return text[m_open.end() : m_close.start()]
 
 
 def parse_front_matter(text: str) -> dict | None:
@@ -274,12 +284,15 @@ def collect_nodes(root: Path, wiki: dict, paths: list[Path] | None = None) -> li
             )
             continue
         raw_id = front.get("wiki_id")
+        block = _front_matter_block(text)
         nodes.append(
             {
                 "id": str(raw_id) if raw_id else None,
                 "path": path.relative_to(root).as_posix(),
                 "line_count": len(text.splitlines()),
                 "front": front,
+                "text": text,  # validate_stamps reads the body from here
+                "dup_marker": bool(block) and len(_MARKER_LINE_RE.findall(block)) > 1,
             }
         )
     return nodes
@@ -511,6 +524,199 @@ def validate_defects(root: Path, nodes: list[dict]) -> list[str]:
     return problems
 
 
+def _split_body(text: str) -> str:
+    """The document body — everything after the front-matter block, stripped. The whole text
+    when there is no block."""
+    m_open = _FM_OPEN_RE.match(text)
+    if m_open is None:
+        return text.strip()
+    m_close = _FM_CLOSE_RE.search(text, m_open.end())
+    if m_close is None:
+        return text.strip()
+    return text[m_close.end() :].strip()
+
+
+def _sources_only_swaps(head_front: dict, cur_front: dict) -> list[tuple[str, str, str]]:
+    """Same-key non-null `sources` value replacements, IFF that is the only front-matter change.
+
+    [] in every other situation: any other field differing, an entry added or removed
+    (missing-path remedies legitimately delete entries), or a null→sha first stamp (no prior
+    claim to falsify). This check targets the bulk re-stamp an honest session performs by
+    accident, not adversarial evasion."""
+    head, cur = dict(head_front), dict(cur_front)
+    head_sources, cur_sources = head.pop("sources", None), cur.pop("sources", None)
+    if head != cur:
+        return []
+    if (
+        not isinstance(head_sources, dict)
+        or not isinstance(cur_sources, dict)
+        or set(head_sources) != set(cur_sources)
+    ):
+        return []
+    swaps = []
+    for key in head_sources:
+        old, new = head_sources[key], cur_sources[key]
+        if old == new:
+            continue
+        if not (isinstance(old, str) and old and isinstance(new, str) and new):
+            return []  # null→sha (or a typed value) — not the fraud shape; leave it alone
+        swaps.append((str(key), old, new))
+    return swaps
+
+
+def _head_renames(root: Path, wiki_root: str) -> dict[str, str] | None:
+    """{new path: old path} of HEAD~1→HEAD renames under the wiki root, None if git cannot say.
+
+    -z: C-escape quoting would hide non-ASCII paths (same footgun as validate_stamps' diff).
+    -M without -C: a deferred stamp rides the moved original, not a copy that leaves it behind
+    — and a C record, were one to arrive anyway, is parsed but never recorded as a rename.
+    """
+    out = _git(["diff", "HEAD~1", "HEAD", "-z", "-M", "--name-status", "--", f"{wiki_root}/"], root)
+    if out is None:
+        return None
+    # Output this function cannot read is not the verdict "nothing was renamed" — a map that
+    # says so blocks a legitimate rename+sync, so every unreadable shape returns None instead
+    # (FAIL-OPEN). Here: every record ends in a NUL, so text that does not is cut mid-field;
+    # only "no changes at all" is legitimately empty.
+    if out and not out.endswith("\0"):
+        return None
+    fields = out.split("\0")
+    renames: dict[str, str] = {}
+    i = 0
+    while i < len(fields):
+        status = fields[i]
+        if not status:
+            if i != len(fields) - 1:
+                return None  # only the trailing NUL's field may be empty
+            break
+        # A copy consumes three fields like a rename but is never recorded as one: it leaves
+        # the original in place, so a deferred stamp rides that file rather than a moved one.
+        # `-M` alone should never produce a C — the parser does not lean on that.
+        width = 3 if status[:1] in ("R", "C") else 2
+        paths = fields[i + 1 : i + width]
+        # No path may be empty — a cut landing on a NUL leaves the field count right and the
+        # path blank, and git never emits an empty path. The two halves overlap completely:
+        # after the top guard a short slice always ends in the terminator's empty field, so
+        # `all` catches it too. The length half stays as the check that makes the indexing
+        # below safe without resting on that argument.
+        if len(paths) != width - 1 or not all(paths):
+            return None
+        if status[:1] == "R":
+            renames[paths[1]] = paths[0]
+        i += width
+    return renames
+
+
+def validate_stamps(root: Path, wiki: dict, nodes: list[dict]) -> list[str]:
+    """Block a commit whose only change to a node is its `sources` sha (the stamp-fraud
+    doc-sync forbids in prose — this is the mechanical half).
+
+    Allowed mechanically: the meaning-preserving migration `new == git rev-parse <old>:<path>`
+    (a legacy commit-sha marker rewritten to the blob it pointed at). Everything unanswerable —
+    no HEAD, a new file, any git failure — is skipped (Invariant #1): the check only
+    ever fires on an exact, provable "sha changed, nothing else did"."""
+    # -z for the same reason _candidate_files gives: with the default core.quotePath a
+    # non-ASCII path comes back C-escape-quoted and matches no node["path"], silently
+    # exempting that document from the stamp check.
+    changed = _git(["diff", "HEAD", "--name-only", "-z", "--", f"{wiki['root']}/"], root)
+    if changed is None:
+        return []  # git cannot answer → FAIL-OPEN
+    changed_set = set(changed.split("\0"))
+    problems: list[str] = []
+    # Every repo-constant answer below is looked up lazily and kept, so a gate run costs one
+    # spawn per question rather than one per node/swap. `renames_looked_up` is separate from
+    # `renames` on purpose: None doubles as "git could not say", and conflating the two makes
+    # a FAILED lookup repeat for every renamed node — at 5s per timeout, inside a commit hook.
+    # `parent_alive` and `head_alive` deliberately cache a negative answer too, even though
+    # that conflates "genuinely absent" with "git could not say". Re-probing would narrow one
+    # run's blast radius after a single flaked probe, but it costs a spawn per node exactly
+    # where the negative is a stable fact (root commit, graft) — and when git is hanging
+    # rather than flaking it turns one 5s stall into one per node, the check off either way.
+    renames: dict[str, str] | None = None
+    renames_looked_up = False
+    parent_alive: bool | None = None
+    head_alive: bool | None = None
+    for node in nodes:
+        if not node["id"] or node["path"] not in changed_set:
+            continue
+        head_text = _git(["show", f"HEAD:{node['path']}"], root)
+        if head_text is None:
+            continue  # new file / no HEAD → the first stamp is authorship, not fraud
+        head_front = parse_front_matter(head_text)
+        if head_front is None:
+            continue
+        swaps = _sources_only_swaps(head_front, node["front"])
+        if not swaps:
+            continue
+        if _split_body(head_text) != _split_body(node.get("text") or ""):
+            continue  # the body was edited too → a legitimate sync
+        # The body edit can also sit in HEAD itself: an amend (HEAD is the commit being
+        # rewritten) or a body-then-stamp split. Both leave a sha-only delta against HEAD, so
+        # without this the check would reject the very amend its own message recommends.
+        # `cat-file blob`, not `show`: a path that was a directory in the parent makes `show`
+        # print a tree listing at exit 0, which would silently read as "body differs".
+        prev_text = _git(["cat-file", "blob", f"HEAD~1:{node['path']}"], root)
+        if prev_text is not None:
+            if _split_body(prev_text) != _split_body(head_text):
+                continue  # the tip commit synced this body — stamping it now is honest
+        elif _git(["rev-parse", "--verify", f"HEAD~1:{node['path']}"], root) is not None:
+            # The object exists but its body could not be read — a tree at that path, or a
+            # read that flaked. Neither is the verdict "the parent lacked this document", and
+            # only that verdict may keep the check running → FAIL-OPEN (Invariant #1).
+            # The two are separable (`cat-file -t` names the type, and a tree IS the verdict
+            # "no document here"), but a directory turning into a node is rare enough that
+            # the extra spawn buys less than it costs — and `show` reached the same allow.
+            continue
+        else:
+            # There is nothing to compare HEAD against — a root commit (whose own --amend must
+            # stay possible), a shallow clone whose history is grafted, or a git that could not
+            # answer. None of the three is a verdict, so all three pass (Invariant #1); on a
+            # `--depth 1` clone this stays off only while HEAD is the graft commit — it
+            # resumes as soon as local commits stack on top.
+            if parent_alive is None:
+                parent_alive = _git(["rev-parse", "--verify", "HEAD~1"], root) is not None
+            if not parent_alive:
+                continue
+            # A readable parent without this path: HEAD introduced the document, or renamed
+            # it. A rename that synced the body in the same commit is the amend case above
+            # under a new path — resolve the old path before judging. Falling out of this
+            # branch means the swap goes on trial: no rename record (a true introduction,
+            # which already carries its own stamp) or a rename whose body is unchanged
+            # (moving a file syncs nothing).
+            if not renames_looked_up:
+                renames = _head_renames(root, wiki["root"])
+                renames_looked_up = True
+            if renames is None:
+                continue  # git cannot answer the rename question → FAIL-OPEN
+            old_path = renames.get(node["path"])
+            if old_path is not None:
+                prev_text = _git(["cat-file", "blob", f"HEAD~1:{old_path}"], root)
+                if prev_text is None:
+                    continue  # the parent names it yet cannot show it → FAIL-OPEN
+                if _split_body(prev_text) != _split_body(head_text):
+                    continue  # the rename commit synced this body — stamping it now is honest
+        for src, old, new in swaps:
+            resolved = _git(["rev-parse", f"{old}:{src}"], root)
+            if resolved == new:
+                continue  # meaning-preserving migration (spec 2026-08-13 §2)
+            if resolved is None:
+                # _git returns None both for "this object does not resolve" (a real verdict:
+                # `old` is no commit, so no migration explains the swap) and for "git could not
+                # answer" (timeout, interpreter kill). Only the first may block; a git that
+                # cannot answer a query guaranteed to succeed inside a repository is an
+                # internal error → FAIL-OPEN (Invariant #1).
+                if head_alive is None:
+                    head_alive = _git(["rev-parse", "--verify", "HEAD"], root) is not None
+                if not head_alive:
+                    continue
+            problems.append(
+                f"{node['path']}: sources['{src}'] 의 sha 만 갱신되고 본문 변경이 없습니다 — "
+                f"본문을 실제 동기화한 커밋에서 함께 찍으세요(본문 수정이 두 커밋 이상 "
+                f"전이라면 rebase/fixup 으로 합치세요). 동기화하지 않았다면 sha 를 되돌리세요"
+            )
+    return problems
+
+
 def validate_structure(root: Path, wiki: dict, nodes: list[dict], graph: dict) -> list[str]:
     """Collect structural violations (block reasons). An empty list means pass.
 
@@ -739,6 +945,18 @@ def collect_warnings(
         ],
         "wiki_id 없는 wiki 필드",
     )
+    # PyYAML resolves a duplicate key silently (last wins), so a second `wiki_id:` line swaps
+    # the node id without any signal — surface it.
+    _capped(
+        warns,
+        [
+            f"{node['path']}: wiki_id: 줄이 여러 개입니다 — YAML 은 마지막 값을 채택합니다. "
+            f"하나만 남기세요"
+            for node in nodes
+            if node.get("dup_marker")
+        ],
+        "wiki_id 중복 선언",
+    )
     if root is not None:
         # A sources path that is not on disk. NOT a block: a doc legitimately documents a
         # generated or gitignored file (a built API client), or a file that exists only on
@@ -885,7 +1103,9 @@ def neighbors(
 
     There is no depth limit — the budget is the only brake, and the visited set handles
     cycles. The entry point itself is always included even if it alone exceeds the budget,
-    so the result is never empty.
+    so the result is never empty. Budget semantics are GREEDY: a neighbour that does not fit
+    is cut and expansion continues through cheaper ones (the design doc's "stop at budget"
+    reads stricter than what runs — this docstring is the authority).
     """
     if start not in graph["nodes"]:
         return [], 0, 0
@@ -932,6 +1152,40 @@ def cmd_neighbors(root: Path, start: str, budget: int | None) -> int:
     for path in paths:
         print(path)
     print(f"# {len(paths)}개 문서 {total}줄 / 예산 {limit}줄, 잘림 {cut}개", file=sys.stderr)
+    return 0
+
+
+def _covers(a: str, b: str) -> bool:
+    """Segment-boundary containment in EITHER direction — `src/auth` and `src/auth/jwt.py`
+    match each other, `src/auth` and `src/auth-x/jwt.py` do not.
+
+    Symmetric because either side can be the coarser path: a caller passes the file it is
+    about to change, while a node's `sources` may document the directory that holds it.
+    One-directional matching left such a node unreachable from the only query the flow
+    actually sends, and the silent empty result reads as "this code is undocumented"."""
+    return a == b or a.startswith(b + "/") or b.startswith(a + "/")
+
+
+def cmd_nodes_for(root: Path, queries: list[str]) -> int:
+    """Print `query<TAB>node id` for every node whose `sources` documents that path (or a file
+    under it). The wiki's read entry point for development flow: changed file → owning nodes →
+    --neighbors. Lookup only, always exit 0 — an undocumented path is a NORMAL answer
+    (silence), unlike --neighbors' unknown id (a caller-side typo, exit 1). No wiki → silent 0.
+    """
+    wiki, nodes, _graph, _authoritative = _load(root)
+    if wiki is None:
+        return 0
+    for query in queries:
+        norm = _norm_rel(query)
+        if not norm:
+            continue
+        for node in nodes:
+            if not node["id"]:
+                continue
+            sources = node["front"].get("sources")
+            keys = sources.keys() if isinstance(sources, dict) else _as_list(sources)
+            if any(_covers(_norm_rel(str(k)), norm) for k in keys):
+                print(f"{query}\t{node['id']}")
     return 0
 
 
@@ -987,7 +1241,7 @@ def cmd_verify(root: Path) -> int:
             file=sys.stderr,
         )
         return 0
-    problems = validate_structure(root, wiki, nodes, graph)
+    problems = validate_structure(root, wiki, nodes, graph) + validate_stamps(root, wiki, nodes)
     structural = len(problems)  # count before drift reasons — picks which remedy hint to print
     target = graph_path(root, wiki)
     actual: str | None = None
@@ -1049,19 +1303,45 @@ def cmd_verify(root: Path) -> int:
     return 0
 
 
-def cmd_stale(root: Path) -> int:
-    """Compare each recorded `sources` sha against the file's last commit, as JSON. Always 0.
+def _blob_hashes(root: Path, paths: list[str]) -> dict[str, str]:
+    """Working-tree blob hash per file path, one spawn for the whole set.
 
-    A lookup, so it never blocks — the gate does not call it; only doc-sync consumes it.
+    A process spawn is the most expensive syscall on the Windows host this plugin targets, so
+    `git hash-object` takes every path at once. Directories and unreadable paths are absent
+    from the result (a directory has no working-tree blob; `sources` names files). A failed
+    git call → {} (FAIL-OPEN: the absence of an answer is never staleness)."""
+    existing = [p for p in paths if (root / p).is_file()]
+    if not existing:
+        return {}
+    out = _git(["hash-object", "--", *existing], root)
+    hashes = out.splitlines() if out is not None else []
+    if len(hashes) != len(existing):
+        # Silent {} would make --stale report "nothing stale" for EVERY node — a lookup
+        # consumer (doc-sync) must at least see that the answer is missing, not clean.
+        print(
+            "git hash-object 실패 — 이번 실행에서는 stale 판정을 건너뜁니다",
+            file=sys.stderr,
+        )
+        return {}
+    return dict(zip(existing, hashes))
+
+
+def cmd_stale(root: Path) -> int:
+    """Compare each recorded `sources` blob hash against the working tree, as JSON. Always 0.
+
+    The recorded value means "the blob of this file as doc-sync READ it at sync time"
+    (`git hash-object`), so history rewrites (squash/rebase promotions) cannot fake staleness —
+    same content, same hash. A legacy value that names a COMMIT (the pre-blob semantics) gets a
+    `migrated` field: `git rev-parse <recorded>:<path>` — the meaning-preserving rewrite
+    doc-sync stamps without re-reading (equal to `current` → the rewrite is the whole fix;
+    different or null → the node is also genuinely stale). A lookup, so it never blocks — the
+    gate does not call it; only doc-sync consumes it.
     """
     wiki = load_wiki_config(root)
     if wiki is None:
         print(json.dumps([], ensure_ascii=False))
         return 0
-    out: list[dict] = []
-    # Several nodes legitimately list the same code path, and a process spawn is the most
-    # expensive syscall on the Windows host this plugin targets — ask git once per path.
-    head_cache: dict[str, str] = {}
+    triples: list[tuple[dict, str, str | None]] = []  # (node, src, recorded)
     for node in collect_nodes(root, wiki):
         if not node["id"]:
             continue
@@ -1069,44 +1349,52 @@ def cmd_stale(root: Path) -> int:
         if not isinstance(sources, dict):
             continue
         for key in sorted(sources, key=str):
-            src = str(key)
             # Only a non-empty string is a recorded sha. `src/a.py: ""` would otherwise make
             # `current.startswith("")` unconditionally true and the node would report fresh
             # forever; a YAML-coerced int (octal sha) is not a sha the author wrote either.
             raw = sources[key]
-            recorded = raw if isinstance(raw, str) and raw else None
-            if not (root / src).exists():
-                # The file moved or was deleted. git log still answers for a deleted path, so
-                # without this the entry reads as an ordinary sha drift and doc-sync stamps the
-                # new sha — leaving --verify's "sources 경로 … 가 없습니다" block in place.
-                out.append(
-                    {
-                        "id": node["id"],
-                        "path": node["path"],
-                        "source": src,
-                        "recorded": recorded,
-                        "current": None,
-                        "missing": True,
-                    }
-                )
-                continue
-            if src not in head_cache:
-                head_cache[src] = _git(["log", "-1", "--format=%H", "--", src], root) or ""
-            current = head_cache[src]
-            if not current:
-                continue  # a failed git lookup is not staleness (FAIL-OPEN)
-            if recorded is not None and current.startswith(recorded):
-                continue
+            triples.append((node, str(key), raw if isinstance(raw, str) and raw else None))
+    current_by_path = _blob_hashes(root, sorted({src for _, src, _ in triples}))
+    type_cache: dict[str, str | None] = {}  # recorded sha → git object type (None = unknown)
+    out: list[dict] = []
+    for node, src, recorded in triples:
+        if not (root / src).exists():
+            # The file moved or was deleted — a different problem from staleness: doc-sync
+            # must fix the path, not stamp a hash (--verify warns on the missing path itself).
             out.append(
                 {
                     "id": node["id"],
                     "path": node["path"],
                     "source": src,
                     "recorded": recorded,
-                    "current": current,
-                    "missing": False,
+                    "current": None,
+                    "missing": True,
                 }
             )
+            continue
+        current = current_by_path.get(src)
+        if not current:
+            continue  # no answer (a directory / failed git) is not staleness (FAIL-OPEN)
+        if recorded is not None and current.startswith(recorded):
+            continue  # fresh under blob semantics
+        entry = {
+            "id": node["id"],
+            "path": node["path"],
+            "source": src,
+            "recorded": recorded,
+            "current": current,
+            "missing": False,
+        }
+        if recorded is not None and _SHA_RE.match(recorded):
+            if recorded not in type_cache:
+                type_cache[recorded] = _git(["cat-file", "-t", recorded], root)
+            obj_type = type_cache[recorded]
+            if obj_type == "commit":
+                entry["migrated"] = _git(["rev-parse", f"{recorded}:{src}"], root)
+            elif obj_type is None:
+                entry["migrated"] = None  # legacy commit sha, object gone — plainly stale
+            # obj_type == "blob": an ordinary blob drift, no migration involved
+        out.append(entry)
     print(json.dumps(out, ensure_ascii=False, indent=2))
     return 0
 
@@ -1152,6 +1440,9 @@ def main(argv: list[str] | None = None) -> int:
     group.add_argument("--stale", action="store_true", help="코드 stale 목록 (JSON)")
     group.add_argument("--neighbors", metavar="ID", help="예산 내 이웃 문서 경로")
     group.add_argument(
+        "--nodes-for", nargs="+", metavar="PATH", help="경로를 문서화한 노드 조회 (경로<TAB>id)"
+    )
+    group.add_argument(
         "--derive-id", nargs="+", metavar="PATH", help="경로별 wiki_id 파생 (경로<TAB>id 출력)"
     )
     parser.add_argument("--budget", type=int, default=None, help="줄 예산 (기본값: config)")
@@ -1169,6 +1460,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_build(root)
         if args.stale:
             return cmd_stale(root)
+        if args.nodes_for:
+            return cmd_nodes_for(root, args.nodes_for)
         # `is not None` — an empty string is still a --neighbors request. Branching on
         # truthiness let `--neighbors ""` fall silently through to cmd_verify: the caller
         # read an empty lookup result while a graph verification was actually running,

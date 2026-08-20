@@ -25,9 +25,11 @@ from scripts.flow_init_setup import (
     remove_gitignore_lines,
     remove_harness_dir,
     render_unit_test_workflow,
+    render_wiki_verify_workflow,
     render_workflow,
     report_missing_config_slots,
     run_setup,
+    run_uninstall,
     unregister_gate,
     unregister_marketplace,
 )
@@ -271,6 +273,14 @@ def test_uninstall_idempotent(tmp_path: Path):
     assert "skip" in remove_harness_dir(tmp_path)
 
 
+def test_uninstall_names_the_workflows_that_break(tmp_path: Path, capsys):
+    # uninstall 은 .claude/harness-tier/scripts/ 를 지운다 — 그 스크립트를 실행하는
+    # wiki-verify.yml 이 남으면 push 마다 CI red 다. 안내가 그 파일을 지목해야 한다.
+    run_uninstall(tmp_path)
+    out = capsys.readouterr().out
+    assert "wiki-verify.yml" in out
+
+
 def test_uninstall_preserves_other_settings(tmp_path: Path):
     # PreToolUse hooks other than the gate are preserved
     settings = tmp_path / ".claude" / "settings.json"
@@ -467,6 +477,33 @@ def test_run_setup_renders_workflow(tmp_path: Path, capsys):
     captured = capsys.readouterr().out
     assert "계약 테스트" in captured
     assert (tmp_path / ".github" / "workflows" / "api-contract.yml").is_file()
+
+
+def test_render_wiki_verify_workflow_unconditional(tmp_path: Path):
+    # flow-config 유무·wiki enable 여부와 무관하게 렌더 — 스크립트가 no-op green 을 보장하므로
+    # /flow-init 이 /wiki-init 실행 순서에 의존하지 않는다.
+    out = render_wiki_verify_workflow(tmp_path, PLUGIN)
+    assert any("생성" in line for line in out)
+    dest = tmp_path / ".github" / "workflows" / "wiki-verify.yml"
+    text = dest.read_text(encoding="utf-8")
+    assert "__HARNESS_" not in text
+    data = _yaml.safe_load(text)
+    assert data["jobs"]["wiki-verify"]["timeout-minutes"] == 5
+
+
+def test_render_wiki_verify_workflow_preserves_existing(tmp_path: Path):
+    dest = tmp_path / ".github" / "workflows" / "wiki-verify.yml"
+    dest.parent.mkdir(parents=True)
+    dest.write_text("# custom\n", encoding="utf-8")
+    out = render_wiki_verify_workflow(tmp_path, PLUGIN)
+    assert any("이미" in line for line in out)
+    assert dest.read_text(encoding="utf-8") == "# custom\n"
+
+
+def test_run_setup_renders_wiki_verify(tmp_path: Path, capsys):
+    run_setup(tmp_path, PLUGIN)
+    assert (tmp_path / ".github" / "workflows" / "wiki-verify.yml").is_file()
+    assert "wiki 검증" in capsys.readouterr().out
 
 
 def test_render_workflow_idempotent_reports_only(tmp_path: Path):

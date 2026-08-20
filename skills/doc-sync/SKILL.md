@@ -131,11 +131,18 @@ Without it, skip this whole mode — the commands below no-op and exit 0.
 python3 .claude/harness-tier/scripts/wiki_graph.py --stale
 ```
 
-   Each JSON entry names a wiki node whose `sources` sha no longer matches the file's
-   last commit. An entry with `"missing": true` is a different problem: that source **path**
-   no longer exists (the file was renamed or deleted). Fix the path — or drop the entry —
-   in the node's front matter. Do **not** stamp a sha on it: `--verify` blocks on the
-   missing path itself, and a fresh sha leaves the block exactly where it was.
+   Each JSON entry names a wiki node whose recorded `sources` value no longer matches the
+   file — `recorded` and `current` are **working-tree blob hashes** (`git hash-object`),
+   so history rewrites (squash/rebase promotions) cannot fake staleness. An entry with a
+   `migrated` key carries a legacy commit-sha marker: rewrite `sources[path]` to the
+   `migrated` value — it is the meaning-preserving conversion (`git rev-parse
+   <old>:<path>`), needs no re-reading, and the verify gate accepts it without a body
+   edit. If `migrated` equals `current`, that rewrite is the whole fix; if it differs (or
+   is `null`), the node is also genuinely stale — sync the body, then stamp. An entry
+   with `"missing": true` is a different problem: that source **path** no longer exists
+   (the file was renamed or deleted). Fix the path — or drop the entry — in the node's
+   front matter. Do **not** stamp a sha on it: `--verify` warns on the missing path
+   itself, and a fresh sha leaves the problem exactly where it was.
 
 2. **Narrow the harmonize set**. For each stale node, ask the graph for its neighbourhood
    instead of guessing — run `wiki_graph.py --neighbors` once per stale node, substituting
@@ -148,12 +155,21 @@ python3 .claude/harness-tier/scripts/wiki_graph.py --stale
    Mode A keyword-greps every markdown file and scores relevance. Where a wiki exists the
    graph already holds those relations, so this is a lookup, not an estimate.
 
-3. **Update the bodies**, then bump `sources[path]` to the current sha **only for nodes
-   whose body you actually changed**. A stale node you did not touch stays stale and goes
-   in the Report — do not stamp its sha. Do not touch the sha of any node you have not
-   just read and edited: stamping it without reading the code behind it turns the marker
-   into a lie, and every later `--stale` run then reports nothing for a node that is
-   actually still stale. A bulk sha refresh across untouched nodes is never acceptable.
+3. **Update the bodies**, then stamp `sources[path]` with the file's **working-tree blob
+   hash** — the `current` value from step 1's JSON (equivalently `git hash-object --
+   <path>`), never a commit sha — **only for nodes whose body you actually changed**. A
+   stale node you did not touch stays stale and goes in the Report — do not stamp its
+   sha. Stamping without reading the code behind it turns the marker into a lie, and the
+   gate now enforces this mechanically: a commit whose only change to a node is its
+   `sources` sha is **blocked** by `--verify`, so a bulk refresh does not merely violate
+   prose — it fails. Two swaps stay allowed: step 1's `migrated` rewrite, and a stamp
+   whose body edit landed in the immediately preceding commit (so stamping the sync you
+   just committed, or amending it in, works — including when that commit also renamed
+   the document, which the gate follows).
+   A stale node you **read and found still accurate** (the code change was cosmetic) is
+   deliberately the same case: leave the marker alone and report it as "verified
+   accurate, still stale" — the marker only ever moves with a body edit, and it clears
+   naturally the next time the body genuinely changes.
 
 4. **Give any new `.md` under the wiki root its front matter** — get `wiki_id` from one
    derivation call for all the new documents, substituting their real paths (e.g.
@@ -166,10 +182,12 @@ python3 .claude/harness-tier/scripts/wiki_graph.py --stale
    [`defect-template.md`](../wiki-init/references/defect-template.md), not this
    derivation. Then `title`, and the `sources` it
    documents. Never write `used_by` or
-   `defects`; they are generated. **Add the new id to the index node's `related:`
-   list** ([wiki-init](../wiki-init/SKILL.md) Step 6) — orphan detection reads
-   front-matter edges only, never markdown links, so a node missing from the index's
-   `related:` reports as an orphan forever even if the index links it in prose.
+   `defects`; they are generated. **Wire the new node to the nodes it belongs with**
+   (`related`/`depends_on` on either side) so it is reachable from the index through
+   real edges; add it to the index's `related:` only when it genuinely is a top-level
+   entry ([wiki-init](../wiki-init/SKILL.md) Step 6) — orphan detection reads
+   front-matter edges only, never markdown links, so a node wired to nothing reports
+   as an orphan forever even if some body links it in prose.
 
 5. **Split any node over `max_lines`**. `--verify` (below) warns on this but nothing acts
    on the warning — `/wiki-init` refuses to re-offer a document that already carries a
@@ -194,7 +212,9 @@ python3 .claude/harness-tier/scripts/wiki_graph.py --verify
    `--verify` reads the **working tree**, so
    `docs/graph/graph.yaml` must be staged alongside the documents it was built from —
    otherwise the commit records the new front matter beside the old graph and the drift
-   goes unnoticed until someone else's next session commit.
+   goes unnoticed until someone else's next session commit. If a merge left conflict
+   markers in `graph.yaml`, never resolve them by hand — take either side and re-run
+   `--build` ([wiki-init](../wiki-init/SKILL.md) Step 8).
 
 ## 2. Gate marker (when called by `/flow`)
 

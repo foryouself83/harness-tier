@@ -25,8 +25,10 @@ Confirm via `AskUserQuestion`. Default is `docs/` — keeping it in the same tre
 ## 2. Scan
 
 Walk the `.md` files under root and build a migration-candidate table. Each row is:
-file path · line count · H2 count · whether the front matter carries a `wiki_id`. **A file
-with a high line count and multiple H2s is a file holding multiple concepts.** A row
+file path · line count · H2 count · whether the front matter carries a `wiki_id`. A high
+line count with multiple H2s is a **signal** of multiple concepts, not a verdict — an
+Installation/Usage/FAQ page is several H2s and still one concept; the boundary is judged
+by content in Step 4. A row
 whose front matter has a `wiki_id` is already a wiki node — keep it in the table for
 context, but it is not a migration candidate.
 
@@ -54,9 +56,12 @@ Branch on the H2 count recorded in Step 2:
 - **Exactly one H2** — splitting would produce one new file plus an original
   reduced to a stub, for no benefit. Treat it like the zero-H2 case: add front
   matter to the original as a single node.
-- **Two or more H2s** — split by H2 into new files. **Do not delete the
-  original** — leave a link to the new document in each section's place. The
-  goal is to keep the change easy to revert.
+- **Two or more H2s** — split **only the H2s that are separate concepts** — a
+  structural section (usage, FAQ, installation) stays with its concept, and a
+  document whose H2s are all facets of one concept is not split at all. For the
+  H2s that do split, make new files. **Do not delete the original** — leave a
+  link to the new document in each section's place. The goal is to keep the
+  change easy to revert.
 
   The leftover original becomes a node too, not a bare shell of links to
   elsewhere: give it front matter with a `wiki_id` derived from its own path (Step
@@ -87,17 +92,26 @@ path that succeeded still prints its line: rename only the named file(s) and re-
 | `docs/sds/README.md` | `sds.readme` |
 | `docs/onboarding/README.md` | `onboarding.readme` |
 
-The order inside the rule is what makes it collision-free — each segment is sanitized
-**before** the segments are joined with `.`, which keeps `docs/a.b.md` (→ `a-b`)
-distinct from `docs/a/b.md` (→ `a.b`). An id derived by hand in the wrong order still
-satisfies the shape regex and fails later as a duplicate — `--verify` then blocks
-every commit until it is fixed.
+The order inside the rule is what keeps `docs/a.b.md` (→ `a-b`) distinct from
+`docs/a/b.md` (→ `a.b`) — each segment is sanitized **before** the segments are joined
+with `.`. It is **not** collision-free across siblings: `a.b.md`, `a-b.md` and `a_b.md`
+in one directory all derive `a-b`. `--verify` reports the duplicate either way (an id
+derived by hand in the wrong order fails the same check); the remedy is renaming one
+file and re-deriving.
+
+`wiki_id` is immutable once assigned: moving or renaming the file does **not** re-derive
+it — the id is what keeps links stable across renames. Derivation is for first
+assignment only.
 
 `related` · `depends_on`: read the existing docs, **propose** values, then confirm
 with the user before finalizing. **Never write** `used_by` · `defects` — they are
 generated fields, and writing them by hand blocks validation.
 
-`sources` records the code paths the document describes, as a map. Leave `sha` as
+`sources` records the code paths the document describes, as a map. Prefer **file**
+paths: staleness is a content hash of the file (`git hash-object`), so a directory key
+is looked up by `--nodes-for` but never appears in `--stale` and its marker is never
+refreshed — write one when the document really is about the directory as a whole and
+you accept that, not as a shorthand for the files inside it. Leave `sha` as
 `null` — [`doc-sync`](../doc-sync/SKILL.md) fills it in. Never write an empty string for
 an unknown sha: `""` compares equal to everything, so the node reports fresh forever.
 
@@ -115,15 +129,21 @@ template's `defect.<slug>` convention, not this section's path derivation.
 is computed **only** from front-matter edges (`related` · `depends_on` · `used_by`,
 direction ignored); markdown links in the body are never read for it (design §3). Give
 it front matter with its own `wiki_id` (conventionally `index`) and a `related:` list
-carrying **every** node id in the wiki. A node whose id is missing from that
-`related:` list is unreachable from the graph and reports as an orphan no matter how
-many markdown links point at it — a body-only bullet list of links, with no front
-matter or an empty `related:`, silently disables the whole orphan check (every node
-then reports as unreachable, or `_index_id` finds no node at all and skips the check).
+of the **top-level entry nodes** — the concepts a reader (or the graph walk) starts
+from. Do **not** enumerate every node id there: an index that lists everything turns
+the graph into a star, and the orphan check degenerates into "forgot to update the
+index" instead of measuring real connectivity.
 
-Still write the human-readable markdown link list too — that's for people browsing the
-file — but treat it as separate from and secondary to `related:`. Keep the two in
-sync: every id in `related:` should have a matching link in the body, and vice versa.
+Every other node must be reachable from the index through real edges: wire it
+(`related`/`depends_on`) to the nodes it actually belongs with. An orphan warning
+therefore means "this node is connected to nothing that matters" — fix it by linking
+the node to its related concepts, or to the index only when it genuinely is a
+top-level entry. A body-only bullet list of links, with no front matter or an empty
+`related:`, still silently disables the whole orphan check (every node then reports as
+unreachable, or `_index_id` finds no node at all and skips the check).
+
+The body's human-readable link list is for people browsing the file — keep it useful,
+but it is not the graph and needs no 1:1 sync with `related:`.
 
 ## 7. Update flow-config
 
@@ -180,6 +200,13 @@ the graph invalid blocks every commit in the repository until someone fixes it b
 if the commit does not carry it. `docs/graph/graph.yaml` must be staged together with the
 documents it was built from, or the commit records the new front matter beside the old
 graph — a drift nothing catches until someone else's next session commit.
+
+**Merge conflicts in `graph.yaml` are never resolved by hand** — it is a generated file,
+so hand-merged markers survive as either broken YAML or a graph `--verify` rejects as
+drift. Take either side (`git checkout --ours -- <root>/graph/graph.yaml` or
+`--theirs`), re-run `--build`, and stage the rebuilt file with the documents. (No merge
+driver on purpose: an automatic `ours` would silently pass the wrong graph along to the
+next `--verify` block; a conflict forces the rebuild now.)
 
 ## 9. Report
 

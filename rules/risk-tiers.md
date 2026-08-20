@@ -55,8 +55,10 @@ Two kinds:
   - **`security-scan`** — the **promotion** bucket: the promotion checks of **all
     modules** (`security` + any custom `when: promotion`), on staging/release
     promotion.
-  - **`wiki`** — not a timing bucket, and not a module check either: the hook runs it as
-    its own step. When `flow-config.wiki` is enabled it verifies, read-only, that
+  - **`wiki`** — not a timing bucket, and not a module check either: the hook's gate
+    script runs it in-process as its final stage, plus a new blocking rule: a commit whose
+    only change to a node is its `sources` sha (no body edit) is rejected — see
+    doc-sync's stamp discipline. When `flow-config.wiki` is enabled it verifies, read-only, that
     `graph.yaml` still matches the docs' front matter and that no structural rule is
     broken. It runs on **every tier including `docs`** — a docs commit is exactly when the
     graph drifts. No wiki configured (absent · `enable: false` · missing root) → nothing
@@ -106,8 +108,9 @@ Two kinds:
   - **`doc-sync`** — `/doc-sync` harmonizes the doc set (root CLAUDE.md,
     per-service docs, rules) and reconciles code↔doc drift.
     Where the project has an LLM Wiki, it also refreshes each node's front matter
-    `sources` sha and rebuilds `graph.yaml` (Mode W) — the `wiki` runtime gate then
-    verifies that rebuild.
+    `sources` marker (the file's working-tree **blob hash**, so history rewrites
+    cannot fake staleness) and rebuilds `graph.yaml` (Mode W) — the `wiki` runtime
+    gate then verifies that rebuild.
   - **`bump`** (Staging) — the human major/minor/patch choice; fail-closed
     (the staging commit is blocked until `bump.done` exists). Detail in Step 1b.
   - **`security`** (Release) — `/security-review`.

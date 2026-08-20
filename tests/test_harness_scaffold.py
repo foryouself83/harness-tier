@@ -1059,6 +1059,14 @@ def test_validate_plan_accepts_the_derived_wiki_id(tmp_path):
     assert not any(i["kind"] == "wiki-id" for i in res["issues"])
 
 
+def test_validate_plan_exempts_defect_ids_from_path_parity(tmp_path):
+    # defect 문서의 wiki_id 는 defect-template 의 `defect.<slug>` 관례를 따른다(wiki-init §5
+    # 명시) — 경로 파생이 아니므로 패리티 검사가 high 로 오탐하면 안 된다.
+    content = "---\nwiki_id: defect.login-timeout\ntitle: t\n---\n본문\n"
+    res = hs.validate_plan(tmp_path, _wiki_plan("docs/defects/login-timeout.md", content))
+    assert not any(i["kind"] == "wiki-id" for i in res["issues"])
+
+
 def test_validate_plan_flags_unfilled_id_placeholder(tmp_path):
     # {{ID}} 를 안 채운 템플릿 복제도 같은 검사에 걸린다.
     content = "---\nwiki_id: '{{ID}}'\ntitle: t\n---\n본문\n"

@@ -65,6 +65,9 @@ WORKFLOW_DEST = ".github/workflows/api-contract.yml"  # host (GitHub-forced — 
 
 UNIT_TEST_TEMPLATE = "github/unit-test.workflow.example.yml"  # SOURCE (plugin-owned)
 UNIT_TEST_DEST = ".github/workflows/unit-test.yml"  # host (GitHub-forced — HARNESS_DIR exception)
+
+WIKI_VERIFY_TEMPLATE = "github/wiki-verify.workflow.example.yml"  # SOURCE (plugin-owned)
+WIKI_VERIFY_DEST = ".github/workflows/wiki-verify.yml"  # host (GitHub-forced — HARNESS_DIR exc.)
 # per-job wall-clock cap (minutes) when unit_test.timeout_minutes is unset
 UNIT_TEST_DEFAULT_TIMEOUT = 10
 # Languages the unit-test template runs an official setup-* action for (its `if: matrix.language ==`
@@ -565,7 +568,7 @@ _RELEASE_TEMPLATES = {
 }
 
 
-def _render_one(src: Path, dest: Path, subs: dict) -> list[str]:
+def _render_one(src: Path, dest: Path, subs: dict, label: str = "versioning 렌더") -> list[str]:
     if not src.exists():
         return [f"  [!] 템플릿 없음: {src.name} — skip"]
     if dest.exists():
@@ -575,7 +578,7 @@ def _render_one(src: Path, dest: Path, subs: dict) -> list[str]:
         text = text.replace(k, val)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(text, encoding="utf-8")
-    return [f"  [+] .github/workflows/{dest.name} 생성 (versioning 렌더)"]
+    return [f"  [+] .github/workflows/{dest.name} 생성 ({label})"]
 
 
 def render_versioning_workflows(host: Path, plugin: Path) -> list[str]:
@@ -1035,6 +1038,16 @@ def render_unit_test_workflow(host: Path, plugin: Path) -> list[str]:
     return [*warnings, "  [+] .github/workflows/unit-test.yml 생성 (unit_test 렌더링)"]
 
 
+def render_wiki_verify_workflow(host: Path, plugin: Path) -> list[str]:
+    """Copy wiki-verify.yml as-is — no enable gate, no tokens. Unconditional on purpose:
+    without a wiki the script no-ops green, so rendering at /flow-init time removes the
+    ordering dependency on /wiki-init (which usually runs later). Idempotent·non-destructive
+    (existing dest → report only), same as every other workflow render here."""
+    return _render_one(
+        plugin / WIKI_VERIFY_TEMPLATE, host / WIKI_VERIFY_DEST, {}, "wiki-verify 렌더"
+    )
+
+
 def run_setup(host: Path, plugin: Path) -> None:
     print(f"flow-init 기계적 셋업 — host={host}")
     print("[복사]")
@@ -1058,6 +1071,9 @@ def run_setup(host: Path, plugin: Path) -> None:
         print(line)
     print("[유닛 테스트 워크플로우]")
     for line in render_unit_test_workflow(host, plugin):
+        print(line)
+    print("[wiki 검증 워크플로우]")
+    for line in render_wiki_verify_workflow(host, plugin):
         print(line)
     print("[배포 워크플로우]")
     for line in render_deploy_workflows(host, plugin):
@@ -1085,6 +1101,9 @@ def run_uninstall(host: Path) -> None:
     print("    않습니다(주석·팀 커스텀 보존). 필요 시 직접 제거하세요.")
     print("  - .github/workflows/api-contract.yml 은 자동 삭제하지 않습니다(팀 커스텀 보존).")
     print("    계약 테스트를 끄려면 직접 제거하세요.")
+    print("  - .github/workflows/wiki-verify.yml 은 방금 삭제된 .claude/harness-tier/scripts/")
+    print("    의 스크립트를 실행하므로, 남겨두면 push 마다 CI 가 실패합니다 — 함께 제거하세요.")
+    print("    release 계열 워크플로우도 같은 경로를 참조하면 동일하게 손봐야 합니다.")
     print("  - 설치했던 git 훅 비활성화:")
     print("      pre-commit uninstall --hook-type pre-commit --hook-type commit-msg \\")
     print("        --hook-type pre-push")

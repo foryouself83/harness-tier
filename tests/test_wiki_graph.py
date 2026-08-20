@@ -1,5 +1,6 @@
 import json
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from scripts.wiki_graph import (
     parse_front_matter,
     undirected_adjacency,
     validate_defects,
+    validate_stamps,
     validate_structure,
 )
 
@@ -126,6 +128,41 @@ def test_parse_front_matter_reads_yaml():
 
 def test_parse_front_matter_broken_yaml_is_none():
     assert parse_front_matter("---\nwiki_id: [unclosed\n---\n\n본문\n") is None
+
+
+def test_front_matter_ruler_first_line_is_not_a_block():
+    # `----` 는 여는 구분자가 아니다 — find("\n---") 시절 hr 로 시작하는 문서가
+    # "깨진 front matter" 경고로 잡히던 케이스.
+    assert wiki_graph._front_matter_block("----\n제목\n----\n본문\n") is None
+
+
+def test_front_matter_crlf_closing_line():
+    text = "---\r\nwiki_id: a\r\ntitle: T\r\n---\r\n\r\n본문\r\n"
+    assert parse_front_matter(text) == {"wiki_id": "a", "title": "T"}
+
+
+def test_front_matter_closing_line_tolerates_trailing_blanks():
+    text = "---\nwiki_id: a\ntitle: T\n---  \n본문\n"
+    assert parse_front_matter(text) == {"wiki_id": "a", "title": "T"}
+
+
+def test_front_matter_body_dashes_line_does_not_close_early():
+    # 블록 안 열 0 의 `--- note` 줄은 닫는 구분자가 아니다. 조기 종결은 wiki_id 를
+    # 조용히 블록 밖으로 밀어내 노드가 소리 없이 사라지게 했다.
+    text = "---\ntitle: T\n--- note\nwiki_id: a\n---\n본문\n"
+    block = wiki_graph._front_matter_block(text)
+    assert block is not None and "wiki_id: a" in block
+
+
+def test_duplicate_wiki_id_lines_warn(tmp_path: Path):
+    (tmp_path / "docs").mkdir()
+    _write_config(tmp_path, "wiki:\n  enable: true\n  root: docs/\n")
+    _node(tmp_path, "docs/index.md", "wiki_id: index\ntitle: Index\n")
+    _node(tmp_path, "docs/a.md", "wiki_id: old\nwiki_id: a\ntitle: A\n")
+    wiki = load_wiki_config(tmp_path)
+    nodes = collect_nodes(tmp_path, wiki)
+    warns = collect_warnings(wiki, nodes, build_graph(nodes))
+    assert any("wiki_id" in w and "여러 개" in w for w in warns)
 
 
 def test_collect_nodes_skips_files_without_front_matter(tmp_path: Path):
@@ -1247,8 +1284,9 @@ def _git_repo_with_source(tmp_path: Path, sha_slot: str) -> str:
         cwd=tmp_path,
         check=True,
     )
+    # Returns the working-tree BLOB hash — the fresh value under cmd_stale's blob semantics.
     return subprocess.run(
-        ["git", "log", "-1", "--format=%H", "--", "src/a.py"],
+        ["git", "hash-object", "--", "src/a.py"],
         cwd=tmp_path,
         capture_output=True,
         text=True,
@@ -1332,6 +1370,699 @@ def test_null_sha_is_stale_as_a_new_source(tmp_path: Path, capsys):
     assert cmd_stale(tmp_path) == 0
     (entry,) = json.loads(capsys.readouterr().out)
     assert entry["recorded"] is None
+
+
+def _blob_of(root: Path, rel: str) -> str:
+    return subprocess.run(
+        ["git", "hash-object", "--", rel], cwd=root, capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+
+def test_stale_blob_recorded_fresh_and_stale(tmp_path: Path, capsys):
+    # 기록 값 = working tree blob → fresh. 파일 내용이 바뀌면(커밋 불필요) stale — 판정이
+    # 커밋 이력이 아니라 내용에 붙는다 (squash/rebase 승격이 가짜 stale 을 못 만든다).
+    _git_repo_with_source(tmp_path, "PLACEHOLDER")
+    blob = _blob_of(tmp_path, "src/a.py")
+    _node(tmp_path, "docs/a.md", f'wiki_id: a.x\ntitle: A\nsources:\n  src/a.py: "{blob}"\n')
+    assert cmd_stale(tmp_path) == 0
+    assert json.loads(capsys.readouterr().out) == []
+    (tmp_path / "src" / "a.py").write_text("changed = True\n", encoding="utf-8")
+    assert cmd_stale(tmp_path) == 0
+    (entry,) = json.loads(capsys.readouterr().out)
+    assert entry["recorded"] == blob and entry["current"] != blob
+    assert "migrated" not in entry
+
+
+def test_stale_commit_recorded_offers_migration(tmp_path: Path, capsys):
+    # 구형 기록(커밋 sha) → migrated == `git rev-parse <커밋>:<경로>` (그 시점 blob).
+    # 내용 무변경이어도 항목이 나온다 — doc-sync 가 마커만 재작성해 저장소가 수렴하도록.
+    _git_repo_with_source(tmp_path, "PLACEHOLDER")
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=tmp_path, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    want = subprocess.run(
+        ["git", "rev-parse", f"{head}:src/a.py"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    _node(tmp_path, "docs/a.md", f'wiki_id: a.x\ntitle: A\nsources:\n  src/a.py: "{head}"\n')
+    assert cmd_stale(tmp_path) == 0
+    (entry,) = json.loads(capsys.readouterr().out)
+    assert entry["migrated"] == want
+
+
+def test_stale_vanished_commit_migrates_to_null(tmp_path: Path, capsys):
+    # GC 로 사라진 커밋(타입 조회 불가) → migrated: null — 일반 stale 로 본문 동기화 대상.
+    _git_repo_with_source(tmp_path, "f" * 40)
+    assert cmd_stale(tmp_path) == 0
+    (entry,) = json.loads(capsys.readouterr().out)
+    assert entry["migrated"] is None
+
+
+def _stamp_repo(tmp_path: Path) -> Path:
+    """repo + 커밋된 노드 1개(sources 에 working-tree blob 기록) + 매칭 graph.yaml."""
+    root = tmp_path
+    (root / "src").mkdir()
+    (root / "src" / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (root / "docs").mkdir()
+    _write_config(root, "wiki:\n  enable: true\n  root: docs/\n")
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    blob = _blob_of(root, "src/a.py")
+    _node(root, "docs/index.md", "wiki_id: index\ntitle: Index\nrelated: [a]\n")
+    _node(root, "docs/a.md", f"wiki_id: a\ntitle: A\nsources:\n  src/a.py: '{blob}'\n")
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    assert cmd_build(root) == 0
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=T", "commit", "-qm", "seed"],
+        cwd=root,
+        check=True,
+    )
+    # A second commit so HEAD~1 exists and already holds the documents — the ordinary state of
+    # a repository. On a root commit the stamp check has no parent to compare against and
+    # fails open, which would make every fixture below silently untested.
+    (root / "README.md").write_text("seed\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=T", "commit", "-qm", "seed readme"],
+        cwd=root,
+        check=True,
+    )
+    return root
+
+
+def _sha_in(doc: Path) -> str:
+    m = re.search(r"'([0-9a-f]{7,40})'", doc.read_text(encoding="utf-8"))
+    assert m is not None
+    return m.group(1)
+
+
+def test_stamp_only_change_blocks(tmp_path: Path, capsys):
+    root = _stamp_repo(tmp_path)
+    doc = root / "docs" / "a.md"
+    doc.write_text(
+        doc.read_text(encoding="utf-8").replace(_sha_in(doc), "b" * 40), encoding="utf-8"
+    )
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    assert cmd_build(root) == 0  # graph 는 일치시켜 도장 위반만 남긴다
+    assert cmd_verify(root) == 1
+    assert "본문 변경이 없습니다" in capsys.readouterr().err
+
+
+def test_stamp_with_body_edit_passes(tmp_path: Path):
+    root = _stamp_repo(tmp_path)
+    doc = root / "docs" / "a.md"
+    text = doc.read_text(encoding="utf-8").replace(_sha_in(doc), "b" * 40)
+    doc.write_text(text + "\n갱신된 설명.\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    assert cmd_build(root) == 0
+    assert cmd_verify(root) == 0
+
+
+def test_stamp_migration_rewrite_passes(tmp_path: Path):
+    # old 가 커밋 sha, new == `git rev-parse <old>:<src>` → 의미보존 재작성 허용 (spec §2).
+    root = _stamp_repo(tmp_path)
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    doc = root / "docs" / "a.md"
+    doc.write_text(doc.read_text(encoding="utf-8").replace(_sha_in(doc), head), encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=T", "commit", "-qm", "legacy marker"],
+        cwd=root,
+        check=True,
+    )
+    blob_at_head = subprocess.run(
+        ["git", "rev-parse", f"{head}:src/a.py"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    doc.write_text(doc.read_text(encoding="utf-8").replace(head, blob_at_head), encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    assert cmd_build(root) == 0
+    assert cmd_verify(root) == 0
+
+
+def _commit(root: Path, message: str) -> None:
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=T", "commit", "-qm", message],
+        cwd=root,
+        check=True,
+    )
+
+
+def test_stamp_allowed_when_head_carries_the_body_edit(tmp_path: Path):
+    # 차단 메시지가 권하는 amend 경로 그 자체 — 본문 동기화를 이미 커밋했다면 HEAD 는 그
+    # 본문을 들고 있으므로 남은 델타는 sha 뿐이다. 이것을 막으면 권고안이 실행 불가가 되고,
+    # split-commit(본문 커밋 → 도장 커밋)도 같은 모양이라 함께 열린다.
+    root = _stamp_repo(tmp_path)
+    doc = root / "docs" / "a.md"
+    (root / "src" / "a.py").write_text("x = 2\n", encoding="utf-8")
+    doc.write_text(
+        doc.read_text(encoding="utf-8").replace("본문", "코드에 맞춰 갱신한 본문"),
+        encoding="utf-8",
+    )
+    _commit(root, "docs: sync the body, stamp not yet applied")
+    doc.write_text(
+        doc.read_text(encoding="utf-8").replace(_sha_in(doc), _blob_of(root, "src/a.py")),
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    assert cmd_build(root) == 0
+    assert cmd_verify(root) == 0
+
+
+def test_stamp_still_blocks_when_head_body_is_unchanged(tmp_path: Path):
+    # 위 허용이 검사를 통째로 열어버리지 않는지 — 직전 커밋이 그 문서의 본문을 건드리지
+    # 않았다면 도장만 찍는 커밋은 여전히 차단이다.
+    root = _stamp_repo(tmp_path)
+    (root / "other.txt").write_text("무관한 변경\n", encoding="utf-8")
+    _commit(root, "chore: touch an unrelated file")
+    doc = root / "docs" / "a.md"
+    doc.write_text(
+        doc.read_text(encoding="utf-8").replace(_sha_in(doc), "b" * 40), encoding="utf-8"
+    )
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    assert cmd_build(root) == 0
+    assert cmd_verify(root) == 1
+
+
+def test_stamp_fails_open_when_git_cannot_answer(tmp_path: Path):
+    # rev-parse 가 답하지 못하는 상황(타임아웃 등)은 판정이 아니라 내부 오류다 — Invariant #1
+    # 은 그런 커밋을 통과시키라고 요구한다. "객체가 없다"는 정당한 nonzero 와 구별해야 하므로
+    # git 생존 확인이 실패할 때에만 열린다.
+    root = _stamp_repo(tmp_path)
+    doc = root / "docs" / "a.md"
+    doc.write_text(
+        doc.read_text(encoding="utf-8").replace(_sha_in(doc), "b" * 40), encoding="utf-8"
+    )
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    assert cmd_build(root) == 0
+    wiki = load_wiki_config(root)
+    nodes = collect_nodes(root, wiki)
+    assert validate_stamps(root, wiki, nodes)  # 평시에는 차단
+
+    real = wiki_graph._git
+
+    def dying_git(args, cwd):
+        if args[0] in ("rev-parse", "cat-file"):
+            return None  # git 이 더 이상 답하지 못한다
+        return real(args, cwd)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(wiki_graph, "_git", dying_git)
+        assert validate_stamps(root, wiki, nodes) == []
+
+
+def test_stamp_fails_open_on_a_root_commit(tmp_path: Path):
+    # 부모가 없으면 "직전 커밋이 이 본문을 동기화했는가"를 물을 수 없다 — 판정 불가는 통과다.
+    root = _stamp_repo(tmp_path)
+    subprocess.run(["git", "reset", "-q", "--soft", "HEAD~1"], cwd=root, check=True)
+    doc = root / "docs" / "a.md"
+    doc.write_text(
+        doc.read_text(encoding="utf-8").replace(_sha_in(doc), "b" * 40), encoding="utf-8"
+    )
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    assert cmd_build(root) == 0
+    assert cmd_verify(root) == 0
+
+
+def test_nodes_for_finds_a_directory_source_from_a_file(tmp_path: Path, capsys):
+    # /flow 는 바뀐 파일 경로를 넘긴다 — 디렉터리를 문서화한 노드가 그 조회에서 빠지면
+    # 결과가 빈 줄이고, 호출자는 그것을 "미문서화"로 읽는다.
+    root = _nodes_for_repo(tmp_path)
+    _node(root, "docs/authdir.md", "wiki_id: auth.dir\ntitle: D\nsources:\n  src/auth: null\n")
+    assert wiki_graph.cmd_nodes_for(root, ["src/auth/jwt.py"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert sorted(out) == ["src/auth/jwt.py\tauth.dir", "src/auth/jwt.py\tauth.jwt"]
+
+
+def test_nodes_for_directory_source_keeps_the_segment_boundary(tmp_path: Path, capsys):
+    # 대칭 매칭의 새 방향에도 세그먼트 경계가 살아 있어야 한다 — `src/auth` 노드가
+    # 형제 디렉터리 `src/auth-x/` 의 파일에 걸리면 조회가 남의 문서를 끌어온다.
+    root = _nodes_for_repo(tmp_path)
+    _node(root, "docs/authdir.md", "wiki_id: auth.dir\ntitle: D\nsources:\n  src/auth: null\n")
+    assert wiki_graph.cmd_nodes_for(root, ["src/auth-x/jwt.py"]) == 0
+    assert capsys.readouterr().out == ""
+
+
+def test_stamp_still_blocks_a_document_introduced_by_head(tmp_path: Path):
+    # HEAD~1 은 읽히는데 그 문서만 없다 = HEAD 가 문서를 신설한 경우. 신설 커밋은 자기
+    # 도장을 이미 들고 있으므로 그 다음 커밋의 sha 교체는 동기화가 아니다 — 차단 유지.
+    root = _stamp_repo(tmp_path)
+    blob = _blob_of(root, "src/a.py")
+    _node(
+        root,
+        "docs/b.md",
+        f"wiki_id: b\ntitle: B\nrelated: [index]\nsources:\n  src/a.py: '{blob}'\n",
+    )
+    _commit(root, "docs: add a second node")
+    doc = root / "docs" / "b.md"
+    doc.write_text(doc.read_text(encoding="utf-8").replace(blob, "b" * 40), encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    assert cmd_build(root) == 0
+    assert cmd_verify(root) == 1
+
+
+def test_stamp_allows_a_rename_synced_in_head(tmp_path: Path):
+    # rename+본문 동기화가 한 커밋에 있고 도장이 다음 커밋(또는 amend)이면 HEAD~1 에는
+    # 새 경로가 없다 — 그것을 "신설"로 단정하면 그 동기화를 못 보고, 차단 메시지가 권하는
+    # amend·rebase/fixup 까지 막는다. diff -M 으로 이전 경로를 되짚어 본문 비교를 이어간다.
+    root = _stamp_repo(tmp_path)
+    (root / "src" / "a.py").write_text("x = 2\n", encoding="utf-8")
+    subprocess.run(["git", "mv", "docs/a.md", "docs/alpha.md"], cwd=root, check=True)
+    doc = root / "docs" / "alpha.md"
+    doc.write_text(
+        doc.read_text(encoding="utf-8").replace("본문", "코드에 맞춰 갱신한 본문"),
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    assert cmd_build(root) == 0
+    _commit(root, "docs: rename and sync the body, stamp deferred")
+    doc.write_text(
+        doc.read_text(encoding="utf-8").replace(_sha_in(doc), _blob_of(root, "src/a.py")),
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    assert cmd_verify(root) == 0
+
+
+def test_stamp_still_blocks_a_pure_rename_with_sha_swap(tmp_path: Path):
+    # 이동만으로는 어떤 소스도 동기화되지 않는다 — rename 허용이 sha 세탁 통로가 되면 안 된다.
+    root = _stamp_repo(tmp_path)
+    subprocess.run(["git", "mv", "docs/a.md", "docs/alpha.md"], cwd=root, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    assert cmd_build(root) == 0
+    _commit(root, "docs: pure rename, nothing synced")
+    doc = root / "docs" / "alpha.md"
+    doc.write_text(
+        doc.read_text(encoding="utf-8").replace(_sha_in(doc), "b" * 40), encoding="utf-8"
+    )
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    assert cmd_verify(root) == 1
+
+
+def test_stamp_fails_open_when_the_parent_read_flakes(tmp_path: Path):
+    # HEAD~1:<path> 본문 읽기만 실패하고(타임아웃 등) 객체 조회는 살아 있는 상황 — "부모에
+    # 그 문서가 없다"는 판정이 아니므로 차단 흐름으로 이어지면 Invariant #1 위반이다.
+    root = _stamp_repo(tmp_path)
+    (root / "other.txt").write_text("무관한 변경\n", encoding="utf-8")
+    _commit(root, "chore: touch an unrelated file")
+    doc = root / "docs" / "a.md"
+    doc.write_text(
+        doc.read_text(encoding="utf-8").replace(_sha_in(doc), "b" * 40), encoding="utf-8"
+    )
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    assert cmd_build(root) == 0
+    wiki = load_wiki_config(root)
+    nodes = collect_nodes(root, wiki)
+    assert validate_stamps(root, wiki, nodes)  # 평시에는 차단
+
+    real = wiki_graph._git
+    target = "HEAD~1:docs/a.md"
+
+    def flaky_parent_read(args, cwd):
+        if args[-1] == target and args != ["rev-parse", "--verify", target]:
+            return None  # 본문 읽기(show/cat-file)만 죽고 객체 조회는 답한다
+        return real(args, cwd)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(wiki_graph, "_git", flaky_parent_read)
+        assert validate_stamps(root, wiki, nodes) == []
+
+
+def test_stamp_fails_open_when_the_rename_lookup_fails(tmp_path: Path):
+    # 부모에 경로가 없어 rename 을 물어야 하는데 diff 가 답하지 못하면 신설/개명을 가를 수
+    # 없다 — 판정 불가는 통과다 (Invariant #1).
+    root = _stamp_repo(tmp_path)
+    subprocess.run(["git", "mv", "docs/a.md", "docs/alpha.md"], cwd=root, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    assert cmd_build(root) == 0
+    _commit(root, "docs: pure rename")
+    doc = root / "docs" / "alpha.md"
+    doc.write_text(
+        doc.read_text(encoding="utf-8").replace(_sha_in(doc), "b" * 40), encoding="utf-8"
+    )
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    wiki = load_wiki_config(root)
+    nodes = collect_nodes(root, wiki)
+
+    real = wiki_graph._git
+
+    def no_rename_answer(args, cwd):
+        if args[0] == "diff" and "HEAD~1" in args:
+            return None
+        return real(args, cwd)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(wiki_graph, "_git", no_rename_answer)
+        assert validate_stamps(root, wiki, nodes) == []
+
+
+def test_stamp_fails_open_when_the_parent_path_was_a_tree(tmp_path: Path):
+    # 부모 커밋에서 같은 경로가 디렉터리였다면 `git show` 는 tree 목록을 exit 0 으로 내
+    # "본문이 다르다"로 오독된다. cat-file blob 은 tree 에서 실패하고, 객체 존재 확인이
+    # 그 실패를 "부모에 문서가 없다"와 갈라 통과시킨다 (Invariant #1).
+    # 통과 여부만 보면 옛 `show` 경로도 (다른 이유로) 통과하므로, 이 테스트가 고정하는
+    # 것은 결과가 아니라 **경유한 질의**다 — 객체 존재 확인이 실제로 일어나야 한다.
+    root = _stamp_repo(tmp_path)
+    d = root / "docs" / "x.md"
+    d.mkdir()
+    (d / "inner.txt").write_text("i\n", encoding="utf-8")
+    _commit(root, "docs: x.md is a directory here")
+    shutil.rmtree(d)
+    blob = _blob_of(root, "src/a.py")
+    _node(
+        root,
+        "docs/x.md",
+        f"wiki_id: x\ntitle: X\nrelated: [index]\nsources:\n  src/a.py: '{blob}'\n",
+    )
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    assert cmd_build(root) == 0
+    _commit(root, "docs: x.md becomes a node")
+    doc = root / "docs" / "x.md"
+    doc.write_text(doc.read_text(encoding="utf-8").replace(blob, "b" * 40), encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    wiki = load_wiki_config(root)
+    nodes = collect_nodes(root, wiki)
+
+    real = wiki_graph._git
+    seen: list[list[str]] = []
+
+    def recording(args, cwd):
+        seen.append(args)
+        return real(args, cwd)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(wiki_graph, "_git", recording)
+        assert validate_stamps(root, wiki, nodes) == []
+    assert ["cat-file", "blob", "HEAD~1:docs/x.md"] in seen
+    assert ["rev-parse", "--verify", "HEAD~1:docs/x.md"] in seen
+
+
+def test_stamp_probes_head_liveness_once(tmp_path: Path):
+    # 차단 경로에서 swap 마다 같은 HEAD 생존 프로브를 재실행하면 spawn 이 소스 수에
+    # 비례해 낭비된다(문서 40×소스 3이면 120회) — 호출당 1회면 충분하다.
+    root = _stamp_repo(tmp_path)
+    (root / "src" / "b.py").write_text("y = 1\n", encoding="utf-8")
+    doc = root / "docs" / "a.md"
+    a_blob, b_blob = _sha_in(doc), _blob_of(root, "src/b.py")
+    doc.write_text(
+        f"---\nwiki_id: a\ntitle: A\nsources:\n  src/a.py: '{a_blob}'\n  src/b.py: '{b_blob}'\n"
+        "---\n\n본문\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    assert cmd_build(root) == 0
+    _commit(root, "docs: two sources")
+    (root / "other.txt").write_text("무관한 변경\n", encoding="utf-8")
+    _commit(root, "chore: unrelated")
+    text = doc.read_text(encoding="utf-8")
+    doc.write_text(text.replace(a_blob, "b" * 40).replace(b_blob, "c" * 40), encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    wiki = load_wiki_config(root)
+    nodes = collect_nodes(root, wiki)
+
+    real = wiki_graph._git
+    probes: list[list[str]] = []
+
+    def counting(args, cwd):
+        if args == ["rev-parse", "--verify", "HEAD"]:
+            probes.append(args)
+        return real(args, cwd)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(wiki_graph, "_git", counting)
+        problems = validate_stamps(root, wiki, nodes)
+    assert len(problems) == 2  # swap 마다 문제 1건 — 차단 자체는 유지
+    assert len(probes) == 1
+
+
+def _renamed_nodes_repo(tmp_path: Path, count: int) -> Path:
+    """노드 count 개를 전부 개명한 커밋 + 그 다음 sha 만 교체한 작업 트리."""
+    root = _stamp_repo(tmp_path)
+    blob = _blob_of(root, "src/a.py")
+    ids = [f"n{i}" for i in range(count)]
+    related = ", ".join(ids)
+    _node(root, "docs/index.md", f"wiki_id: index\ntitle: Index\nrelated: [a, {related}]\n")
+    for i in ids:
+        _node(root, f"docs/{i}.md", f"wiki_id: {i}\ntitle: {i}\nsources:\n  src/a.py: '{blob}'\n")
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    assert cmd_build(root) == 0
+    _commit(root, "docs: add nodes")
+    for i in ids:
+        subprocess.run(["git", "mv", f"docs/{i}.md", f"docs/r{i}.md"], cwd=root, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    assert cmd_build(root) == 0
+    _commit(root, "docs: rename them all")
+    for i in ids:
+        doc = root / "docs" / f"r{i}.md"
+        doc.write_text(doc.read_text(encoding="utf-8").replace(blob, "b" * 40), encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    return root
+
+
+def _count_git(root: Path, wiki, nodes, match) -> tuple[int, list[str]]:
+    real = wiki_graph._git
+    hits = {"n": 0}
+
+    def counting(args, cwd):
+        if match(args):
+            hits["n"] += 1
+        return real(args, cwd)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(wiki_graph, "_git", counting)
+        problems = validate_stamps(root, wiki, nodes)
+    return hits["n"], problems
+
+
+def test_stamp_looks_up_renames_once_even_when_git_cannot_answer(tmp_path: Path):
+    # renames 를 None 하나로 "아직 조회 안 함"과 "조회했는데 못 답함"에 겸용하면, 실패한
+    # 조회가 rename 분기에 닿는 노드마다 되풀이된다 — `diff -M` 은 이 게이트가 던지는 가장
+    # 비싼 질의이고 _git 타임아웃이 5초라 최악 N×5초가 커밋 훅 안에 들어앉는다.
+    root = _renamed_nodes_repo(tmp_path, 5)
+    wiki = load_wiki_config(root)
+    nodes = collect_nodes(root, wiki)
+    real = wiki_graph._git
+
+    def dead_rename_lookup(args, cwd):
+        if args[0] == "diff" and "-M" in args:
+            return None
+        return real(args, cwd)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(wiki_graph, "_git", dead_rename_lookup)
+        count, problems = _count_git(root, wiki, nodes, lambda a: a[0] == "diff" and "-M" in a)
+    assert problems == []  # 답을 못 얻었으니 판정도 없다 (Invariant #1)
+    assert count == 1
+
+
+def test_stamp_probes_the_parent_commit_once(tmp_path: Path):
+    # `rev-parse --verify HEAD~1` 의 답은 저장소 상수다 — 노드마다 되물으면 HEAD 프로브에서
+    # 없앤 낭비가 그대로 남는다.
+    root = _renamed_nodes_repo(tmp_path, 5)
+    wiki = load_wiki_config(root)
+    nodes = collect_nodes(root, wiki)
+    count, problems = _count_git(
+        root, wiki, nodes, lambda a: a == ["rev-parse", "--verify", "HEAD~1"]
+    )
+    assert len(problems) == 5  # 순수 개명이므로 차단은 그대로
+    assert count == 1
+
+
+def test_head_renames_fails_open_on_a_truncated_record(tmp_path: Path):
+    # 잘린 레코드를 건너뛰면 결과가 {} 가 되고, 그것은 "개명이 없다"는 **판정**이라
+    # 정당한 개명+동기화를 차단으로 몰 수 있다. 읽을 수 없는 출력은 판정이 아니다.
+    # 정상 출력은 언제나 NUL 로 끝난다(A/D/M/T/R 전부, 공백·한글 경로 포함) — `_git` 의
+    # .strip() 은 NUL 을 안 지우므로('\0'.isspace() 가 False) 종료자가 그대로 남는다.
+    # 케이스 표는 순서 있는 목록이지 맵이 아니다. 다만 dict 리터럴의 중복 키는 ruff F601 이
+    # 공짜로 잡아주고 리스트에는 그 그물이 없으므로, 잃는 보호를 아래 단언으로 되돌린다.
+    cases = [
+        ("R100\0docs/old.md\0docs/new.md\0", {"docs/new.md": "docs/old.md"}),
+        ("M\0docs/a.md\0R100\0docs/old.md\0docs/new.md\0", {"docs/new.md": "docs/old.md"}),
+        ("M\0docs/a.md\0", {}),  # 완결된 출력 — 개명이 없다는 정당한 판정
+        ("", {}),  # 변경 없음
+        ("R100\0docs/old.md", None),  # 레코드가 통째로 모자람
+        ("M\0docs/a", None),  # 필드 중간에서 잘림 — 길이는 맞아 보인다
+        ("R100\0docs/old.md\0", None),  # NUL 경계에서 잘려 새 경로가 빈 문자열
+        ("M\0docs/a.md\0R100\0", None),  # 앞은 온전하고 마지막 레코드만 모자람
+        ("M\0", None),  # 2필드 레코드도 마찬가지 — 경로 자리가 종료자다
+        ("M\0docs/a.md\0D\0", None),  # 마지막 2필드 레코드만 경로를 잃었다
+        # 빈 status 는 맨 끝(종료자)에서만 정상이다. 중간에 있으면 손상된 출력이고, 거기서
+        # 멈추면 뒤따르는 개명을 조용히 버려 역시 "개명 없음" 판정이 된다.
+        ("M\0docs/a.md\0\0R100\0docs/o.md\0docs/n.md\0", None),
+    ]
+    assert len({out for out, _ in cases}) == len(cases)  # 입력 중복은 케이스 소실이다
+    real = wiki_graph._git
+    with pytest.MonkeyPatch.context() as mp:
+        for out, expected in cases:
+            mp.setattr(wiki_graph, "_git", lambda a, c, _o=out: _o)
+            assert wiki_graph._head_renames(tmp_path, "docs") == expected, repr(out)
+    assert wiki_graph._git is real
+
+
+def test_head_renames_ignores_a_copy_record(tmp_path: Path):
+    # C 는 원본을 남긴다 — 도장을 미룬 문서는 *이동한* 원본을 타므로 복사를 개명으로 읽으면
+    # 그대로 있는 파일의 본문과 비교하게 된다. `-M` 만 넘기므로 git 이 C 를 낼 일은 없지만
+    # (명시적 `-M` 은 `diff.renames=copies` 를 renames-only 로 덮으므로 — `-M` 이 없으면 그
+    # 설정만으로 C 가 나올 수 있다 — `-M` 을 준 이상 복사 탐지를 켤 길은 명령줄 `-C`/
+    # `--find-copies-harder` 뿐이다. git 2.47.1 실측), 파서가 그 보장에 기대지는 않는다.
+    real = wiki_graph._git
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(wiki_graph, "_git", lambda a, c: "C100\0docs/src.md\0docs/copy.md\0")
+        assert wiki_graph._head_renames(tmp_path, "docs") == {}
+        # 3필드를 소비하는 것 자체는 맞다 — 안 그러면 뒤 레코드가 어긋난다.
+        mp.setattr(
+            wiki_graph,
+            "_git",
+            lambda a, c: "C100\0docs/src.md\0docs/copy.md\0R100\0docs/o.md\0docs/n.md\0",
+        )
+        assert wiki_graph._head_renames(tmp_path, "docs") == {"docs/n.md": "docs/o.md"}
+    assert wiki_graph._git is real
+
+
+def test_stamp_new_file_passes(tmp_path: Path):
+    # HEAD 에 없는 새 문서의 최초 도장은 자유 (저작 자체가 동기화).
+    root = _stamp_repo(tmp_path)
+    _node(
+        root,
+        "docs/b.md",
+        "wiki_id: b\ntitle: B\nrelated: [index]\nsources:\n  src/a.py: '" + "c" * 40 + "'\n",
+    )
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    assert cmd_build(root) == 0
+    assert cmd_verify(root) == 0
+
+
+def test_stamp_check_sees_non_ascii_paths(tmp_path: Path, capsys):
+    # 기본 core.quotePath 아래서 `git diff --name-only` 는 한글 경로를 C-escape 로 인용해
+    # 반환한다 — -z 없이는 그런 문서가 도장 검사에서 조용히 빠진다 (_candidate_files 의
+    # "-z is mandatory" 와 같은 footgun).
+    root = _stamp_repo(tmp_path)
+    doc = root / "docs" / "한글노트.md"
+    blob = _blob_of(root, "src/a.py")
+    _node(
+        root,
+        "docs/한글노트.md",
+        f"wiki_id: ko\ntitle: K\nrelated: [index]\nsources:\n  src/a.py: '{blob}'\n",
+    )
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    assert cmd_build(root) == 0
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=T", "commit", "-qm", "ko node"],
+        cwd=root,
+        check=True,
+    )
+    doc.write_text(doc.read_text(encoding="utf-8").replace(blob, "b" * 40), encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    assert cmd_build(root) == 0
+    assert cmd_verify(root) == 1
+    assert "한글노트" in capsys.readouterr().err
+
+
+def test_stamp_allows_entry_add_remove_and_null_fill(tmp_path: Path):
+    # missing-path 해소(항목 삭제)·새 소스 추가·null→sha 최초 등록은 본문 편집 없이도
+    # 정당하다 — 이 guard 가 사라지면 정당한 커밋이 오차단된다.
+    root = _stamp_repo(tmp_path)
+    doc = root / "docs" / "a.md"
+    blob = _sha_in(doc)
+    (root / "src" / "b.py").write_text("y = 1\n", encoding="utf-8")
+    front = f"---\nwiki_id: a\ntitle: A\nsources:\n  src/a.py: '{blob}'\n  src/b.py: null\n"
+    doc.write_text(front + "---\n\n본문\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    assert cmd_build(root) == 0
+    assert cmd_verify(root) == 0  # 항목 추가 (null 등록)
+    b_blob = _blob_of(root, "src/b.py")
+    doc.write_text(doc.read_text(encoding="utf-8").replace("null", f"'{b_blob}'"), encoding="utf-8")
+    assert cmd_verify(root) == 0  # null→sha 최초 등록 (graph 는 키만 실으므로 재빌드 불필요)
+    doc.write_text(
+        f"---\nwiki_id: a\ntitle: A\nsources:\n  src/a.py: '{blob}'\n---\n\n본문\n",
+        encoding="utf-8",
+    )
+    assert cmd_build(root) == 0  # 키 집합이 줄었으므로 graph 재빌드
+    assert cmd_verify(root) == 0  # 항목 삭제
+
+
+def test_stale_batches_hash_object(tmp_path: Path, monkeypatch):
+    # Windows 에서 프로세스 spawn 이 제일 비싸다 — 경로가 몇 개든 hash-object 는 1회.
+    _git_repo_with_source(tmp_path, "null")
+    (tmp_path / "src" / "b.py").write_text("y = 1\n", encoding="utf-8")
+    (tmp_path / "src" / "c.py").write_text("z = 1\n", encoding="utf-8")
+    _node(
+        tmp_path,
+        "docs/a.md",
+        "wiki_id: a.x\ntitle: A\nsources:\n  src/a.py: null\n  src/b.py: null\n  src/c.py: null\n",
+    )
+    calls: list[str] = []
+    real = wiki_graph._git
+
+    def spy(args, cwd):
+        calls.append(args[0])
+        return real(args, cwd)
+
+    monkeypatch.setattr(wiki_graph, "_git", spy)
+    assert cmd_stale(tmp_path) == 0
+    assert calls.count("hash-object") == 1
+
+
+def _nodes_for_repo(tmp_path: Path) -> Path:
+    (tmp_path / "docs").mkdir()
+    _write_config(tmp_path, "wiki:\n  enable: true\n  root: docs/\n")
+    _node(tmp_path, "docs/index.md", "wiki_id: index\ntitle: I\nrelated: [auth.jwt]\n")
+    _node(
+        tmp_path,
+        "docs/jwt.md",
+        "wiki_id: auth.jwt\ntitle: JWT\nsources:\n  src/auth/jwt.py: null\n",
+    )
+    return tmp_path
+
+
+def test_nodes_for_exact_match(tmp_path: Path, capsys):
+    root = _nodes_for_repo(tmp_path)
+    assert wiki_graph.cmd_nodes_for(root, ["src/auth/jwt.py"]) == 0
+    assert capsys.readouterr().out.splitlines() == ["src/auth/jwt.py\tauth.jwt"]
+
+
+def test_nodes_for_directory_prefix_is_segment_bounded(tmp_path: Path, capsys):
+    root = _nodes_for_repo(tmp_path)
+    assert wiki_graph.cmd_nodes_for(root, ["src/auth", "src/auth-x"]) == 0
+    # `src/auth` 는 덮고, 형제 `src/auth-x` 는 안 덮는다 (Invariant #6 과 같은 footgun)
+    assert capsys.readouterr().out.splitlines() == ["src/auth\tauth.jwt"]
+
+
+def test_nodes_for_multiple_nodes_multiple_lines(tmp_path: Path, capsys):
+    root = _nodes_for_repo(tmp_path)
+    _node(
+        root,
+        "docs/session.md",
+        "wiki_id: auth.session\ntitle: Session\nsources:\n  src/auth/jwt.py: null\n",
+    )
+    assert wiki_graph.cmd_nodes_for(root, ["src/auth/jwt.py"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert sorted(out) == [
+        "src/auth/jwt.py\tauth.jwt",
+        "src/auth/jwt.py\tauth.session",
+    ]
+
+
+def test_nodes_for_undocumented_path_is_silent_success(tmp_path: Path, capsys):
+    root = _nodes_for_repo(tmp_path)
+    assert wiki_graph.cmd_nodes_for(root, ["src/nowhere.py"]) == 0
+    # 미문서화는 정상 답 — --neighbors 의 없는-id exit 1 과 다른 계약
+    assert capsys.readouterr().out == ""
+
+
+def test_nodes_for_without_wiki_is_noop(tmp_path: Path, capsys):
+    assert wiki_graph.cmd_nodes_for(tmp_path, ["src/a.py"]) == 0
+    assert capsys.readouterr().out == ""
 
 
 def test_stale_is_noop_without_wiki(tmp_path: Path, capsys):
@@ -1498,8 +2229,8 @@ def test_structural_problem_cap_boundary(tmp_path: Path, capsys):
 
 # ---------------------------------------------------------------- derive_wiki_id
 
-# The canonical example set. wiki-init §5's table is asserted EQUAL to this by the
-# parity test a later task adds — one source, so the table cannot silently shrink.
+# The canonical example set. `test_wiki_init_step5_table_is_parity_tested` asserts
+# wiki-init §5's table EQUAL to it — one source, so the table cannot silently shrink.
 _EXAMPLES = {
     "docs/code-style/python.md": "code-style.python",
     "docs/a.b.md": "a-b",
@@ -1613,10 +2344,180 @@ _TABLE_ROW_RE = re.compile(r"^\s*\|\s*`([^`]+\.md)`\s*\|\s*`([^`]+)`\s*\|", re.M
 _ARROW_EXAMPLE_RE = re.compile(r"\b(docs/[^\s`]+?\.md)\s*(?:->|→)\s*([a-z0-9.-]+)")
 
 
+# 읽는 파일은 wiki-init 의 SKILL.md 하나지만, 다른 skills/ 산문의 관례(들여쓴 펜스,
+# 3-백틱을 감싸는 4-백틱 — skills/flow·flow-init)와 CommonMark 가 허용하는 `~~~` 까지
+# 미리 덮는다. 여는 울타리를 백레퍼런스로 되받으므로 안쪽 3-백틱은 4-백틱 블록을 닫지
+# 못한다. 닫는 들여쓰기는 절대 0–3 칸 또는 여는 쪽 +0–3 칸만 받는다 — 리스트 안 펜스는
+# 들여쓰기를 컨테이너 기준으로 재므로 절대 갈래만으로는 자기 짝을 못 닫고, 무제한이면 블록
+# 안의 더 깊은 구분자 줄에서 조기 종료한다. 받는 닫기가 없으면 `\Z` 로 파일 끝까지 삼킨다 —
+# 덜 걷어내면 표 행이 새고, 과하게 걷어내면 표가 사라져 아래 assert 가 크게 터진다. 위 절들의
+# 행동과 남은 CommonMark 괴리는 `_FENCE_CASES` 가 값으로 고정한다.
+_FENCE_RE = re.compile(
+    r"^([ \t]*)(`{3,}|~{3,}).*?(?:^(?:[ ]{0,3}|\1[ ]{0,3})\2|\Z)", re.MULTILINE | re.DOTALL
+)
+
+
+def _step5_section(text: str) -> str:
+    """wiki-init SKILL.md 의 §5 본문, 펜스 코드블록을 걷어낸 것.
+
+    표 정규식을 파일 전체에 풀어놓으면 다른 절의 같은 모양까지 끌어와 아래 중복 단언이
+    오탐으로 터지고, 메시지는 원인을 오도한다(그 경로는 §5 표에 중복으로 있지 않다).
+    절로 좁히는 것만으로는 부족하다 — 펜스는 산문이 아니라 예시이므로, §5 안의 펜스가 표
+    행 모양을 인용하면 같은 오탐이 되고, 컬럼 0 에서 `## 5.` 로 시작하는 펜스 줄은 헤딩
+    분할까지 어긋낸다.
+
+    걷어내는 쪽의 비용 하나 — 표 *아래*에서 짝 없는 펜스 뒤에 붙은 행은 통째로 걷혀 케이스가
+    되지 않는다. wiki-init SKILL.md §5 의 "행을 더하면 케이스가 는다"가 성립하지 않는 유일한
+    자리다."""
+    blocks = [
+        b
+        for b in re.split(r"^## ", _FENCE_RE.sub("", text), flags=re.MULTILINE)
+        if b.startswith("5.")
+    ]
+    assert len(blocks) == 1, f"wiki-init SKILL.md 의 §5 블록이 {len(blocks)} 개다 (1 이어야)"
+    return blocks[0]
+
+
 def test_wiki_init_step5_table_is_parity_tested():
     # 표가 곧 테스트 케이스다 — 산문 예제가 구현과 어긋나거나 표가 조용히 줄면 여기서 걸린다.
     text = (_REPO / "skills" / "wiki-init" / "SKILL.md").read_text(encoding="utf-8")
-    assert dict(_TABLE_ROW_RE.findall(text)) == _EXAMPLES
+    rows = _TABLE_ROW_RE.findall(_step5_section(text))
+    # 짝이 안 맞는 펜스 하나면 비탐욕 페어링이 그것을 다음 절의 여는 펜스와 묶어 그 사이의
+    # 표까지 삼키는데, `## 5.` 헤딩은 살아남아 위 블록 가드가 침묵한다. 그러면 빈 표가 아래
+    # 중복 단언을 공허하게 지나고 실패는 마지막 줄에서 "표가 구현과 어긋난다"로만 드러난다.
+    assert rows, "§5 표를 못 찾았다 — 펜스 짝을 확인하라"
+    # dict 로 접기 전에 센다 — 같은 경로가 두 줄이면 접힌 뒤에는 흔적이 없어, 표가 늘었다고
+    # 믿는 동안 케이스는 그대로다. SKILL.md 는 Markdown 이라 중복 행을 잡아줄 린터가 없다.
+    assert len({path for path, _ in rows}) == len(rows), "§5 표에 경로가 중복된 행이 있다"
+    assert dict(rows) == _EXAMPLES
+
+
+# 위 테스트는 `_FENCE_RE` 를 태우지 않는다 — 입력이 wiki-init 의 SKILL.md 하나뿐인데 그
+# 파일의 펜스는 §5 바깥의 컬럼 0 3-백틱 쌍이라, 스트립을 통째로 걷어내도 rows=6 으로 통과
+# 한다. 정규식이 막는다고 선언한 형태는 여기서만 태워지므로, 새 형태를 막을 땐 케이스를 같이
+# 늘려야 한다. 각 케이스는 정규식의 한 절을 떨어뜨리면 깨진다. 라벨의 though 절은 그 읽기가
+# CommonMark 와 갈린다는 표시다 — 값을 고정해 둬야 바뀔 때 눈에 띄고, 그런 케이스도 절을
+# 태운다(어떤 절의 유일한 가드인 것도 있다).
+_FENCE_IN = "| `docs/in.md` | `in` |"
+_FENCE_KEEP = "| `docs/keep.md` | `keep` |"
+_FENCE_CASES = [
+    (f"   ```md\n   {_FENCE_IN}\n   ```\n\n{_FENCE_KEEP}\n", ["docs/keep.md"], "indented fence"),
+    (f"~~~md\n{_FENCE_IN}\n~~~\n\n{_FENCE_KEEP}\n", ["docs/keep.md"], "tilde fence"),
+    (
+        f"````md\n```\n{_FENCE_IN}\n```\n````\n\n{_FENCE_KEEP}\n",
+        ["docs/keep.md"],
+        "four-backtick wrapper",
+    ),
+    (
+        f"```text\n    ```\n{_FENCE_IN}\n```\n\n{_FENCE_KEEP}\n",
+        ["docs/keep.md"],
+        "a delimiter indented 4 inside a fence does not close it",
+    ),
+    # 리스트로 감싸야 라벨이 기계장치대로다 — 최상위의 4칸 이상 여는 줄을 CommonMark 는
+    # 펜스로 읽지 않아(빈 줄 뒤면 들여쓴 코드블록, 문단 뒤면 문단 연속) "닫는" 일 자체가 없다.
+    (
+        f"- item\n\n     ```bash\n     {_FENCE_IN}\n     ```\n\n{_FENCE_KEEP}\n",
+        ["docs/keep.md"],
+        "a list-nested block indented past 3 closes itself",
+    ),
+    (
+        f"  ```bash\n  {_FENCE_IN}\n```\n\n{_FENCE_KEEP}\n",
+        ["docs/keep.md"],
+        "an indented block closes at column 0",
+    ),
+    # 닫기가 절대 3칸 — 상대 갈래(5칸 요구)가 못 받아 절대 창의 상한을 태운다. 하한은 위
+    # 컬럼 0 케이스가 잡는다.
+    (
+        f"- item\n\n     ```bash\n     {_FENCE_IN}\n   ```\n\n{_FENCE_KEEP}\n",
+        ["docs/keep.md"],
+        "a list-nested block closes at a shallower absolute indent",
+    ),
+    # 행 단위 답은 우연히 일치한다 — 그 블록이 들여쓴 코드가 되어 행이 산문 밖인 것이지,
+    # 펜스로 닫혀서가 아니다. 닫기만 컬럼 0 으로 바꾸면 두 해석의 결과가 서로소다.
+    (
+        f"\t```md\n\t{_FENCE_IN}\n\t```\n\n{_FENCE_KEEP}\n",
+        ["docs/keep.md"],
+        "a tab-indented fence opens, though CommonMark reads it as an indented code block",
+    ),
+    (
+        f"```md\n{_FENCE_IN}\n\t```\n\n{_FENCE_KEEP}\n",
+        [],
+        "a tab-indented delimiter does not close a space-opened fence",
+    ),
+    (
+        f"prose ``` prose\n\n{_FENCE_KEEP}\n",
+        ["docs/keep.md"],
+        "a backtick run away from line start opens nothing",
+    ),
+    (
+        f"``a`` inline\n\n{_FENCE_KEEP}\n\n``b`` inline\n",
+        ["docs/keep.md"],
+        "an inline double-backtick run opens nothing",
+    ),
+    (
+        f"~~struck~~ text\n\n{_FENCE_KEEP}\n",
+        ["docs/keep.md"],
+        "a strikethrough run opens nothing",
+    ),
+    (
+        f"````md\n```\n{_FENCE_IN}\n```\n\n{_FENCE_KEEP}\n",
+        [],
+        "an unclosed fence swallows to end of input, following rows included",
+    ),
+    (
+        f"1. item\n\n   ```text\n   {_FENCE_IN}\n      ```\n\n{_FENCE_KEEP}\n",
+        ["docs/keep.md"],
+        "a list-nested fence closes within 3 past its opening indent",
+    ),
+    # 바로 위와 같은 절대 좌표가 최상위에 오면 CommonMark 와 갈린다 — 정규식은 컨테이너를
+    # 모르므로 둘 다 닫는다.
+    (
+        f"{_FENCE_KEEP}\n\n   ```text\n   | `docs/body.md` | `body` |\n      ```\n{_FENCE_IN}\n",
+        ["docs/keep.md", "docs/in.md"],
+        "a closer within 3 of the opening indent closes, though CommonMark reads it as content",
+    ),
+    (
+        f"```md\n{_FENCE_IN}\n``` xyz\n{_FENCE_KEEP}\n",
+        ["docs/keep.md"],
+        "a closer with trailing text closes, though CommonMark reads on",
+    ),
+]
+# 같은 입력이 다시 들어오면 라벨이 달라도 한쪽 커버리지는 허상이다 — 위에 한 줄 차이 쌍이
+# 실제로 있다(4-백틱 래퍼 vs 그 미닫힘 변형).
+assert len({doc for doc, _, _ in _FENCE_CASES}) == len(_FENCE_CASES)
+
+
+@pytest.mark.parametrize(
+    ("doc", "expected"),
+    [(doc, expected) for doc, expected, _ in _FENCE_CASES],
+    ids=[label for _, _, label in _FENCE_CASES],
+)
+def test_fence_stripping_leaves_exactly_the_rows_outside_fences(doc, expected):
+    assert [path for path, _ in _TABLE_ROW_RE.findall(_FENCE_RE.sub("", doc))] == expected
+
+
+# {{ID}} 를 안 쓰는 템플릿은 wiki_id 가 리터럴로 실려 있다 — 파생 규칙이 바뀌면 무음으로
+# 표류하므로, 각 템플릿의 정본 출력 경로(주석·harness-authoring 규약)의 파생값과 대조한다.
+_LITERAL_ID_TEMPLATES = {
+    "docs-readme.template.md": "docs/README.md",
+    "onboarding.template.md": "docs/onboarding/README.md",
+}
+
+
+def test_template_literal_ids_are_parity_tested():
+    # 맵을 손으로 들지 않고 **템플릿 집합에서 파생**한다: 리터럴 id 템플릿이 새로 생기면
+    # 여기서 먼저 걸린다 (바로 아래 주석 테스트가 경계하는 무음 표류와 같은 실패 모드).
+    tpl_dir = _REPO / "skills" / "harness-authoring" / "templates"
+    literal = {}
+    for tpl in sorted(tpl_dir.glob("*.template.md")):
+        m = re.search(r"^wiki_id: (\S+)$", tpl.read_text(encoding="utf-8"), re.MULTILINE)
+        if m is not None and m.group(1) != "{{ID}}":
+            literal[tpl.name] = m.group(1)
+    assert set(literal) == set(_LITERAL_ID_TEMPLATES), (
+        f"리터럴 wiki_id 템플릿 집합이 바뀌었다 — 출력 경로를 맵에 등록하라: {sorted(literal)}"
+    )
+    for name, wid in literal.items():
+        assert wiki_graph.derive_wiki_id(_LITERAL_ID_TEMPLATES[name], "docs") == wid, name
 
 
 def test_template_comment_examples_are_parity_tested():

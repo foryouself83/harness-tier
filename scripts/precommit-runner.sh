@@ -2,12 +2,11 @@
 # Claude Code PreToolUse hook — git commit/merge gate (harness-tier).
 #
 # Inspects the commit in two stages, emitting deny JSON on stdout only when blocking:
-#   1) flow gate — flow_gate_check.py (plugin) verifies the required gate evidence for
-#      the declared tier / lifecycle branch. If unmet: exit 2 + reason → deny.
-#   2) wiki runtime gate — flow_gate_check.py --wiki-check verifies the knowledge graph against
-#      the docs' front matter when flow-config.wiki is enabled. exit 2 + reason → deny; any other
-#      exit passes (its stderr is a warning stream, shown either way).
-#   3) module pre-check — every-commit module checks for changed modules (+ promotion checks
+#   1) flow gate + wiki runtime gate — flow_gate_check.py (plugin) verifies the required gate
+#      evidence for the declared tier / lifecycle branch, then runs the wiki graph verification
+#      in the same process when flow-config.wiki is enabled (spawn 2→1; --wiki-check remains a
+#      compat alias). If either is unmet: exit 2 + reason → deny.
+#   2) module pre-check — every-commit module checks for changed modules (+ promotion checks
 #      for all modules on promotion), routed by each check's `when` in flow-config. Config parse
 #      failure / no command is FAIL-OPEN (skip); if any fails, deny.
 # `git merge` is inspected separately (--merge-check) before both stages above and before the
@@ -163,38 +162,32 @@ cd "$ROOT" || exit 0
 status="$(git status --porcelain 2>/dev/null)" || exit 0
 [ -z "$status" ] && exit 0
 
-# 1) flow gate. flow_gate_check.py reads the host root from CLAUDE_PROJECT_DIR and
-#    FAIL-OPENs (exit 0) on internal error. It emits exit 2 + reason only when the gate is unmet.
+# 1) flow gate + wiki runtime gate — ONE process. flow_gate_check.py reads the host root from
+#    CLAUDE_PROJECT_DIR and FAIL-OPENs (exit 0) on internal error; after the flow verdict it
+#    runs the wiki gate in the same interpreter (tier resolved once, spawn 2→1 — --wiki-check
+#    survives as a compat alias only). exit 2 + stdout reason → deny, either gate. The wiki
+#    gate stays OUT of the module commands below: that channel reads any nonzero exit as "the
+#    check failed", while a runtime gate must fail OPEN on anything that is not a real verdict
+#    (Invariant #1 — wiki is not one of the three fail-closed exceptions). stdout-only is
+#    load-bearing: `python3 <missing file>` ALSO exits 2, with its complaint on stderr, so
+#    reading stderr here would turn a half-copied install into a repo-wide block. At exit 0 a
+#    non-empty stdout is the wiki gate's systemMessage JSON, held until the commit is allowed
+#    (a hook's stdout and stderr both go to the debug log at exit 0 — systemMessage is the
+#    documented field for a warning the user actually sees). HARNESS_PRECOMMIT_DRYRUN is
+#    consumed inside the script (the wiki stage skips itself).
 flow_reason="$(CLAUDE_PROJECT_DIR="$ROOT" python3 "$PLUGIN_SCRIPTS/flow_gate_check.py" 2>/dev/null)"
 flow_rc=$?
 if [ "$flow_rc" -eq 2 ] && [ -n "$flow_reason" ]; then
   deny "$flow_reason"
 fi
-
-# 2) wiki runtime gate. Its own step, NOT one of the module commands below, because the two have
-#    incompatible error contracts: down there any nonzero exit means "the check failed", while a
-#    runtime gate must fail OPEN on anything that is not a real verdict (Invariant #1 — wiki is
-#    not one of the three fail-closed exceptions). Same exit-2-only, stdout-only shape as the
-#    flow gate above, and stdout-only is load-bearing: `python3 <missing file>` ALSO exits 2,
-#    with its complaint on stderr, so reading stderr here would turn a half-copied install into
-#    a repo-wide block. On exit 0 the payload is a systemMessage JSON, held until the commit is
-#    allowed (a hook's stdout and stderr both go to the debug log at exit 0 — systemMessage is
-#    the documented field for a warning the user actually sees).
-if [ "${HARNESS_PRECOMMIT_DRYRUN:-0}" != "1" ]; then
-  wiki_out="$(CLAUDE_PROJECT_DIR="$ROOT" python3 "$PLUGIN_SCRIPTS/flow_gate_check.py" --wiki-check 2>/dev/null)"
-  wiki_rc=$?
-  if [ "$wiki_rc" -eq 2 ] && [ -n "$wiki_out" ]; then
-    deny "$wiki_out"
-  fi
-  [ "$wiki_rc" -eq 0 ] && wiki_note="$wiki_out"
-fi
+[ "$flow_rc" -eq 0 ] && wiki_note="$flow_reason"
 
 allow() {  # emit any held non-blocking notice, then let the commit through
   [ -n "${wiki_note:-}" ] && printf '%s\n' "$wiki_note"
   exit 0
 }
 
-# 3) module pre-check. Per tier, runs the every-commit checks of the changed modules
+# 2) module pre-check. Per tier, runs the every-commit checks of the changed modules
 #    (+ all-module promotion checks on promotion). Commands arrive on stdout, the uncovered report
 #    on stderr (uncaptured — but note that a hook's stderr only reaches the user when the hook
 #    exits non-zero, so this report is visible only alongside a deny). On config parse failure /
