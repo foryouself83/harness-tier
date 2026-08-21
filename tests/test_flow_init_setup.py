@@ -218,7 +218,7 @@ def test_copied_gate_imports_shared_helper(tmp_path: Path):
         text=True,
         encoding="utf-8",
     )
-    assert result.returncode == 0, f"import 양립 실패 의심: {result.stderr}"
+    assert result.returncode == 0, f"the two import paths stopped coexisting: {result.stderr}"
 
 
 def test_copied_gate_reads_tiers_from_config(tmp_path: Path):

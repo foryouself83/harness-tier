@@ -30,8 +30,12 @@ When modifying `*.sh`, verify with ShellCheck (the hook runtime is Windows, so b
 
 ## Conventions
 
-- **English in the repo** — docs · commit messages · comments/docstrings. The exception is
-  `docs/superpowers/specs/`·`plans/` (internal working surface, never shipped), written in Korean.
+- **English in the repo** — docs · commit messages · comments/docstrings · test assertion
+  messages: a developer reads all of those. Korean stays where it is load-bearing: text the
+  repo quotes rather than authors (gate/CLI output, a transcript), the expected strings a test
+  compares against that output, and fixtures whose non-ASCII bytes ARE the case (a cp949 blob,
+  a Hangul filename). Translating one of those can leave a test green while it stops exercising
+  anything. Exception: `docs/superpowers/specs/`·`plans/` — internal, never shipped, in Korean.
 - **Write only what the code can't say** — comments · docstrings · `.md` · rules. No change-history
   narration, no restating the next line, no ornamental structure; a rule file holds the rule in force.
   Same discipline in a commit body ([`rules/risk-tiers.md`](rules/risk-tiers.md) Commit Discipline) and

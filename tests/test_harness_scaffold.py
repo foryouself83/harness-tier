@@ -651,7 +651,7 @@ def test_ops_blocks_splits_top_level_items():
 def test_ops_blocks_collects_wrapped_continuation():
     body = "<!-- ops-conventions -->\n- 에러: 1\n  cont2\n  cont3\n  cont4\n\n- 로깅: ok\n"
     blocks = hs._ops_directive_blocks(body)
-    assert len(blocks[0]) == 4  # `- 에러` + 3 continuation
+    assert len(blocks[0]) == 4  # the `- 에러` line + 3 continuation lines
     assert len(blocks[1]) == 1
 
 

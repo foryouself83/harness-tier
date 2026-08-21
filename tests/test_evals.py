@@ -1773,30 +1773,53 @@ def test_outcome_sha_covers_every_scenario_field_without_being_told():
     )
 
 
+_DOC_SYNC = sandbox.BY_NAME["doc-sync-drift"]
+
+
 def test_outcome_check_warns_when_unmeasured():
-    assert outcome.outcome_check("doc-sync", None, "abc").level == "warn"
+    assert outcome.outcome_check("doc-sync", None, "abc", _DOC_SYNC).level == "warn"
 
 
 def test_outcome_check_fails_on_a_stale_fingerprint():
     entry = {"outcome_hits": 3, "outcome_n": 3, "outcome_sha": "old", "model": scores.MODEL}
-    v = outcome.outcome_check("doc-sync", entry, "new")
+    v = outcome.outcome_check("doc-sync", entry, "new", _DOC_SYNC)
     assert v.level == "fail"
     assert "re-measure" in v.message
 
 
+def test_stale_fingerprint_names_the_inputs_that_could_have_moved():
+    # "skill body, fixture or golden" are three nouns nobody can act on. A copied gate script
+    # is an input to a skill the editor may not have been thinking about at all — the message
+    # has to name the files, or the only way to find out is to run the measurement.
+    s = sandbox.BY_NAME["wiki-init-migration"]
+    entry = {"outcome_hits": 3, "outcome_n": 3, "outcome_sha": "old", "model": scores.MODEL}
+    v = outcome.outcome_check("wiki-init", entry, "new", s)
+    assert v.level == "fail"
+    # `uv run`, because the command is meant to be pasted and evals imports PyYAML.
+    assert "uv run python -m evals.outcome --skill wiki-init" in v.message
+    assert "skills/wiki-init/SKILL.md" in v.message
+    # The scenario is named by its file. prompt, files, dirs, git and the golden feed the
+    # fingerprint too and all live there, so a bare scenario name would leave five inputs
+    # under a label that claims to list them.
+    assert "scripts/skill_sandbox.py" in v.message
+    assert s.name in v.message
+    for src in s.copy_from_repo.values():
+        assert src in v.message, src
+
+
 def test_outcome_check_fails_on_a_model_mismatch():
     entry = {"outcome_hits": 3, "outcome_n": 3, "outcome_sha": "s", "model": "claude-sonnet-5"}
-    assert outcome.outcome_check("doc-sync", entry, "s").level == "fail"
+    assert outcome.outcome_check("doc-sync", entry, "s", _DOC_SYNC).level == "fail"
 
 
 def test_outcome_check_fails_an_all_zero_baseline():
     entry = {"outcome_hits": 0, "outcome_n": 3, "outcome_sha": "s", "model": scores.MODEL}
-    assert outcome.outcome_check("doc-sync", entry, "s").level == "fail"
+    assert outcome.outcome_check("doc-sync", entry, "s", _DOC_SYNC).level == "fail"
 
 
 def test_outcome_check_passes_a_fresh_nonzero_entry():
     entry = {"outcome_hits": 3, "outcome_n": 3, "outcome_sha": "s", "model": scores.MODEL}
-    assert outcome.outcome_check("doc-sync", entry, "s").level == "ok"
+    assert outcome.outcome_check("doc-sync", entry, "s", _DOC_SYNC).level == "ok"
 
 
 def _fake_doc_sync_session(writes_9090: bool, fires: bool):
@@ -1938,5 +1961,7 @@ def test_committed_outcome_baseline_is_never_stale_or_zero():
     if outcome.OUTCOME_SCORES.exists():
         baseline = json.loads(outcome.OUTCOME_SCORES.read_text(encoding="utf-8"))
     for skill, scenario in outcome._outcome_targets():
-        v = outcome.outcome_check(skill, baseline.get(skill), outcome.outcome_sha(skill, scenario))
+        v = outcome.outcome_check(
+            skill, baseline.get(skill), outcome.outcome_sha(skill, scenario), scenario
+        )
         assert v.level in ("ok", "warn"), v.message

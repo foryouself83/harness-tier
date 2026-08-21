@@ -2422,7 +2422,7 @@ def _step5_section(text: str) -> str:
         for b in re.split(r"^## ", _FENCE_RE.sub("", text), flags=re.MULTILINE)
         if b.startswith("5.")
     ]
-    assert len(blocks) == 1, f"wiki-init SKILL.md 의 §5 블록이 {len(blocks)} 개다 (1 이어야)"
+    assert len(blocks) == 1, f"wiki-init SKILL.md has {len(blocks)} section-5 blocks, want 1"
     return blocks[0]
 
 
@@ -2435,11 +2435,13 @@ def test_wiki_init_step5_table_is_parity_tested():
     # swallowing the table in between, while the `## 5.` heading survives and the block guard
     # above stays silent. An empty table then passes the duplicate assertion below vacuously and
     # the failure shows up only on the last line, reading as "the table drifted".
-    assert rows, "§5 표를 못 찾았다 — 펜스 짝을 확인하라"
+    assert rows, "section 5's table was not found - check the fence pairing"
     # Counted before folding into a dict: the same path on two rows leaves no trace once folded,
     # so the case set stays put while the table looks like it grew. SKILL.md is Markdown, with no
     # linter to catch a duplicate row.
-    assert len({path for path, _ in rows}) == len(rows), "§5 표에 경로가 중복된 행이 있다"
+    assert len({path for path, _ in rows}) == len(rows), (
+        "section 5's table repeats a path across rows"
+    )
     assert dict(rows) == _EXAMPLES
 
 
@@ -2612,9 +2614,9 @@ def test_template_comment_examples_are_parity_tested():
         for tpl in sorted(tpl_dir.glob("*.template.md"))
         if "{{ID}}" in tpl.read_text(encoding="utf-8")
     ]
-    assert id_templates, "{{ID}} 를 쓰는 템플릿이 없다"
+    assert id_templates, "no template uses {{ID}} any more"
     for tpl in id_templates:
         matches = _ARROW_EXAMPLE_RE.findall(tpl.read_text(encoding="utf-8"))
-        assert matches, f"{tpl.name}: wiki_id 워크드 예제가 사라졌다"
+        assert matches, f"{tpl.name}: the worked wiki_id example is gone"
         for path, expected in matches:
             assert wiki_graph.derive_wiki_id(path, "docs") == expected, tpl.name

@@ -79,23 +79,39 @@ def outcome_sha(skill: str, scenario: sandbox.Scenario) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
 
-def outcome_check(skill: str, entry: dict | None, sha: str) -> scores.Verdict:
+def outcome_check(
+    skill: str, entry: dict | None, sha: str, scenario: sandbox.Scenario
+) -> scores.Verdict:
     """Model-free gate for a committed outcome entry — freshness + a non-zero floor.
 
     Mirrors scores.check's shape without its ratchet: at reps=3 a skill has no history to
     ratchet against yet, so a 1.0 sliding to 0.33 passes. What it enforces is that a
-    committed baseline cannot be a stale or all-zero lie riding a green suite."""
+    committed baseline cannot be a stale or all-zero lie riding a green suite.
+
+    `scenario` is required although only the stale branch reads it: the gate has exactly one
+    call site, and an optional one let that site drop the argument with the suite still
+    green — the message is then vague again and nothing says so."""
     if entry is None:
         return scores.Verdict(
-            "warn", f"{skill}: outcome not measured yet — run python -m evals.outcome"
+            "warn", f"{skill}: outcome not measured yet — run uv run python -m evals.outcome"
         )
     missing = [k for k in ("outcome_hits", "outcome_n", "outcome_sha", "model") if k not in entry]
     if missing:
         return scores.Verdict("fail", f"{skill}: outcome entry is missing {missing} — re-measure")
     if entry["outcome_sha"] != sha:
+        # Every input is named by a file, because a `copy_from_repo` source belongs to a skill
+        # its editor may never have opened. The scenario carries the prompt, the fixture files
+        # and the golden, so it is listed by its own path — a bare name puts three more inputs
+        # behind a label that claims to list them.
+        inputs = [
+            f"skills/{skill}/SKILL.md",
+            f"{Path(sandbox.__file__).relative_to(REPO).as_posix()}:{scenario.name}",
+            *sorted(scenario.copy_from_repo.values()),
+        ]
         return scores.Verdict(
             "fail",
-            f"{skill}: skill body, fixture or golden changed since the outcome score — re-measure",
+            f"{skill}: an outcome input changed since the score — re-measure with "
+            f"`uv run python -m evals.outcome --skill {skill}`. Inputs: {', '.join(inputs)}",
         )
     if entry["model"] != scores.MODEL:
         return scores.Verdict(
