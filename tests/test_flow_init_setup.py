@@ -284,7 +284,10 @@ def test_uninstall_names_the_workflows_that_break(tmp_path: Path, capsys):
     run_uninstall(tmp_path)
     out = capsys.readouterr().out
     assert "wiki-verify.yml" in out
-    assert "release" in out
+    # Not the bare word "release" — the guidance before this one contained it too, and
+    # "python-semantic-release" contains it as a substring.
+    assert "gitversion" in out
+    assert "jreleaser" in out
 
 
 def test_uninstall_preserves_other_settings(tmp_path: Path):

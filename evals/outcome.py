@@ -43,13 +43,19 @@ SHA_EXEMPT = frozenset({"why", "expect", "reject"})
 def _copied_file_sha(src: str) -> str:
     """Digest of one file `copy_from_repo` brings into the fixture.
 
+    Line endings are normalized first. The checkout is CRLF on Windows and LF on the CI
+    runner, so a digest over raw bytes fingerprints the checkout rather than the content, and
+    the two platforms permanently disagree about the same file — every other input reaches
+    the payload through read_text, which already normalizes.
+
     A path that does not resolve still fingerprints, under its own name: such a scenario is
     already broken and build() is where that gets said, while outcome_sha is walked
     field-by-field by the tests, so raising here would turn a fingerprint into a crash."""
     try:
-        return hashlib.sha256((REPO / src).read_bytes()).hexdigest()
-    except OSError:
+        content = (REPO / src).read_bytes()
+    except (OSError, TypeError, ValueError):
         return "unreadable"
+    return hashlib.sha256(content.replace(b"\r\n", b"\n")).hexdigest()
 
 
 def outcome_sha(skill: str, scenario: sandbox.Scenario) -> str:
@@ -88,9 +94,8 @@ def outcome_check(
     ratchet against yet, so a 1.0 sliding to 0.33 passes. What it enforces is that a
     committed baseline cannot be a stale or all-zero lie riding a green suite.
 
-    `scenario` is required although only the stale branch reads it: the gate has exactly one
-    call site, and an optional one let that site drop the argument with the suite still
-    green — the message is then vague again and nothing says so."""
+    `scenario` is required although only the stale branch reads it, so a caller cannot reach
+    the stale verdict without the one thing that makes it actionable."""
     if entry is None:
         return scores.Verdict(
             "warn", f"{skill}: outcome not measured yet — run uv run python -m evals.outcome"
@@ -103,10 +108,18 @@ def outcome_check(
         # its editor may never have opened. The scenario carries the prompt, the fixture files
         # and the golden, so it is listed by its own path — a bare name puts three more inputs
         # behind a label that claims to list them.
+        # Both sides resolved, and the repo-relative form is only an improvement on the
+        # absolute one: a checkout reached through a symlink or a subst drive must not turn
+        # the one branch that says "re-measure" into a traceback.
+        home = Path(sandbox.__file__).resolve()
+        try:
+            home = home.relative_to(REPO.resolve())
+        except ValueError:
+            pass
         inputs = [
             f"skills/{skill}/SKILL.md",
-            f"{Path(sandbox.__file__).relative_to(REPO).as_posix()}:{scenario.name}",
-            *sorted(scenario.copy_from_repo.values()),
+            f"{home.as_posix()}:{scenario.name}",
+            *sorted(set(scenario.copy_from_repo.values())),
         ]
         return scores.Verdict(
             "fail",
