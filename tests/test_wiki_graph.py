@@ -65,9 +65,9 @@ def test_wiki_root_missing_dir_is_noop(tmp_path: Path):
 
 
 def test_non_canonical_root_still_matches_node_paths(tmp_path: Path):
-    # 노드 경로는 relative_to(root).as_posix() 로 만들어진다. root 를 날것으로 두면
-    # './docs/' 는 index 경로 './docs/index.md' 를 낳고 어떤 노드 경로와도 같아질 수 없어,
-    # orphan 검사가 저장소 전체에서 조용히 꺼진다.
+    # Node paths are built with relative_to(root).as_posix(). Left raw, './docs/' yields the
+    # index path './docs/index.md', which can never equal any node path — and orphan detection
+    # then switches itself off silently across the whole repository.
     (tmp_path / "docs").mkdir()
     _write_config(tmp_path, "wiki:\n  enable: true\n  root: ./docs/\n")
     cfg = load_wiki_config(tmp_path)
@@ -131,8 +131,8 @@ def test_parse_front_matter_broken_yaml_is_none():
 
 
 def test_front_matter_ruler_first_line_is_not_a_block():
-    # `----` 는 여는 구분자가 아니다 — find("\n---") 시절 hr 로 시작하는 문서가
-    # "깨진 front matter" 경고로 잡히던 케이스.
+    # `----` is not an opening delimiter. Under find("\n---") a document starting with a
+    # horizontal rule was reported as broken front matter.
     assert wiki_graph._front_matter_block("----\n제목\n----\n본문\n") is None
 
 
@@ -147,8 +147,8 @@ def test_front_matter_closing_line_tolerates_trailing_blanks():
 
 
 def test_front_matter_body_dashes_line_does_not_close_early():
-    # 블록 안 열 0 의 `--- note` 줄은 닫는 구분자가 아니다. 조기 종결은 wiki_id 를
-    # 조용히 블록 밖으로 밀어내 노드가 소리 없이 사라지게 했다.
+    # A column-0 `--- note` line inside the block is not a closing delimiter. Closing early
+    # pushed the wiki_id out of the block and the node disappeared without a word.
     text = "---\ntitle: T\n--- note\nwiki_id: a\n---\n본문\n"
     block = wiki_graph._front_matter_block(text)
     assert block is not None and "wiki_id: a" in block
@@ -180,14 +180,14 @@ def test_collect_nodes_records_path_and_line_count(tmp_path: Path):
     _node(tmp_path, "docs/auth/jwt.md", "wiki_id: auth.jwt\ntitle: JWT\n", "가\n나\n다\n")
     (node,) = collect_nodes(tmp_path, load_wiki_config(tmp_path))
     assert node["path"] == "docs/auth/jwt.md"
-    assert node["line_count"] == 8  # --- id title --- 빈줄 가 나 다
+    assert node["line_count"] == 8  # --- id title --- blank line, then three body lines
     assert node["front"]["title"] == "JWT"
 
 
 def test_collect_nodes_strips_utf8_bom(tmp_path: Path):
-    # Windows 에디터가 남기는 BOM(﻿)이 "---" 앞에 붙으면 plain utf-8 로는 그대로
-    # 살아남아 parse_front_matter 의 startswith 검사를 조용히 깨뜨린다 — 노드가 경고 없이
-    # graph 에서 사라진다 (Invariant #2, Windows 에서만 재현·permissive 방향으로 틀림).
+    # A BOM (﻿) left by a Windows editor in front of "---" survives plain utf-8 decoding and
+    # breaks parse_front_matter's startswith check silently — the node drops out of the graph
+    # with no warning (Invariant #2; reproduces on Windows only, and errs permissive).
     (tmp_path / "docs").mkdir()
     _write_config(tmp_path, "wiki:\n  enable: true\n  root: docs/\n")
     _node(tmp_path, "docs/index.md", "wiki_id: index\ntitle: Index\n")
@@ -199,7 +199,8 @@ def test_collect_nodes_strips_utf8_bom(tmp_path: Path):
 
 
 def test_collect_nodes_keeps_document_missing_marker(tmp_path: Path):
-    # id 누락은 여기서 거르지 않는다 — 노드는 아니지만 경고로 보이게 해야 하므로 실어 보낸다.
+    # A missing id is not filtered here: it is not a node, but it has to reach the caller to
+    # be surfaced as a warning.
     (tmp_path / "docs").mkdir()
     _write_config(tmp_path, "wiki:\n  enable: true\n  root: docs/\n")
     _node(tmp_path, "docs/broken.md", "title: 제목만\n")
@@ -263,8 +264,8 @@ def test_defects_is_derived_from_affects():
 
 
 def test_node_sources_are_paths_only():
-    # Front Matter 는 경로→sha map, graph 는 경로 리스트. sha 만 바뀐 동기화가
-    # graph drift 로 오인되지 않게 하는 것이 목적이다.
+    # Front matter holds a path->sha map, the graph a path list. A sync that changed only the
+    # sha must not read as graph drift.
     nodes = [
         {
             "id": "auth.jwt",
@@ -350,14 +351,16 @@ def test_duplicate_id_blocks(tmp_path: Path):
 
 
 def test_bad_wiki_id_format_blocks(tmp_path: Path):
-    # 전용 키를 썼다는 건 노드로 의도했다는 뜻이므로 더 이상 모호하지 않다 — 차단이 옳다.
+    # Using the dedicated key states the intent to be a node, so nothing is ambiguous any
+    # more and blocking is the right answer.
     assert any("형식" in p and "wiki_id" in p for p in _check(tmp_path, [_mk("Auth.JWT")]))
 
 
 def test_foreign_id_front_matter_is_not_a_node_and_never_blocks(tmp_path: Path):
-    # Docusaurus 의 `id:` 는 문서화된 1급 front matter 필드이고, wiki.root 기본값과
-    # Docusaurus 기본 문서 경로는 둘 다 docs/ 다. 이것을 노드로 보면 형식 위반으로 판정되어
-    # 저장소의 모든 커밋이 영구히 막힌다 — wiki 게이트는 docs 티어에도 걸려 있다.
+    # Docusaurus's `id:` is a documented first-class front matter field, and both the wiki.root
+    # default and Docusaurus's default doc path are docs/. Reading it as a node makes every
+    # commit in the repository fail on a format violation forever — the wiki gate runs on the
+    # docs tier too.
     (tmp_path / "docs").mkdir()
     _write_config(tmp_path, "wiki:\n  enable: true\n  root: docs/\n")
     _node(tmp_path, "docs/getting-started.md", "id: Getting_Started\nsidebar_position: 1\n")
@@ -367,8 +370,9 @@ def test_foreign_id_front_matter_is_not_a_node_and_never_blocks(tmp_path: Path):
 
 
 def test_non_string_wiki_id_blocks(tmp_path: Path):
-    # YAML 1.1 은 전용 키라도 문다: `wiki_id: 0123456` 은 octal 이라 정수 42798 이 되고,
-    # 그 문자열화 "42798" 은 WIKI_ID_RE 를 통과해 아무도 쓰지 않은 유효해 보이는 id 가 된다.
+    # YAML 1.1 bites even the dedicated key: `wiki_id: 0123456` is octal, so it arrives as the
+    # integer 42798, whose string form "42798" passes WIKI_ID_RE — a valid-looking id nobody
+    # ever typed.
     node = {
         "id": "42798",
         "path": "docs/a.md",
@@ -379,20 +383,21 @@ def test_non_string_wiki_id_blocks(tmp_path: Path):
 
 
 def test_front_matter_without_id_warns_capped(tmp_path: Path):
-    # "related" 는 WIKI_ONLY_FIELDS 라 노드로 의도했다는 신호가 있다 — 그래야 경고가 뜬다.
+    # "related" is in WIKI_ONLY_FIELDS, so the intent to be a node is on record — which is what
+    # earns the warning.
     nodes = [
         {"id": None, "path": f"docs/f{i}.md", "line_count": 3, "front": {"related": ["x"]}}
         for i in range(5)
     ]
     warns = collect_warnings({"index": "docs/index.md"}, nodes, build_graph(nodes))
-    assert sum(1 for w in warns if "wiki_id 가 없어" in w) == 3  # 3건만 나열
-    assert any("외 2건" in w for w in warns)  # 나머지는 건수로
+    assert sum(1 for w in warns if "wiki_id 가 없어" in w) == 3  # only three are listed
+    assert any("외 2건" in w for w in warns)  # the rest arrive as a count
 
 
 def test_missing_marker_warns_only_when_wiki_fields_are_present(tmp_path: Path):
-    # 전용 키로 바꾸면 "front matter 는 있는데 노드가 아니다" 가 정상 상태다. Docusaurus
-    # 저장소에서 전수 경고는 매 커밋 영구 노이즈가 된다. related 를 손으로 썼다는 것만이
-    # 노드로 쓰려던 의도의 증거다.
+    # Once the key is dedicated, "has front matter but is not a node" is the normal state.
+    # Warning on all of them turns into permanent per-commit noise in a Docusaurus repository.
+    # A hand-written `related` is the only evidence that a node was intended.
     (tmp_path / "docs").mkdir()
     _write_config(tmp_path, "wiki:\n  enable: true\n  root: docs/\n")
     _node(tmp_path, "docs/theirs.md", "id: Getting_Started\nsidebar_position: 1\ntags: [x]\n")
@@ -430,7 +435,8 @@ def test_depends_on_cycle_blocks(tmp_path: Path):
 
 
 def test_related_cycle_is_fine(tmp_path: Path):
-    # related 는 양방향 수동이므로 서로 가리키는 것이 정상이다. 순환 검사 대상이 아니다.
+    # `related` is bidirectional and hand-written, so mutual references are the normal shape.
+    # It is not what the cycle check looks at.
     nodes = [
         _mk("a.x", {"related": ["b.x"]}, "docs/a.md"),
         _mk("b.x", {"related": ["a.x"]}, "docs/b.md"),
@@ -477,8 +483,9 @@ def test_existing_source_path_passes(tmp_path: Path):
 
 
 def test_source_list_form_blocks(tmp_path: Path):
-    # 설계(§2)가 명시적으로 거부한 모양 — sources 는 map 이어야 한다. 리스트로 손으로 쓰는
-    # 것이 가장 그럴듯한 실수이므로, 없는 경로 검사와 별개로 형태 자체를 block 해야 한다.
+    # The design (§2) rejects this shape explicitly: sources must be a map. Hand-writing it as
+    # a list is the most plausible mistake, so the shape itself is blocked, independently of
+    # the missing-path check.
     problems = _check(tmp_path, [_mk("a.x", {"sources": ["src/nope.py"]})])
     assert any("map" in p for p in problems)
 
@@ -515,7 +522,7 @@ def test_dangling_reference_includes_source_file(tmp_path: Path):
 
 
 def test_dangling_edge_names_both_sides(tmp_path: Path):
-    # 기존 문구는 참조자만 지목해서, 저자가 멀쩡한 index.md 를 들여다보게 만들었다.
+    # Naming only the referrer sent the author to inspect an index.md that was fine.
     problems = _check(tmp_path, [_mk("index", {"related": ["ghost"]}, path="docs/index.md")])
     (msg,) = [p for p in problems if "ghost" in p]
     assert "docs/index.md" in msg
@@ -600,8 +607,9 @@ def test_adjacency_ignores_direction():
 
 
 def test_adjacency_drops_dangling_targets():
-    # 실존하지 않는 id 를 인접에 실으면, 같은 오타를 가리키는 두 노드가 orphan 판정에서
-    # 서로 연결된 것으로 세어진다 — index 에서 도달 불가인 노드가 도달 가능으로 보인다.
+    # Carrying an id that does not exist into the adjacency makes two nodes pointing at the
+    # same typo count as connected for orphan detection — a node unreachable from the index
+    # then looks reachable.
     nodes = [
         _mk("a.x", {"related": ["ghost.id"]}, "docs/a.md"),
         _mk("b.x", {"related": ["ghost.id"]}, "docs/b.md"),
@@ -682,8 +690,8 @@ def test_safe_int_handles_non_numeral_strings():
 
 
 def test_index_not_a_node_skips_per_node_orphan_check():
-    # index 가 노드로 해석되지 않으면 개별 노드를 orphan 이라고 오판해서는 안 된다 —
-    # 도달 가능성 자체를 계산할 기준점이 없기 때문이다.
+    # With the index not resolving to a node there is no origin to compute reachability from,
+    # so no individual node may be called an orphan.
     nodes = [
         _mk("a.x", path="docs/a.md"),
         _mk("b.x", path="docs/b.md"),
@@ -693,15 +701,15 @@ def test_index_not_a_node_skips_per_node_orphan_check():
 
 
 def test_index_not_a_node_warns_the_check_is_off():
-    # wiki 가 켜진 상태에서 index 가 노드로 해석되지 않으면, orphan 검사 자체가 조용히
-    # 꺼져 있다는 것을 운영자에게 알려야 한다 (block 이 아니라 warn).
+    # With the wiki enabled and the index not resolving to a node, the operator has to learn
+    # that orphan detection is switched off — as a warning, not a block.
     nodes = [_mk("a.x", path="docs/a.md")]
     warns = collect_warnings(_wiki(index="docs/missing.md"), nodes, build_graph(nodes))
     assert any("docs/missing.md" in w for w in warns)
 
 
 def test_index_not_a_node_is_silent_when_there_are_no_nodes():
-    # 노드가 아예 없으면 검사할 것도 없다 — 빈 wiki 에 노이즈를 내지 않는다.
+    # No nodes at all means nothing to check: an empty wiki gets no noise.
     warns = collect_warnings(_wiki(index="docs/missing.md"), [], build_graph([]))
     assert warns == []
 
@@ -768,9 +776,9 @@ def test_cycle_terminates():
 
 
 def test_unknown_id_exits_nonzero(tmp_path: Path, capsys):
-    # 0 + 빈 stdout 이면 "이웃 없음"과 구별되지 않아, 호출자가 조회 실패를
-    # '조화시킬 문서가 없음'으로 읽고 그냥 넘어간다. 게이트는 --neighbors 를 부르지 않으므로
-    # 여기서 1 을 내도 커밋을 막지 않는다.
+    # 0 with empty stdout is indistinguishable from "no neighbors", so the caller reads a
+    # failed lookup as "nothing to reconcile" and moves on. The gate never calls --neighbors,
+    # so answering 1 here blocks no commit.
 
     _wiki_repo(tmp_path)
     assert cmd_neighbors(tmp_path, "nope.x", None) == 1
@@ -803,8 +811,9 @@ def test_budget_stops_before_dangling_neighbor():
 
 
 def test_bom_on_index_does_not_shrink_the_graph(tmp_path: Path):
-    # 재현된 구체 시나리오: index.md 가 BOM 을 달고 있으면 index 자신이 노드에서 빠져
-    # _index_id 가 None 을 반환하고, orphan 검사가 저장소 전체에서 조용히 꺼진다.
+    # The concrete scenario this reproduces: a BOM on index.md drops the index itself out of
+    # the node set, _index_id returns None, and orphan detection switches off silently across
+    # the whole repository.
     _wiki_repo(tmp_path)
     idx = tmp_path / "docs" / "index.md"
     idx.write_bytes(b"\xef\xbb\xbf" + idx.read_bytes())
@@ -813,7 +822,7 @@ def test_bom_on_index_does_not_shrink_the_graph(tmp_path: Path):
     import yaml as _yaml
 
     graph = _yaml.safe_load(gp.read_text(encoding="utf-8"))
-    assert len(graph["nodes"]) == 2  # BOM 이전과 동일 — index 노드가 사라지지 않는다
+    assert len(graph["nodes"]) == 2  # as before the BOM: the index node stays
 
 
 def test_build_writes_graph_and_verify_passes(tmp_path: Path):
@@ -1071,10 +1080,10 @@ def test_edge_constants_cannot_desync():
 
 
 def test_build_avoids_the_python_310_only_write_text_newline(tmp_path: Path, monkeypatch):
-    # 게이트의 런타임 하한은 python 3.8 (check-deps.sh / precommit-runner.sh) 인데
-    # Path.write_text(newline=…) 는 3.10 에 생겼다. 3.9 호스트에서는 TypeError 가 나고
-    # main() 의 FAIL-OPEN 이 그것을 exit 0 으로 삼켜, --build 가 아무것도 안 쓴 채
-    # 성공한 것처럼 보인다 — 그 뒤 --verify 는 영원히 모든 커밋을 막는다.
+    # The gate's runtime floor is python 3.8 (check-deps.sh / precommit-runner.sh), while
+    # Path.write_text(newline=…) arrived in 3.10. On a 3.9 host that raises TypeError, main()'s
+    # FAIL-OPEN swallows it into exit 0, and --build looks successful having written nothing —
+    # after which --verify blocks every commit forever.
     _wiki_repo(tmp_path)
     real_write_text = Path.write_text
 
@@ -1089,9 +1098,9 @@ def test_build_avoids_the_python_310_only_write_text_newline(tmp_path: Path, mon
 
 
 def test_reformatted_graph_is_not_drift(tmp_path: Path):
-    # PyYAML 은 버전마다 emitter 출력이 미묘하게 다르다. 바이트로 비교하면 의미가 같은
-    # graph.yaml 이 drift 로 읽혀, A 가 커밋하면 B 가 막히고 B 가 다시 빌드하면 A 가
-    # 막히는 왕복이 된다. 판정 기준은 파싱 결과여야 한다.
+    # PyYAML's emitter output differs subtly between versions. Comparing bytes reads a
+    # semantically identical graph.yaml as drift, and A committing blocks B while B rebuilding
+    # blocks A. The verdict has to be taken on the parsed result.
     import yaml as _yaml
 
     _wiki_repo(tmp_path)
@@ -1103,8 +1112,8 @@ def test_reformatted_graph_is_not_drift(tmp_path: Path):
         _yaml.safe_dump(same_graph, sort_keys=False, default_flow_style=True, width=20),
         encoding="utf-8",
     )
-    assert gp.read_bytes() != canonical  # 바이트는 다르다
-    assert cmd_verify(tmp_path) == 0  # 의미는 같으므로 통과
+    assert gp.read_bytes() != canonical  # the bytes differ
+    assert cmd_verify(tmp_path) == 0  # the meaning is the same, so it passes
 
 
 def test_build_is_idempotent(tmp_path: Path):
@@ -1121,8 +1130,8 @@ def test_verify_without_graph_file_is_drift(tmp_path: Path):
 
 
 def test_verify_never_writes_graph_file(tmp_path: Path):
-    # --verify 는 읽기 전용이다 — 커밋 게이트가 부르는 쪽이 graph.yaml 을 쓰기 시작하면
-    # doc-sync 만 build 를 부른다는 설계 전제가 깨진다.
+    # --verify is read-only: once the side the commit gate calls starts writing graph.yaml, the
+    # design premise that only doc-sync builds is gone.
     _wiki_repo(tmp_path)
     assert cmd_verify(tmp_path) == 1
     assert not graph_path(tmp_path, load_wiki_config(tmp_path)).exists()
@@ -1146,8 +1155,9 @@ def test_hand_edited_graph_is_drift(tmp_path: Path):
 
 
 def test_malformed_graph_yaml_is_drift_not_crash(tmp_path: Path):
-    # 파싱은 되지만 map 이 아니거나 nodes/edges 가 map 이 아닌 형태 — _drifted_paths 가
-    # AttributeError 를 내면 안 된다. 판별은 못 해도(빈 목록) drift 판정 자체는 유지된다.
+    # Parses, but is not a map — or nodes/edges are not maps. _drifted_paths must not raise
+    # AttributeError. It may fail to name anything (an empty list), but the drift verdict
+    # itself stands.
     _wiki_repo(tmp_path)
     cmd_build(tmp_path)
     gp = graph_path(tmp_path, load_wiki_config(tmp_path))
@@ -1157,8 +1167,8 @@ def test_malformed_graph_yaml_is_drift_not_crash(tmp_path: Path):
 
 
 def test_unreadable_graph_yaml_is_drift_not_crash(tmp_path: Path, capsys):
-    # UnicodeDecodeError 를 내는 graph.yaml — 못 읽는 파일은 "최신"의 증거가 아니므로
-    # 조용히 건너뛰지 않고 drift 로 보고해 block 해야 한다.
+    # A graph.yaml that raises UnicodeDecodeError. A file that cannot be read is no evidence
+    # of being current, so it is reported as drift and blocks rather than being skipped.
     _wiki_repo(tmp_path)
     cmd_build(tmp_path)
     gp = graph_path(tmp_path, load_wiki_config(tmp_path))
@@ -1169,9 +1179,9 @@ def test_unreadable_graph_yaml_is_drift_not_crash(tmp_path: Path, capsys):
 
 
 def test_verify_blocks_on_structure_violation(tmp_path: Path, capsys):
-    # bad.md 를 build 뒤에 추가하기만 하면 drift 만으로 이미 exit 1 이 강제되어, 이 테스트는
-    # validate_structure 호출을 지워도 통과해 버린다 — bad.md 를 넣은 채로 rebuild 해서
-    # drift 를 없앤 뒤에야 '구조 위반 때문에' 막혔다고 주장할 수 있다.
+    # Adding bad.md after the build forces exit 1 on drift alone, and the test then passes with
+    # the validate_structure call deleted. Only a rebuild WITH bad.md in place clears the drift,
+    # and only then can the block be claimed to come from the structure violation.
     _wiki_repo(tmp_path)
     _node(tmp_path, "docs/bad.md", "wiki_id: BAD\ntitle: Bad\n")
     _node(tmp_path, "docs/defects/skew.md", "wiki_id: defect.skew\ntitle: Skew\n")
@@ -1179,8 +1189,8 @@ def test_verify_blocks_on_structure_violation(tmp_path: Path, capsys):
     assert cmd_verify(tmp_path) == 1
     err = capsys.readouterr().err
     assert "BAD" in err and "형식" in err
-    # validate_structure 는 validate_defects 를 이미 내부에서 구성한다 — cmd_verify 가 둘
-    # 다 부르면 defect 위반이 두 번 보고된다.
+    # validate_structure already composes validate_defects internally: cmd_verify calling both
+    # reports every defect violation twice.
     affects_lines = [ln for ln in err.splitlines() if "defect 노드에는 affects" in ln]
     assert len(affects_lines) == 1
 
@@ -1201,8 +1211,8 @@ def test_noop_when_wiki_absent(tmp_path: Path, capsys):
 
 
 def test_drift_message_names_the_drifted_node_only(tmp_path: Path, capsys):
-    # '어긋났다'가 아니라 '어느 문서가 어긋났다'를 말해야 한다. 아무 노드나 집으면
-    # 무관한 파일을 지목해 오히려 오해를 키운다.
+    # It has to say WHICH document drifted, not merely that something did. Picking an arbitrary
+    # node names an unrelated file and deepens the confusion.
     _wiki_repo(tmp_path)
     cmd_build(tmp_path)
     _node(tmp_path, "docs/auth/jwt.md", "wiki_id: auth.jwt\ntitle: JWT2\nrelated: [index]\n")
@@ -1228,9 +1238,9 @@ def test_drift_message_names_the_last_commit(tmp_path: Path, capsys):
 
 
 def test_main_fails_open_on_internal_exception(tmp_path: Path, monkeypatch, capsys):
-    # main() 의 exit code 가 곧 게이트의 판정이다 — 이 모듈 어디서든 나는 예외가 저장소를
-    # 통째로 막으면 안 된다 (Invariant #1: wiki 는 missing-dependency·unclassified-commit·
-    # merge-strategy 세 예외에 속하지 않는다).
+    # main()'s exit code IS the gate's verdict, so an exception raised anywhere in this module
+    # must not block the whole repository (Invariant #1: wiki is none of the three exceptions —
+    # missing dependency, unclassified commit, merge strategy).
 
     monkeypatch.setattr(wiki_graph, "host_root", lambda: tmp_path)
 
@@ -1243,11 +1253,11 @@ def test_main_fails_open_on_internal_exception(tmp_path: Path, monkeypatch, caps
 
 
 def test_main_routes_an_empty_neighbors_id_to_the_lookup(tmp_path: Path, monkeypatch, capsys):
-    # 진위값으로 갈랐더니 `--neighbors ""` 가 조용히 cmd_verify 로 떨어졌다: 호출자는
-    # 조회 결과가 비었다고 읽는 동안 실제로는 그래프 검증이 돌고 있었고, drift 면 1 을
-    # 돌려줘 조회 실패로 보였다. 종료 코드는 양쪽 다 1 이라 stderr 로만 구별된다.
+    # Branching on truthiness let `--neighbors ""` fall through to cmd_verify: the caller read
+    # an empty lookup while graph verification was actually running, and drift returned 1,
+    # which looked like a failed lookup. Both exit 1, so only stderr tells them apart.
 
-    _wiki_repo(tmp_path)  # graph.yaml 을 만들지 않았으므로 verify 로 새면 drift 로 실패한다
+    _wiki_repo(tmp_path)  # no graph.yaml was built, so leaking into verify would fail on drift
     monkeypatch.setattr(wiki_graph, "host_root", lambda: tmp_path)
     assert wiki_graph.main(["--neighbors", ""]) == 1
     err = capsys.readouterr().err
@@ -1256,9 +1266,9 @@ def test_main_routes_an_empty_neighbors_id_to_the_lookup(tmp_path: Path, monkeyp
 
 
 def test_main_argparse_error_still_exits_nonzero():
-    # argparse 사용법 오류는 SystemExit 이라 finding 5 의 `except Exception` 가드를 그대로
-    # 통과해야 한다 — 게이트가 이 커맨드를 직접 구성하므로 실무에서는 발생하지 않지만,
-    # 가드가 SystemExit 까지 삼켜버리는 회귀를 잡아 둔다.
+    # An argparse usage error is a SystemExit and must pass straight through finding 5's
+    # `except Exception` guard. The gate composes this command itself so it cannot happen in
+    # practice, but this pins the regression where the guard swallows SystemExit too.
     import pytest
 
     with pytest.raises(SystemExit) as exc:
@@ -1379,8 +1389,9 @@ def _blob_of(root: Path, rel: str) -> str:
 
 
 def test_stale_blob_recorded_fresh_and_stale(tmp_path: Path, capsys):
-    # 기록 값 = working tree blob → fresh. 파일 내용이 바뀌면(커밋 불필요) stale — 판정이
-    # 커밋 이력이 아니라 내용에 붙는다 (squash/rebase 승격이 가짜 stale 을 못 만든다).
+    # Recorded value == the working-tree blob means fresh. Change the file's content (no commit
+    # needed) and it is stale: the verdict rides on content, not on commit history, so a
+    # squash/rebase promotion cannot manufacture a false stale.
     _git_repo_with_source(tmp_path, "PLACEHOLDER")
     blob = _blob_of(tmp_path, "src/a.py")
     _node(tmp_path, "docs/a.md", f'wiki_id: a.x\ntitle: A\nsources:\n  src/a.py: "{blob}"\n')
@@ -1394,8 +1405,9 @@ def test_stale_blob_recorded_fresh_and_stale(tmp_path: Path, capsys):
 
 
 def test_stale_commit_recorded_offers_migration(tmp_path: Path, capsys):
-    # 구형 기록(커밋 sha) → migrated == `git rev-parse <커밋>:<경로>` (그 시점 blob).
-    # 내용 무변경이어도 항목이 나온다 — doc-sync 가 마커만 재작성해 저장소가 수렴하도록.
+    # A legacy record (a commit sha) migrates to `git rev-parse <commit>:<path>` — the blob as
+    # of that commit. The entry is reported even with the content unchanged, so doc-sync can
+    # rewrite the marker alone and let the repository converge.
     _git_repo_with_source(tmp_path, "PLACEHOLDER")
     head = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=tmp_path, capture_output=True, text=True, check=True
@@ -1414,7 +1426,8 @@ def test_stale_commit_recorded_offers_migration(tmp_path: Path, capsys):
 
 
 def test_stale_vanished_commit_migrates_to_null(tmp_path: Path, capsys):
-    # GC 로 사라진 커밋(타입 조회 불가) → migrated: null — 일반 stale 로 본문 동기화 대상.
+    # A commit lost to GC (its type cannot be queried) migrates to null: ordinary stale, to be
+    # resolved by syncing the body.
     _git_repo_with_source(tmp_path, "f" * 40)
     assert cmd_stale(tmp_path) == 0
     (entry,) = json.loads(capsys.readouterr().out)
@@ -1422,7 +1435,8 @@ def test_stale_vanished_commit_migrates_to_null(tmp_path: Path, capsys):
 
 
 def _stamp_repo(tmp_path: Path) -> Path:
-    """repo + 커밋된 노드 1개(sources 에 working-tree blob 기록) + 매칭 graph.yaml."""
+    """A repo with one committed node (sources holding the working-tree blob) and a matching
+    graph.yaml."""
     root = tmp_path
     (root / "src").mkdir()
     (root / "src" / "a.py").write_text("x = 1\n", encoding="utf-8")
@@ -1466,7 +1480,7 @@ def test_stamp_only_change_blocks(tmp_path: Path, capsys):
         doc.read_text(encoding="utf-8").replace(_sha_in(doc), "b" * 40), encoding="utf-8"
     )
     subprocess.run(["git", "add", "-A"], cwd=root, check=True)
-    assert cmd_build(root) == 0  # graph 는 일치시켜 도장 위반만 남긴다
+    assert cmd_build(root) == 0  # graph agrees, leaving only the stamp violation
     assert cmd_verify(root) == 1
     assert "본문 변경이 없습니다" in capsys.readouterr().err
 
@@ -1482,7 +1496,8 @@ def test_stamp_with_body_edit_passes(tmp_path: Path):
 
 
 def test_stamp_migration_rewrite_passes(tmp_path: Path):
-    # old 가 커밋 sha, new == `git rev-parse <old>:<src>` → 의미보존 재작성 허용 (spec §2).
+    # old is a commit sha and new == `git rev-parse <old>:<src>`: a meaning-preserving rewrite,
+    # which is allowed (spec §2).
     root = _stamp_repo(tmp_path)
     head = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=True
@@ -1518,9 +1533,10 @@ def _commit(root: Path, message: str) -> None:
 
 
 def test_stamp_allowed_when_head_carries_the_body_edit(tmp_path: Path):
-    # 차단 메시지가 권하는 amend 경로 그 자체 — 본문 동기화를 이미 커밋했다면 HEAD 는 그
-    # 본문을 들고 있으므로 남은 델타는 sha 뿐이다. 이것을 막으면 권고안이 실행 불가가 되고,
-    # split-commit(본문 커밋 → 도장 커밋)도 같은 모양이라 함께 열린다.
+    # Exactly the amend path the block message recommends: with the body sync already committed,
+    # HEAD holds that body and the only delta left is the sha. Blocking it makes the advice
+    # unfollowable, and a split commit (body first, stamp second) has the same shape, so it
+    # opens with it.
     root = _stamp_repo(tmp_path)
     doc = root / "docs" / "a.md"
     (root / "src" / "a.py").write_text("x = 2\n", encoding="utf-8")
@@ -1539,8 +1555,8 @@ def test_stamp_allowed_when_head_carries_the_body_edit(tmp_path: Path):
 
 
 def test_stamp_still_blocks_when_head_body_is_unchanged(tmp_path: Path):
-    # 위 허용이 검사를 통째로 열어버리지 않는지 — 직전 커밋이 그 문서의 본문을 건드리지
-    # 않았다면 도장만 찍는 커밋은 여전히 차단이다.
+    # That the allowance above does not open the check wholesale: if the previous commit did not
+    # touch that document's body, a stamp-only commit is still blocked.
     root = _stamp_repo(tmp_path)
     (root / "other.txt").write_text("무관한 변경\n", encoding="utf-8")
     _commit(root, "chore: touch an unrelated file")
@@ -1554,9 +1570,10 @@ def test_stamp_still_blocks_when_head_body_is_unchanged(tmp_path: Path):
 
 
 def test_stamp_fails_open_when_git_cannot_answer(tmp_path: Path):
-    # rev-parse 가 답하지 못하는 상황(타임아웃 등)은 판정이 아니라 내부 오류다 — Invariant #1
-    # 은 그런 커밋을 통과시키라고 요구한다. "객체가 없다"는 정당한 nonzero 와 구별해야 하므로
-    # git 생존 확인이 실패할 때에만 열린다.
+    # rev-parse failing to answer (a timeout, say) is an internal error, not a verdict, and
+    # Invariant #1 requires letting such a commit through. It has to stay distinct from the
+    # legitimate nonzero that means "no such object", so it opens only when the git liveness
+    # probe fails.
     root = _stamp_repo(tmp_path)
     doc = root / "docs" / "a.md"
     doc.write_text(
@@ -1566,13 +1583,13 @@ def test_stamp_fails_open_when_git_cannot_answer(tmp_path: Path):
     assert cmd_build(root) == 0
     wiki = load_wiki_config(root)
     nodes = collect_nodes(root, wiki)
-    assert validate_stamps(root, wiki, nodes)  # 평시에는 차단
+    assert validate_stamps(root, wiki, nodes)  # blocks under normal conditions
 
     real = wiki_graph._git
 
     def dying_git(args, cwd):
         if args[0] in ("rev-parse", "cat-file"):
-            return None  # git 이 더 이상 답하지 못한다
+            return None  # git no longer answers
         return real(args, cwd)
 
     with pytest.MonkeyPatch.context() as mp:
@@ -1581,7 +1598,8 @@ def test_stamp_fails_open_when_git_cannot_answer(tmp_path: Path):
 
 
 def test_stamp_fails_open_on_a_root_commit(tmp_path: Path):
-    # 부모가 없으면 "직전 커밋이 이 본문을 동기화했는가"를 물을 수 없다 — 판정 불가는 통과다.
+    # With no parent there is no way to ask whether the previous commit synced this body, and
+    # what cannot be decided passes.
     root = _stamp_repo(tmp_path)
     subprocess.run(["git", "reset", "-q", "--soft", "HEAD~1"], cwd=root, check=True)
     doc = root / "docs" / "a.md"
@@ -1594,8 +1612,8 @@ def test_stamp_fails_open_on_a_root_commit(tmp_path: Path):
 
 
 def test_nodes_for_finds_a_directory_source_from_a_file(tmp_path: Path, capsys):
-    # /flow 는 바뀐 파일 경로를 넘긴다 — 디렉터리를 문서화한 노드가 그 조회에서 빠지면
-    # 결과가 빈 줄이고, 호출자는 그것을 "미문서화"로 읽는다.
+    # /flow hands over changed file paths. A node documenting a directory dropping out of that
+    # lookup returns an empty line, which the caller reads as "undocumented".
     root = _nodes_for_repo(tmp_path)
     _node(root, "docs/authdir.md", "wiki_id: auth.dir\ntitle: D\nsources:\n  src/auth: null\n")
     assert wiki_graph.cmd_nodes_for(root, ["src/auth/jwt.py"]) == 0
@@ -1604,8 +1622,9 @@ def test_nodes_for_finds_a_directory_source_from_a_file(tmp_path: Path, capsys):
 
 
 def test_nodes_for_directory_source_keeps_the_segment_boundary(tmp_path: Path, capsys):
-    # 대칭 매칭의 새 방향에도 세그먼트 경계가 살아 있어야 한다 — `src/auth` 노드가
-    # 형제 디렉터리 `src/auth-x/` 의 파일에 걸리면 조회가 남의 문서를 끌어온다.
+    # The segment boundary has to survive in the new direction of the symmetric match too: a
+    # `src/auth` node matching a file in the sibling `src/auth-x/` pulls somebody else's
+    # document into the lookup.
     root = _nodes_for_repo(tmp_path)
     _node(root, "docs/authdir.md", "wiki_id: auth.dir\ntitle: D\nsources:\n  src/auth: null\n")
     assert wiki_graph.cmd_nodes_for(root, ["src/auth-x/jwt.py"]) == 0
@@ -1613,8 +1632,9 @@ def test_nodes_for_directory_source_keeps_the_segment_boundary(tmp_path: Path, c
 
 
 def test_stamp_still_blocks_a_document_introduced_by_head(tmp_path: Path):
-    # HEAD~1 은 읽히는데 그 문서만 없다 = HEAD 가 문서를 신설한 경우. 신설 커밋은 자기
-    # 도장을 이미 들고 있으므로 그 다음 커밋의 sha 교체는 동기화가 아니다 — 차단 유지.
+    # HEAD~1 reads fine and only that document is absent, which means HEAD created it. A
+    # creating commit already carries its own stamp, so the next commit swapping the sha is not
+    # a sync — the block stands.
     root = _stamp_repo(tmp_path)
     blob = _blob_of(root, "src/a.py")
     _node(
@@ -1631,9 +1651,10 @@ def test_stamp_still_blocks_a_document_introduced_by_head(tmp_path: Path):
 
 
 def test_stamp_allows_a_rename_synced_in_head(tmp_path: Path):
-    # rename+본문 동기화가 한 커밋에 있고 도장이 다음 커밋(또는 amend)이면 HEAD~1 에는
-    # 새 경로가 없다 — 그것을 "신설"로 단정하면 그 동기화를 못 보고, 차단 메시지가 권하는
-    # amend·rebase/fixup 까지 막는다. diff -M 으로 이전 경로를 되짚어 본문 비교를 이어간다.
+    # With the rename and the body sync in one commit and the stamp in the next (or an amend),
+    # the new path is absent from HEAD~1. Calling that a creation misses the sync and blocks the
+    # very amend / rebase / fixup the block message recommends. diff -M traces the old path back
+    # so the body comparison can continue.
     root = _stamp_repo(tmp_path)
     (root / "src" / "a.py").write_text("x = 2\n", encoding="utf-8")
     subprocess.run(["git", "mv", "docs/a.md", "docs/alpha.md"], cwd=root, check=True)
@@ -1654,7 +1675,8 @@ def test_stamp_allows_a_rename_synced_in_head(tmp_path: Path):
 
 
 def test_stamp_still_blocks_a_pure_rename_with_sha_swap(tmp_path: Path):
-    # 이동만으로는 어떤 소스도 동기화되지 않는다 — rename 허용이 sha 세탁 통로가 되면 안 된다.
+    # A move on its own syncs no source: the rename allowance must not become a laundering route
+    # for a sha.
     root = _stamp_repo(tmp_path)
     subprocess.run(["git", "mv", "docs/a.md", "docs/alpha.md"], cwd=root, check=True)
     subprocess.run(["git", "add", "-A"], cwd=root, check=True)
@@ -1669,8 +1691,9 @@ def test_stamp_still_blocks_a_pure_rename_with_sha_swap(tmp_path: Path):
 
 
 def test_stamp_fails_open_when_the_parent_read_flakes(tmp_path: Path):
-    # HEAD~1:<path> 본문 읽기만 실패하고(타임아웃 등) 객체 조회는 살아 있는 상황 — "부모에
-    # 그 문서가 없다"는 판정이 아니므로 차단 흐름으로 이어지면 Invariant #1 위반이다.
+    # Reading the HEAD~1:<path> body fails (a timeout, say) while the object lookup still
+    # answers. That is not a verdict of "the parent has no such document", so carrying it into
+    # the blocking path violates Invariant #1.
     root = _stamp_repo(tmp_path)
     (root / "other.txt").write_text("무관한 변경\n", encoding="utf-8")
     _commit(root, "chore: touch an unrelated file")
@@ -1682,14 +1705,14 @@ def test_stamp_fails_open_when_the_parent_read_flakes(tmp_path: Path):
     assert cmd_build(root) == 0
     wiki = load_wiki_config(root)
     nodes = collect_nodes(root, wiki)
-    assert validate_stamps(root, wiki, nodes)  # 평시에는 차단
+    assert validate_stamps(root, wiki, nodes)  # blocks under normal conditions
 
     real = wiki_graph._git
     target = "HEAD~1:docs/a.md"
 
     def flaky_parent_read(args, cwd):
         if args[-1] == target and args != ["rev-parse", "--verify", target]:
-            return None  # 본문 읽기(show/cat-file)만 죽고 객체 조회는 답한다
+            return None  # only the body read (show/cat-file) dies; the object lookup still answers
         return real(args, cwd)
 
     with pytest.MonkeyPatch.context() as mp:
@@ -1698,8 +1721,9 @@ def test_stamp_fails_open_when_the_parent_read_flakes(tmp_path: Path):
 
 
 def test_stamp_fails_open_when_the_rename_lookup_fails(tmp_path: Path):
-    # 부모에 경로가 없어 rename 을 물어야 하는데 diff 가 답하지 못하면 신설/개명을 가를 수
-    # 없다 — 판정 불가는 통과다 (Invariant #1).
+    # The path is absent from the parent so a rename has to be asked about, and a diff that
+    # cannot answer leaves creation and rename indistinguishable — undecidable passes
+    # (Invariant #1).
     root = _stamp_repo(tmp_path)
     subprocess.run(["git", "mv", "docs/a.md", "docs/alpha.md"], cwd=root, check=True)
     subprocess.run(["git", "add", "-A"], cwd=root, check=True)
@@ -1726,11 +1750,13 @@ def test_stamp_fails_open_when_the_rename_lookup_fails(tmp_path: Path):
 
 
 def test_stamp_fails_open_when_the_parent_path_was_a_tree(tmp_path: Path):
-    # 부모 커밋에서 같은 경로가 디렉터리였다면 `git show` 는 tree 목록을 exit 0 으로 내
-    # "본문이 다르다"로 오독된다. cat-file blob 은 tree 에서 실패하고, 객체 존재 확인이
-    # 그 실패를 "부모에 문서가 없다"와 갈라 통과시킨다 (Invariant #1).
-    # 통과 여부만 보면 옛 `show` 경로도 (다른 이유로) 통과하므로, 이 테스트가 고정하는
-    # 것은 결과가 아니라 **경유한 질의**다 — 객체 존재 확인이 실제로 일어나야 한다.
+    # If the same path was a directory in the parent commit, `git show` prints a tree listing
+    # and exits 0, which is misread as "the body differs". cat-file blob fails on a tree, and
+    # the object-existence probe separates that failure from "the parent has no such document"
+    # and lets it through (Invariant #1).
+    # Judged on the outcome alone the old `show` path also passes, for a different reason, so
+    # what this test pins is not the result but the QUERY taken — the object-existence probe has
+    # to actually happen.
     root = _stamp_repo(tmp_path)
     d = root / "docs" / "x.md"
     d.mkdir()
@@ -1767,8 +1793,9 @@ def test_stamp_fails_open_when_the_parent_path_was_a_tree(tmp_path: Path):
 
 
 def test_stamp_probes_head_liveness_once(tmp_path: Path):
-    # 차단 경로에서 swap 마다 같은 HEAD 생존 프로브를 재실행하면 spawn 이 소스 수에
-    # 비례해 낭비된다(문서 40×소스 3이면 120회) — 호출당 1회면 충분하다.
+    # Re-running the same HEAD liveness probe per swap on the blocking path wastes spawns in
+    # proportion to the source count (40 documents times 3 sources is 120 of them); once per
+    # call is enough.
     root = _stamp_repo(tmp_path)
     (root / "src" / "b.py").write_text("y = 1\n", encoding="utf-8")
     doc = root / "docs" / "a.md"
@@ -1800,12 +1827,12 @@ def test_stamp_probes_head_liveness_once(tmp_path: Path):
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(wiki_graph, "_git", counting)
         problems = validate_stamps(root, wiki, nodes)
-    assert len(problems) == 2  # swap 마다 문제 1건 — 차단 자체는 유지
+    assert len(problems) == 2  # one problem per swap; the block itself stands
     assert len(probes) == 1
 
 
 def _renamed_nodes_repo(tmp_path: Path, count: int) -> Path:
-    """노드 count 개를 전부 개명한 커밋 + 그 다음 sha 만 교체한 작업 트리."""
+    """A commit renaming all `count` nodes, then a working tree that swaps only the shas."""
     root = _stamp_repo(tmp_path)
     blob = _blob_of(root, "src/a.py")
     ids = [f"n{i}" for i in range(count)]
@@ -1844,9 +1871,10 @@ def _count_git(root: Path, wiki, nodes, match) -> tuple[int, list[str]]:
 
 
 def test_stamp_looks_up_renames_once_even_when_git_cannot_answer(tmp_path: Path):
-    # renames 를 None 하나로 "아직 조회 안 함"과 "조회했는데 못 답함"에 겸용하면, 실패한
-    # 조회가 rename 분기에 닿는 노드마다 되풀이된다 — `diff -M` 은 이 게이트가 던지는 가장
-    # 비싼 질의이고 _git 타임아웃이 5초라 최악 N×5초가 커밋 훅 안에 들어앉는다.
+    # Using a single None for renames to mean both "not looked up yet" and "looked up, no
+    # answer" repeats a failed lookup for every node that reaches the rename branch. `diff -M`
+    # is the most expensive query this gate issues and _git's timeout is 5s, so the worst case
+    # is N times 5s sitting inside the commit hook.
     root = _renamed_nodes_repo(tmp_path, 5)
     wiki = load_wiki_config(root)
     nodes = collect_nodes(root, wiki)
@@ -1860,46 +1888,49 @@ def test_stamp_looks_up_renames_once_even_when_git_cannot_answer(tmp_path: Path)
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(wiki_graph, "_git", dead_rename_lookup)
         count, problems = _count_git(root, wiki, nodes, lambda a: a[0] == "diff" and "-M" in a)
-    assert problems == []  # 답을 못 얻었으니 판정도 없다 (Invariant #1)
+    assert problems == []  # no answer was obtained, so there is no verdict either (Invariant #1)
     assert count == 1
 
 
 def test_stamp_probes_the_parent_commit_once(tmp_path: Path):
-    # `rev-parse --verify HEAD~1` 의 답은 저장소 상수다 — 노드마다 되물으면 HEAD 프로브에서
-    # 없앤 낭비가 그대로 남는다.
+    # The answer to `rev-parse --verify HEAD~1` is a constant for the repository: asking it per
+    # node leaves exactly the waste the HEAD probe removed.
     root = _renamed_nodes_repo(tmp_path, 5)
     wiki = load_wiki_config(root)
     nodes = collect_nodes(root, wiki)
     count, problems = _count_git(
         root, wiki, nodes, lambda a: a == ["rev-parse", "--verify", "HEAD~1"]
     )
-    assert len(problems) == 5  # 순수 개명이므로 차단은 그대로
+    assert len(problems) == 5  # a pure rename, so the block stands
     assert count == 1
 
 
 def test_head_renames_fails_open_on_a_truncated_record(tmp_path: Path):
-    # 잘린 레코드를 건너뛰면 결과가 {} 가 되고, 그것은 "개명이 없다"는 **판정**이라
-    # 정당한 개명+동기화를 차단으로 몰 수 있다. 읽을 수 없는 출력은 판정이 아니다.
-    # 정상 출력은 언제나 NUL 로 끝난다(A/D/M/T/R 전부, 공백·한글 경로 포함) — `_git` 의
-    # .strip() 은 NUL 을 안 지우므로('\0'.isspace() 가 False) 종료자가 그대로 남는다.
-    # 케이스 표는 순서 있는 목록이지 맵이 아니다. 다만 dict 리터럴의 중복 키는 ruff F601 이
-    # 공짜로 잡아주고 리스트에는 그 그물이 없으므로, 잃는 보호를 아래 단언으로 되돌린다.
+    # Skipping a truncated record yields {}, and {} is a VERDICT of "no renames" that can drive
+    # a legitimate rename-plus-sync into a block. Output that cannot be read is not a verdict.
+    # Well-formed output always ends in a NUL (A/D/M/T/R alike, including paths with spaces or
+    # Hangul): `_git`'s .strip() does not remove NUL ('\0'.isspace() is False), so the
+    # terminator survives.
+    # The case table is an ordered list, not a map. A dict literal would get duplicate-key
+    # detection free from ruff F601 and a list has no such net, so the assertion below restores
+    # the protection a list gives up.
     cases = [
         ("R100\0docs/old.md\0docs/new.md\0", {"docs/new.md": "docs/old.md"}),
         ("M\0docs/a.md\0R100\0docs/old.md\0docs/new.md\0", {"docs/new.md": "docs/old.md"}),
-        ("M\0docs/a.md\0", {}),  # 완결된 출력 — 개명이 없다는 정당한 판정
-        ("", {}),  # 변경 없음
-        ("R100\0docs/old.md", None),  # 레코드가 통째로 모자람
-        ("M\0docs/a", None),  # 필드 중간에서 잘림 — 길이는 맞아 보인다
-        ("R100\0docs/old.md\0", None),  # NUL 경계에서 잘려 새 경로가 빈 문자열
-        ("M\0docs/a.md\0R100\0", None),  # 앞은 온전하고 마지막 레코드만 모자람
-        ("M\0", None),  # 2필드 레코드도 마찬가지 — 경로 자리가 종료자다
-        ("M\0docs/a.md\0D\0", None),  # 마지막 2필드 레코드만 경로를 잃었다
-        # 빈 status 는 맨 끝(종료자)에서만 정상이다. 중간에 있으면 손상된 출력이고, 거기서
-        # 멈추면 뒤따르는 개명을 조용히 버려 역시 "개명 없음" 판정이 된다.
+        ("M\0docs/a.md\0", {}),  # complete output: a legitimate verdict of no renames
+        ("", {}),  # nothing changed
+        ("R100\0docs/old.md", None),  # the record is missing entirely
+        ("M\0docs/a", None),  # truncated mid-field, and the length still looks right
+        ("R100\0docs/old.md\0", None),  # cut at a NUL, new path empty
+        ("M\0docs/a.md\0R100\0", None),  # the front is intact and only the last record is short
+        ("M\0", None),  # the same for a two-field record: the path slot is the terminator
+        ("M\0docs/a.md\0D\0", None),  # only the last two-field record lost its path
+        # An empty status is only well-formed at the very end, as the terminator. In the middle
+        # it means corrupted output, and stopping there drops the renames that follow — another
+        # route to a "no renames" verdict.
         ("M\0docs/a.md\0\0R100\0docs/o.md\0docs/n.md\0", None),
     ]
-    assert len({out for out, _ in cases}) == len(cases)  # 입력 중복은 케이스 소실이다
+    assert len({out for out, _ in cases}) == len(cases)  # a duplicated input is a lost case
     real = wiki_graph._git
     with pytest.MonkeyPatch.context() as mp:
         for out, expected in cases:
@@ -1909,16 +1940,18 @@ def test_head_renames_fails_open_on_a_truncated_record(tmp_path: Path):
 
 
 def test_head_renames_ignores_a_copy_record(tmp_path: Path):
-    # C 는 원본을 남긴다 — 도장을 미룬 문서는 *이동한* 원본을 타므로 복사를 개명으로 읽으면
-    # 그대로 있는 파일의 본문과 비교하게 된다. `-M` 만 넘기므로 git 이 C 를 낼 일은 없지만
-    # (명시적 `-M` 은 `diff.renames=copies` 를 renames-only 로 덮으므로 — `-M` 이 없으면 그
-    # 설정만으로 C 가 나올 수 있다 — `-M` 을 준 이상 복사 탐지를 켤 길은 명령줄 `-C`/
-    # `--find-copies-harder` 뿐이다. git 2.47.1 실측), 파서가 그 보장에 기대지는 않는다.
+    # C leaves the original in place. A document whose stamp was deferred follows the MOVED
+    # original, so reading a copy as a rename compares against the body of a file that never
+    # went anywhere. git will not emit C here because only `-M` is passed (an explicit `-M`
+    # overrides `diff.renames=copies` down to renames-only — without `-M` that setting alone can
+    # produce C — and with `-M` given, the only way back to copy detection is a command-line
+    # `-C` / `--find-copies-harder`; measured on git 2.47.1). The parser does not lean on that
+    # guarantee.
     real = wiki_graph._git
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(wiki_graph, "_git", lambda a, c: "C100\0docs/src.md\0docs/copy.md\0")
         assert wiki_graph._head_renames(tmp_path, "docs") == {}
-        # 3필드를 소비하는 것 자체는 맞다 — 안 그러면 뒤 레코드가 어긋난다.
+        # Consuming three fields is itself correct; otherwise the records that follow shift.
         mp.setattr(
             wiki_graph,
             "_git",
@@ -1929,7 +1962,7 @@ def test_head_renames_ignores_a_copy_record(tmp_path: Path):
 
 
 def test_stamp_new_file_passes(tmp_path: Path):
-    # HEAD 에 없는 새 문서의 최초 도장은 자유 (저작 자체가 동기화).
+    # The first stamp on a document absent from HEAD is free — authoring it IS the sync.
     root = _stamp_repo(tmp_path)
     _node(
         root,
@@ -1942,9 +1975,9 @@ def test_stamp_new_file_passes(tmp_path: Path):
 
 
 def test_stamp_check_sees_non_ascii_paths(tmp_path: Path, capsys):
-    # 기본 core.quotePath 아래서 `git diff --name-only` 는 한글 경로를 C-escape 로 인용해
-    # 반환한다 — -z 없이는 그런 문서가 도장 검사에서 조용히 빠진다 (_candidate_files 의
-    # "-z is mandatory" 와 같은 footgun).
+    # Under the default core.quotePath, `git diff --name-only` returns a Hangul path C-escaped
+    # and quoted: without -z such a document drops out of the stamp check silently (the same
+    # footgun as _candidate_files' "-z is mandatory").
     root = _stamp_repo(tmp_path)
     doc = root / "docs" / "한글노트.md"
     blob = _blob_of(root, "src/a.py")
@@ -1969,8 +2002,9 @@ def test_stamp_check_sees_non_ascii_paths(tmp_path: Path, capsys):
 
 
 def test_stamp_allows_entry_add_remove_and_null_fill(tmp_path: Path):
-    # missing-path 해소(항목 삭제)·새 소스 추가·null→sha 최초 등록은 본문 편집 없이도
-    # 정당하다 — 이 guard 가 사라지면 정당한 커밋이 오차단된다.
+    # Resolving a missing path by dropping the entry, adding a new source, and the first
+    # null-to-sha registration are all legitimate without a body edit; losing this guard
+    # false-blocks a legitimate commit.
     root = _stamp_repo(tmp_path)
     doc = root / "docs" / "a.md"
     blob = _sha_in(doc)
@@ -1979,20 +2013,21 @@ def test_stamp_allows_entry_add_remove_and_null_fill(tmp_path: Path):
     doc.write_text(front + "---\n\n본문\n", encoding="utf-8")
     subprocess.run(["git", "add", "-A"], cwd=root, check=True)
     assert cmd_build(root) == 0
-    assert cmd_verify(root) == 0  # 항목 추가 (null 등록)
+    assert cmd_verify(root) == 0  # entry added (registered as null)
     b_blob = _blob_of(root, "src/b.py")
     doc.write_text(doc.read_text(encoding="utf-8").replace("null", f"'{b_blob}'"), encoding="utf-8")
-    assert cmd_verify(root) == 0  # null→sha 최초 등록 (graph 는 키만 실으므로 재빌드 불필요)
+    assert cmd_verify(root) == 0  # first null-to-sha (keys only in the graph, so no rebuild)
     doc.write_text(
         f"---\nwiki_id: a\ntitle: A\nsources:\n  src/a.py: '{blob}'\n---\n\n본문\n",
         encoding="utf-8",
     )
-    assert cmd_build(root) == 0  # 키 집합이 줄었으므로 graph 재빌드
-    assert cmd_verify(root) == 0  # 항목 삭제
+    assert cmd_build(root) == 0  # the key set shrank, so the graph is rebuilt
+    assert cmd_verify(root) == 0  # entry removed
 
 
 def test_stale_batches_hash_object(tmp_path: Path, monkeypatch):
-    # Windows 에서 프로세스 spawn 이 제일 비싸다 — 경로가 몇 개든 hash-object 는 1회.
+    # Spawning a process is costliest on Windows: however many paths there are, hash-object
+    # runs once.
     _git_repo_with_source(tmp_path, "null")
     (tmp_path / "src" / "b.py").write_text("y = 1\n", encoding="utf-8")
     (tmp_path / "src" / "c.py").write_text("z = 1\n", encoding="utf-8")
@@ -2034,7 +2069,7 @@ def test_nodes_for_exact_match(tmp_path: Path, capsys):
 def test_nodes_for_directory_prefix_is_segment_bounded(tmp_path: Path, capsys):
     root = _nodes_for_repo(tmp_path)
     assert wiki_graph.cmd_nodes_for(root, ["src/auth", "src/auth-x"]) == 0
-    # `src/auth` 는 덮고, 형제 `src/auth-x` 는 안 덮는다 (Invariant #6 과 같은 footgun)
+    # Covers `src/auth` and not the sibling `src/auth-x` (the same footgun as Invariant #6)
     assert capsys.readouterr().out.splitlines() == ["src/auth\tauth.jwt"]
 
 
@@ -2056,7 +2091,8 @@ def test_nodes_for_multiple_nodes_multiple_lines(tmp_path: Path, capsys):
 def test_nodes_for_undocumented_path_is_silent_success(tmp_path: Path, capsys):
     root = _nodes_for_repo(tmp_path)
     assert wiki_graph.cmd_nodes_for(root, ["src/nowhere.py"]) == 0
-    # 미문서화는 정상 답 — --neighbors 의 없는-id exit 1 과 다른 계약
+    # Undocumented is a normal answer — a different contract from --neighbors' exit 1 on an
+    # unknown id
     assert capsys.readouterr().out == ""
 
 
@@ -2098,9 +2134,9 @@ def test_stale_handles_mixed_key_types_in_sources(tmp_path: Path, capsys):
 
 
 def test_broken_front_matter_with_marker_blocks_and_names_the_file(tmp_path: Path):
-    # 따옴표 하나 빠지면 YAML 이 죽는다. 이 문서는 wiki_id 를 썼으니 노드로 의도한 것이
-    # 명백하다 — 조용히 사라지면 --verify 가 exit 0 을 보고하고, /wiki-init 8절의
-    # "verify 통과 = wiki 강제됨" 이 거짓이 된다.
+    # One missing quote kills the YAML. This document wrote a wiki_id, so it plainly meant to be
+    # a node: letting it vanish silently makes --verify report exit 0 and turns /wiki-init §8's
+    # "verify passes means the wiki is enforced" into a falsehood.
     (tmp_path / "docs").mkdir()
     _write_config(tmp_path, "wiki:\n  enable: true\n  root: docs/\n")
     _node(tmp_path, "docs/broken.md", "wiki_id: broken\ntitle: New: Doc\n")
@@ -2110,8 +2146,9 @@ def test_broken_front_matter_with_marker_blocks_and_names_the_file(tmp_path: Pat
 
 
 def test_broken_front_matter_without_marker_warns_but_never_blocks(tmp_path: Path):
-    # 파싱이 죽었으니 wiki_id 가 있었는지 YAML 로는 알 수 없다. 원문에 마커 줄이 없으면
-    # 남의 문서일 수 있으므로 차단하지 않는다 — Task 1 과 같은 원칙이다.
+    # With the parse dead, YAML cannot say whether a wiki_id was there. Absent a marker line in
+    # the raw text the document may belong to someone else, so it does not block — the same
+    # principle as Task 1.
     (tmp_path / "docs").mkdir()
     _write_config(tmp_path, "wiki:\n  enable: true\n  root: docs/\n")
     _node(tmp_path, "docs/theirs.md", "title: New: Doc\nsidebar_position: 1\n")
@@ -2123,8 +2160,9 @@ def test_broken_front_matter_without_marker_warns_but_never_blocks(tmp_path: Pat
 
 
 def test_plain_markdown_is_not_reported_as_broken(tmp_path: Path):
-    # 여는 `---` 가 없거나 닫는 `---` 가 없는 파일은 front matter 가 아니다. 문서 첫 줄의
-    # 수평선·setext 밑줄이 흔하고, 이것까지 깨진 것으로 세면 경고가 노이즈가 된다.
+    # A file with no opening `---`, or no closing one, has no front matter. A horizontal rule or
+    # a setext underline on the first line is common, and counting those as broken turns the
+    # warning into noise.
     (tmp_path / "docs").mkdir()
     _write_config(tmp_path, "wiki:\n  enable: true\n  root: docs/\n")
     (tmp_path / "docs" / "plain.md").write_text("# 제목\n\n본문\n", encoding="utf-8")
@@ -2136,8 +2174,8 @@ def test_plain_markdown_is_not_reported_as_broken(tmp_path: Path):
 
 
 def test_empty_front_matter_is_not_reported_as_broken(tmp_path: Path):
-    # Jekyll 관례로 흔한 빈 블록이다. safe_load 가 None 을 돌려주지만 깨진 것이 아니라
-    # 그냥 노드가 아니다 — 이걸 경고하면 평범한 문서 트리 전체가 다시 노이즈가 된다.
+    # An empty block, common Jekyll practice. safe_load returns None, but it is not broken —
+    # simply not a node. Warning on it makes an ordinary doc tree noisy all over again.
     (tmp_path / "docs").mkdir()
     _write_config(tmp_path, "wiki:\n  enable: true\n  root: docs/\n")
     (tmp_path / "docs" / "empty.md").write_text("---\n---\n\n본문\n", encoding="utf-8")
@@ -2164,8 +2202,9 @@ def test_non_map_front_matter_is_still_reported_broken(tmp_path: Path):
 
 
 def test_verify_no_longer_passes_silently_on_a_broken_node(tmp_path: Path):
-    # 재현된 시나리오: --build 가 깨진 문서를 뺀 그래프를 먼저 쓰면 drift 탐지도 무력화되어
-    # --verify 가 exit 0 을 낸다. 그 무음을 없앤 것이 이 테스트의 대상이다.
+    # The reproduced scenario: --build writing a graph without the broken document first
+    # disables drift detection as well, and --verify then exits 0. Removing that silence is what
+    # this test holds.
     _wiki_repo(tmp_path)
     _node(tmp_path, "docs/broken.md", "wiki_id: broken\ntitle: New: Doc\n")
     assert cmd_build(tmp_path) == 0
@@ -2173,8 +2212,8 @@ def test_verify_no_longer_passes_silently_on_a_broken_node(tmp_path: Path):
 
 
 def test_structural_problem_output_is_capped(tmp_path: Path, capsys):
-    # 이 출력이 그대로 precommit deny 사유가 된다 (flow_gate_check.wiki_check_output).
-    # 캡이 없으면 문서 300 개가 위반일 때 deny 사유가 300 줄이다.
+    # This output becomes the precommit deny reason verbatim (flow_gate_check.wiki_check_output).
+    # Without a cap, 300 violating documents make a 300-line deny reason.
     _wiki_repo(tmp_path)
     for i in range(12):
         _node(tmp_path, f"docs/bad{i}.md", f"wiki_id: Bad_{i}\ntitle: T\n")
@@ -2186,14 +2225,15 @@ def test_structural_problem_output_is_capped(tmp_path: Path, capsys):
 
 
 def test_validate_structure_itself_stays_uncapped(tmp_path: Path):
-    # 캡은 출력 단계의 것이다. 순수 함수는 전수를 돌려줘야 테스트가 전수를 확인할 수 있다.
+    # The cap belongs to the output stage. The pure function returns all of them, which is what
+    # lets a test check all of them.
     nodes = [_mk(f"Bad_{i}", path=f"docs/bad{i}.md") for i in range(12)]
     assert len([p for p in _check(tmp_path, nodes) if "형식 위반" in p]) == 12
 
 
 def test_drift_reason_survives_a_full_structural_cap(tmp_path: Path, capsys):
-    # 합쳐진 리스트에 캡을 걸면 구조 위반 10 건이 drift 사유를 밀어내고, 저자는 두 해소
-    # 경로(front matter 수정 / --build) 중 하나를 보지 못한다.
+    # Capping the merged list lets 10 structure violations push the drift reason out, and the
+    # author never sees one of the two ways to resolve it (fix the front matter, or --build).
     _wiki_repo(tmp_path)
     assert cmd_build(tmp_path) == 0
     for i in range(12):
@@ -2204,10 +2244,10 @@ def test_drift_reason_survives_a_full_structural_cap(tmp_path: Path, capsys):
 
 
 def test_structural_problem_cap_boundary(tmp_path: Path, capsys):
-    # count 만 보면 `if structural > PROBLEM_CAP`이 `>=` 로 뒤집혀도 안 걸린다 — 그 회귀는
-    # 카운터 문구만 어긋나게 만든다. 그래서 여기서는 두 경계를 각각 고정한다: 정확히
-    # PROBLEM_CAP 건에서는 카운터 줄 자체가 없어야 하고, 그보다 하나 많을 때만 정확히
-    # 1건을 보고해야 한다.
+    # Looking at the count alone misses `if structural > PROBLEM_CAP` flipping to `>=`; that
+    # regression only skews the counter line. So both boundaries are pinned separately: at
+    # exactly PROBLEM_CAP there must be no counter line at all, and only at one more than that
+    # must it report exactly one.
     _wiki_repo(tmp_path)
     for i in range(PROBLEM_CAP):
         _node(tmp_path, f"docs/bad{i}.md", f"wiki_id: Bad_{i}\ntitle: T\n")
@@ -2215,8 +2255,8 @@ def test_structural_problem_cap_boundary(tmp_path: Path, capsys):
     assert cmd_verify(tmp_path) == 1
     err = capsys.readouterr().err
     assert err.count("형식 위반") == PROBLEM_CAP
-    # "해소(구조 위반): ..." 안내문에도 "구조 위반"이 들어 있으므로, 카운터 줄에만 있는
-    # "건 (구조 위반)" 접미사로 좁혀서 카운터 줄의 부재를 확인한다.
+    # The "해소(구조 위반): ..." guidance line also contains "구조 위반", so the absence of the
+    # counter line is checked through the "건 (구조 위반)" suffix, which only the counter has.
     assert "건 (구조 위반)" not in err
 
     _node(tmp_path, f"docs/bad{PROBLEM_CAP}.md", f"wiki_id: Bad_{PROBLEM_CAP}\ntitle: T\n")
@@ -2247,13 +2287,14 @@ def test_derive_wiki_id_examples():
 
 
 def test_derive_wiki_id_root_prefix_is_optional():
-    # `--derive-id docs/a.md` 와 `--derive-id a.md --root docs/` 는 같은 호출이다.
+    # `--derive-id docs/a.md` and `--derive-id a.md --root docs/` are the same call.
     assert wiki_graph.derive_wiki_id("a.b.md", "docs") == "a-b"
     assert wiki_graph.derive_wiki_id("docs/a.b.md", "docs/") == "a-b"
 
 
 def test_derive_wiki_id_root_prefix_matches_segment_boundary():
-    # docs-old/ 는 root docs 의 접두가 아니다 (불변식 6 의 path-prefix footgun 과 동형).
+    # docs-old/ is not prefixed by the root docs (the same shape as Invariant 6's path-prefix
+    # footgun).
     assert wiki_graph.derive_wiki_id("docs-old/a.md", "docs") == "docs-old.a"
 
 
@@ -2262,8 +2303,9 @@ def test_derive_wiki_id_windows_separators():
 
 
 def test_derive_wiki_id_rejects_degenerate_segment():
-    # 한글만인 이름은 정규화 후 남는 글자가 없다 — 방출하면 한글 문서 둘부터
-    # duplicate-id 로 커밋이 막히므로 (이 기능이 없애려는 증상) 원천 거부.
+    # A Hangul-only name has nothing left after sanitizing. Emitting one blocks commits on a
+    # duplicate id from the second such document onward — the very symptom this feature exists
+    # to remove — so it is refused at the source.
     with pytest.raises(ValueError, match="영문"):
         wiki_graph.derive_wiki_id("docs/온보딩.md", "docs")
 
@@ -2276,23 +2318,25 @@ def test_derive_wiki_id_rejects_root_itself_and_empty():
 
 
 def test_wiki_root_hint_ignores_the_enable_gate(tmp_path: Path):
-    # enable: false 여도 root 는 존중 — /harness-init 은 /wiki-init 전에 돌 수 있다
-    # (harness-rules 8-2). load_wiki_config 를 거치면 None 이라 조용히 docs 로 파생한다.
+    # The root is honored even under enable: false, because /harness-init may run before
+    # /wiki-init (harness-rules 8-2). Going through load_wiki_config returns None there and
+    # derives against docs silently.
     _write_config(tmp_path, "wiki:\n  enable: false\n  root: documentation/\n")
     assert wiki_graph._wiki_root_hint(tmp_path) == "documentation"
 
 
 def test_wiki_root_hint_fails_soft_to_docs(tmp_path: Path):
-    assert wiki_graph._wiki_root_hint(tmp_path) == "docs"  # config 없음
+    assert wiki_graph._wiki_root_hint(tmp_path) == "docs"  # no config
     _write_config(tmp_path, "wiki: [broken\n")
-    assert wiki_graph._wiki_root_hint(tmp_path) == "docs"  # 파싱 불가
+    assert wiki_graph._wiki_root_hint(tmp_path) == "docs"  # unparsable
 
 
 # ---------------------------------------------------------------- --derive-id CLI
 
 
 def test_derive_id_cli_prints_tab_pairs(capsys):
-    # 위치 zip 이 아니라 경로<TAB>id 쌍 — 부분 실패 시 줄 밀림으로 조용히 어긋나지 않게.
+    # path<TAB>id pairs, not a positional zip, so a partial failure cannot shift the lines and
+    # silently mismatch them.
     rc = wiki_graph.main(["--derive-id", "docs/a/b.md", "docs/a.b.md", "--root", "docs"])
     assert rc == 0
     assert capsys.readouterr().out.splitlines() == ["docs/a/b.md\ta.b", "docs/a.b.md\ta-b"]
@@ -2302,8 +2346,8 @@ def test_derive_id_cli_partial_failure_names_the_path(capsys):
     rc = wiki_graph.main(["--derive-id", "docs/ok.md", "docs/온보딩.md", "--root", "docs"])
     assert rc == 1
     captured = capsys.readouterr()
-    assert "docs/ok.md\tok" in captured.out  # 성공분은 그대로 나간다
-    assert "온보딩" in captured.err  # 실패분은 경로를 지목한다
+    assert "docs/ok.md\tok" in captured.out  # the successes still go out
+    assert "온보딩" in captured.err  # the failure names its path
 
 
 def test_derive_id_cli_reads_config_root(tmp_path: Path, monkeypatch, capsys):
@@ -2327,8 +2371,9 @@ def test_derive_id_cli_respects_an_explicit_empty_root(tmp_path: Path, monkeypat
 
 
 def test_derive_id_is_not_swallowed_by_fail_open(monkeypatch):
-    # --derive-id 는 게이트 명령이 아니다 — 내부 예외가 fail-open 으로 exit 0 이 되면
-    # "출력 없는 성공"이고, 호출자는 손 파생으로 회귀한다 (이 명령이 없애려는 실패 모드).
+    # --derive-id is not a gate command. An internal exception failing open into exit 0 is a
+    # "success with no output", and the caller falls back to deriving by hand — the failure mode
+    # this command exists to remove.
     def _boom(paths, root_arg):
         raise RuntimeError("boom")
 
@@ -2344,60 +2389,91 @@ _TABLE_ROW_RE = re.compile(r"^\s*\|\s*`([^`]+\.md)`\s*\|\s*`([^`]+)`\s*\|", re.M
 _ARROW_EXAMPLE_RE = re.compile(r"\b(docs/[^\s`]+?\.md)\s*(?:->|→)\s*([a-z0-9.-]+)")
 
 
-# 읽는 파일은 wiki-init 의 SKILL.md 하나지만, 다른 skills/ 산문의 관례(들여쓴 펜스,
-# 3-백틱을 감싸는 4-백틱 — skills/flow·flow-init)와 CommonMark 가 허용하는 `~~~` 까지
-# 미리 덮는다. 여는 울타리를 백레퍼런스로 되받으므로 안쪽 3-백틱은 4-백틱 블록을 닫지
-# 못한다. 닫는 들여쓰기는 절대 0–3 칸 또는 여는 쪽 +0–3 칸만 받는다 — 리스트 안 펜스는
-# 들여쓰기를 컨테이너 기준으로 재므로 절대 갈래만으로는 자기 짝을 못 닫고, 무제한이면 블록
-# 안의 더 깊은 구분자 줄에서 조기 종료한다. 받는 닫기가 없으면 `\Z` 로 파일 끝까지 삼킨다 —
-# 덜 걷어내면 표 행이 새고, 과하게 걷어내면 표가 사라져 아래 assert 가 크게 터진다. 위 절들의
-# 행동과 남은 CommonMark 괴리는 `_FENCE_CASES` 가 값으로 고정한다.
+# Only one file is read — wiki-init's SKILL.md — but this covers in advance the conventions of
+# the other skills/ prose (indented fences, four backticks wrapping three: skills/flow,
+# flow-init) and the `~~~` CommonMark allows. The opening fence comes back as a backreference,
+# so inner three backticks cannot close a four-backtick block. A closing indent is accepted only
+# at an absolute 0–3 columns or at the opener's +0–3: a fence inside a list measures its indent
+# against the container, so the absolute branch alone cannot close its own pair, and an unbounded
+# one terminates early on a deeper delimiter line inside the block. With no closer accepted, `\Z`
+# swallows to end of file. Stripping too little leaks table rows; stripping too much removes the
+# table and the assertions below fail loudly. The behaviour of each clause above, and the
+# remaining divergence from CommonMark, are pinned to values by `_FENCE_CASES`.
 _FENCE_RE = re.compile(
     r"^([ \t]*)(`{3,}|~{3,}).*?(?:^(?:[ ]{0,3}|\1[ ]{0,3})\2|\Z)", re.MULTILINE | re.DOTALL
 )
 
 
 def _step5_section(text: str) -> str:
-    """wiki-init SKILL.md 의 §5 본문, 펜스 코드블록을 걷어낸 것.
+    """wiki-init SKILL.md's §5 body, with fenced code blocks stripped out.
 
-    표 정규식을 파일 전체에 풀어놓으면 다른 절의 같은 모양까지 끌어와 아래 중복 단언이
-    오탐으로 터지고, 메시지는 원인을 오도한다(그 경로는 §5 표에 중복으로 있지 않다).
-    절로 좁히는 것만으로는 부족하다 — 펜스는 산문이 아니라 예시이므로, §5 안의 펜스가 표
-    행 모양을 인용하면 같은 오탐이 되고, 컬럼 0 에서 `## 5.` 로 시작하는 펜스 줄은 헤딩
-    분할까지 어긋낸다.
+    Letting the table regex loose on the whole file drags in the same shape from other sections,
+    the duplicate assertion below fires on a false positive, and the message misleads about the
+    cause (that path is not duplicated in §5's table). Narrowing to the section is not enough: a
+    fence is an example rather than prose, so a fence inside §5 quoting a table-row shape is the
+    same false positive, and a fence line beginning `## 5.` at column 0 throws off the heading
+    split as well.
 
-    걷어내는 쪽의 비용 하나 — 표 *아래*에서 짝 없는 펜스 뒤에 붙은 행은 통째로 걷혀 케이스가
-    되지 않는다. wiki-init SKILL.md §5 의 "행을 더하면 케이스가 는다"가 성립하지 않는 유일한
-    자리다."""
+    One cost on the stripping side: a row that sits BELOW the table behind an unpaired fence is
+    stripped wholesale and never becomes a case. It is the one place where wiki-init SKILL.md
+    §5's "adding a row adds a case" does not hold."""
     blocks = [
         b
         for b in re.split(r"^## ", _FENCE_RE.sub("", text), flags=re.MULTILINE)
         if b.startswith("5.")
     ]
-    assert len(blocks) == 1, f"wiki-init SKILL.md 의 §5 블록이 {len(blocks)} 개다 (1 이어야)"
+    assert len(blocks) == 1, f"wiki-init SKILL.md has {len(blocks)} section-5 blocks, want 1"
     return blocks[0]
 
 
 def test_wiki_init_step5_table_is_parity_tested():
-    # 표가 곧 테스트 케이스다 — 산문 예제가 구현과 어긋나거나 표가 조용히 줄면 여기서 걸린다.
+    # The table IS the case set: a prose example drifting from the implementation, or the table
+    # quietly shrinking, is caught here.
     text = (_REPO / "skills" / "wiki-init" / "SKILL.md").read_text(encoding="utf-8")
     rows = _TABLE_ROW_RE.findall(_step5_section(text))
-    # 짝이 안 맞는 펜스 하나면 비탐욕 페어링이 그것을 다음 절의 여는 펜스와 묶어 그 사이의
-    # 표까지 삼키는데, `## 5.` 헤딩은 살아남아 위 블록 가드가 침묵한다. 그러면 빈 표가 아래
-    # 중복 단언을 공허하게 지나고 실패는 마지막 줄에서 "표가 구현과 어긋난다"로만 드러난다.
-    assert rows, "§5 표를 못 찾았다 — 펜스 짝을 확인하라"
-    # dict 로 접기 전에 센다 — 같은 경로가 두 줄이면 접힌 뒤에는 흔적이 없어, 표가 늘었다고
-    # 믿는 동안 케이스는 그대로다. SKILL.md 는 Markdown 이라 중복 행을 잡아줄 린터가 없다.
-    assert len({path for path, _ in rows}) == len(rows), "§5 표에 경로가 중복된 행이 있다"
+    # One unpaired fence and the non-greedy pairing marries it to the next section's opener,
+    # swallowing the table in between, while the `## 5.` heading survives and the block guard
+    # above stays silent. An empty table then passes the duplicate assertion below vacuously and
+    # the failure shows up only on the last line, reading as "the table drifted".
+    assert rows, "section 5's table was not found - check the fence pairing"
+    # Counted before folding into a dict: the same path on two rows leaves no trace once folded,
+    # so the case set stays put while the table looks like it grew. SKILL.md is Markdown, with no
+    # linter to catch a duplicate row.
+    assert len({path for path, _ in rows}) == len(rows), (
+        "section 5's table repeats a path across rows"
+    )
     assert dict(rows) == _EXAMPLES
 
 
-# 위 테스트는 `_FENCE_RE` 를 태우지 않는다 — 입력이 wiki-init 의 SKILL.md 하나뿐인데 그
-# 파일의 펜스는 §5 바깥의 컬럼 0 3-백틱 쌍이라, 스트립을 통째로 걷어내도 rows=6 으로 통과
-# 한다. 정규식이 막는다고 선언한 형태는 여기서만 태워지므로, 새 형태를 막을 땐 케이스를 같이
-# 늘려야 한다. 각 케이스는 정규식의 한 절을 떨어뜨리면 깨진다. 라벨의 though 절은 그 읽기가
-# CommonMark 와 갈린다는 표시다 — 값을 고정해 둬야 바뀔 때 눈에 띄고, 그런 케이스도 절을
-# 태운다(어떤 절의 유일한 가드인 것도 있다).
+_STEP5_CALL_RE = re.compile(r"`python3\s+\S*wiki_graph\.py\s+([^`]+)`")
+
+
+def test_wiki_init_step5_example_call_pins_the_root(tmp_path: Path, monkeypatch, capsys):
+    # Step 5 derives ids before Step 7 has written wiki.root anywhere, so a call without
+    # --root falls back to "docs": a user who chose website/docs gets website.docs.auth.jwt,
+    # which is well-formed and unique, keeps --verify green forever, and is immutable. The
+    # documented argv is RUN against a config naming another root — a substring assertion
+    # would pass on a --root the CLI never honored, and on ids nobody checked.
+    text = (_REPO / "skills" / "wiki-init" / "SKILL.md").read_text(encoding="utf-8")
+    call = _STEP5_CALL_RE.search(_step5_section(text))
+    assert call, "the --derive-id example call is gone from section 5"
+    argv = call.group(1).split()
+
+    _write_config(tmp_path, "wiki:\n  enable: true\n  root: documentation/\n")
+    monkeypatch.setattr(wiki_graph, "host_root", lambda: tmp_path)
+    assert wiki_graph.main(argv) == 0
+    pairs = dict(line.split("\t") for line in capsys.readouterr().out.splitlines())
+    assert pairs, "the example call derived no ids at all"
+    assert pairs == {p: _EXAMPLES[p] for p in pairs}
+
+
+# The test above does not exercise `_FENCE_RE`: its only input is wiki-init's SKILL.md, whose
+# fences are a column-0 three-backtick pair outside §5, so it still passes with rows=6 even with
+# the strip removed entirely. The shapes the regex claims to handle are exercised only here, so
+# blocking a new shape means adding a case with it. Each case breaks if one clause of the regex
+# is dropped. A "though" in a label marks a reading that diverges from CommonMark — pinned to a
+# value so a change is visible — and those cases exercise clauses too, some of them the only
+# guard a clause has.
 _FENCE_IN = "| `docs/in.md` | `in` |"
 _FENCE_KEEP = "| `docs/keep.md` | `keep` |"
 _FENCE_CASES = [
@@ -2413,8 +2489,9 @@ _FENCE_CASES = [
         ["docs/keep.md"],
         "a delimiter indented 4 inside a fence does not close it",
     ),
-    # 리스트로 감싸야 라벨이 기계장치대로다 — 최상위의 4칸 이상 여는 줄을 CommonMark 는
-    # 펜스로 읽지 않아(빈 줄 뒤면 들여쓴 코드블록, 문단 뒤면 문단 연속) "닫는" 일 자체가 없다.
+    # Wrapping in a list is what makes the label match the machinery: at top level CommonMark
+    # does not read an opener indented 4+ as a fence at all (after a blank line it is an indented
+    # code block, after a paragraph a lazy continuation), so there is nothing to "close".
     (
         f"- item\n\n     ```bash\n     {_FENCE_IN}\n     ```\n\n{_FENCE_KEEP}\n",
         ["docs/keep.md"],
@@ -2425,15 +2502,17 @@ _FENCE_CASES = [
         ["docs/keep.md"],
         "an indented block closes at column 0",
     ),
-    # 닫기가 절대 3칸 — 상대 갈래(5칸 요구)가 못 받아 절대 창의 상한을 태운다. 하한은 위
-    # 컬럼 0 케이스가 잡는다.
+    # The closer sits at an absolute 3 columns, which the relative branch (wanting 5) cannot
+    # accept, so this exercises the top of the absolute window. The bottom is covered by the
+    # column-0 case above.
     (
         f"- item\n\n     ```bash\n     {_FENCE_IN}\n   ```\n\n{_FENCE_KEEP}\n",
         ["docs/keep.md"],
         "a list-nested block closes at a shallower absolute indent",
     ),
-    # 행 단위 답은 우연히 일치한다 — 그 블록이 들여쓴 코드가 되어 행이 산문 밖인 것이지,
-    # 펜스로 닫혀서가 아니다. 닫기만 컬럼 0 으로 바꾸면 두 해석의 결과가 서로소다.
+    # The row-level answers agree by coincidence: the block becomes indented code and the rows
+    # fall outside the prose, not because a fence closed. Move only the closer to column 0 and
+    # the two readings become disjoint.
     (
         f"\t```md\n\t{_FENCE_IN}\n\t```\n\n{_FENCE_KEEP}\n",
         ["docs/keep.md"],
@@ -2469,8 +2548,8 @@ _FENCE_CASES = [
         ["docs/keep.md"],
         "a list-nested fence closes within 3 past its opening indent",
     ),
-    # 바로 위와 같은 절대 좌표가 최상위에 오면 CommonMark 와 갈린다 — 정규식은 컨테이너를
-    # 모르므로 둘 다 닫는다.
+    # The same absolute coordinates as just above diverge from CommonMark once they are at top
+    # level: the regex knows nothing of containers, so it closes both.
     (
         f"{_FENCE_KEEP}\n\n   ```text\n   | `docs/body.md` | `body` |\n      ```\n{_FENCE_IN}\n",
         ["docs/keep.md", "docs/in.md"],
@@ -2482,8 +2561,9 @@ _FENCE_CASES = [
         "a closer with trailing text closes, though CommonMark reads on",
     ),
 ]
-# 같은 입력이 다시 들어오면 라벨이 달라도 한쪽 커버리지는 허상이다 — 위에 한 줄 차이 쌍이
-# 실제로 있다(4-백틱 래퍼 vs 그 미닫힘 변형).
+# The same input arriving twice makes one side's coverage imaginary however the labels differ,
+# and there is a genuinely one-line-apart pair above (the four-backtick wrapper against its
+# unclosed variant).
 assert len({doc for doc, _, _ in _FENCE_CASES}) == len(_FENCE_CASES)
 
 
@@ -2496,8 +2576,9 @@ def test_fence_stripping_leaves_exactly_the_rows_outside_fences(doc, expected):
     assert [path for path, _ in _TABLE_ROW_RE.findall(_FENCE_RE.sub("", doc))] == expected
 
 
-# {{ID}} 를 안 쓰는 템플릿은 wiki_id 가 리터럴로 실려 있다 — 파생 규칙이 바뀌면 무음으로
-# 표류하므로, 각 템플릿의 정본 출력 경로(주석·harness-authoring 규약)의 파생값과 대조한다.
+# A template that does not use {{ID}} carries its wiki_id literally, and drifts silently when
+# the derivation rule changes. Each is compared against the value derived from its canonical
+# output path (from its own comment and the harness-authoring convention).
 _LITERAL_ID_TEMPLATES = {
     "docs-readme.template.md": "docs/README.md",
     "onboarding.template.md": "docs/onboarding/README.md",
@@ -2505,8 +2586,9 @@ _LITERAL_ID_TEMPLATES = {
 
 
 def test_template_literal_ids_are_parity_tested():
-    # 맵을 손으로 들지 않고 **템플릿 집합에서 파생**한다: 리터럴 id 템플릿이 새로 생기면
-    # 여기서 먼저 걸린다 (바로 아래 주석 테스트가 경계하는 무음 표류와 같은 실패 모드).
+    # The map is DERIVED FROM THE TEMPLATE SET rather than held by hand, so a new literal-id
+    # template is caught here first — the same failure mode the comment test just below guards
+    # against.
     tpl_dir = _REPO / "skills" / "harness-authoring" / "templates"
     literal = {}
     for tpl in sorted(tpl_dir.glob("*.template.md")):
@@ -2521,19 +2603,20 @@ def test_template_literal_ids_are_parity_tested():
 
 
 def test_template_comment_examples_are_parity_tested():
-    # harness-authoring 템플릿 YAML 주석의 워크드 예제 (docs/x.md -> id 또는 → 표기)도 같은
-    # 규칙. 템플릿별로 개별 단언한다 — 합계에 바닥값만 걸면, {{ID}} 를 쓰는 템플릿 중 하나가
-    # 예제를 잃어도 다른 템플릿의 예제 수가 바닥을 채워 조용히 통과한다(재현: sds 템플릿의
-    # `->` 를 `→` 로만 바꿔도 예전 정규식으로는 합계가 3→2 로 줄어 바닥값 2를 여전히 넘긴다).
+    # The worked examples in the harness-authoring templates' YAML comments (docs/x.md -> id, or
+    # written with →) follow the same rule. Asserted per template: a floor on the total lets one
+    # {{ID}} template lose its example while another template's count fills the floor back in
+    # (reproduced by changing only the sds template's `->` to `→`, which under the old regex took
+    # the total from 3 to 2 — still above a floor of 2).
     tpl_dir = _REPO / "skills" / "harness-authoring" / "templates"
     id_templates = [
         tpl
         for tpl in sorted(tpl_dir.glob("*.template.md"))
         if "{{ID}}" in tpl.read_text(encoding="utf-8")
     ]
-    assert id_templates, "{{ID}} 를 쓰는 템플릿이 없다"
+    assert id_templates, "no template uses {{ID}} any more"
     for tpl in id_templates:
         matches = _ARROW_EXAMPLE_RE.findall(tpl.read_text(encoding="utf-8"))
-        assert matches, f"{tpl.name}: wiki_id 워크드 예제가 사라졌다"
+        assert matches, f"{tpl.name}: the worked wiki_id example is gone"
         for path, expected in matches:
             assert wiki_graph.derive_wiki_id(path, "docs") == expected, tpl.name
