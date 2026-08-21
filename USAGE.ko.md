@@ -582,9 +582,10 @@ Windows 는 Git Bash 가 있는지 확인하세요.
 5. `.github/workflows/wiki-verify.yml`, 그리고 `.claude/harness-tier/scripts/` 를 호출하는
    release 워크플로우 삭제 — 1번을 끝낸 시점에 없는 스크립트를 실행합니다.
    `wiki-verify.yml` 은 그것을 가드해 green 을 유지하므로 빨개지지는 않지만 아무것도
-   검증하지 못하고, release 워크플로우는 가드가 없어 push 마다 실패합니다.
-   (`api-contract.yml`·`unit-test.yml` 은 우리 경로를 참조하지 않아 그대로 살아 있을
-   뿐입니다.)
+   검증하지 못합니다. release 워크플로우는 어느 것을 렌더했는지에 달렸습니다 —
+   `python-semantic-release` 는 호출을 가드하고, `gitversion`·`jreleaser` 는 가드가 없어
+   push 마다 실패합니다. (`api-contract.yml`·`unit-test.yml` 은 우리 경로를 참조하지
+   않아 그대로 살아 있을 뿐입니다.)
 6. (선택) `pre-commit uninstall --hook-type pre-commit --hook-type commit-msg --hook-type pre-push`.
 
 ---

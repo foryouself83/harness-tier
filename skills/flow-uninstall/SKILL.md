@@ -41,10 +41,10 @@ host); everything flow-init wrote **into** the host repo stays unless removed he
    - `.github/workflows/wiki-verify.yml` runs the just-deleted
      `.claude/harness-tier/scripts/wiki_graph.py`. Its guard sees the missing script and
      exits 0, so it does not turn the repo red — it simply can never verify anything
-     again. Remove it together. Release workflows referencing
-     `.claude/harness-tier/scripts/` have no such guard and **do** fail every push;
-     self-contained renders like `api-contract.yml` / `unit-test.yml` merely stay
-     active.
+     again. Remove it together. A release workflow on the same path may or may not
+     survive: the `python-semantic-release` render guards its call, while `gitversion`
+     and `jreleaser` **do** fail every push. Self-contained renders like
+     `api-contract.yml` / `unit-test.yml` merely stay active.
    - Disable the installed git hooks:
      `pre-commit uninstall --hook-type pre-commit --hook-type commit-msg --hook-type pre-push`.
    - Commit the deletions (the removed `.claude/harness-tier/` files were git-tracked).

@@ -2,12 +2,12 @@
   "doc-sync": {
     "fired_hits": 3,
     "fired_rate": 1.0,
-    "measured_at": "2026-08-20",
+    "measured_at": "2026-08-21",
     "model": "claude-opus-4-8",
     "outcome_hits": 3,
     "outcome_n": 3,
     "outcome_pass_rate": 1.0,
-    "outcome_sha": "5a69e5d1a83c",
+    "outcome_sha": "bc88c030e23c",
     "reps": 3
   },
   "wiki-init": {

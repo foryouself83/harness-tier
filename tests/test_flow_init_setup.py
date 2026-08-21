@@ -279,8 +279,8 @@ def test_uninstall_idempotent(tmp_path: Path):
 
 def test_uninstall_names_the_workflows_that_break(tmp_path: Path, capsys):
     # uninstall removes .claude/harness-tier/scripts/, and wiki-verify.yml is what runs
-    # those scripts. Its own guard keeps it green, but a release workflow on the same path
-    # has none and does turn every push red. The guidance has to name both.
+    # those scripts. Its own guard keeps it green; the gitversion and jreleaser release
+    # renders call the same path unguarded and do turn every push red. Guidance names both.
     run_uninstall(tmp_path)
     out = capsys.readouterr().out
     assert "wiki-verify.yml" in out

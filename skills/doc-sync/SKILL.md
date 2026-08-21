@@ -179,7 +179,8 @@ python3 .claude/harness-tier/scripts/wiki_graph.py --stale
    its line — fix that path and re-run; rationale in
    [wiki-init](../wiki-init/SKILL.md) Step 5). No `--root` here, unlike Step 5: this mode
    runs only with the wiki enabled, so the call reads the configured root itself, and a
-   hardcoded one would be wrong for every root that is not `docs`. A defect document is the exception: its
+   hardcoded one would be wrong for every root that is not `docs`. A defect document is
+   the exception: its
    `wiki_id` follows the `defect.<slug>` convention in
    [`defect-template.md`](../wiki-init/references/defect-template.md), not this
    derivation. Then `title`, and the `sources` it
