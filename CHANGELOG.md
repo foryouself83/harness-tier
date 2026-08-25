@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v0.2.1-rc.2 (2026-08-25)
+
+### Bug Fixes
+
+- Make the outcome fingerprint platform-stable
+  ([`6bf4393`](https://github.com/foryouself83/harness-tier/commit/6bf4393037fe2f3e8a8f4ea1b41b0497f2c3874b))
+
+
+## v0.2.1-rc.1 (2026-08-21)
+
+### Bug Fixes
+
+- Close the gaps found reviewing wiki hardening
+  ([`ca824c5`](https://github.com/foryouself83/harness-tier/commit/ca824c530746a8fc9681f545094ecc3ed158bc76))
+
+- **docs**: Narrow the uninstall breakage claim
+  ([`eecfcdf`](https://github.com/foryouself83/harness-tier/commit/eecfcdf20b925ca82a56576e225dc088649713e0))
+
+
 ## v0.2.0-rc.1 (2026-08-20)
 
 ### Bug Fixes

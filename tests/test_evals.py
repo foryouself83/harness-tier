@@ -1694,6 +1694,73 @@ def test_outcome_sha_is_sensitive_to_body_fixture_and_golden():
     assert outcome.outcome_sha("wiki-init", replace(w, git=False)) != w_base
 
 
+def test_outcome_sha_moves_when_a_copied_file_changes(tmp_path: Path, monkeypatch):
+    # copy_from_repo names files the run executes against, and its mapping reads identically
+    # whether or not they were edited: a fingerprint over the mapping alone reports fresh for
+    # a fixture whose behaviour has already changed. The scenario here is held fixed and only
+    # the bytes on disk move, which is the case no field-level mutation can reach.
+    s = sandbox.BY_NAME["wiki-init-migration"]
+    assert s.copy_from_repo, "the scenario stopped copying anything in"
+    skill_md = tmp_path / "skills" / "wiki-init" / "SKILL.md"
+    skill_md.parent.mkdir(parents=True)
+    skill_md.write_text("body\n", encoding="utf-8")
+    for src in s.copy_from_repo.values():
+        stand_in = tmp_path / src
+        stand_in.parent.mkdir(parents=True, exist_ok=True)
+        stand_in.write_text("original\n", encoding="utf-8")
+    monkeypatch.setattr(outcome, "REPO", tmp_path)
+
+    base = outcome.outcome_sha("wiki-init", s)
+    edited = tmp_path / next(iter(s.copy_from_repo.values()))
+    edited.write_text("changed\n", encoding="utf-8")
+    assert outcome.outcome_sha("wiki-init", s) != base
+
+
+def test_outcome_sha_does_not_depend_on_line_endings(tmp_path: Path, monkeypatch):
+    # This repo checks out CRLF on Windows and LF on the ubuntu runner, so a digest taken over
+    # raw bytes gives the two platforms different fingerprints for identical content: whichever
+    # one measures, the other reads the committed baseline as stale, and re-measuring to fix it
+    # breaks the first. Every other fingerprint input arrives through read_text, which
+    # normalizes, so the copied sources have to as well.
+    s = sandbox.BY_NAME["wiki-init-migration"]
+    assert s.copy_from_repo, "the scenario stopped copying anything in"
+    skill_md = tmp_path / "skills" / "wiki-init" / "SKILL.md"
+    skill_md.parent.mkdir(parents=True)
+    skill_md.write_text("body\n", encoding="utf-8")
+    monkeypatch.setattr(outcome, "REPO", tmp_path)
+
+    def _write(newline: str) -> str:
+        for src in s.copy_from_repo.values():
+            stand_in = tmp_path / src
+            stand_in.parent.mkdir(parents=True, exist_ok=True)
+            stand_in.write_bytes(f"one{newline}two{newline}".encode())
+        return outcome.outcome_sha("wiki-init", s)
+
+    assert _write("\n") == _write("\r\n")
+
+
+def test_outcome_sha_survives_a_copy_source_that_is_not_a_usable_path(monkeypatch):
+    # A path that cannot even be joined or opened is the same situation as one that is not
+    # there: the scenario is broken and build() is where that gets said. OSError alone leaves
+    # a non-str value and an embedded NUL to escape as a crash out of the fingerprint.
+    s = sandbox.BY_NAME["wiki-init-migration"]
+    for bad in (3, "a" + chr(0) + "b"):
+        broken = replace(s, copy_from_repo={"dest": bad})
+        assert outcome.outcome_sha("wiki-init", broken)
+
+
+def test_outcome_sha_survives_a_copy_source_that_is_not_there(tmp_path: Path, monkeypatch):
+    # A scenario naming a path that does not exist is broken, and build() is where that is
+    # reported. Fingerprinting it must not raise: outcome_sha is also walked field by field
+    # by the coverage test above, whose generic dict mutation invents exactly such a path.
+    s = sandbox.BY_NAME["wiki-init-migration"]
+    skill_md = tmp_path / "skills" / "wiki-init" / "SKILL.md"
+    skill_md.parent.mkdir(parents=True)
+    skill_md.write_text("body\n", encoding="utf-8")
+    monkeypatch.setattr(outcome, "REPO", tmp_path)
+    assert outcome.outcome_sha("wiki-init", s)
+
+
 def _other_value(current):
     """Some value of the same shape that differs from `current` — for mutating one field of
     a Scenario without knowing which field it is."""
@@ -1739,30 +1806,66 @@ def test_outcome_sha_covers_every_scenario_field_without_being_told():
     )
 
 
+_DOC_SYNC = sandbox.BY_NAME["doc-sync-drift"]
+
+
 def test_outcome_check_warns_when_unmeasured():
-    assert outcome.outcome_check("doc-sync", None, "abc").level == "warn"
+    assert outcome.outcome_check("doc-sync", None, "abc", _DOC_SYNC).level == "warn"
 
 
 def test_outcome_check_fails_on_a_stale_fingerprint():
     entry = {"outcome_hits": 3, "outcome_n": 3, "outcome_sha": "old", "model": scores.MODEL}
-    v = outcome.outcome_check("doc-sync", entry, "new")
+    v = outcome.outcome_check("doc-sync", entry, "new", _DOC_SYNC)
+    assert v.level == "fail"
+    assert "re-measure" in v.message
+
+
+def test_stale_fingerprint_names_the_inputs_that_could_have_moved():
+    # "skill body, fixture or golden" are three nouns nobody can act on. A copied gate script
+    # is an input to a skill the editor may not have been thinking about at all — the message
+    # has to name the files, or the only way to find out is to run the measurement.
+    s = sandbox.BY_NAME["wiki-init-migration"]
+    entry = {"outcome_hits": 3, "outcome_n": 3, "outcome_sha": "old", "model": scores.MODEL}
+    v = outcome.outcome_check("wiki-init", entry, "new", s)
+    assert v.level == "fail"
+    # `uv run`, because the command is meant to be pasted and evals imports PyYAML.
+    assert "uv run python -m evals.outcome --skill wiki-init" in v.message
+    assert "skills/wiki-init/SKILL.md" in v.message
+    # The scenario is named by its file. prompt, files, dirs, git and the golden feed the
+    # fingerprint too and all live there, so a bare scenario name would leave five inputs
+    # under a label that claims to list them.
+    assert "scripts/skill_sandbox.py" in v.message
+    assert s.name in v.message
+    for src in s.copy_from_repo.values():
+        assert src in v.message, src
+
+
+def test_stale_verdict_survives_a_repo_that_does_not_prefix_the_module(monkeypatch):
+    # REPO is resolved and a module's __file__ is not, so a checkout reached through a symlink,
+    # a junction or a subst drive makes the two disagree textually. The branch that would raise
+    # is the one whose whole job is to say "re-measure", so a Verdict has to come back either
+    # way — the same reason _copied_file_sha refuses to raise.
+    s = sandbox.BY_NAME["wiki-init-migration"]
+    entry = {"outcome_hits": 3, "outcome_n": 3, "outcome_sha": "old", "model": scores.MODEL}
+    monkeypatch.setattr(outcome, "REPO", Path(__file__).resolve().parent / "no-such-root")
+    v = outcome.outcome_check("wiki-init", entry, "new", s)
     assert v.level == "fail"
     assert "re-measure" in v.message
 
 
 def test_outcome_check_fails_on_a_model_mismatch():
     entry = {"outcome_hits": 3, "outcome_n": 3, "outcome_sha": "s", "model": "claude-sonnet-5"}
-    assert outcome.outcome_check("doc-sync", entry, "s").level == "fail"
+    assert outcome.outcome_check("doc-sync", entry, "s", _DOC_SYNC).level == "fail"
 
 
 def test_outcome_check_fails_an_all_zero_baseline():
     entry = {"outcome_hits": 0, "outcome_n": 3, "outcome_sha": "s", "model": scores.MODEL}
-    assert outcome.outcome_check("doc-sync", entry, "s").level == "fail"
+    assert outcome.outcome_check("doc-sync", entry, "s", _DOC_SYNC).level == "fail"
 
 
 def test_outcome_check_passes_a_fresh_nonzero_entry():
     entry = {"outcome_hits": 3, "outcome_n": 3, "outcome_sha": "s", "model": scores.MODEL}
-    assert outcome.outcome_check("doc-sync", entry, "s").level == "ok"
+    assert outcome.outcome_check("doc-sync", entry, "s", _DOC_SYNC).level == "ok"
 
 
 def _fake_doc_sync_session(writes_9090: bool, fires: bool):
@@ -1904,5 +2007,7 @@ def test_committed_outcome_baseline_is_never_stale_or_zero():
     if outcome.OUTCOME_SCORES.exists():
         baseline = json.loads(outcome.OUTCOME_SCORES.read_text(encoding="utf-8"))
     for skill, scenario in outcome._outcome_targets():
-        v = outcome.outcome_check(skill, baseline.get(skill), outcome.outcome_sha(skill, scenario))
+        v = outcome.outcome_check(
+            skill, baseline.get(skill), outcome.outcome_sha(skill, scenario), scenario
+        )
         assert v.level in ("ok", "warn"), v.message

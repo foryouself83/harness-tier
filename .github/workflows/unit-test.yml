@@ -2,18 +2,23 @@
 # itself (dogfood). The flow gate runs pytest only on Claude-session commits, so a direct terminal
 # commit / CI push to a collaboration branch would otherwise skip the tests; this closes that gap.
 # GitHub natively skips push/PR workflows on '[skip ci]' commits (the release bot's chore commits).
+# On stage and main the suite arrives through release.yml's workflow_call instead of a push
+# trigger, so a version tag cannot be cut past a failing suite and the run is not duplicated.
 name: unit-test
 
 on:
   push:
-    branches: [dev, stage, main]
+    branches: [dev]
   pull_request:
     branches: [dev, stage, main]
+  workflow_call:
 
 jobs:
   unit-test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
 

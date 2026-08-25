@@ -11,7 +11,8 @@
 #   check-merge-ruleset.sh <flow> [<flow>...]        # flow = daily | promotion
 #   check-merge-ruleset.sh --decode <branch> <methods-csv> [<default-branch>]
 #   check-merge-ruleset.sh --decode-bypass <branch> [<default-branch>]
-#     (both read stdin = JSON array of rulesets. <default-branch> resolves the
+#     (both read stdin = JSON array of rulesets, each carrying its `id` — an element without
+#      one is read as unreadable, not as a ruleset. <default-branch> resolves the
 #      ~DEFAULT_BRANCH alias in conditions.ref_name; omitted, such a ruleset is not counted.)
 #
 # Env: HARNESS_REPO (else GITHUB_REPOSITORY)
@@ -59,8 +60,11 @@ def _rx(p):
 def unreadable(sets):
     # The fetch loop marks a ruleset whose body it could not read. We do not know whether it
     # governs this ref, so no verdict is honest — the caller exits 20 rather than judging a
-    # partial picture.
-    return any(rs.get("__unreadable__") for rs in sets)
+    # partial picture. An element carrying no id is the same situation reached another way:
+    # gh writes its error body to stdout, and one that survives the fetch loop is valid JSON
+    # that is not a ruleset. Deciding it here rather than on the body text costs nothing and
+    # depends on no formatting the API never promised.
+    return any(rs.get("__unreadable__") or "id" not in rs for rs in sets)
 def _hit(pats, ref, default_branch):
     for p in pats or []:
         if not isinstance(p, str):
@@ -230,9 +234,19 @@ sets="$(
     # it switched itself off for exactly the repos it was meant to inspect. A failure now
     # stays scoped to its own id, and only when neither endpoint answers does the body become
     # a marker the decoders read as "undetermined" — never a verdict on an unread ruleset.
-    gh api "repos/$repo/rulesets/$id" 2>/dev/null \
-      || gh api "orgs/$owner/rulesets/$id" 2>/dev/null \
-      || printf '{"__unreadable__": true}'
+    #
+    # CAPTURED, never streamed: `gh api` prints the API's error JSON to STDOUT, so an
+    # attempt that writes straight through contributes a body of its own. The array shape
+    # depends on emitting exactly one value per id. The "id" test only screens out a body
+    # without that substring; what a body actually IS gets decided by `unreadable` above, on
+    # the parsed object.
+    body="$(gh api "repos/$repo/rulesets/$id" 2>/dev/null)" \
+      || body="$(gh api "orgs/$owner/rulesets/$id" 2>/dev/null)" \
+      || body=''
+    case "$body" in
+      *'"id"'*) printf '%s' "$body" ;;
+      *) printf '{"__unreadable__": true}' ;;
+    esac
   done
   printf ']'
 )" || { echo "  [=] could not read rulesets — skipping" >&2; exit 20; }

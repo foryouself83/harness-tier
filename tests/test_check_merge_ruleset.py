@@ -380,6 +380,11 @@ def _body(rs) -> str:
     return rs if isinstance(rs, str) else json.dumps(rs)
 
 
+# A failing `gh api` writes the API's error JSON to STDOUT and exits nonzero. A stub that
+# merely exits nonzero cannot expose a caller that lets that body reach its own stdout.
+GH_ERROR_BODY = """printf '%s' '{"message":"Not Found","status":"404"}'; exit 1"""
+
+
 def _gh_stub_script(
     rulesets_by_id: dict,
     org_rulesets_by_id: dict | None = None,
@@ -396,7 +401,7 @@ def _gh_stub_script(
     ids_out = "\n".join(str(rid) for rid in rulesets_by_id)
     repo_cases = "\n".join(
         f"    repos/*/rulesets/{rid}) "
-        + ("exit 1 ;;" if rs is None else f"printf '%s' '{_body(rs)}' ;;")
+        + (f"{GH_ERROR_BODY} ;;" if rs is None else f"printf '%s' '{_body(rs)}' ;;")
         for rid, rs in rulesets_by_id.items()
     )
     org_cases = "\n".join(
@@ -421,7 +426,7 @@ def _gh_stub_script(
         f"    repos/*/rulesets) printf '{ids_out}\\n' ;;\n"
         # last among the repos/* patterns: it would otherwise swallow the rulesets paths
         f"{repo_meta}"
-        "    *) exit 1 ;;\n"
+        f"    *) {GH_ERROR_BODY} ;;\n"
         "  esac\n"
         "  exit 0\n"
         "fi\n"
@@ -637,6 +642,24 @@ def test_org_inherited_ruleset_is_read_from_the_org_endpoint():
     )
     assert r.returncode == 0
     assert "match the required methods" in r.stderr
+
+
+def test_an_error_body_shaped_like_json_is_undetermined_not_a_match():
+    # gh writes its error body to stdout, and one carrying the text "id" passes the fetch
+    # loop's shape test — so the verdict has to be taken on the PARSED object. Reading such a
+    # body as a ruleset lets the second, correct ruleset satisfy the branch on its own and
+    # reports "match" for an id nobody read: the wrong-0 the 0/10/20 contract forbids. The
+    # body is served with exit 0, which is the only way this route is reachable at all.
+    r = _run_dispatch(
+        {
+            1: '{"message":"Validation Failed","errors":[{"resource":"Ruleset","field":"id"}]}',
+            2: _ruleset("~ALL", ["merge"], bypass_actors=ACTOR),
+        },
+        ["promotion"],
+        {"HARNESS_BRANCH_STAGING": "stage", "HARNESS_BRANCH_PRODUCTION": "main"},
+    )
+    assert r.returncode == 20
+    assert "match" not in r.stderr.lower()
 
 
 def test_a_ruleset_readable_from_neither_endpoint_is_undetermined():

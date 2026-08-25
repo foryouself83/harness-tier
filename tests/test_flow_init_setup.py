@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -35,6 +36,9 @@ from scripts.flow_init_setup import (
 )
 
 PLUGIN = Path(__file__).resolve().parent.parent  # repo root == plugin root
+# Same resolution as tests/test_check_merge_ruleset.py: a bare "bash" hits the System32
+# WSL stub first on Windows, which mangles backslash paths.
+BASH = shutil.which("bash") or "bash"
 
 
 def _gate_commands(settings: Path) -> list[str]:
@@ -214,7 +218,7 @@ def test_copied_gate_imports_shared_helper(tmp_path: Path):
         text=True,
         encoding="utf-8",
     )
-    assert result.returncode == 0, f"import 양립 실패 의심: {result.stderr}"
+    assert result.returncode == 0, f"the two import paths stopped coexisting: {result.stderr}"
 
 
 def test_copied_gate_reads_tiers_from_config(tmp_path: Path):
@@ -274,11 +278,16 @@ def test_uninstall_idempotent(tmp_path: Path):
 
 
 def test_uninstall_names_the_workflows_that_break(tmp_path: Path, capsys):
-    # uninstall 은 .claude/harness-tier/scripts/ 를 지운다 — 그 스크립트를 실행하는
-    # wiki-verify.yml 이 남으면 push 마다 CI red 다. 안내가 그 파일을 지목해야 한다.
+    # uninstall removes .claude/harness-tier/scripts/, and wiki-verify.yml is what runs
+    # those scripts. Its own guard keeps it green; the gitversion and jreleaser release
+    # renders call the same path unguarded and do turn every push red. Guidance names both.
     run_uninstall(tmp_path)
     out = capsys.readouterr().out
     assert "wiki-verify.yml" in out
+    # Not the bare word "release" — the guidance before this one contained it too, and
+    # "python-semantic-release" contains it as a substring.
+    assert "gitversion" in out
+    assert "jreleaser" in out
 
 
 def test_uninstall_preserves_other_settings(tmp_path: Path):
@@ -480,8 +489,9 @@ def test_run_setup_renders_workflow(tmp_path: Path, capsys):
 
 
 def test_render_wiki_verify_workflow_unconditional(tmp_path: Path):
-    # flow-config 유무·wiki enable 여부와 무관하게 렌더 — 스크립트가 no-op green 을 보장하므로
-    # /flow-init 이 /wiki-init 실행 순서에 의존하지 않는다.
+    # Rendered whether or not flow-config exists and whether or not the wiki is enabled:
+    # the script guarantees a no-op green, which is what frees /flow-init from depending on
+    # /wiki-init having run.
     out = render_wiki_verify_workflow(tmp_path, PLUGIN)
     assert any("생성" in line for line in out)
     dest = tmp_path / ".github" / "workflows" / "wiki-verify.yml"
@@ -489,6 +499,48 @@ def test_render_wiki_verify_workflow_unconditional(tmp_path: Path):
     assert "__HARNESS_" not in text
     data = _yaml.safe_load(text)
     assert data["jobs"]["wiki-verify"]["timeout-minutes"] == 5
+
+
+def _wiki_verify_step(host: Path) -> str:
+    data = _yaml.safe_load(
+        (host / ".github" / "workflows" / "wiki-verify.yml").read_text(encoding="utf-8")
+    )
+    steps = data["jobs"]["wiki-verify"]["steps"]
+    return next(s["run"] for s in steps if s.get("name") == "Verify wiki graph")
+
+
+def test_wiki_verify_step_is_green_without_the_script(tmp_path: Path):
+    # The unconditional render reaches repos that gitignore .claude/, where the checkout holds
+    # no script and an unguarded python3 exits 2 — a red push for a repo that never opted into
+    # a wiki. The step's shell is executed rather than pattern-matched: a guard that reads
+    # right and short-circuits wrong is what a substring assertion cannot tell apart.
+    render_wiki_verify_workflow(tmp_path, PLUGIN)
+    step = tmp_path / "step.sh"
+    step.write_text(_wiki_verify_step(tmp_path), encoding="utf-8", newline="\n")
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    # python3 is stubbed rather than assumed: the second arm has to prove the guard falls
+    # THROUGH to the verify call, and an exit code the runner's own interpreter chose would
+    # not tell that apart from a short circuit.
+    stub = bin_dir / "python3"
+    stub.write_text("#!/usr/bin/env bash\nexit 3\n", encoding="utf-8", newline="\n")
+    stub.chmod(0o755)
+    env = dict(os.environ)
+    env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
+
+    absent = subprocess.run(
+        [BASH, "-e", str(step)], cwd=tmp_path, env=env, capture_output=True, text=True
+    )
+    assert absent.returncode == 0, absent.stderr
+
+    script = tmp_path / ".claude" / "harness-tier" / "scripts" / "wiki_graph.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("", encoding="utf-8")
+    present = subprocess.run(
+        [BASH, "-e", str(step)], cwd=tmp_path, env=env, capture_output=True, text=True
+    )
+    assert present.returncode == 3, "the guard swallowed the verify call"
 
 
 def test_render_wiki_verify_workflow_preserves_existing(tmp_path: Path):

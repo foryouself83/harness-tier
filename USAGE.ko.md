@@ -580,9 +580,13 @@ Windows 는 Git Bash 가 있는지 확인하세요.
 3. `.gitignore` 에서 harness-tier 라인 제거.
 4. `CLAUDE.md` 의 `harness-tier:teams` 관리 블록 제거.
 5. `.github/workflows/wiki-verify.yml`, 그리고 `.claude/harness-tier/scripts/` 를 호출하는
-   release 워크플로우 삭제 — 1번을 끝낸 시점에 없는 스크립트를 실행하므로 push 마다
-   실패합니다. (`api-contract.yml`·`unit-test.yml` 은 우리 경로를 참조하지 않아 그대로
-   살아 있을 뿐입니다.)
+   release 워크플로우 삭제 — 1번을 끝낸 시점에 없는 스크립트를 실행합니다.
+   `wiki-verify.yml` 은 그것을 가드해 green 을 유지합니다 — 아무것도 검증하지 못하면서
+   그 말을 하려고 push 마다 러너를 씁니다. release 렌더 중 `gitversion`·`jreleaser` 는
+   경로를 가드 없이 호출해 **릴리스 브랜치 push 에서** 실패하고, `python-semantic-release`
+   는 호출을 가드하며, `cargo-release`·`semantic-release` 는 그 경로를 참조하지 않습니다.
+   (`api-contract.yml`·`unit-test.yml` 은 우리 경로를 참조하지 않아 그대로 살아 있을
+   뿐입니다.)
 6. (선택) `pre-commit uninstall --hook-type pre-commit --hook-type commit-msg --hook-type pre-push`.
 
 ---

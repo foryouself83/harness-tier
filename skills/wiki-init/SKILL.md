@@ -74,12 +74,17 @@ Branch on the H2 count recorded in Step 2:
 `wiki_id` is derived mechanically from the path **relative to the wiki root** — never
 pick one by hand, and never derive it by hand either: run
 [`wiki_graph.py`](../../scripts/wiki_graph.py) `--derive-id`, one call for all the
-selected documents, substituting their real paths (e.g. `python3
-.claude/harness-tier/scripts/wiki_graph.py --derive-id docs/code-style/python.md
-docs/api_spec.md`). Each stdout line is `path<TAB>id`. A path that cannot produce an
-id — a segment with no `[a-z0-9]` left after sanitizing, e.g. a Korean-only
-filename — is named on stderr with the reason and the call exits nonzero, though every
-path that succeeded still prints its line: rename only the named file(s) and re-run.
+selected documents, substituting their real paths and the root confirmed in Step 1 (e.g.
+`python3 .claude/harness-tier/scripts/wiki_graph.py --root docs --derive-id
+docs/code-style/python.md docs/api_spec.md`). Pass `--root` even when it is `docs`:
+nothing has written `wiki.root` to flow-config yet — Step 7 does that — so a call without
+it derives against the default instead of the chosen root, and `website/docs` comes back
+as `website.docs.auth.jwt`. Such an id is well-formed and unique, so `--verify` is green
+on it forever, and a `wiki_id` is immutable once written. Each stdout line is
+`path<TAB>id`. A path that cannot produce an id — a segment with no `[a-z0-9]` left after
+sanitizing, e.g. a Korean-only filename — is named on stderr with the reason and the call
+exits nonzero, though every path that succeeded still prints its line: rename only the
+named file(s) and re-run.
 `derive_wiki_id` owns the mechanics; this table is parity-tested against it
 (`tests/test_wiki_graph.py`), so adding a row here adds a test case:
 

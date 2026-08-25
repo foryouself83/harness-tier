@@ -69,7 +69,7 @@ def test_render_pypi_produces_workflow(tmp_path: Path):
     render_deploy_workflows(tmp_path, PLUGIN)
     wf = tmp_path / ".github" / "workflows" / "deploy-pypi.yml"
     text = wf.read_text(encoding="utf-8")
-    assert "__HARNESS_" not in text  # 모든 플레이스홀더 치환됨
+    assert "__HARNESS_" not in text  # every placeholder substituted
     assert "timeout-minutes: 15" in text
     assert "workflow_call:" in text
     assert "inputs:" in text and "tag:" in text
@@ -95,9 +95,9 @@ def test_render_deploy_idempotent_nondestructive(tmp_path: Path):
     )
     render_deploy_workflows(tmp_path, PLUGIN)
     wf = tmp_path / ".github" / "workflows" / "deploy-pypi.yml"
-    wf.write_text("# hand-edited\n", encoding="utf-8")  # 사용자 커스텀
-    render_deploy_workflows(tmp_path, PLUGIN)  # 재실행
-    assert wf.read_text(encoding="utf-8") == "# hand-edited\n"  # 덮어쓰지 않음
+    wf.write_text("# hand-edited\n", encoding="utf-8")  # a user customization
+    render_deploy_workflows(tmp_path, PLUGIN)  # re-run
+    assert wf.read_text(encoding="utf-8") == "# hand-edited\n"  # never overwritten
 
 
 @pytest.mark.parametrize(
