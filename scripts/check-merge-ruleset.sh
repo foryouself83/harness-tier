@@ -11,7 +11,8 @@
 #   check-merge-ruleset.sh <flow> [<flow>...]        # flow = daily | promotion
 #   check-merge-ruleset.sh --decode <branch> <methods-csv> [<default-branch>]
 #   check-merge-ruleset.sh --decode-bypass <branch> [<default-branch>]
-#     (both read stdin = JSON array of rulesets. <default-branch> resolves the
+#     (both read stdin = JSON array of rulesets, each carrying its `id` — an element without
+#      one is read as unreadable, not as a ruleset. <default-branch> resolves the
 #      ~DEFAULT_BRANCH alias in conditions.ref_name; omitted, such a ruleset is not counted.)
 #
 # Env: HARNESS_REPO (else GITHUB_REPOSITORY)
@@ -234,13 +235,11 @@ sets="$(
     # stays scoped to its own id, and only when neither endpoint answers does the body become
     # a marker the decoders read as "undetermined" — never a verdict on an unread ruleset.
     #
-    # CAPTURED, never streamed: `gh api` prints the API's error JSON to STDOUT, so a chain
-    # that let each attempt write straight through emitted the 404 body AND the org body,
-    # and the concatenation broke the parse for the WHOLE array — the fallback and the
-    # marker alike. Emitting exactly one value per id is what the array shape depends on.
-    # The "id" test keeps a body that is not a ruleset from entering the array at all, so one
-    # bad answer cannot cost the parse of every other id. What that body actually IS gets
-    # decided by `unreadable` above, on the parsed object.
+    # CAPTURED, never streamed: `gh api` prints the API's error JSON to STDOUT, so an
+    # attempt that writes straight through contributes a body of its own. The array shape
+    # depends on emitting exactly one value per id. The "id" test only screens out a body
+    # without that substring; what a body actually IS gets decided by `unreadable` above, on
+    # the parsed object.
     body="$(gh api "repos/$repo/rulesets/$id" 2>/dev/null)" \
       || body="$(gh api "orgs/$owner/rulesets/$id" 2>/dev/null)" \
       || body=''

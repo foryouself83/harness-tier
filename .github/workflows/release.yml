@@ -17,7 +17,15 @@ permissions:
   contents: write
 
 jobs:
+  # A version tag must not be cut from a tree whose own gate is failing, and `needs:` cannot
+  # reach across workflows — so the suite is called in, not copied. Same `if:` as the release
+  # job: a skipped dependency skips its dependents, and a bot [skip ci] commit spends no runner.
+  test:
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    uses: ./.github/workflows/unit-test.yml
+
   release:
+    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}

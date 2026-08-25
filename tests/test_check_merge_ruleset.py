@@ -381,8 +381,7 @@ def _body(rs) -> str:
 
 
 # A failing `gh api` writes the API's error JSON to STDOUT and exits nonzero. A stub that
-# merely exits nonzero cannot expose a caller that lets that body reach its own stdout,
-# which is how a fallback chain concatenating two bodies stayed green here.
+# merely exits nonzero cannot expose a caller that lets that body reach its own stdout.
 GH_ERROR_BODY = """printf '%s' '{"message":"Not Found","status":"404"}'; exit 1"""
 
 

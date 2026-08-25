@@ -2596,7 +2596,7 @@ def test_template_literal_ids_are_parity_tested():
         if m is not None and m.group(1) != "{{ID}}":
             literal[tpl.name] = m.group(1)
     assert set(literal) == set(_LITERAL_ID_TEMPLATES), (
-        f"리터럴 wiki_id 템플릿 집합이 바뀌었다 — 출력 경로를 맵에 등록하라: {sorted(literal)}"
+        f"the literal wiki_id template set changed - register its output path: {sorted(literal)}"
     )
     for name, wid in literal.items():
         assert wiki_graph.derive_wiki_id(_LITERAL_ID_TEMPLATES[name], "docs") == wid, name

@@ -1716,6 +1716,39 @@ def test_outcome_sha_moves_when_a_copied_file_changes(tmp_path: Path, monkeypatc
     assert outcome.outcome_sha("wiki-init", s) != base
 
 
+def test_outcome_sha_does_not_depend_on_line_endings(tmp_path: Path, monkeypatch):
+    # This repo checks out CRLF on Windows and LF on the ubuntu runner, so a digest taken over
+    # raw bytes gives the two platforms different fingerprints for identical content: whichever
+    # one measures, the other reads the committed baseline as stale, and re-measuring to fix it
+    # breaks the first. Every other fingerprint input arrives through read_text, which
+    # normalizes, so the copied sources have to as well.
+    s = sandbox.BY_NAME["wiki-init-migration"]
+    assert s.copy_from_repo, "the scenario stopped copying anything in"
+    skill_md = tmp_path / "skills" / "wiki-init" / "SKILL.md"
+    skill_md.parent.mkdir(parents=True)
+    skill_md.write_text("body\n", encoding="utf-8")
+    monkeypatch.setattr(outcome, "REPO", tmp_path)
+
+    def _write(newline: str) -> str:
+        for src in s.copy_from_repo.values():
+            stand_in = tmp_path / src
+            stand_in.parent.mkdir(parents=True, exist_ok=True)
+            stand_in.write_bytes(f"one{newline}two{newline}".encode())
+        return outcome.outcome_sha("wiki-init", s)
+
+    assert _write("\n") == _write("\r\n")
+
+
+def test_outcome_sha_survives_a_copy_source_that_is_not_a_usable_path(monkeypatch):
+    # A path that cannot even be joined or opened is the same situation as one that is not
+    # there: the scenario is broken and build() is where that gets said. OSError alone leaves
+    # a non-str value and an embedded NUL to escape as a crash out of the fingerprint.
+    s = sandbox.BY_NAME["wiki-init-migration"]
+    for bad in (3, "a" + chr(0) + "b"):
+        broken = replace(s, copy_from_repo={"dest": bad})
+        assert outcome.outcome_sha("wiki-init", broken)
+
+
 def test_outcome_sha_survives_a_copy_source_that_is_not_there(tmp_path: Path, monkeypatch):
     # A scenario naming a path that does not exist is broken, and build() is where that is
     # reported. Fingerprinting it must not raise: outcome_sha is also walked field by field
@@ -1805,6 +1838,19 @@ def test_stale_fingerprint_names_the_inputs_that_could_have_moved():
     assert s.name in v.message
     for src in s.copy_from_repo.values():
         assert src in v.message, src
+
+
+def test_stale_verdict_survives_a_repo_that_does_not_prefix_the_module(monkeypatch):
+    # REPO is resolved and a module's __file__ is not, so a checkout reached through a symlink,
+    # a junction or a subst drive makes the two disagree textually. The branch that would raise
+    # is the one whose whole job is to say "re-measure", so a Verdict has to come back either
+    # way — the same reason _copied_file_sha refuses to raise.
+    s = sandbox.BY_NAME["wiki-init-migration"]
+    entry = {"outcome_hits": 3, "outcome_n": 3, "outcome_sha": "old", "model": scores.MODEL}
+    monkeypatch.setattr(outcome, "REPO", Path(__file__).resolve().parent / "no-such-root")
+    v = outcome.outcome_check("wiki-init", entry, "new", s)
+    assert v.level == "fail"
+    assert "re-measure" in v.message
 
 
 def test_outcome_check_fails_on_a_model_mismatch():

@@ -1106,7 +1106,7 @@ def run_uninstall(host: Path) -> None:
     print("    보고 exit 0 하므로 CI 가 빨개지지는 않지만 더는 아무것도 검증하지 못하니 함께")
     print("    제거하세요. 같은 경로를 쓰는 release 워크플로우는 렌더한 종류에 달렸습니다 —")
     print("    python-semantic-release 는 가드가 있고, gitversion·jreleaser 는 가드가 없어")
-    print("    push 마다 실패합니다.")
+    print("    릴리스 브랜치 push 에서 실패합니다.")
     print("  - 설치했던 git 훅 비활성화:")
     print("      pre-commit uninstall --hook-type pre-commit --hook-type commit-msg \\")
     print("        --hook-type pre-push")

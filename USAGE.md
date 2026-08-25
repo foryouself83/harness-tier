@@ -623,10 +623,11 @@ If `/flow-uninstall` is no longer available, remove things by hand:
 4. Remove the `harness-tier:teams` managed block from `CLAUDE.md`.
 5. Delete `.github/workflows/wiki-verify.yml`, and any release workflow that calls
    `.claude/harness-tier/scripts/` — with step 1 done they run a script that is gone.
-   `wiki-verify.yml` guards on that and stays green, so it costs you nothing but verifies
-   nothing either. A release workflow depends on which one you rendered: the
-   `python-semantic-release` template guards its call, `gitversion` and `jreleaser` do not
-   and fail every push. (`api-contract.yml` / `unit-test.yml` reference nothing of ours and
+   `wiki-verify.yml` guards on that and stays green — it verifies nothing, and still spends
+   a runner on every push to say so. Among the release renders, `gitversion` and `jreleaser`
+   call the path unguarded and fail on pushes to your release branches;
+   `python-semantic-release` guards its call, and `cargo-release` / `semantic-release` never
+   reference the path. (`api-contract.yml` / `unit-test.yml` reference nothing of ours and
    simply stay active.)
 6. (Optional) `pre-commit uninstall --hook-type pre-commit --hook-type commit-msg --hook-type pre-push`.
 
