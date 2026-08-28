@@ -77,11 +77,13 @@ review_checklist:
   - "async task idempotency / async task idempotency"
 
 # The host's own commit/versioning document, which /harness-init generates. The `commit` skill
-# reads it and prefers its project-specific facts (scope vocabulary, release tool, version files,
-# 0.x policy) over its own generic ones. Message FORMAT is not negotiable here — rules/risk-tiers.md
-# Commit Discipline owns the 50/72 rule and the type table either way. Deliberately top-level, not
-# under `versioning:`: a project with `versioning.enable: false` still commits.
-# Empty value or a missing file → the skill runs on risk-tiers alone.
+# reads it and prefers its project-specific facts (scope vocabulary, 0.x policy, and whether the
+# release tool reads the Release-Level trailer) over its own generic ones. That document's other
+# subject — which files carry the version, how the changelog is filtered — belongs to the release
+# CI, not to writing a commit. Message FORMAT is not negotiable here either: rules/risk-tiers.md
+# Commit Discipline owns the 50/72 rule and the type table whether or not this file exists.
+# Deliberately top-level, not under `versioning:`: a project with `versioning.enable: false`
+# still commits. Empty value or a missing file → the skill runs on risk-tiers alone.
 commit_guide: docs/operations/commit-versioning-guide.md
 
 # Documentation sync (doc-sync)

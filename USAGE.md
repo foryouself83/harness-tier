@@ -260,10 +260,10 @@ The **mandatory first step for all code changes**. Sequence:
 Every commit step above goes through the **`commit`** skill, which stages the affected
 files, picks the Conventional Commits type, and checks the 50/72 rule before issuing
 `git commit`. It reads the host's own `commit_guide` when that file exists and prefers
-its stack facts — scope vocabulary, release tool, version files — while
-[`risk-tiers.md`](rules/risk-tiers.md) keeps the message format. `/commit` on its own
-handles a standalone commit, but it does **not** classify: a commit made without `/flow`
-is still unclassified and still blocked.
+its stack facts — scope vocabulary, 0.x policy, whether the release tool reads the
+`Release-Level` trailer — while [`risk-tiers.md`](rules/risk-tiers.md) keeps the message
+format. `/commit` on its own handles a standalone commit, but it does **not** classify:
+a commit made without `/flow` is still unclassified and still blocked.
 
 ### 3.2 `/flow-init` — setup/update wizard
 

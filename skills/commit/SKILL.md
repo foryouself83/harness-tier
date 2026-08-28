@@ -23,7 +23,10 @@ applies it to one concrete commit.
 `flow-config.commit_guide` names the host's own commit/versioning document — `/harness-init`
 generates one at `docs/operations/commit-versioning-guide.md`. When that file exists, read it
 and take its **project-specific facts** over this skill's generic ones: the scope vocabulary
-this repo actually uses, its release tool, its version files, its 0.x policy.
+this repo actually uses, its 0.x policy, and whether its release tool reads the
+`Release-Level` trailer or derives the bump from the commits itself. Its remaining subject —
+which files carry the version, how the changelog is filtered — belongs to the release CI, not
+to writing a commit.
 
 ```bash
 guide=$(python3 -c "import pathlib,yaml
