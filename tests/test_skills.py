@@ -338,9 +338,10 @@ def gate_self_filter(name: str) -> re.Pattern[str]:
 def test_git_commands_a_skill_issues_reach_the_flow_gate(skill: Path):
     """A `git commit` / `git merge` a skill issues has to match precommit-runner's self-filter.
 
-    The hook is handed `tool_input.command` *before* the shell expands it, so a `$VAR` between
-    `git` and the subcommand — `git ${WT:+-C "$WT"} commit` — matches neither regex. The runner
-    then exits 0 as "not a commit" and everything behind it is skipped in silence: the
+    The hook is handed `tool_input.command` *before* the shell expands it, and both regexes need
+    the token after `git` to start with `-`, so a variable supplying the flag itself — `git
+    ${WT:+-C "$WT"} commit` — matches neither. (As a flag's argument a variable is fine.) The
+    runner then exits 0 as "not a commit" and everything behind it is skipped in silence: the
     unclassified-commit block, the evidence markers, the module pre-check, the in-process wiki
     gate, the python3/PyYAML FAIL-CLOSED check, and worktree re-designation, which parses a
     literal `-C <dir>` out of that same string. Invariant #6.

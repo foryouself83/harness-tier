@@ -97,10 +97,12 @@ character counts as one, which is what Python's `len` already measures. And `-C`
 inside the command rather than in prose beside it: a bare `git commit` after a separate `cd` can
 leave the gate checking the main repo, since `--resolve-worktree` reads the `git -C` the command
 actually carries. Write that path **literally** — `.` for the main repo, the worktree's own path
-when the work lives in one. A shell variable there is the trap: the hook is handed the command
-*before* the shell expands it, so a `${…}` sitting between `git` and the subcommand matches
-neither of `precommit-runner.sh`'s self-filters, the runner takes the line for something that is
-not a commit, and every gate behind it is skipped without a word.
+when the work lives in one. A shell variable in the flag's own place is the
+trap: the hook is handed the command *before* the shell expands it, and
+`precommit-runner.sh`'s self-filters need the token after `git` to start with `-`. A variable
+that supplies the flag itself matches neither, so the runner takes the line for something that
+is not a commit and every gate behind it is skipped without a word. A variable used as a
+flag's *argument* is fine — it is the flag that has to be literal.
 
 The commit prompt itself is deliberately left unapproved — it is the mechanical backstop behind
 the tier gate.
