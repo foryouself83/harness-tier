@@ -39,8 +39,12 @@ jobs:
         with:
           python-version: "3.12"
 
+      # GitPython 3.1.60 dropped Actor.name_email_regex, which python-semantic-release still
+      # reads at config load (semantic_release/cli/config.py) through its latest 10.x — an
+      # unpinned resolve crashes the release step before it computes anything. Drop the pin
+      # when a PSR release stops calling it.
       - name: Install python-semantic-release
-        run: pip install "python-semantic-release>=10,<11"
+        run: pip install "python-semantic-release>=10,<11" "GitPython<3.1.60"
 
       - name: Configure Git
         run: |
