@@ -2,6 +2,31 @@
 
 <!-- version list -->
 
+## v0.2.2-rc.1 (2026-08-28)
+
+### Bug Fixes
+
+- **commit**: Drop version files from guide scope
+  ([`964f04f`](https://github.com/foryouself83/harness-tier/commit/964f04f79c33d0cf9b5a81af96af62a7dea555a2))
+
+- **commit**: Let the issued commit reach the gate
+  ([`024126c`](https://github.com/foryouself83/harness-tier/commit/024126c9d256cb84ffe3e91e93c2494b4d4d9d23))
+
+- **commit**: State what the self-filter rejects
+  ([`e3f7fec`](https://github.com/foryouself83/harness-tier/commit/e3f7feca7d08ac53bca0547b3a5f8e659596d5af))
+
+- **release**: Pin GitPython under 3.1.60
+  ([`cc608cd`](https://github.com/foryouself83/harness-tier/commit/cc608cde1ffbd7db9a496556962a83baa73d51ab))
+
+- **release**: Stop pinning the cargo checkout ref
+  ([`2182ab4`](https://github.com/foryouself83/harness-tier/commit/2182ab4f94bfecbce2fdd4473752541b9da1e6b3))
+
+### Features
+
+- **commit**: Route flow commits through a skill
+  ([`8037698`](https://github.com/foryouself83/harness-tier/commit/80376986f15b15df96117c155db4ff36cd812efe))
+
+
 ## v0.2.1-rc.2 (2026-08-25)
 
 ### Bug Fixes
