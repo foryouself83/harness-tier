@@ -76,6 +76,9 @@ review_checklist:            # what the Dev review gate judges every changed fil
   - "DB transaction / migration safety"
   - "async task idempotency"
 
+commit_guide: docs/operations/commit-versioning-guide.md   # host's own commit/versioning doc,
+                             # read by the `commit` skill (missing file → risk-tiers alone)
+
 doc_sync:                    # doc-sync targets
   index: CLAUDE.md
   dirs:
@@ -241,9 +244,10 @@ The **mandatory first step for all code changes**. Sequence:
 3. **Confirm the tier** — ask for the classification (overridable), then switch to a work
    branch after confirmation. When uncertain, escalate one tier up.
 4. **Execute** — run the tier's process and gates.
-   - **Docs**: edit directly → reconcile docs via `doc-sync` → commit
+   - **Docs**: edit directly → reconcile docs via `doc-sync` → commit via `/commit`
    - **Dev**: `superpowers` pipeline (design → plan → implement → verify → review) →
-     domain review (`review_checklist` + callers of changed symbols) → `doc-sync` → commit
+     domain review (`review_checklist` + callers of changed symbols) → `doc-sync` →
+     commit via `/commit`
 
 > **Promotion (Staging/Release)**: integration→staging and staging→production merges are
 > driven by the **target branch** (no separate marker needed). Each tier's mandatory gates
@@ -252,6 +256,14 @@ The **mandatory first step for all code changes**. Sequence:
 > **`/flow` cannot be skipped.** If you commit without going through it, there's no tier
 > marker and the gate blocks the commit as **unclassified**. If a repo doesn't need
 > enforcement, remove the gate with `/flow-uninstall`.
+
+Every commit step above goes through the **`commit`** skill, which stages the affected
+files, picks the Conventional Commits type, and checks the 50/72 rule before issuing
+`git commit`. It reads the host's own `commit_guide` when that file exists and prefers
+its stack facts — scope vocabulary, 0.x policy, whether the release tool reads the
+`Release-Level` trailer — while [`risk-tiers.md`](rules/risk-tiers.md) keeps the message
+format. `/commit` on its own handles a standalone commit, but it does **not** classify:
+a commit made without `/flow` is still unclassified and still blocked.
 
 ### 3.2 `/flow-init` — setup/update wizard
 

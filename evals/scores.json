@@ -1,5 +1,21 @@
 {
   "skills": {
+    "commit": {
+      "description_sha": "d657456565b2",
+      "false_fire": 0.0,
+      "false_hits": 0,
+      "false_n": 15,
+      "invoke_hits": 6,
+      "invoke_n": 15,
+      "invoke_rate": 0.4,
+      "lost_to": {},
+      "measured_at": "2026-08-28",
+      "model": "claude-opus-4-8",
+      "reps": 3,
+      "restricted": 0.4,
+      "truncated": 0.0,
+      "truncated_quiet": 0.0
+    },
     "doc-sync": {
       "description_sha": "4098d0d2854c",
       "false_fire": 0.0,
@@ -21,14 +37,14 @@
       "false_fire": 0.0,
       "false_hits": 0,
       "false_n": 15,
-      "invoke_hits": 9,
+      "invoke_hits": 13,
       "invoke_n": 15,
-      "invoke_rate": 0.6,
+      "invoke_rate": 0.87,
       "lost_to": {},
-      "measured_at": "2026-07-19",
+      "measured_at": "2026-08-28",
       "model": "claude-opus-4-8",
       "reps": 3,
-      "restricted": 0.8,
+      "restricted": 0.6,
       "truncated": 0.0,
       "truncated_quiet": 0.0
     },

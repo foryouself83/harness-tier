@@ -40,7 +40,7 @@ The generation engine of `/harness-init`. It fills `templates/` (skeletons) with
   `docs/verification/performance.md` (performance SSOT per confirmed stack — stack section + shared API load section, no empty stack sections) ·
   `docs/verification/integration.md` (integration-verification SSOT per confirmed stack — stack section + shared E2E section, no empty stack sections) ·
   `docs/operations/commit-versioning-guide.md` (Conventional Commits + SemVer + release-tool setup for the detected stack · 0.x policy —
-  always generated regardless of whether flow is detected; authoring guidance: `references/commit-versioning-guide.md`)
+  always generated regardless of whether flow is detected; authoring guidance: `tech-doc-guide.md` operations section)
 
 ## Generation Procedure
 1. Take the detect results + research results (`.harness/research/*.md`) + user choices.
@@ -52,7 +52,7 @@ The generation engine of `/harness-init`. It fills `templates/` (skeletons) with
    speculation. SRS is greenfield only. The code-style docs consume the researcher's **best-practices-by-lens**
    output as per-lens sub-sections (tech-doc-guide code-style · harness-rules 9-7 · 9-8), not one flat list. If you generate a skill, add companion folders (references/examples) per the
    `skill-writing-guide.md` discipline. Generate `commit-versioning-guide` under `docs/operations/` using the
-   `references/commit-versioning-guide.md` guidance (harness-rules 13-1 · 13-2 — regardless of whether flow is detected;
+   `tech-doc-guide.md` operations section (harness-rules 13-1 · 13-2 — regardless of whether flow is detected;
    defer tier/commit discipline to risk-tiers).
 5. **Operational directive/standard separation (9-3 · 9-4)**: take the research operational-axes section, place a
    `<!-- ops-conventions -->` anchor in the rule `<framework>-conventions.md`, and under it write per-axis directives at

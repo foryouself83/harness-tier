@@ -128,10 +128,10 @@ looking for a `wiki` gate skill — none exists; the hook runs the check itself.
 2. Invoke the `doc-sync` skill to harmonize the doc set (index `CLAUDE.md` + per-service docs +
    rule dirs from `flow-config.doc_sync`; also reconciles code↔doc drift). On pass
    → `touch .claude/harness-tier/.flow/doc-sync.done`.
-3. Commit (Conventional Commits, 50/72; stage only affected files; from a worktree
-   use `git -C <worktree> commit …` — rule 5) → merge **applying the risk-tiers
-   Merge strategy** (rule 3 — not a plain merge). (The commit hook blocks until
-   `doc-sync.done` exists.)
+3. Commit through the `commit` skill — invoke `Skill: commit` with the tier and what
+   changed; it stages, picks the type, and applies the 50/72 rule (rule 4). Then merge
+   **applying the risk-tiers Merge strategy** (rule 3 — not a plain merge). (The commit
+   hook blocks until `doc-sync.done` exists.)
    When `flow-config.merge_workflow.pull_request` includes `daily`, open a **PR** instead
    of merging: rebase → integration-test human gate (unchanged) → push → `gh pr create` →
    hand over the PR URL **and name the merge method it must use** — **"Squash and merge"**
@@ -168,9 +168,9 @@ looking for a `wiki` gate skill — none exists; the hook runs the check itself.
      [`risk-tiers.md`](../../rules/risk-tiers.md) Step 3.
      On pass → `touch .claude/harness-tier/.flow/review.done`.
    - **invoke the `doc-sync` skill** (not part of `superpowers`) → `touch .claude/harness-tier/.flow/doc-sync.done`.
-4. Commit → merge **applying the risk-tiers Merge strategy** (rule 3 — not a plain
-   merge; from a worktree use `git -C <worktree> commit …` — rule 5). (The commit
-   hook blocks until `review.done` and `doc-sync.done`.)
+4. Commit through the `commit` skill — invoke `Skill: commit` with the tier and what
+   changed (rule 4) → merge **applying the risk-tiers Merge strategy** (rule 3 — not a
+   plain merge). (The commit hook blocks until `review.done` and `doc-sync.done`.)
    When `flow-config.merge_workflow.pull_request` includes `daily`, open a **PR** instead
    of merging: rebase → integration-test human gate (unchanged) → push → `gh pr create` →
    hand over the PR URL **and name the merge method it must use** — **"Squash and merge"**
@@ -216,13 +216,16 @@ front matter — `--build` cannot resolve those.
   4. `touch .claude/harness-tier/.flow/review.done` ·
      `touch .claude/harness-tier/.flow/bump.done` (two commands, written out — the brace
      form neither matches the exact allowed-tools rules nor reads as what actually runs).
-  5. Commit on the staging branch **with a trailer** `Release-Level: <level>` (blank
-     line before the trailer). CI reads it to force
+  5. Commit on the staging branch through the `commit` skill (`Skill: commit`) —
+     **pass the chosen level in the arguments**, the only channel it has: `bump.done`
+     is an empty marker and nothing on disk carries the level. It appends the
+     **trailer** `Release-Level: <level>`, which CI reads to force
      `semantic-release version --<level> --as-prerelease`. main needs no level — it
      finalizes the rc deterministically.
 - **Release** (staging → production): Staging gates **plus** `/code-review` at
   `ultra` effort (extra independent layer) and `/security-review` →
-  `touch .claude/harness-tier/.flow/security.done`, then commit on the production branch.
+  `touch .claude/harness-tier/.flow/security.done`, then commit on the production branch
+  through the `commit` skill (`Skill: commit`) — no level here; finalize is deterministic.
   ⚠️ The regression `review` here takes **its own** file list —
   `git diff --name-only "origin/<production>..origin/<staging>"`, not the Staging bullet's
   pair. Reusing that pair does not fail loudly: staging is *ahead* of integration by the rc
@@ -291,14 +294,16 @@ rm -rf .claude/harness-tier/.flow
    Discipline. Several of those rows are **enforced by the hook**: a merge whose flags
    violate its row is blocked (exit 2) naming the flag it wants. The table's **Gate**
    column says which rows fire — the rest still depend on you following them.
-4. **Inherit the pre-commit gate** — never bypass the `git commit` hook
-   (no `--no-verify`).
+4. **Every commit goes through the `commit` skill** — invoke `Skill: commit`, which
+   owns staging, the type choice, and the 50/72 rule so this skill does not restate
+   them. It inherits the pre-commit gate like any other commit: never `--no-verify`.
 5. **Commit from a git worktree with `git -C <worktree> commit …`** — a single
    command, not a preceding `cd`. `CLAUDE_PROJECT_DIR` is fixed at session start,
    so when the commit runs in a worktree, the gate re-points to it by branch-key
    (`flow_gate_check.py --resolve-worktree`); the explicit `git -C <worktree>` is the
    deterministic signal that keeps that detection unambiguous. (No worktree → no
-   change.) Stands alongside rules 4 (no `--no-verify`) and "stage only affected files".
+   change.) The `commit` skill issues it that way (rule 4), and owns
+   "never `--no-verify`" and "stage only affected files" with it.
 6. **Worker / service-process safety** — Dev+ changes touching long-running
    worker processes: inspect for in-flight tasks and require explicit user
    approval before restarting.
