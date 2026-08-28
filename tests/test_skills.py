@@ -321,6 +321,42 @@ def test_every_allowed_tools_rule_matches_a_command_the_skill_issues(skill: Path
         )
 
 
+def gate_self_filter(name: str) -> re.Pattern[str]:
+    """The runner's own detection regex, read out of the shipped script.
+
+    Copied into the test it would drift: the copy keeps matching after the script's stops,
+    and the gate is then silently off with the suite still green. POSIX classes are the only
+    translation — `[[:space:]]` and `[^[:alnum:]-]` have no Python spelling.
+    """
+    src = (REPO / "scripts/precommit-runner.sh").read_text(encoding="utf-8")
+    m = re.search(rf"^{name}='(.+)'$", src, re.M)
+    assert m, f"{name} is gone from precommit-runner.sh — the self-filter moved"
+    return re.compile(m.group(1).replace("[:space:]", r"\s").replace("[:alnum:]", "0-9A-Za-z"))
+
+
+@pytest.mark.parametrize("skill", SKILLS, ids=SKILL_IDS)
+def test_git_commands_a_skill_issues_reach_the_flow_gate(skill: Path):
+    """A `git commit` / `git merge` a skill issues has to match precommit-runner's self-filter.
+
+    The hook is handed `tool_input.command` *before* the shell expands it, so a `$VAR` between
+    `git` and the subcommand — `git ${WT:+-C "$WT"} commit` — matches neither regex. The runner
+    then exits 0 as "not a commit" and everything behind it is skipped in silence: the
+    unclassified-commit block, the evidence markers, the module pre-check, the in-process wiki
+    gate, the python3/PyYAML FAIL-CLOSED check, and worktree re-designation, which parses a
+    literal `-C <dir>` out of that same string. Invariant #6.
+    """
+    filters = [("commit", gate_self_filter("_commit_re")), ("merge", gate_self_filter("_merge_re"))]
+    for cmd in issued_commands(skill):
+        if not re.match(r"git(\s|$)", cmd):
+            continue
+        for word, pattern in filters:
+            if re.search(rf"(?<![\w-]){word}(?![\w-])", cmd) and not pattern.search(cmd):
+                raise AssertionError(
+                    f"{skill.parent.name}: {cmd!r} never reaches the gate — the {word} "
+                    f"self-filter reads the command unexpanded. Write the path literally."
+                )
+
+
 @pytest.mark.parametrize("name", sorted(MUST_STILL_PROMPT), ids=sorted(MUST_STILL_PROMPT))
 def test_allowed_tools_never_grants_a_command_the_user_should_decide(name: str):
     """The commit prompt is the mechanical backstop behind the tier gate; an install

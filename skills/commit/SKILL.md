@@ -69,10 +69,11 @@ account of earlier rounds of the same work.
 ## Step 4 — Verify, then issue
 
 One block: a heredoc cannot survive into a second one, and a check the agent runs *after*
-committing is a check that changed nothing.
+committing is a check that changed nothing. On a staging promotion the `Release-Level` trailer
+of Step 5 goes **into this heredoc**, below a blank line — this step issues the commit, so a
+trailer left for the step after it lands nowhere.
 
 ```bash
-WT=                            # a worktree path when the work lives in one, else empty
 msg=$(cat <<'EOF'
 <type>(<scope>): <subject, replacing this whole heredoc>
 
@@ -86,16 +87,20 @@ bad += [f"subject is {len(t[0])} chars > 50"] if t and len(t[0]) > 50 else []
 bad += [f"line {n} is {len(x)} chars > 72" for n, x in enumerate(t[1:], 2) if len(x) > 72]
 if bad:
     sys.exit("REWRITE — " + "; ".join(bad))' "$msg"   && printf '%s
-' "$msg" | git ${WT:+-C "$WT"} commit -F -
+' "$msg" | git -C . commit -F -
 ```
 
 Three things block here, all in the one block on purpose. A template subject still carrying
 `<` aborts — left runnable it would pass the length check, satisfy gitlint, and land as a real
 commit. Over 50 means rewrite the subject; `risk-tiers.md` admits no exception, and a non-ASCII
-character counts as one, which is what Python's `len` already measures. And `$WT` keeps the
-worktree form inside the command rather than in prose beside it: a bare `git commit` after a
-separate `cd` can leave the gate checking the main repo, since `--resolve-worktree` reads the
-`git -C` the command actually carries.
+character counts as one, which is what Python's `len` already measures. And `-C` keeps the worktree
+inside the command rather than in prose beside it: a bare `git commit` after a separate `cd` can
+leave the gate checking the main repo, since `--resolve-worktree` reads the `git -C` the command
+actually carries. Write that path **literally** — `.` for the main repo, the worktree's own path
+when the work lives in one. A shell variable there is the trap: the hook is handed the command
+*before* the shell expands it, so a `${…}` sitting between `git` and the subcommand matches
+neither of `precommit-runner.sh`'s self-filters, the runner takes the line for something that is
+not a commit, and every gate behind it is skipped without a word.
 
 The commit prompt itself is deliberately left unapproved — it is the mechanical backstop behind
 the tier gate.
