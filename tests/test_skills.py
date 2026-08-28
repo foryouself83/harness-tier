@@ -515,6 +515,29 @@ def test_flow_init_setup_actually_reports_what_it_copied():
     )
 
 
+def test_the_commit_guide_slot_is_the_one_the_commit_skill_reads():
+    """One fact in two files: the config key `/flow-init` backfills into every host, and the
+    key the `commit` skill looks up to find the host's own guide. A rename on either side
+    fails silently — the lookup returns nothing, the skill falls back to risk-tiers alone,
+    and the host guide it was supposed to prefer is simply never read."""
+    example = yaml.safe_load((REPO / "flow-config.example.yaml").read_text(encoding="utf-8"))
+    assert "commit_guide" in example, (
+        "flow-config.example lost its `commit_guide` slot — /flow-init's Step 2.5 backfill "
+        "only offers slots the example advertises, so existing hosts stop receiving it"
+    )
+    skill = body(REPO / "skills/commit/SKILL.md")
+    assert "'commit_guide'" in skill, "the commit skill no longer reads the commit_guide key"
+    # The example's default value has to be the path harness-authoring actually generates,
+    # otherwise the slot ships pointing at a file that never exists.
+    assert example["commit_guide"] == "docs/operations/commit-versioning-guide.md"
+    guide = (REPO / "skills/harness-authoring/references/tech-doc-guide.md").read_text(
+        encoding="utf-8"
+    )
+    assert example["commit_guide"] in guide, (
+        "tech-doc-guide no longer generates the doc the commit_guide default points at"
+    )
+
+
 # -------------------------------------------------------------------------- behavioural
 #
 # The case-discovery command decides "does this project already have tests?". A wrong

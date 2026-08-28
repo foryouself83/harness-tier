@@ -263,8 +263,8 @@ work started on. `hotfix/*` off the production branch is the exception
 2. Run `/doc-sync` to harmonize the doc set (root CLAUDE.md,
    per-service docs, rules; also reconciles code↔doc drift)
    → record `doc-sync`.
-3. Commit (Conventional Commits, 50/72 rule — see Commit Discipline
-   below) → merge per **Merge strategy**, or open a PR when
+3. Commit via `/commit` (it applies Commit Discipline below)
+   → merge per **Merge strategy**, or open a PR when
    `merge_workflow.pull_request` includes `daily` (see PR workflow).
 
 ### Dev (any code)
@@ -359,7 +359,7 @@ work started on. `hotfix/*` off the production branch is the exception
      count against ①'s list → record `review`.
    - **`/doc-sync`** → record `doc-sync`.
 3. Integration human gate (feature → integration branch; see Merge
-   Strategy below) → commit → merge, or open a PR when
+   Strategy below) → commit via `/commit` → merge, or open a PR when
    `merge_workflow.pull_request` includes `daily` (see PR workflow).
 
 ### Staging (integration → staging)
@@ -399,7 +399,9 @@ wrong set, with no empty result to give it away.
 
 ## Commit Discipline
 
-Always apply before every `git commit -m` and every merge.
+Always apply before every `git commit -m` and every merge. `/commit` carries out
+the mechanics — staging, the type choice, the length check — and defers here for
+every rule it applies.
 
 ### Message format (Conventional Commits)
 

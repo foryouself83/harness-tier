@@ -38,7 +38,7 @@
 7. **No duplication (SSOT for the whole harness)** — two facets: (a) *component* —
    no duplicate generation (check functional duplication by name+description);
    (b) *content* — every fact lives in **one SSOT** and other places **link** it,
-   never restate it (rule 8, "one fact, one place"). This governs authored **rules**
+   never restate it ("one fact, one place"). This governs authored **rules**
    too: before adding a rule, search the existing rules/docs for the fact and link
    it instead of repeating. `rule.template.md` and `authoring-spec.md` defer here.
 8. **Technical docs (folders by category)**: `docs/README.md` (overall index, done last) · `docs/srs/` (functional/non-functional

@@ -76,6 +76,14 @@ review_checklist:
   - "DB transaction / migration / DB transaction & migration safety"
   - "async task idempotency / async task idempotency"
 
+# The host's own commit/versioning document, which /harness-init generates. The `commit` skill
+# reads it and prefers its project-specific facts (scope vocabulary, release tool, version files,
+# 0.x policy) over its own generic ones. Message FORMAT is not negotiable here — rules/risk-tiers.md
+# Commit Discipline owns the 50/72 rule and the type table either way. Deliberately top-level, not
+# under `versioning:`: a project with `versioning.enable: false` still commits.
+# Empty value or a missing file → the skill runs on risk-tiers alone.
+commit_guide: docs/operations/commit-versioning-guide.md
+
 # Documentation sync (doc-sync)
 doc_sync:
   # Index document (placed at the project root)
