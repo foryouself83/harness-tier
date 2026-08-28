@@ -73,6 +73,9 @@ review_checklist:            # Dev 리뷰 게이트가 변경 파일마다 대�
   - "DB transaction / migration 안전성"
   - "async task idempotency / 비동기 작업 멱등성"
 
+commit_guide: docs/operations/commit-versioning-guide.md   # 호스트 자체 커밋·버저닝 문서.
+                             # `commit` 스킬이 읽음(파일 없으면 risk-tiers 만 적용)
+
 doc_sync:                    # doc-sync 대상
   index: CLAUDE.md
   dirs:
@@ -230,9 +233,9 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
 3. **등급 확인** — 분류 결과를 묻고(오버라이드 가능), 확정 후 작업 브랜치로 전환합니다.
    불확실하면 한 단계 위로 잡습니다.
 4. **실행** — 등급별 절차와 게이트를 수행합니다.
-   - **Docs**: 직접 편집 → `doc-sync` 로 문서 정합화 → 커밋
+   - **Docs**: 직접 편집 → `doc-sync` 로 문서 정합화 → `/commit` 으로 커밋
    - **Dev**: `superpowers` 파이프라인(설계→계획→구현→검증→리뷰) → 도메인 리뷰
-     (`review_checklist` + 변경 심볼 호출자 점검) → `doc-sync` → 커밋
+     (`review_checklist` + 변경 심볼 호출자 점검) → `doc-sync` → `/commit` 으로 커밋
 
 > **승격(Staging/Release)**: integration→staging, staging→production 머지는 **타깃
 > 브랜치**가 등급을 결정합니다(별도 표시 불필요). 각 등급의 필수 게이트(§2.3)를 통과해야
@@ -241,6 +244,14 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
 > **`/flow` 는 건너뛸 수 없습니다.** 거치지 않고 커밋하면 등급 마커가 없어 **미분류
 > 커밋**으로 게이트가 막습니다. 강제가 불필요한 저장소라면 `/flow-uninstall` 로 게이트를
 > 제거하세요.
+
+위 커밋 단계는 모두 **`commit`** 스킬을 거칩니다. 영향 파일만 스테이징하고, Conventional
+Commits type 을 고르고, 50/72 규칙을 검사한 뒤 `git commit` 을 발행합니다. 호스트의
+`commit_guide` 파일이 있으면 그 문서를 읽어 스택 사실(스코프 어휘·0.x 정책·릴리스
+도구가 `Release-Level` 트레일러를 읽는지 여부)을 우선 적용하고, 메시지 형식은
+[`risk-tiers.md`](rules/risk-tiers.md) 가 계속 소유합니다. `/commit` 단독으로도 커밋
+하나를 처리하지만 **분류는 하지 않습니다** — `/flow` 없이 만든 커밋은 여전히
+미분류이고 여전히 막힙니다.
 
 ### 3.2 `/flow-init` — 설치/갱신 마법사
 

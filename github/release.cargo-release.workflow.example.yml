@@ -32,10 +32,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # cargo-release's default `allow-branch` rejects detached HEAD (its internal `!HEAD`
-          # exception) — `actions/checkout` leaves HEAD detached on `push` unless `ref:` is
-          # given, so this attaches it to the real branch cargo-release needs to commit/push to.
-          ref: ${{ github.ref_name }}
+          # No `ref:` — on `push` actions/checkout already attaches HEAD to the triggering
+          # branch (`checkout --force -B <branch>`), which is what cargo-release's default
+          # `allow-branch` needs to commit and push. Pinning `ref:` would resolve the branch
+          # tip instead of the commit that triggered the run.
           fetch-depth: 0
           token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable

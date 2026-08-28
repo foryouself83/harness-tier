@@ -1037,6 +1037,24 @@ def test_all_github_workflow_templates_have_timeout():
     assert not missing, f"templates missing timeout-minutes: {missing}"
 
 
+def test_release_templates_do_not_pin_the_checkout_ref():
+    # a release template triggers on push, where actions/checkout already attaches HEAD to the
+    # triggering branch (`git checkout --force -B <branch> refs/remotes/origin/<branch>`, with
+    # the remote ref fetched at the event's sha). Pinning `ref:` re-resolves the branch *tip*
+    # instead, so a commit that landed after the trigger is released without having been tested.
+    # Deploy templates are excluded on purpose: they are workflow_call'd with an explicit tag.
+    offenders = []
+    for t in sorted(PLUGIN.glob("github/release.*.workflow.example.yml")):
+        data = _yaml.safe_load(t.read_text(encoding="utf-8")) or {}
+        for job in (data.get("jobs") or {}).values():
+            for step in (job or {}).get("steps") or []:
+                if str(step.get("uses", "")).startswith("actions/checkout"):
+                    ref = (step.get("with") or {}).get("ref")
+                    if ref is not None:
+                        offenders.append(f"{t.name}: ref: {ref}")
+    assert not offenders, f"a push-triggered release checkout must not pin ref: {offenders}"
+
+
 def test_all_github_workflow_templates_are_valid_yaml():
     # the SOURCE templates are YAML files tracked in this repo, so check-yaml (pre-commit) parses
     # them. A __HARNESS_*__ token placed at a spot that breaks the *pre-render* parse (e.g. a bare

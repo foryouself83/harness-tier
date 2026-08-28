@@ -321,6 +321,43 @@ def test_every_allowed_tools_rule_matches_a_command_the_skill_issues(skill: Path
         )
 
 
+def gate_self_filter(name: str) -> re.Pattern[str]:
+    """The runner's own detection regex, read out of the shipped script.
+
+    Copied into the test it would drift: the copy keeps matching after the script's stops,
+    and the gate is then silently off with the suite still green. POSIX classes are the only
+    translation — `[[:space:]]` and `[^[:alnum:]-]` have no Python spelling.
+    """
+    src = (REPO / "scripts/precommit-runner.sh").read_text(encoding="utf-8")
+    m = re.search(rf"^{name}='(.+)'$", src, re.M)
+    assert m, f"{name} is gone from precommit-runner.sh — the self-filter moved"
+    return re.compile(m.group(1).replace("[:space:]", r"\s").replace("[:alnum:]", "0-9A-Za-z"))
+
+
+@pytest.mark.parametrize("skill", SKILLS, ids=SKILL_IDS)
+def test_git_commands_a_skill_issues_reach_the_flow_gate(skill: Path):
+    """A `git commit` / `git merge` a skill issues has to match precommit-runner's self-filter.
+
+    The hook is handed `tool_input.command` *before* the shell expands it, and both regexes need
+    the token after `git` to start with `-`, so a variable supplying the flag itself — `git
+    ${WT:+-C "$WT"} commit` — matches neither. (As a flag's argument a variable is fine.) The
+    runner then exits 0 as "not a commit" and everything behind it is skipped in silence: the
+    unclassified-commit block, the evidence markers, the module pre-check, the in-process wiki
+    gate, the python3/PyYAML FAIL-CLOSED check, and worktree re-designation, which parses a
+    literal `-C <dir>` out of that same string. Invariant #6.
+    """
+    filters = [("commit", gate_self_filter("_commit_re")), ("merge", gate_self_filter("_merge_re"))]
+    for cmd in issued_commands(skill):
+        if not re.match(r"git(\s|$)", cmd):
+            continue
+        for word, pattern in filters:
+            if re.search(rf"(?<![\w-]){word}(?![\w-])", cmd) and not pattern.search(cmd):
+                raise AssertionError(
+                    f"{skill.parent.name}: {cmd!r} never reaches the gate — the {word} "
+                    f"self-filter reads the command unexpanded. Write the path literally."
+                )
+
+
 @pytest.mark.parametrize("name", sorted(MUST_STILL_PROMPT), ids=sorted(MUST_STILL_PROMPT))
 def test_allowed_tools_never_grants_a_command_the_user_should_decide(name: str):
     """The commit prompt is the mechanical backstop behind the tier gate; an install
@@ -512,6 +549,29 @@ def test_flow_init_setup_actually_reports_what_it_copied():
     assert "report.append" in copy_fn and "Path(rel).name" in copy_fn, (
         "flow_init_setup.py no longer reports each copied file by name; flow-init's "
         "'relay the script's report' instruction now has nothing to relay."
+    )
+
+
+def test_the_commit_guide_slot_is_the_one_the_commit_skill_reads():
+    """One fact in two files: the config key `/flow-init` backfills into every host, and the
+    key the `commit` skill looks up to find the host's own guide. A rename on either side
+    fails silently — the lookup returns nothing, the skill falls back to risk-tiers alone,
+    and the host guide it was supposed to prefer is simply never read."""
+    example = yaml.safe_load((REPO / "flow-config.example.yaml").read_text(encoding="utf-8"))
+    assert "commit_guide" in example, (
+        "flow-config.example lost its `commit_guide` slot — /flow-init's Step 2.5 backfill "
+        "only offers slots the example advertises, so existing hosts stop receiving it"
+    )
+    skill = body(REPO / "skills/commit/SKILL.md")
+    assert "'commit_guide'" in skill, "the commit skill no longer reads the commit_guide key"
+    # The example's default value has to be the path harness-authoring actually generates,
+    # otherwise the slot ships pointing at a file that never exists.
+    assert example["commit_guide"] == "docs/operations/commit-versioning-guide.md"
+    guide = (REPO / "skills/harness-authoring/references/tech-doc-guide.md").read_text(
+        encoding="utf-8"
+    )
+    assert example["commit_guide"] in guide, (
+        "tech-doc-guide no longer generates the doc the commit_guide default points at"
     )
 
 

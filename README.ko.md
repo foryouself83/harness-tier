@@ -143,6 +143,7 @@ pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre
 | 스킬 | `/flow-uninstall` | 호스트에 설치된 harness-tier 배선 제거 |
 | 스킬 | `/harness-init` | 프레임워크 감지 + 리서치·검증으로 하네스 생성 (`.md` 기본, 덮어쓰기 없음) |
 | 스킬 | `/wiki-init` | 문서를 지식 그래프로 — 임베딩 없이 front matter 기반, 설치 마법사 |
+| 스킬 | `commit` | 커밋 하나를 작성·발행 — type 선택·50/72·스테이징. `/flow` 가 모든 커밋 단계에서 호출 |
 | 스킬 | `doc-sync` | 코드 ↔ 문서 동기화 + 문서 집합 일관성 |
 | 스킬 | `harness-insight` | 지정 기간 Claude Code 활동 집계 + 인사이트 리포트 |
 | 스킬 | `/harness-deployments` | 릴리스 워크플로 위에 배포(레지스트리 발행 / 컨테이너 이미지 / 앱 배포) 계층 추가 — 감지 → 질문 → 배포 CI 렌더(옵트인, `/flow-init` 이후) |

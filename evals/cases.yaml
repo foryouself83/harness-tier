@@ -225,3 +225,43 @@ skills:
       - Explain what a Claude Code skill is.
       - Fix the failing test.
       - Add type hints to this module.
+
+  commit:
+    # Reached two ways, and the primary one is /flow invoking it at each of its commit steps
+    # (reached_programmatically below) — which is what keeps expect_invoke at a liveness-check
+    # 0.10 rather than a specialist's 0.70, and it stays there rather than being re-derived from
+    # whatever the autonomous arm measures.
+    #
+    # The two arms answer different questions here, and conflating them is the trap. The happy
+    # set is explicit message-authoring work ("what type should this get", "the subject is too
+    # long") — this skill winning those is correct. Being the entry point for a development
+    # request is `flow`'s job, and `Commit these changes.` is flow's own happy case, so it sits
+    # in the NEGATIVE set: this skill taking it would skip the tier classification the gate
+    # requires. Router bypass therefore shows up as false_fire, never as a high invoke_rate.
+    #
+    # hook_assisted for the same reason doc-sync is: rules/risk-tiers.md, injected into every
+    # session, names /commit as the commit step of both the Docs and Dev workflows. Its rate is
+    # therefore not comparable to the unassisted skills, and the hook can hold it up while the
+    # description rots — read a regression as description *and* hook.
+    hook_assisted: true
+    reached_programmatically: true
+    invoked_by: flow/SKILL.md
+    fixture: null
+    expect_invoke: 0.10
+    expect_why: >-
+      its primary reach is /flow invoking it at each commit step; firing autonomously on a bare
+      "commit this" would bypass the tier classification, so the rate only has to prove the
+      description is still alive.
+    happy:
+      - Write the commit message for what I have staged.
+      - What Conventional Commits type should this change get?
+      - My commit subject is too long — rewrite it so it fits.
+      - Draft the body for this commit message.
+      - Add the Release-Level trailer to this staging commit.
+    negative:
+      # flow's happy case. This skill taking it first is the failure mode, not a win.
+      - Commit these changes.
+      - Squash the last three commits into one.
+      - Revert the last commit.
+      - Show me the blame for this line.
+      - Explain what a Conventional Commit is.
