@@ -608,11 +608,16 @@ The gate checker is itself bash, so it can't detect a missing `bash`/coreutils o
 
 ### Re-run `/flow-init` — sync after a plugin update
 
-When the plugin updates, the host's copied scripts don't change automatically (they're
-copies). Re-running `/flow-init` re-copies the scripts/policy files and repairs the gate
-path (re-sync always runs first, non-interactively). If any config slots are missing it
-offers to backfill them; otherwise it asks what to reconfigure (re-sync only if you pick
-nothing; config and webhooks are preserved).
+A session tells you when an update is waiting: at startup the hook compares the build it
+loaded against the version the marketplace publishes and reports a difference in one line.
+Both numbers are local files — the marketplace clone Claude Code keeps beside the install
+cache — so nothing goes over the network, and a clone that has not refreshed says nothing.
+
+Take the update with `/plugin`, then re-run `/flow-init`. The update alone is not enough:
+the host's copied scripts don't change with it (they're copies). Re-running `/flow-init`
+re-copies the scripts/policy files and repairs the gate path (re-sync always runs first,
+non-interactively). If any config slots are missing it offers to backfill them; otherwise it
+asks what to reconfigure (re-sync only if you pick nothing; config and webhooks are preserved).
 
 ### `/flow-uninstall` — remove host-side wiring
 

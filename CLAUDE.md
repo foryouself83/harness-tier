@@ -53,7 +53,7 @@ When modifying `*.sh`, verify with ShellCheck (the hook runtime is Windows, so b
 ```text
 .claude-plugin/  plugin.json (minimal manifest) · marketplace.json (self-exposed; source=github + immutable sha pin)
 agents/          harness-researcher · harness-code-analyzer · harness-critic
-hooks/           hooks.json (SessionStart rule injection + Notification) · inject-risk-tiers.sh
+hooks/           hooks.json (SessionStart + Notification) · inject-risk-tiers.sh (rule injection + stale-build warning)
 skills/          /slash = skill — one dir each; open the dir for its SKILL.md
 rules/           risk-tiers.md (SSOT: tier classification + commit discipline) · harness-rules.md (SSOT: harness-gen)
                  — both SHIP to consumers, unlike .claude/rules/ which never leaves this repo
@@ -83,6 +83,10 @@ evals/           skill measurement: invocation (cases.yaml · run.py · scores.p
 - **Tier-discipline SSOT = [`rules/risk-tiers.md`](rules/risk-tiers.md)** — `flow.md` · `flow-tiers.yaml` · the gates all defer to it.
 - **Versioning & release**: plugin.json `version` gates updates — a sha change alone does not propagate; reinstall happens only on a version bump. `.github/workflows/release.yml` (python-semantic-release) bumps from the Conventional Commits of pushes to main/stage; on main, `pin-marketplace-sha.py` immutably pins the marketplace `source.sha`. **Therefore consumer-facing `.md` (rules/skills) changes must be committed as `feat`/`fix`, not `docs`, to propagate.** Branches: `feature/*` → dev → stage → main.
 - **The plugin's `rules/` is not auto-loaded** → `hooks/inject-risk-tiers.sh` injects it as `additionalContext` at SessionStart.
+  The same hook tells a consumer when the marketplace clone beside the install cache publishes a
+  newer `version` than the loaded build — the update gate is version-only, so nothing else says
+  so. Local files, no network; a build AHEAD of published (a maintainer's rc) stays silent, or
+  the remedy would name a reinstall that fetches the older pin. FAIL-OPEN.
 - **Three verification layers**, independent (per-gate mechanism → [`rules/risk-tiers.md`](rules/risk-tiers.md) · [`flow-tiers.yaml`](flow-tiers.yaml)):
   1. **Hygiene** — the host's `.pre-commit-config.yaml` (git-native): gitlint · teams-notify-push · language-agnostic checks.
   2. **Flow gate** — `precommit-runner.sh` (PreToolUse), **Claude-session commits & merges only** (terminal commits and CI bypass it). Blocks unclassified commits, then runs the tier's `gates`; `git merge` takes a separate path judged against `merge_strategy`. When `flow-config.merge_workflow.pull_request` routes a flow through a PR instead of a direct merge, that flow's `merge_strategy` row never fires here (the hook never sees a `git merge`) — enforcement of the merge method shifts server-side to a GitHub branch ruleset, which `scripts/check-merge-ruleset.sh` (read-only) checks the state of at `/flow-init` Step 2.7, without ever writing to GitHub. **That shift is exact only for `promotion`** (one allowed method per branch); a ruleset targets the *destination* ref, so on `daily` it bars merge commits into integration but cannot separate `feature/*`=Squash from `fix/*`=Rebase, and it also makes "require a PR" govern flows nobody selected — the back-merge push and `hotfix/*` → production — which is why both need a bypass actor or a PR of their own ([`rules/risk-tiers.md`](rules/risk-tiers.md) PR workflow). Gate internals & the FAIL-OPEN rules → **Invariants** below.
