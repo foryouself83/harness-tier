@@ -150,6 +150,69 @@ def test_dir_from_command_gives_up_on_two_real_invocations():
     assert vp._dir_from_command("git -C /a commit -m x && git -C /b commit -m y") is None
 
 
+def test_dir_from_command_gives_up_without_taking_the_cd_prefix():
+    # ambiguity has to end the read, not fall through to rung ②: the `cd` target is a third tree,
+    # so answering with it re-points ROOT at a directory NEITHER commit runs in. A just-cd'd-into
+    # worktree is usually clean, which makes the runner exit 0 and skip the gate in silence.
+    assert vp._dir_from_command("cd /a && git -C /x commit -m 1 && git -C /y commit -m 2") is None
+
+
+def test_dir_from_command_takes_two_invocations_that_agree():
+    # commit-then-amend names one directory twice. Counting raw matches calls that ambiguous and
+    # falls back to main, which rejects a correctly classified worktree commit — Invariant #6
+    # forbids newly blocking. There is exactly one answer here, so it has to be given.
+    assert vp._dir_from_command("git -C /a commit -m x && git -C /a commit --amend") == "/a"
+    assert (
+        vp._dir_from_command('git -C "/a b" commit -m x && git -C "/a b" commit --amend') == "/a b"
+    )
+
+
+def test_dir_from_command_dash_c_single_quoted():
+    # `'…'` is the more idiomatic shell quoting for a path with a space, and the option-token
+    # grammar has to read it exactly as it reads `"…"`.
+    assert vp._dir_from_command("git -C '/a b/c' commit -m x") == "/a b/c"
+
+
+def test_dir_from_command_reads_an_option_holding_a_lone_quote():
+    # `-c user.name='a"b'` is one literal `"`, not the start of a span. The shell self-filter was
+    # taught this; the resolver has to agree, or the gate engages and then reads the wrong tree.
+    assert vp._dir_from_command("git -c user.name='a\"b' -C /wt commit -m x") == "/wt"
+
+
+def test_dir_from_command_reads_an_escaped_quote_the_way_a_shell_does():
+    # `'\''` is the only way to put an apostrophe inside a single-quoted string, and it is what
+    # the commit skill's own template produces. Counting quotes without honouring the escape
+    # leaves an odd tally, so every later quote pairs one position off.
+    command = "printf '%s' 'fix: don'\\''t break it' | git -C /wt commit -F -"
+    assert vp._dir_from_command(command) == "/wt"
+
+
+def test_dir_from_command_ignores_a_git_commit_inside_a_heredoc_body():
+    # a `<<'EOF'` body is literal text to the shell, so a command quoted in a commit message is
+    # not an invocation — but it is not a *quoted span* either, and this repo's own commit bodies
+    # routinely spell `git -C <wt> commit`. Reading the body's directory re-points ROOT at a tree
+    # the commit does not run in.
+    command = "\n".join(
+        [
+            "msg=$(cat <<'EOF'",
+            "fix(gate): stop re-pointing ROOT",
+            "",
+            "- a worktree commit issued as git -C /evil commit was gated against main",
+            "EOF",
+            ")",
+            "printf %s \"$msg\" | git -C '/a b/wt' commit -F -",
+        ]
+    )
+    assert vp._dir_from_command(command) == "/a b/wt"
+
+
+def test_dir_from_command_requires_the_word_git():
+    # `git` unanchored matches the tail of another program's name, and the directory that follows
+    # belongs to a command the gate knows nothing about.
+    assert vp._dir_from_command("mygit -C /evil commit -m x") is None
+    assert vp._dir_from_command("legit -C /evil commit -m x") is None
+
+
 def test_parse_worktree_list_blocks_and_detached():
     text = (
         "worktree /main\nHEAD abc\nbranch refs/heads/main\n\n"
@@ -301,3 +364,113 @@ def test_working_root_sibling_prefix_different_repo(tmp_path: Path):
     _init_repo(other)
     got = vp.working_root(project_dir=main, hook_cwd=None, command=f"git -C {other} commit -m m")
     assert got == main.resolve()
+
+
+def test_dir_from_command_reads_past_a_comment_that_holds_an_apostrophe():
+    # bash ends a `#` comment at the newline; treating the apostrophe inside it as an opening
+    # quote masks the rest of the command, the invocation disappears, and a classified worktree
+    # commit is rejected as unclassified. Invariant #6: never newly block.
+    command = '# don\'t forget the worktree\ngit -C "/a b/wt" commit -m x'
+    assert vp._dir_from_command(command) == "/a b/wt"
+
+
+def test_dir_from_command_reads_the_rest_of_a_heredoc_introducer_line():
+    # the body is literal, the line that opens it is not — its own quotes still have to be read,
+    # or a quoted worktree path on that line stays unmasked and the option token cannot cross it.
+    command = 'cat <<EOF | git -C "/a b/wt" commit -F -\nfix(x): y\nEOF'
+    assert vp._dir_from_command(command) == "/a b/wt"
+
+
+def test_dir_from_command_reads_ansi_c_quoting():
+    # inside `$'…'` a backslash escapes, so the region ends at the LAST quote, not the escaped one.
+    command = "echo $'don\\'t' && git -C \"/a b/wt\" commit -m x"
+    assert vp._dir_from_command(command) == "/a b/wt"
+
+
+def test_dir_from_command_reads_an_escaped_quote_inside_a_double_quoted_span():
+    command = 'echo "a \\" b" && git -C /wt commit -m "c"'
+    assert vp._dir_from_command(command) == "/wt"
+
+
+def test_dir_from_command_masks_a_tab_indented_heredoc_body():
+    # `<<-` strips leading TABS from the terminator; the body is still literal text.
+    command = "\n".join(["cat <<-EOF | git -C /wt commit -F -", "run git -C /evil commit", "\tEOF"])
+    assert vp._dir_from_command(command) == "/wt"
+
+
+def test_dir_from_command_keeps_a_plain_heredoc_body_closed_to_the_exact_word():
+    # plain `<<` needs the terminator line EXACTLY; an indented look-alike is body text, so
+    # ending the region there hands the rest of the body to the parser as syntax.
+    command = "\n".join(
+        ["cat <<EOF | git -C /wt commit -F -", "  EOF", "run git -C /evil commit", "EOF"]
+    )
+    assert vp._dir_from_command(command) == "/wt"
+
+
+def test_dir_from_command_masks_an_unterminated_heredoc_body():
+    # bash consumes a body with no terminator to end of input. Reading it as syntax makes a tree
+    # named only in a message the resolved directory.
+    assert vp._dir_from_command("cat <<EOF\nrun git -C /evil commit\n") is None
+    # …and with no trailing newline, which is the branch that must run to end of input rather
+    # than report "no body" and hand the message back to the parser.
+    assert vp._dir_from_command("cat <<EOF\nrun git -C /evil commit") is None
+
+
+def test_dir_from_command_ignores_a_dash_c_inside_a_quoted_option_value():
+    # the option region is scanned on the mask, so a `-C` inside a quoted VALUE is not an option.
+    assert vp._dir_from_command('git -c user.name="x -C /evil" -C /wt commit -m y') == "/wt"
+
+
+def test_dir_from_command_gives_up_when_only_one_invocation_names_a_directory():
+    # two commits in two trees is the ambiguity Invariant #6 wants ended: answering with the one
+    # that named a directory re-points ROOT away from the tree the other commit runs in.
+    assert vp._dir_from_command("git commit -m x && git -C /y commit --amend") is None
+
+
+def test_dir_from_command_reads_an_introducer_line_with_no_body_after_it():
+    # `<<EOF` as the last line has no body, so nothing follows it to mask — blanking the rest of
+    # the introducer instead swallows the invocation on that same line. bash runs this (with a
+    # warning), so rejecting it is a new block Invariant #6 forbids.
+    assert vp._dir_from_command('cat <<EOF | git -C "/a b" commit -F -') == "/a b"
+
+
+def test_dir_from_command_keeps_a_here_string_operand_out_of_the_heredoc_grammar():
+    # `<<<` is a here-string. Read as `<<` + word, its operand becomes a heredoc terminator that
+    # never appears, so the body runs to end of input and masks the commit that follows.
+    command = 'grep -q ok <<<"$status"\ngit -C /wt commit -m x'
+    assert vp._dir_from_command(command) == "/wt"
+
+
+def test_dir_from_command_only_treats_a_word_start_hash_as_a_comment():
+    # bash starts a comment only where a word does. `#` inside a word or an expansion is data.
+    assert vp._dir_from_command("echo fix#123 ; git -C /wt commit -m x") == "/wt"
+    assert vp._dir_from_command("echo ${a#b} && git -C /wt commit -m x") == "/wt"
+    assert vp._dir_from_command("echo $# && git -C /wt commit -m x") == "/wt"
+
+
+def test_dir_from_command_masks_a_comment_rather_than_only_skipping_it():
+    # a `-C` written in a comment is not an option; leaving the text as syntax makes it one.
+    command = "# run git -C /evil commit\ngit -C /wt commit -m x"
+    assert vp._dir_from_command(command) == "/wt"
+
+
+def test_dir_from_command_finds_a_comment_that_starts_after_a_newline():
+    # the word-start test has to accept a newline, not just the start of the string.
+    command = "echo a\n# don't run git -C /evil commit\ngit -C /wt commit -m x"
+    assert vp._dir_from_command(command) == "/wt"
+
+
+def test_dir_from_command_enters_a_heredoc_body_that_follows_a_redirect():
+    # the introducer is not the end of its line, so the body is entered only after the line is
+    # scanned. An apostrophe in the body is the everyday case that must not open a quote.
+    command = "cat <<EOF >msg\ndon't touch\nEOF\ngit -C /wt commit -F msg"
+    assert vp._dir_from_command(command) == "/wt"
+
+
+def test_dir_from_command_strips_only_tabs_and_only_for_a_dash_heredoc():
+    # `<<-` strips leading TABS from the terminator; plain `<<` strips nothing. Getting either
+    # backwards ends the body early and hands the rest of a message to the parser.
+    dashed = "cat <<-EOF >msg\n\trun git -C /evil commit\n\tEOF\ngit -C /wt commit -F msg"
+    assert vp._dir_from_command(dashed) == "/wt"
+    plain = "cat <<EOF >msg\n\tEOF\nrun git -C /evil commit\nEOF\ngit -C /wt commit -F msg"
+    assert vp._dir_from_command(plain) == "/wt"

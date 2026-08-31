@@ -489,18 +489,36 @@ def test_runner_gates_worktree_commit_via_git_dash_c(tmp_path: Path):
 
 
 @requires_bash_git
-def test_runner_gates_a_worktree_commit_whose_path_holds_a_space(tmp_path: Path):
+@pytest.mark.parametrize("quote", ['"', "'"])
+def test_runner_gates_a_worktree_commit_whose_path_holds_a_space(tmp_path: Path, quote: str):
     # the same end-to-end path as the test above, with the one difference a Windows host makes
     # routine: a directory name with a space, which the command must quote. An option-argument
     # token that stops at whitespace ends the self-filter's scan inside the quotes, so the runner
-    # reads the line as "not a commit" and every gate behind it is skipped in silence.
+    # reads the line as "not a commit" and every gate behind it is skipped in silence. Both quote
+    # characters, because covering only one certifies the half of the grammar that works.
     main = tmp_path / "main"
     _init_repo(main)
     wt = tmp_path / "wt with space"
     _rg(["worktree", "add", "-b", "feature/x", str(wt)], main)
     _classify_worktree_module(wt)
-    r = _run_runner(main, f'git -C "{wt}" commit -m x')
+    r = _run_runner(main, f"git -C {quote}{wt}{quote} commit -m x")
     assert "echo LINT_RAN" in (r.stdout + r.stderr)  # gate ran against W
+
+
+@requires_bash_git
+def test_runner_leaves_a_read_only_command_that_mentions_committing_alone(tmp_path: Path):
+    # a token that crosses whitespace by pairing one string's closing quote with a later string's
+    # opening quote turns `git log … && echo "… commit"` into a commit, and the tree below — dirty
+    # and unclassified — is exactly where that gets denied. The gate blocking a read-only command
+    # is the mirror image of the silent skip above, and just as wrong.
+    main = tmp_path / "main"
+    _init_repo(main)
+    (main / ".claude" / "harness-tier" / "config").mkdir(parents=True)
+    (main / ".claude" / "harness-tier" / "config" / "flow-config.yaml").write_text(
+        "modules: []\n", encoding="utf-8"
+    )
+    r = _run_runner(main, 'git -c user.email="a@b.c" log --oneline && echo "please commit"')
+    assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
 
 
 @requires_bash_git
@@ -1717,3 +1735,65 @@ def test_runner_wiki_step_reads_the_committing_worktree(tmp_path: Path):
     _rg(["add", "docs/graph/graph.yaml"], wt)
     r = _run_runner(main, f"git -C {wt} commit -m x", dryrun=False)
     assert r.returncode == 0, f"stdout={r.stdout!r} stderr={r.stderr!r}"
+
+
+def test_merge_parsing_anchors_on_the_git_that_owns_the_subcommand():
+    # splitting at the first " merge" anywhere lands inside a quoted argument, so the operand
+    # region starts mid-string and shlex raises — the merge-strategy verdict then never runs,
+    # and that verdict is one of the three fail-CLOSED exceptions (Invariant #1 Exception 3).
+    command = 'echo "starting the merge" && git merge --no-ff origin/stage'
+    assert fgc.parse_merge_command(command) == ({"--no-ff"}, "origin/stage")
+
+
+QUOTED_MERGE = 'echo "run git -C /evil merge feature/x" && git -C /wt merge --no-ff origin/stage'
+
+
+def test_merge_parsing_ignores_a_git_merge_quoted_inside_an_argument():
+    # a full invocation quoted in a message is text, not a merge. Read against the raw string it
+    # is found first, so the operand region starts mid-quote and shlex raises "No closing
+    # quotation" — and the strategy verdict, one of the three fail-CLOSED exceptions, never runs.
+    assert fgc.parse_merge_command(QUOTED_MERGE) == ({"--no-ff"}, "origin/stage")
+
+
+def test_merge_dash_c_reads_the_real_invocation_not_a_quoted_one():
+    # the directory decides whether the merge is judged against THIS root at all, so taking it
+    # from anywhere but the real invocation's own options region switches the gate off for a
+    # merge that is happening right here (`_points_elsewhere` → exit 0).
+    assert fgc._merge_dash_c(QUOTED_MERGE) == "/wt"
+    assert fgc._merge_dash_c("git merge --no-ff dev") is None
+
+
+def test_merge_dash_c_ignores_a_dash_c_inside_a_quoted_option_value():
+    # `-C` is a directory only as git's own option. Taking one out of a quoted VALUE makes
+    # _points_elsewhere call this root foreign and skip the merge-strategy verdict — one of the
+    # three fail-CLOSED exceptions, switched off by a pager setting.
+    assert fgc._merge_dash_c('git -c core.pager="less -C /tmp" merge --no-ff origin/stage') is None
+    assert fgc._merge_dash_c('git -c core.pager="less -C /tmp" -C /wt merge --no-ff x') == "/wt"
+
+
+def test_points_elsewhere_prefers_dash_c_over_a_leading_cd():
+    # git's own -C overrides the cwd, so a command that does both runs the merge in the -C tree.
+    root = Path("/a")
+    assert fgc._points_elsewhere("cd /a && git -C /b merge --no-ff x", root) is True
+    assert fgc._points_elsewhere("cd /b && git -C /a merge --no-ff x", root) is False
+
+
+def test_target_from_command_ignores_a_switch_that_is_only_text():
+    # a `git switch` quoted in a message, written in a comment, or sitting in a heredoc body is
+    # not a switch. Adopting its branch judges the merge against a flow nobody ran, and the
+    # merge-strategy verdict is fail-CLOSED.
+    assert (
+        fgc._target_from_command("git commit -F - <<EOF\ngit switch main\nEOF\ngit merge x") is None
+    )
+    assert fgc._target_from_command("# git switch main\ngit merge --no-ff feature/x") is None
+    assert fgc._target_from_command("git switch dev && git merge --no-ff feature/x") == "dev"
+
+
+def test_target_from_command_reads_a_quoted_switch_operand():
+    # the operand is sliced from the raw string, not the mask — a quoted branch name must survive
+    # its quotes, or the target is a run of NULs that matches no rule and the merge walks through.
+    assert (
+        fgc._target_from_command("git checkout 'release/1.0' && git merge --no-ff x")
+        == "release/1.0"
+    )
+    assert fgc._target_from_command('git switch "my branch" && git merge --no-ff x') == "my branch"

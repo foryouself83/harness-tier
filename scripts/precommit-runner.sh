@@ -81,17 +81,22 @@ fi
 # terminator allows any non-alnum/non-`-` char after `commit` (space, `;`, `&`, …) so `git commit;`
 # is caught too, while `-`/alnum keep `commit-graph`/`commitfoo` excluded.
 # An option argument may be a quoted token holding spaces (`git -C "/c/My Work/wt" commit`, routine
-# on Windows), so a token is a run of non-space characters and/or double-quoted spans rather than
-# one whitespace-free word. Stopping at the first space would end the scan inside the quotes and
-# read the line as "not a commit" — the gate then skips in silence (Invariant #1). The trailing
-# bare `"` alternative keeps a lone quote (`-c x='a"b'`) a literal character rather than an
-# unterminated span, which would end the scan the same way.
-_commit_re='git([[:space:]]+-([^[:space:]"]|"[^"]*"|")+([[:space:]]+([^[:space:]"]|"[^"]*"|")+)?)*[[:space:]]+commit($|[^[:alnum:]-])'
+# on Windows), so a token is a run of non-space characters and/or quoted spans rather than one
+# whitespace-free word. Stopping at the first space would end the scan inside the quotes and read
+# the line as "not a commit" — the gate then skips in silence (Invariant #1). BOTH quote
+# characters: `'…'` is the more idiomatic shell spelling for a path with a space, and it is also
+# what keeps a lone `"` (`-c x='a"b'`) a literal character instead of an unterminated span. An
+# alternative for a bare quote would do that too, but it lets a token pair one string's closing
+# quote with a later string's opening quote and so cross whitespace — which made `git log … &&
+# echo "please commit"` read as a commit and be denied as unclassified.
+# The assignment is double-quoted because a `'` cannot appear inside a single-quoted shell string;
+# `\$` is the end anchor, and test_skills.py::gate_self_filter undoes exactly this escaping.
+_commit_re="git([[:space:]]+-([^[:space:]\"']|\"[^\"]*\"|'[^']*')+([[:space:]]+([^[:space:]\"']|\"[^\"]*\"|'[^']*')+)?)*[[:space:]]+commit(\$|[^[:alnum:]-])"
 
 # Detect `git merge` with the same convention as _commit_re: git global options (notably
 # `git -C <worktree>`) may sit between `git` and the subcommand, and `merge` is matched as a
 # whole word so `git merge-base` / `git merge-file` do not false-positive.
-_merge_re='git([[:space:]]+-([^[:space:]"]|"[^"]*"|")+([[:space:]]+([^[:space:]"]|"[^"]*"|")+)?)*[[:space:]]+merge($|[^[:alnum:]-])'
+_merge_re="git([[:space:]]+-([^[:space:]\"']|\"[^\"]*\"|'[^']*')+([[:space:]]+([^[:space:]\"']|\"[^\"]*\"|'[^']*')+)?)*[[:space:]]+merge(\$|[^[:alnum:]-])"
 
 _is_commit=0
 _is_merge=0
