@@ -215,17 +215,56 @@ def _git(args: list[str], cwd: str | Path) -> str | None:
     return out.stdout.strip()
 
 
+# The global-options region of a `git … commit`, matched from the `git` itself rather than found
+# by splitting on the first " commit" in the string. A commit message reaches the command line
+# ahead of the invocation whenever it is built in a heredoc and piped, and it says "commit" often;
+# splitting there ends the region inside the body and drops the `-C` the skill was told to write.
+# `(?!-)` on the optional argument keeps a `-` token a flag rather than the previous flag's
+# argument, which also removes the ambiguity a run of flags would otherwise backtrack through.
+_GIT_OPTIONS_RE = re.compile(
+    r'git((?:\s+-(?:[^\s"]|"[^"]*")+(?:\s+(?!-)(?:[^\s"]|"[^"]*")+)?)*)\s+commit(?![\w-])'
+)
+
+
+def _quoted_spans(command: str) -> list[tuple[int, int]]:
+    """Index ranges of `'…'` and `"…"` regions, as a shell reads them.
+
+    One state machine rather than a parity count per quote character: a `"` inside a `'…'` region
+    is literal text, and `python3 -c '… "x" …'` is exactly the shape the commit skill issues, so
+    counting the two independently would read everything after it as quoted.
+    """
+    spans: list[tuple[int, int]] = []
+    quote: str | None = None
+    start = 0
+    for i, ch in enumerate(command):
+        if quote is None and ch in "\"'":
+            quote, start = ch, i
+        elif ch == quote:
+            spans.append((start, i))
+            quote = None
+    return spans
+
+
 def _dir_from_command(command: str | None) -> str | None:
     """Extract the commit's execution directory from the command string (deterministic signals).
 
-    ① ``git -C <dir>`` (git's own -C overrides cwd) — scanned only in the global-options region
-       before the ``commit`` subcommand, so a ``-C`` inside the commit message is not mistaken
-       for a directory. ② a leading ``cd <dir> && … git commit`` prefix. Conservative shell-lite
-       parse (quoted or bare paths); if nothing matches, None → the caller drops to the next rung.
+    ① ``git -C <dir>`` (git's own -C overrides cwd), read from the global-options region of the
+       one unquoted ``git … commit`` in the command. A quoted one is the message talking about a
+       commit, not making one, and two unquoted ones leave no answer to give — neither yields a
+       directory, so the read falls through to ② rather than re-pointing ROOT at a tree the commit
+       does not run in. ② a leading ``cd <dir> && … git commit`` prefix. Conservative
+       shell-lite parse (quoted or bare paths); if nothing matches, None → the caller drops to
+       the next rung.
     """
     if not command:
         return None
-    head = command.split(" commit", 1)[0]  # ① global-options region only
+    spans = _quoted_spans(command)
+    heads = [
+        m.group(1)
+        for m in _GIT_OPTIONS_RE.finditer(command)
+        if not any(a <= m.start() <= b for a, b in spans)
+    ]
+    head = heads[0] if len(heads) == 1 else ""  # ① one invocation, or no answer at all
     m = re.search(rf"(?:^|\s)-C\s+(?:{_PATH_TOKEN})", head)
     if not m:  # ② leading `cd <dir> &&`
         m = _CD_PREFIX_RE.match(command)

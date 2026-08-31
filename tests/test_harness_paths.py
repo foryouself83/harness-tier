@@ -115,6 +115,41 @@ def test_dir_from_command_ignores_dash_c_inside_message():
     assert vp._dir_from_command('git commit -m "use -C /wrong"') is None
 
 
+def test_dir_from_command_survives_a_body_that_says_commit_before_the_git():
+    # the commit skill builds its message in a quoted heredoc and pipes it, so the whole body
+    # sits in the command string *ahead* of the git invocation. Ending the options region at the
+    # first " commit" anywhere lands inside that body and loses the `-C` — the very signal the
+    # skill tells the agent to write literally.
+    command = "\n".join(
+        [
+            "msg=$(cat <<'EOF'",
+            "fix(x): y",
+            "",
+            "- the runner takes the line for something that is not a commit",
+            "EOF",
+            ")",
+            'printf %s "$msg" | git -C /a/b commit -F -',
+        ]
+    )
+    assert vp._dir_from_command(command) == "/a/b"
+
+
+def test_dir_from_command_ignores_a_git_commit_quoted_inside_the_message():
+    # the message is an argument, so a `git -C <dir> commit` quoted inside it is text, not an
+    # invocation. Reading it as the execution directory re-points ROOT at a tree the commit does
+    # not run in — the gate then reads that tree's tier marker and staged files, which can both
+    # newly block a classified commit and let an unclassified one through (Invariant #6).
+    assert vp._dir_from_command('git -C /a commit -m "do not git -C /evil commit"') == "/a"
+    assert vp._dir_from_command('git -C /a commit -m x && echo "git -C /b commit"') == "/a"
+    assert vp._dir_from_command('echo "git -C /b commit" && git -C /a commit -m x') == "/a"
+
+
+def test_dir_from_command_gives_up_on_two_real_invocations():
+    # two unquoted `git … commit` in one command: which tree the gate should read is genuinely
+    # ambiguous, and Invariant #6 answers ambiguity with the main repo, never a guess.
+    assert vp._dir_from_command("git -C /a commit -m x && git -C /b commit -m y") is None
+
+
 def test_parse_worktree_list_blocks_and_detached():
     text = (
         "worktree /main\nHEAD abc\nbranch refs/heads/main\n\n"

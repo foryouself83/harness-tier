@@ -28,6 +28,8 @@ import yaml
 REPO = Path(__file__).resolve().parent.parent
 SKILLS = sorted(REPO.glob("skills/*/SKILL.md"))
 SKILL_IDS = [p.parent.name for p in SKILLS]
+# rules/ ships to consumers and the SessionStart hook injects it, so its commands run too.
+SHIPPED_RULES = sorted(REPO.glob("rules/*.md"))
 
 # Every field the official SKILL.md frontmatter reference defines. Anything else is
 # either a typo or a command-era leftover that silently does nothing.
@@ -334,9 +336,8 @@ def gate_self_filter(name: str) -> re.Pattern[str]:
     return re.compile(m.group(1).replace("[:space:]", r"\s").replace("[:alnum:]", "0-9A-Za-z"))
 
 
-@pytest.mark.parametrize("skill", SKILLS, ids=SKILL_IDS)
-def test_git_commands_a_skill_issues_reach_the_flow_gate(skill: Path):
-    """A `git commit` / `git merge` a skill issues has to match precommit-runner's self-filter.
+def assert_git_commands_reach_the_gate(label: str, commands: list[str]) -> None:
+    """Every `git commit` / `git merge` in `commands` must match precommit-runner's self-filter.
 
     The hook is handed `tool_input.command` *before* the shell expands it, and both regexes need
     the token after `git` to start with `-`, so a variable supplying the flag itself — `git
@@ -347,15 +348,31 @@ def test_git_commands_a_skill_issues_reach_the_flow_gate(skill: Path):
     literal `-C <dir>` out of that same string. Invariant #6.
     """
     filters = [("commit", gate_self_filter("_commit_re")), ("merge", gate_self_filter("_merge_re"))]
-    for cmd in issued_commands(skill):
+    for cmd in commands:
         if not re.match(r"git(\s|$)", cmd):
             continue
         for word, pattern in filters:
             if re.search(rf"(?<![\w-]){word}(?![\w-])", cmd) and not pattern.search(cmd):
                 raise AssertionError(
-                    f"{skill.parent.name}: {cmd!r} never reaches the gate — the {word} "
-                    f"self-filter reads the command unexpanded. Write the path literally."
+                    f"{label}: {cmd!r} never reaches the gate — the {word} self-filter reads "
+                    f"the command unexpanded. Spell the flags literally."
                 )
+
+
+@pytest.mark.parametrize("skill", SKILLS, ids=SKILL_IDS)
+def test_git_commands_a_skill_issues_reach_the_flow_gate(skill: Path):
+    assert_git_commands_reach_the_gate(skill.parent.name, issued_commands(skill))
+
+
+@pytest.mark.parametrize("rule", SHIPPED_RULES, ids=[p.stem for p in SHIPPED_RULES])
+def test_git_commands_a_rule_issues_reach_the_flow_gate(rule: Path):
+    """The same guard for `rules/`, which reaches the agent the way a skill does.
+
+    The SessionStart hook injects these files into every session, so a `git merge` spelled out
+    in one is a command the agent runs — `risk-tiers.md` is where the merge strategy the
+    promotions follow is written down. A guard over `skills/` alone leaves that unmeasured.
+    """
+    assert_git_commands_reach_the_gate(rule.name, issued_commands(rule))
 
 
 @pytest.mark.parametrize("name", sorted(MUST_STILL_PROMPT), ids=sorted(MUST_STILL_PROMPT))

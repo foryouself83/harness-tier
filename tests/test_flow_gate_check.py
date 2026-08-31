@@ -489,6 +489,38 @@ def test_runner_gates_worktree_commit_via_git_dash_c(tmp_path: Path):
 
 
 @requires_bash_git
+def test_runner_gates_a_worktree_commit_whose_path_holds_a_space(tmp_path: Path):
+    # the same end-to-end path as the test above, with the one difference a Windows host makes
+    # routine: a directory name with a space, which the command must quote. An option-argument
+    # token that stops at whitespace ends the self-filter's scan inside the quotes, so the runner
+    # reads the line as "not a commit" and every gate behind it is skipped in silence.
+    main = tmp_path / "main"
+    _init_repo(main)
+    wt = tmp_path / "wt with space"
+    _rg(["worktree", "add", "-b", "feature/x", str(wt)], main)
+    _classify_worktree_module(wt)
+    r = _run_runner(main, f'git -C "{wt}" commit -m x')
+    assert "echo LINT_RAN" in (r.stdout + r.stderr)  # gate ran against W
+
+
+@requires_bash_git
+def test_runner_gates_a_commit_whose_option_holds_an_unpaired_quote(tmp_path: Path):
+    # a `"` inside a single-quoted option value is one literal character, not the start of a
+    # quoted span. Requiring every `"` in the global-option region to be part of a pair ends the
+    # self-filter's scan there and the runner reads the line as "not a commit" — the silent
+    # non-enforcement Invariant #1 exists to prevent. The block below is the proof the filter
+    # engaged at all: an unclassified commit is one of the three things the gate does block.
+    main = tmp_path / "main"
+    _init_repo(main)
+    (main / ".claude" / "harness-tier" / "config").mkdir(parents=True)
+    (main / ".claude" / "harness-tier" / "config" / "flow-config.yaml").write_text(
+        "modules: []\n", encoding="utf-8"
+    )
+    r = _run_runner(main, "git -c user.name='a\"b' commit -m x")
+    assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)
+
+
+@requires_bash_git
 def test_deny_json_survives_a_quote_bearing_command(tmp_path: Path):
     # deny() interpolates the failing command into the permissionDecisionReason JSON string.
     # The wiki gate's command is the first plugin-generated one that ALWAYS carries double

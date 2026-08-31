@@ -80,12 +80,18 @@ fi
 # python extraction is empty (python3 broken/absent) the same regex scans the raw JSON. The
 # terminator allows any non-alnum/non-`-` char after `commit` (space, `;`, `&`, …) so `git commit;`
 # is caught too, while `-`/alnum keep `commit-graph`/`commitfoo` excluded.
-_commit_re='git([[:space:]]+-[^[:space:]]+([[:space:]]+[^[:space:]]+)?)*[[:space:]]+commit($|[^[:alnum:]-])'
+# An option argument may be a quoted token holding spaces (`git -C "/c/My Work/wt" commit`, routine
+# on Windows), so a token is a run of non-space characters and/or double-quoted spans rather than
+# one whitespace-free word. Stopping at the first space would end the scan inside the quotes and
+# read the line as "not a commit" — the gate then skips in silence (Invariant #1). The trailing
+# bare `"` alternative keeps a lone quote (`-c x='a"b'`) a literal character rather than an
+# unterminated span, which would end the scan the same way.
+_commit_re='git([[:space:]]+-([^[:space:]"]|"[^"]*"|")+([[:space:]]+([^[:space:]"]|"[^"]*"|")+)?)*[[:space:]]+commit($|[^[:alnum:]-])'
 
 # Detect `git merge` with the same convention as _commit_re: git global options (notably
 # `git -C <worktree>`) may sit between `git` and the subcommand, and `merge` is matched as a
 # whole word so `git merge-base` / `git merge-file` do not false-positive.
-_merge_re='git([[:space:]]+-[^[:space:]]+([[:space:]]+[^[:space:]]+)?)*[[:space:]]+merge($|[^[:alnum:]-])'
+_merge_re='git([[:space:]]+-([^[:space:]"]|"[^"]*"|")+([[:space:]]+([^[:space:]"]|"[^"]*"|")+)?)*[[:space:]]+merge($|[^[:alnum:]-])'
 
 _is_commit=0
 _is_merge=0
