@@ -3,6 +3,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -284,3 +285,53 @@ def test_changelog_excludes_plumbing_commit_types():
     joined = "\n".join(patterns)
     for kind in ("chore", "ci", "refactor", "style", "test"):
         assert kind in joined, f"exclude_commit_patterns should filter '{kind}'"
+
+
+def test_every_python_semantic_release_install_constrains_gitpython():
+    # PSR reads Actor.name_email_regex at config load, and one GitPython release shipped without
+    # it — PSR's own `gitpython~=3.0` does not exclude that version, so an unpinned resolve
+    # crashes before a version is computed. Three install sites, all of which have to carry the
+    # constraint: this repo's CI, the template `/flow-init` renders into a consumer, and the dev
+    # group behind the local `semantic-release version --print` the flow skill runs to propose a
+    # bump level. Constraining one and not the others leaves the failure a re-resolve away.
+    # Both halves are parsed, never line-scanned: a `run:` block wraps with `\` and a dependency
+    # list wraps once it grows, and a line scan then reads what it never sees as clean.
+    offenders = []
+    workflows = sorted(ROOT.glob("github/release.*.workflow.example.yml")) + [
+        ROOT / ".github" / "workflows" / "release.yml"
+    ]
+    for path in workflows:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        for job in (data.get("jobs") or {}).values():
+            for step in (job or {}).get("steps") or []:
+                run = str((step or {}).get("run", ""))
+                if "pip install" not in run or "python-semantic-release" not in run:
+                    continue
+                if "gitpython" not in run.lower():
+                    offenders.append(f"{path.name}: step {(step.get('name') or run).strip()!r}")
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    project = pyproject.get("project") or {}
+    groups = [("project.dependencies", project.get("dependencies") or [])]
+    groups += [
+        (f"dependency-groups.{k}", v) for k, v in (pyproject.get("dependency-groups") or {}).items()
+    ]
+    groups += [
+        (f"project.optional-dependencies.{k}", v)
+        for k, v in (project.get("optional-dependencies") or {}).items()
+    ]
+    groups += [
+        (
+            "tool.uv.dev-dependencies",
+            ((pyproject.get("tool") or {}).get("uv") or {}).get("dev-dependencies") or [],
+        )
+    ]
+    for name, specs in groups:
+        specs = [str(s) for s in specs]
+        if any("python-semantic-release" in s for s in specs) and not any(
+            "gitpython" in s.lower() for s in specs
+        ):
+            offenders.append(f"pyproject.toml [{name}]: {specs}")
+    assert not offenders, (
+        "python-semantic-release is installed without a GitPython constraint:\n  "
+        + "\n  ".join(offenders)
+    )
