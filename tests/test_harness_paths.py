@@ -540,3 +540,85 @@ def test_dir_from_command_does_not_read_an_arithmetic_shift_as_a_heredoc():
 
 def test_dir_from_command_reads_across_a_line_continuation():
     assert vp._dir_from_command("git -C /c/wt \\\n  commit -m x") == "/c/wt"
+
+
+# ── quoted text the shell EXECUTES is not literal ────────────────────────────────
+# The mask exists so a commit a message merely quotes is not read as one. But a quoted span is
+# data only until something runs it: `$( )` and backticks are commands wherever they appear, and
+# an interpreter's `-c` argument is the command it was handed. Read as literal text, a real
+# commit disappears and the gate exits 0 on it — which is worse than the false block the mask
+# was introduced to remove, and worse than the substring match it replaced.
+
+
+@pytest.mark.parametrize(
+    "command,word",
+    [
+        ('bash -c "git commit -m x"', "commit"),
+        ("bash -c 'git commit -m x'", "commit"),
+        ('sh -c "git merge --no-ff dev"', "merge"),
+        ('zsh -c "git commit -m x"', "commit"),
+        ('eval "git commit -m x"', "commit"),
+        ("eval 'git merge --squash feature/x'", "merge"),
+        ('out="$(git commit -m x)"', "commit"),
+        ("out=$(git merge --no-ff dev)", "merge"),
+        ("out=`git commit -m x`", "commit"),
+        ('git submodule foreach "git commit -m x"', "commit"),
+    ],
+)
+def test_a_command_the_shell_executes_is_read_even_when_quoted(command: str, word: str):
+    assert vp.git_subcommand_re(word).search(vp.mask_literals(command)), command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'grep "git commit" -r .',
+        'echo "run git commit now"',
+        'echo "then merge it"',
+        "git log --oneline && echo 'now commit'",
+    ],
+)
+def test_quoted_text_nothing_runs_is_still_not_an_invocation(command: str):
+    for word in ("commit", "merge"):
+        assert not vp.git_subcommand_re(word).search(vp.mask_literals(command)), (command, word)
+
+
+def test_dir_from_command_reads_a_dash_c_inside_an_executed_argument():
+    assert vp._dir_from_command('bash -c "git -C /c/wt commit -m x"') == "/c/wt"
+
+
+def test_dir_from_command_still_ignores_a_dash_c_in_a_heredoc_body():
+    # the body is data handed to git, not a command an interpreter runs
+    c = "git commit -F - <<'EOF'\nsee git -C /evil/wt commit -m x\nEOF\n"
+    assert vp._dir_from_command(c) is None
+
+
+@pytest.mark.parametrize(
+    "arith",
+    ["((n = 1 << 2))", "$[1 << 2]", "let 'n = 1 << 2'"],
+    ids=["bare", "dollar-bracket", "let"],
+)
+def test_arithmetic_left_shift_is_never_a_heredoc_introducer(arith: str):
+    assert vp._dir_from_command(f"{arith}\ngit -C /c/wt commit -m x") == "/c/wt"
+
+
+@pytest.mark.parametrize("prog", ["git.exe", "C:/Git/bin/git.exe", "/usr/bin/git"])
+def test_the_program_token_may_carry_the_platform_suffix(prog: str):
+    # `git.exe` is the native spelling on the host the gate runs on (Invariant #2).
+    assert vp._dir_from_command(f"{prog} -C /a/wt commit -m x") == "/a/wt"
+
+
+def test_a_quoted_program_name_is_still_the_program():
+    # `'git' commit` runs a commit; the quotes are how the shell was told the name, not data.
+    assert vp._dir_from_command("'git' -C /c/wt commit -m x") == "/c/wt"
+    assert vp._dir_from_command('"git" -C /c/wt commit -m x') == "/c/wt"
+
+
+@pytest.mark.parametrize("prog", ["mygit", "/usr/bin/mygit", "gitx.exe", "notgit.exe"])
+def test_a_different_program_is_still_rejected(prog: str):
+    assert vp._dir_from_command(f"{prog} -C /evil commit -m x") is None
+
+
+def test_a_backslash_quoted_carriage_return_continues_a_line():
+    # a CRLF-authored continuation: the backslash quotes the CR, and the newline still joins.
+    assert vp._dir_from_command("git -C /c/wt \\\r\n  commit -m x") == "/c/wt"

@@ -378,9 +378,8 @@ def assert_git_commands_reach_the_gate(label: str, commands: list[str]) -> None:
 def test_the_prefilter_states_no_opinion_about_quoting():
     """The pre-filter decides only WHETHER to spawn the gate; the gate decides what the command
     is. A pre-filter that reasons about quotes is a second grammar, and a second grammar has to
-    agree with the first — which it did not, three times, each time as a silent skip. So it may
-    not mention a quote or an escape at all: over-matching costs one spawn, under-matching costs
-    the whole gate."""
+    agree with the first. So it may not mention a quote or an escape at all: over-matching costs
+    one spawn, under-matching costs the whole gate."""
     src = (REPO / "scripts/precommit-runner.sh").read_text(encoding="utf-8")
     raw = re.search(r"^_word_re='(?P<re>.+)'$", src, re.M)
     assert raw, "_word_re is gone from precommit-runner.sh"
@@ -390,11 +389,10 @@ def test_the_prefilter_states_no_opinion_about_quoting():
     )
 
 
-# The corpus IS the spec, in both directions. Comparing the two halves to each other let them
-# drift together, which is how a path-qualified `git`, an escaped quote and a backslash-escaped
-# space each became a silent skip while this suite stayed green. So a real invocation must be
+# The corpus IS the spec, in both directions, and it is fed to both halves rather than the two
+# being compared to each other — which only proves they drift together. A real invocation must be
 # read as one AND reach the gate, and a command that merely says the word must be read as
-# neither — a positive list alone is satisfied by a grammar that matches everything.
+# neither: a positive list alone is satisfied by a grammar that matches everything.
 REAL_INVOCATIONS = [
     ("git commit -m x", "commit"),
     ("git -C '/c/My Work/wt' commit -F -", "commit"),
@@ -411,6 +409,20 @@ REAL_INVOCATIONS = [
     ("git -C '/c/My Work/wt' merge --squash feature/x", "merge"),
     ("/usr/bin/git merge --no-ff origin/dev", "merge"),
     ("git switch dev && git merge --squash feature/x", "merge"),
+    # Quoted text something RUNS. A mask that calls these literal loses a real commit, which
+    # the substring match they replaced still caught — the one direction that must not
+    # regress.
+    ('bash -c "git commit -m x"', "commit"),
+    ("bash -c 'git merge --squash feature/x'", "merge"),
+    ('eval "git commit -m x"', "commit"),
+    ('out="$(git commit -m x)"', "commit"),
+    ("out=$(git commit -m x)", "commit"),
+    ("out=`git commit -m x`", "commit"),
+    ("((n = 1 << 2))\ngit commit -m x", "commit"),
+    # The program token as the host spells it, and as a shell still accepts it.
+    ("git.exe commit -m x", "commit"),
+    ("C:/Git/bin/git.exe -C /a/wt commit -m x", "commit"),
+    ("'git' commit -m x", "commit"),
 ]
 
 NON_INVOCATIONS = [
@@ -421,6 +433,9 @@ NON_INVOCATIONS = [
     "git merge-base HEAD dev",
     "git log -1 --format=%s <<'EOF'\ngit -C /wt commit -m x\nEOF",
     "cat <<" + "\\" + "EOF\ngit -C /wt merge --no-ff dev\nEOF",
+    'grep -rn "git commit" scripts/',
+    "echo '''nothing to merge'''",
+    "git -c commit.gpgsign=false log --oneline",
 ]
 
 

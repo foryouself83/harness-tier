@@ -170,9 +170,9 @@ _MERGE_FLAGS_WITH_ARG = frozenset(
 # The operands are deliberately NOT part of this pattern: the invocation must be *seen* even
 # when its operands are unreadable, because an unreadable one voids the whole chain
 # (see :func:`_target_from_command`).
-# It shares the grammar the commit and merge paths read, rather than restating one: its own
-# spelling did not admit a path-qualified `git`, so `/usr/bin/git switch dev && git merge X`
-# named no target and the merge was judged against whatever branch HEAD happened to be on.
+# It shares the grammar the commit and merge paths read rather than restating one: a spelling
+# only this pattern rejects names no target, and the merge is then judged against whatever
+# branch HEAD happens to be on.
 _MERGE_SWITCH_RE = git_subcommand_re("(?:switch|checkout)")
 
 
@@ -859,15 +859,15 @@ def wiki_check_output() -> None:
 def classify_output() -> None:
     """Print what the hook's command IS — the gate's single authority on that question.
 
-    precommit-runner.sh decides only whether to spawn this at all, and its filter is deliberately
-    coarse for it. Two hand-written grammars used to answer the same question, and every spelling
-    only one of them accepted was the gate off in silence rather than a narrower gate: a
-    path-qualified `git` reached the runner but resolved no worktree, so ROOT stayed on a clean
-    main that exited 0. The grammar now lives in one place — the same functions that read the
-    command for every other purpose — so the runner cannot disagree with it.
+    precommit-runner.sh decides only whether to spawn this at all, and its filter is coarse so
+    that it cannot be narrower. The grammar lives in one place — the same functions that read
+    the command for every other purpose — so nothing can disagree with it about what a `git`
+    invocation is.
 
-    Three lines, each printed only when it is true, so an older runner reading this output sees
-    nothing it must not act on:
+    ``ok=1`` comes first and says the command was READ. Without it the runner cannot tell
+    a verdict of `neither` from no verdict at all, and a python too old to run this would
+    turn the gate off instead of tripping the dependency deny below it.
+    The rest are printed only when true, so an older runner sees nothing it must not act on:
       ``commit=1`` / ``merge=1`` — the command holds that invocation.
       ``worktree=<path>`` — the commit runs in a git worktree other than main, detected by
       branch-key (:func:`working_root`) and used to re-point ROOT.
@@ -888,6 +888,7 @@ def classify_output() -> None:
         is_merge = bool(_MERGE_RE.search(masked))
     except Exception:
         return  # FAIL-OPEN
+    print("ok=1")
     if is_commit:
         print("commit=1")
     if is_merge:
@@ -911,6 +912,8 @@ if __name__ == "__main__":
             module_commands_output()
         elif "--classify" in sys.argv:
             classify_output()
+        elif "--resolve-worktree" in sys.argv:
+            pass  # the name --classify replaced; a host mid-sync must get a no-op, not main()
         elif "--wiki-check" in sys.argv:
             wiki_check_output()
         elif "--merge-check" in sys.argv:

@@ -307,7 +307,7 @@ def test_every_python_semantic_release_install_constrains_gitpython():
                 run = str((step or {}).get("run", ""))
                 if "pip install" not in run or "python-semantic-release" not in run:
                     continue
-                if "gitpython" not in run.lower():
+                if "3.1.60" not in run:  # the broken release, named — not merely "gitpython"
                     offenders.append(f"{path.name}: step {(step.get('name') or run).strip()!r}")
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     project = pyproject.get("project") or {}
