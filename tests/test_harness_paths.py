@@ -487,3 +487,56 @@ def test_dir_from_command_strips_only_tabs_and_only_for_a_dash_heredoc():
     assert vp._dir_from_command(dashed) == "/wt"
     plain = "cat <<EOF >msg\n\tEOF\nrun git -C /evil commit\nEOF\ngit -C /wt commit -F msg"
     assert vp._dir_from_command(plain) == "/wt"
+
+
+# ── one authority for what a shell word is ───────────────────────────────────────
+# Each case below is reachable from a real command and resolves to the wrong tree — or to no
+# tree, which leaves ROOT on main and so newly blocks a correctly-classified worktree commit.
+
+
+def test_dir_from_command_reads_a_backslash_escaped_space_in_a_path():
+    assert vp._dir_from_command(r"git -C /tmp/My\ P/wt commit -m x") == "/tmp/My P/wt"
+
+
+def test_dir_from_command_keeps_a_windows_backslash_path_intact():
+    # bash would drop these backslashes; the gate deliberately does not, because a Windows path
+    # is the shape this option actually carries and dropping them resolves nothing.
+    assert vp._dir_from_command(r"git -C C:\work\wt commit -m x") == r"C:\work\wt"
+
+
+def test_dir_from_command_closes_a_heredoc_whose_delimiter_carries_a_cr():
+    # A heredoc delimiter is one WORD, and a CR is an ordinary character in it: after `<<'EOF'`
+    # the CR of a CRLF line joins the same word, so bash's delimiter is EOF+CR and the EOF+CR
+    # line closes it. Reading the delimiter as EOF alone runs the body to end of input and
+    # swallows the real invocation that follows — the commit skill's own template.
+    tmpl = (
+        "msg=$(cat <<'EOF'\nfix(gate): x\nEOF\n)\nprintf '%s\n' \"$msg\" | git -C /c/wt commit -F -"
+    )
+    assert vp._dir_from_command(tmpl) == "/c/wt"
+    assert vp._dir_from_command(tmpl.replace("\n", "\r\n")) == "/c/wt"
+
+
+def test_dir_from_command_masks_a_backslash_quoted_heredoc_body():
+    # A backslash quotes the delimiter exactly as single quotes do. Left unrecognised, the body
+    # is never masked at all and a commit the message merely quotes re-points ROOT.
+    c = "cat <<" + "\\" + "EOF | mail\nsee git -C /evil/wt commit -m x\nEOF\n"
+    assert vp._dir_from_command(c) is None
+
+
+def test_dir_from_command_masks_the_second_of_two_heredocs_on_one_line():
+    c = "cat <<A <<B\nplain\nA\ngit -C /evil/wt commit -m x\nB\n"
+    assert vp._dir_from_command(c) is None
+
+
+def test_dir_from_command_reads_a_delimiter_word_built_from_two_pieces():
+    c = "cat <<'EO'F\ngit -C /evil/wt commit -m x\nEOF\ngit -C /c/wt commit -m y"
+    assert vp._dir_from_command(c) == "/c/wt"
+
+
+def test_dir_from_command_does_not_read_an_arithmetic_shift_as_a_heredoc():
+    c = "n=$((1 << 2))\necho $n\ngit -C /c/wt commit -m x"
+    assert vp._dir_from_command(c) == "/c/wt"
+
+
+def test_dir_from_command_reads_across_a_line_continuation():
+    assert vp._dir_from_command("git -C /c/wt \\\n  commit -m x") == "/c/wt"

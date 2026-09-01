@@ -319,10 +319,12 @@ def test_bump_is_not_runtime_gate():
     assert "bump" not in RUNTIME_GATES  # bump needs a .done marker (evidence gate)
 
 
-# ── worktree-aware re-designation (--resolve-worktree) ────────────────────────────
-# The gate assumes working tree = CLAUDE_PROJECT_DIR (fixed at session start). When a commit
-# runs in a git worktree, precommit-runner.sh asks flow_gate_check.py --resolve-worktree for the
-# actual worktree W (branch-key) and re-points ROOT=W. These pin that mechanism end-to-end.
+# ── the command verdict, and the worktree it names (--classify) ──────────────────
+# One authority for what the hook's command is: the runner's own filter decides only whether
+# to spawn this, and every question with an answer — commits? merges? which worktree? — is
+# answered here. The gate also assumes working tree = CLAUDE_PROJECT_DIR (fixed at session
+# start), so a commit run in a git worktree is detected by branch-key and ROOT re-pointed to
+# it. These pin both halves end-to-end.
 
 
 def _git_ok() -> bool:
@@ -350,10 +352,10 @@ def _init_repo(path: Path) -> None:
     _rg(["commit", "-m", "init"], path)
 
 
-def _resolve_worktree(root: Path, payload: dict) -> subprocess.CompletedProcess[str]:
+def _classify(root: Path, payload: dict) -> subprocess.CompletedProcess[str]:
     env = {**os.environ, "CLAUDE_PROJECT_DIR": str(root), "PYTHONIOENCODING": "utf-8"}
     return subprocess.run(
-        [sys.executable, "scripts/flow_gate_check.py", "--resolve-worktree"],
+        [sys.executable, "scripts/flow_gate_check.py", "--classify"],
         cwd=Path(__file__).resolve().parent.parent,
         env=env,
         input=json.dumps(payload),
@@ -364,27 +366,59 @@ def _resolve_worktree(root: Path, payload: dict) -> subprocess.CompletedProcess[
 
 
 @requires_git
-def test_resolve_worktree_detects_git_dash_c(tmp_path: Path):
-    # `git -C <wt> commit` (the /flow worktree commit convention) → prints W's absolute path.
+def test_classify_detects_a_commit_and_the_worktree_it_runs_in(tmp_path: Path):
+    # `git -C <wt> commit` (the /flow worktree commit convention) → a commit, in W.
     main = tmp_path / "repo"
     _init_repo(main)
     wt = tmp_path / "repo-wt"
     _rg(["worktree", "add", "-b", "feature/x", str(wt)], main)
     payload = {"cwd": str(main), "tool_input": {"command": f'git -C {wt} commit -m "m"'}}
-    r = _resolve_worktree(main, payload)
+    r = _classify(main, payload)
     assert r.returncode == 0
-    assert r.stdout.strip() == str(wt.resolve())
+    lines = r.stdout.split()
+    assert "commit=1" in lines
+    assert f"worktree={wt.resolve()}" in lines
 
 
 @requires_git
-def test_resolve_worktree_single_tree_empty(tmp_path: Path):
-    # non-worktree (single tree): W == main → empty output → runner keeps ROOT=main (no change).
+def test_classify_names_no_worktree_for_a_single_tree(tmp_path: Path):
+    # non-worktree (single tree): W == main → no worktree line → runner keeps ROOT=main.
     main = tmp_path / "repo"
     _init_repo(main)
     payload = {"cwd": str(main), "tool_input": {"command": "git commit -m m"}}
-    r = _resolve_worktree(main, payload)
+    r = _classify(main, payload)
+    assert r.returncode == 0
+    assert r.stdout.split() == ["commit=1"]
+
+
+@requires_git
+def test_classify_says_nothing_for_a_command_that_only_mentions_the_word(tmp_path: Path):
+    """The runner's pre-filter is allowed to over-match; this is what stops the over-match from
+    reaching the gates. Said otherwise, a read-only `git log` would be denied as an unclassified
+    commit — the gate blocking work it was never meant to see."""
+    main = tmp_path / "repo"
+    _init_repo(main)
+    payload = {
+        "cwd": str(main),
+        "tool_input": {"command": 'git log --oneline -5 && echo "now commit"'},
+    }
+    r = _classify(main, payload)
     assert r.returncode == 0
     assert r.stdout.strip() == ""
+
+
+@requires_git
+def test_classify_reports_a_merge_without_resolving_a_worktree(tmp_path: Path):
+    """Invariant #6: only the commit path re-designates. A merge names its worktree to the merge
+    check, which fails open on a foreign one, and must not move ROOT out from under it."""
+    main = tmp_path / "repo"
+    _init_repo(main)
+    wt = tmp_path / "repo-wt"
+    _rg(["worktree", "add", "-b", "feature/x", str(wt)], main)
+    payload = {"cwd": str(main), "tool_input": {"command": f"git -C {wt} merge --no-ff dev"}}
+    r = _classify(main, payload)
+    assert r.returncode == 0
+    assert r.stdout.split() == ["merge=1"]
 
 
 @requires_git
@@ -523,11 +557,13 @@ def test_runner_leaves_a_read_only_command_that_mentions_committing_alone(tmp_pa
 
 @requires_bash_git
 def test_runner_gates_a_commit_whose_option_holds_an_unpaired_quote(tmp_path: Path):
-    # a `"` inside a single-quoted option value is one literal character, not the start of a
-    # quoted span. Requiring every `"` in the global-option region to be part of a pair ends the
-    # self-filter's scan there and the runner reads the line as "not a commit" — the silent
-    # non-enforcement Invariant #1 exists to prevent. The block below is the proof the filter
-    # engaged at all: an unclassified commit is one of the three things the gate does block.
+    # A `"` inside a single-quoted option value is one literal character, not the start of a
+    # quoted span. Read as one, the span swallows the subcommand, the command is not an
+    # invocation, and every gate behind it is skipped in silence (Invariant #1). The grammar
+    # is pinned on this spelling by the corpus in test_skills.py; what this adds is the whole
+    # chain — pre-filter, --classify, ROOT, the flow gate — on a command that carries quotes.
+    # The deny below is the proof it engaged: an unclassified commit is one of the three
+    # things the gate does block.
     main = tmp_path / "main"
     _init_repo(main)
     (main / ".claude" / "harness-tier" / "config").mkdir(parents=True)
@@ -1169,7 +1205,7 @@ def test_target_from_command_origin_ref_is_unclear():
 
 
 # Every merge test above writes its chain with `&&`, and a shell separates commands just as well
-# with a newline or a `;`. That blind spot let a `_SHELL_SEP_RE` missing `\n` ship green: the
+# with a newline or a `;`. That blind spot let an operand cut missing `\n` ship green: the
 # operand region ran past the end of the line, every switch read as unclear, and all
 # newline-separated merges fell back to HEAD — through the gate. The separator is therefore an
 # explicit axis here, not a formatting choice of whoever wrote the case.
@@ -1186,6 +1222,52 @@ def test_target_from_command_reads_the_documented_block_under_any_separator(sep)
     # integration branch, or the documented procedure is exactly what walks through the gate.
     assert _target_from_command(sep.join(_DOC_IDIOM)) == "dev"
     assert _target_from_command(sep.join(["git switch dev", "git merge feature/x"])) == "dev"
+
+
+# ── a command's operands stop where the next command starts ─────────────────────
+# The operand region used to run to end of input, so anything later in the chain joined this
+# merge's flags. Both directions are policy failures: a `require` row satisfied by a word the
+# merge never carried lets a forbidden merge through, and a `forbid` row tripped by a word from
+# another command blocks one the policy allows.
+
+
+def test_parse_merge_ignores_a_flag_written_in_a_trailing_comment():
+    assert parse_merge_command("git merge feature/x   # policy requires --squash") == (
+        set(),
+        "feature/x",
+    )
+
+
+def test_parse_merge_ignores_the_flags_of_the_next_command_in_the_chain():
+    assert parse_merge_command("git merge --no-ff dev && rm -rf /tmp/x") == ({"--no-ff"}, "dev")
+
+
+def test_parse_merge_ignores_a_switch_that_follows_it():
+    # `git switch -` returns to the previous branch; its `-` is not a merge flag.
+    assert parse_merge_command("git merge --no-ff stage && git switch -") == (
+        {"--no-ff"},
+        "stage",
+    )
+
+
+def test_parse_merge_keeps_a_flag_inside_its_own_quoted_message():
+    # the operand cut must not fire inside a literal: `-m` still consumes its argument.
+    assert parse_merge_command('git merge -m "please --squash it" feature/x') == (
+        set(),
+        "feature/x",
+    )
+
+
+def test_target_from_command_reads_a_path_qualified_switch():
+    # the switch shares the one invocation grammar now; its own spelling admitted no directory
+    # prefix, so this chain named no target and the merge was judged against whatever HEAD was.
+    assert _target_from_command("/usr/bin/git switch dev && git merge --no-ff stage") == "dev"
+
+
+def test_target_from_command_reads_a_switch_followed_by_a_comment():
+    # a comment ends the switch's operands; read past it the region holds three words, the switch
+    # reads as unclear, and one unclear switch voids the whole chain.
+    assert _target_from_command("git switch dev # go\ngit merge --no-ff stage") == "dev"
 
 
 def test_target_from_command_reads_the_documented_block_with_crlf():

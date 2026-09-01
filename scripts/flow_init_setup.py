@@ -83,10 +83,15 @@ EXAMPLE_CONFIG = "flow-config.example.yaml"  # plugin SOURCE (basis for config-s
 # shared module the copied scripts import, so it must travel with them (sibling import holds in the
 # single-file-copy environment). The policy file flow-tiers.yaml is copied separately to config/
 # (copy_artifacts).
+# Order matters where one file asks another a question. precommit-runner.sh routes on what
+# flow_gate_check.py --classify answers, so the answerer is copied FIRST: mid-sync the host
+# then holds an old runner and a new script, where the old runner's question goes unanswered
+# and ROOT simply stays on main. The other order leaves a new runner asking an old script,
+# which answers nothing it recognises — and a runner that reads no verdict gates nothing.
 COPY_FILES = [
     "scripts/_harness_paths.py",
-    "scripts/precommit-runner.sh",
     "scripts/flow_gate_check.py",
+    "scripts/precommit-runner.sh",
     "scripts/wiki_graph.py",
     "scripts/teams_alert.py",
     "scripts/notify-push.sh",

@@ -300,7 +300,7 @@ rm -rf .claude/harness-tier/.flow
 5. **Commit from a git worktree with `git -C <worktree> commit …`** — a single
    command, not a preceding `cd`. `CLAUDE_PROJECT_DIR` is fixed at session start,
    so when the commit runs in a worktree, the gate re-points to it by branch-key
-   (`flow_gate_check.py --resolve-worktree`); the explicit `git -C <worktree>` is the
+   (`flow_gate_check.py --classify`); the explicit `git -C <worktree>` is the
    deterministic signal that keeps that detection unambiguous. (No worktree → no
    change.) The `commit` skill issues it that way (rule 4), and owns
    "never `--no-verify`" and "stage only affected files" with it.

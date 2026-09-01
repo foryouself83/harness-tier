@@ -36,6 +36,7 @@ try:
         git_subcommand_re,
         host_root,
         mask_literals,
+        operand_end,
         working_root,
     )
 except ImportError:
@@ -54,6 +55,7 @@ except ImportError:
         git_subcommand_re,
         host_root,
         mask_literals,
+        operand_end,
         working_root,
     )
 
@@ -139,11 +141,7 @@ def load_merge_strategy(tiers_path: Path) -> list[dict]:
 # splitting there starts the operand region mid-string (shlex then raises and the strategy verdict
 # never runs) or truncates the head before the `-C` that names another worktree.
 _MERGE_RE = git_subcommand_re("merge")
-
-
-def _merge_match(command: str) -> re.Match[str] | None:
-    """The command's `git … merge`, read with every literal region masked out."""
-    return _MERGE_RE.search(mask_literals(command)) if command else None
+_COMMIT_RE = git_subcommand_re("commit")
 
 
 # Flags that consume the next token as their argument. If not skipped, `-m "msg"` would leak
@@ -169,23 +167,13 @@ _MERGE_FLAGS_WITH_ARG = frozenset(
 # (`git switch <integration>` → `git pull --ff-only` → `git merge --squash feature/<name>`) that
 # Claude Code sends as ONE Bash call, so at hook time HEAD is still the SOURCE branch and no rule
 # would match — the very idiom the policy documents would bypass the gate.
-# The operands are deliberately NOT part of this pattern: the invocation must be *seen* even when
-# its operands are unreadable, because an unreadable one voids the whole chain
-# (see :func:`_target_from_command`). `git\s+` also anchors the global-options region, so a
-# `checkout`-looking word elsewhere in the command cannot start a match.
-_MERGE_SWITCH_RE = re.compile(
-    r"(?:^|[\s;&|])git\s+(?:-\S+\s+(?:\S+\s+)?)*(?:switch|checkout)(?=$|\s)"
-)
-
-# Where one command in a chain ends and the next begins — used to cut a switch/checkout's operand
-# region so the next command's words are not read as its operands.
-# A NEWLINE separates two commands exactly as `&&` does, and omitting it is not a narrow miss: the
-# operand region then runs past the end of the line and swallows the next command's words, so
-# `_switch_operand`'s "exactly one operand" test fails, one unclear switch voids the whole chain,
-# and every newline-separated merge falls back to HEAD — i.e. walks through the gate. risk-tiers'
-# own "Merging feature/* → integration" block is three newline-separated lines, so the shape the
-# policy documents is precisely the shape that would bypass it. `\r` covers CRLF.
-_SHELL_SEP_RE = re.compile(r"[;&|\n\r]")
+# The operands are deliberately NOT part of this pattern: the invocation must be *seen* even
+# when its operands are unreadable, because an unreadable one voids the whole chain
+# (see :func:`_target_from_command`).
+# It shares the grammar the commit and merge paths read, rather than restating one: its own
+# spelling did not admit a path-qualified `git`, so `/usr/bin/git switch dev && git merge X`
+# named no target and the merge was judged against whatever branch HEAD happened to be on.
+_MERGE_SWITCH_RE = git_subcommand_re("(?:switch|checkout)")
 
 
 def _merge_dash_c(command: str) -> str | None:
@@ -217,13 +205,14 @@ def parse_merge_command(command: str) -> tuple[set[str], str | None]:
     """
     if not command:
         return set(), None
-    m = _merge_match(command)
+    masked = mask_literals(command)
+    m = _MERGE_RE.search(masked)
     if not m:
         return set(), None
     import shlex
 
     try:
-        tokens = shlex.split(command[m.end() :])
+        tokens = shlex.split(command[m.end() : operand_end(command, masked, m.end())])
     except ValueError:  # unbalanced quotes → FAIL-OPEN
         return set(), None
     flags: set[str] = set()
@@ -294,8 +283,7 @@ def _target_from_command(command: str) -> str | None:
     head_end = merge.end(1) if merge else len(command)
     target: str | None = None
     for m in _MERGE_SWITCH_RE.finditer(masked, 0, head_end):
-        sep = _SHELL_SEP_RE.search(masked, m.end(), head_end)
-        branch = _switch_operand(command[m.end() : sep.start() if sep else head_end])
+        branch = _switch_operand(command[m.end() : operand_end(command, masked, m.end(), head_end)])
         if branch is None:  # one unclear switch voids the whole chain
             return None
         target = branch
@@ -868,37 +856,61 @@ def wiki_check_output() -> None:
     _wiki_stage(root, gates)
 
 
-def resolve_worktree_output() -> None:
-    """Detect the commit's actual worktree from the hook payload and print its path (branch-key).
+def classify_output() -> None:
+    """Print what the hook's command IS — the gate's single authority on that question.
 
-    Reads the PreToolUse hook JSON on stdin, feeds ``cwd`` and ``tool_input.command`` to
-    working_root (against CLAUDE_PROJECT_DIR = main), and prints the detected worktree's absolute
-    path to stdout when it differs from main. Empty output otherwise (no worktree / detection
-    failure) → precommit-runner.sh keeps ROOT=main (FAIL-OPEN, no re-designation). Invariant #2:
-    force_utf8_io before any print."""
+    precommit-runner.sh decides only whether to spawn this at all, and its filter is deliberately
+    coarse for it. Two hand-written grammars used to answer the same question, and every spelling
+    only one of them accepted was the gate off in silence rather than a narrower gate: a
+    path-qualified `git` reached the runner but resolved no worktree, so ROOT stayed on a clean
+    main that exited 0. The grammar now lives in one place — the same functions that read the
+    command for every other purpose — so the runner cannot disagree with it.
+
+    Three lines, each printed only when it is true, so an older runner reading this output sees
+    nothing it must not act on:
+      ``commit=1`` / ``merge=1`` — the command holds that invocation.
+      ``worktree=<path>`` — the commit runs in a git worktree other than main, detected by
+      branch-key (:func:`working_root`) and used to re-point ROOT.
+    Any failure prints less, never more: an unreadable command is not an invocation this can
+    gate, and an undetectable worktree leaves ROOT on main (Invariant #1 · #6, FAIL-OPEN).
+    Invariant #2: force_utf8_io before any print.
+    """
     force_utf8_io()
     raw = sys.stdin.read()
     try:
         payload = json.loads(raw) if raw.strip() else {}
     except Exception:
-        payload = {}
-    hook_cwd = payload.get("cwd") or None
-    command = (payload.get("tool_input") or {}).get("command") or None
+        return  # FAIL-OPEN → neither, and the runner stops
+    command = (payload.get("tool_input") or {}).get("command") or ""
+    try:
+        masked = mask_literals(command)
+        is_commit = bool(_COMMIT_RE.search(masked))
+        is_merge = bool(_MERGE_RE.search(masked))
+    except Exception:
+        return  # FAIL-OPEN
+    if is_commit:
+        print("commit=1")
+    if is_merge:
+        print("merge=1")
+    if not is_commit:  # only the commit path re-designates the worktree (Invariant #6)
+        return
     root = host_root()
     try:
-        w = working_root(project_dir=root, hook_cwd=hook_cwd, command=command)
+        w = working_root(
+            project_dir=root, hook_cwd=payload.get("cwd") or None, command=command or None
+        )
     except Exception:
-        return  # FAIL-OPEN → empty output
+        return  # FAIL-OPEN → no re-designation
     if w and w.resolve() != root.resolve():
-        print(str(w))
+        print(f"worktree={w}")
 
 
 if __name__ == "__main__":
     try:
         if "--module-commands" in sys.argv:
             module_commands_output()
-        elif "--resolve-worktree" in sys.argv:
-            resolve_worktree_output()
+        elif "--classify" in sys.argv:
+            classify_output()
         elif "--wiki-check" in sys.argv:
             wiki_check_output()
         elif "--merge-check" in sys.argv:
