@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.2.3-rc.2 (2026-09-01)
+
+### Bug Fixes
+
+- **gate**: Agree on what a git invocation is
+  ([`64919b5`](https://github.com/foryouself83/harness-tier/commit/64919b5fed8bcd3cddf0e16cdda1eb15e90a4c40))
+
+
 ## v0.2.3-rc.1 (2026-09-01)
 
 ### Bug Fixes
