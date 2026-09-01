@@ -71,45 +71,31 @@ try:
 except Exception:
     print('')" 2>/dev/null || true)"
 fi
-# Detect a `git commit` invocation, allowing git global options between `git` and the `commit`
-# subcommand — critically `git -C <worktree> commit` (the /flow worktree-commit convention, the
-# deterministic worktree-detection signal) and `git -c k=v commit`. A plain `*"git commit"*`
-# substring MISSES `git -C <wt> commit`, so the worktree commit would slip past the filter as
-# "not a commit" and bypass the gate entirely (silent neutralization — Invariant #1). `commit` is
-# matched as a whole word so `git commit-graph`/`git commit-tree` etc. do not false-positive. When
-# python extraction is empty (python3 broken/absent) the same regex scans the raw JSON. The
-# terminator allows any non-alnum/non-`-` char after `commit` (space, `;`, `&`, …) so `git commit;`
-# is caught too, while `-`/alnum keep `commit-graph`/`commitfoo` excluded.
-# An option argument may be a quoted token holding spaces (`git -C "/c/My Work/wt" commit`, routine
-# on Windows), so a token is a run of non-space characters and/or quoted spans rather than one
-# whitespace-free word. Stopping at the first space would end the scan inside the quotes and read
-# the line as "not a commit" — the gate then skips in silence (Invariant #1). BOTH quote
-# characters: `'…'` is the more idiomatic shell spelling for a path with a space, and it is also
-# what keeps a lone `"` (`-c x='a"b'`) a literal character instead of an unterminated span. An
-# alternative for a bare quote would do that too, but it lets a token pair one string's closing
-# quote with a later string's opening quote and so cross whitespace — which made `git log … &&
-# echo "please commit"` read as a commit and be denied as unclassified.
-# A backslash makes the next character literal, so `\'` opens no span. Without that alternative
-# the token ends at the quote and the same silent skip returns — and `'\''`, the spelling for a
-# path holding an apostrophe, is what the commit skill's own template emits.
-# The assignment is double-quoted because a `'` cannot appear inside a single-quoted shell string;
-# `\$` is the end anchor, and test_skills.py::gate_self_filter undoes exactly this escaping.
-_commit_re="git([[:space:]]+-(\\\\.|[^[:space:]\"']|\"(\\\\.|[^\"])*\"|'[^']*')+([[:space:]]+(\\\\.|[^[:space:]\"']|\"(\\\\.|[^\"])*\"|'[^']*')+)?)*[[:space:]]+commit(\$|[^[:alnum:]-])"
-
-# Detect `git merge` with the same convention as _commit_re: git global options (notably
-# `git -C <worktree>`) may sit between `git` and the subcommand, and `merge` is matched as a
-# whole word so `git merge-base` / `git merge-file` do not false-positive.
-_merge_re="git([[:space:]]+-(\\\\.|[^[:space:]\"']|\"(\\\\.|[^\"])*\"|'[^']*')+([[:space:]]+(\\\\.|[^[:space:]\"']|\"(\\\\.|[^\"])*\"|'[^']*')+)?)*[[:space:]]+merge(\$|[^[:alnum:]-])"
-
-_is_commit=0
-_is_merge=0
-[[ "${_hook_cmd:-$_hook_input}" =~ $_commit_re ]] && _is_commit=1
-[[ "${_hook_cmd:-$_hook_input}" =~ $_merge_re ]] && _is_merge=1
-[ "$_is_commit" -eq 1 ] || [ "$_is_merge" -eq 1 ] || exit 0
+# Coarse pre-filter. The ONLY thing decided here is whether to spawn the gate at all — what the
+# command IS gets decided once, in flow_gate_check.py --classify below.
+# It used to be decided twice, by this shell pattern and by the Python grammar, and the two had
+# to agree: every spelling only one of them accepted was the gate off in silence rather than a
+# narrower gate. `/usr/bin/git … commit` reached this filter but resolved no worktree, leaving
+# ROOT on a clean main that exited 0; a `'\''` in a path ended the option token here and the
+# runner exited before every gate. Neither is a spelling to add — they are a second grammar to
+# delete, and this one is written so it CANNOT be narrower than the real one: the Python
+# invocation grammar requires the literal `git` and a blank-preceded `commit`/`merge` word, so a
+# command holding neither cannot be an invocation, and everything else is passed on to be judged.
+# Over-matching costs one python spawn and no verdict; under-matching costs the whole gate.
+case "${_hook_cmd:-$_hook_input}" in
+  *git*) ;;
+  *) exit 0 ;;
+esac
+_word_re='[[:space:]](commit|merge)($|[^[:alnum:]_-])'
+[[ "${_hook_cmd:-$_hook_input}" =~ $_word_re ]] || exit 0
 
 # Dependency FAIL-CLOSED — the harness requires python3 + PyYAML (regardless of project language).
 # If they are missing and we silently pass (fail-open), the gate is disabled on non-Python teams, so
 # "absence of required tools" — unlike transitive internal errors — blocks the commit (re-commit after install).
+# It runs BEFORE --classify because --classify is python: without it nothing can tell an
+# invocation from a mention, so the pre-filter's over-matches are denied here too. That is the
+# fail-CLOSED direction and it is only reachable on a host where every real commit is blocked
+# anyway — the deny names the one fix.
 #
 # DRY exception (intentional duplication): the floor(3, 8) / PyYAML install command in the bootstrap
 # check below are the same values as check-deps.sh, yet the code cannot be shared — (1) it directly
@@ -137,6 +123,29 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_SCRIPTS="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts}"
 PLUGIN_SCRIPTS="${PLUGIN_SCRIPTS:-$SCRIPT_DIR}"
 
+# The gate's own verdict on the command: whether it commits, whether it merges, and which
+# worktree the commit runs in. One spawn, one grammar, one authority — see --classify. A verdict
+# that says neither means the coarse filter over-matched and there is nothing to gate. Silence
+# (an unreadable payload, a python that died) says the same, which is FAIL-OPEN: this stage may
+# never be the thing that newly blocks a command (Invariant #1).
+_verdict="$(printf '%s' "$_hook_input" | CLAUDE_PROJECT_DIR="$ROOT" \
+  python3 "$PLUGIN_SCRIPTS/flow_gate_check.py" --classify 2>/dev/null || true)"
+_is_commit=0
+_is_merge=0
+_wt=""
+while IFS= read -r _line; do
+  # Python's print() emits CRLF on the Windows hook host, and only the LAST line's CR is
+  # eaten by the command substitution — so every line before it carries one, and a case
+  # arm written without it silently matches nothing (Invariant #2).
+  _line="${_line%$'\r'}"
+  case "$_line" in
+    commit=1) _is_commit=1 ;;
+    merge=1) _is_merge=1 ;;
+    worktree=?*) _wt="${_line#worktree=}" ;;
+  esac
+done <<< "$_verdict"
+[ "$_is_commit" -eq 1 ] || [ "$_is_merge" -eq 1 ] || exit 0
+
 # merge gate — a merge runs on a clean tree, so it must be inspected before the `git status`
 # early-exit below, and before the worktree re-designation (Invariant #6: the merge path is
 # resolved against CLAUDE_PROJECT_DIR only). Uses neither .done markers nor module checks (the
@@ -157,18 +166,13 @@ if [ "$_is_merge" -eq 1 ]; then
 fi
 
 # worktree-aware ROOT re-designation (FAIL-OPEN, commit-only — Invariant #6: the merge path must
-# not re-designate). CLAUDE_PROJECT_DIR is fixed at session start, so a commit run in a git
-# worktree created inside that session (e.g. `git -C <wt> commit`) would otherwise be gated
-# against main (staged diff invisible · branch-bound tier marker mismatch · relative module-lint
-# misses worktree files). flow_gate_check.py --resolve-worktree detects the actual commit
-# worktree W by branch-key (from the same hook JSON) and echoes its path; if valid, ROOT=W so the
-# cd / CLAUDE_PROJECT_DIR=ROOT / module-command steps below all read W. Detection failure → empty
-# → ROOT stays main (current behavior). python3 is guaranteed (dependency check above).
-if [ "$_is_commit" -eq 1 ]; then
-  _wt="$(printf '%s' "$_hook_input" | CLAUDE_PROJECT_DIR="$ROOT" python3 "$PLUGIN_SCRIPTS/flow_gate_check.py" --resolve-worktree 2>/dev/null || true)"
-  if [ -n "$_wt" ] && [ -d "$_wt" ]; then
-    ROOT="$_wt"
-  fi
+# not re-designate, which is why the merge gate above ran first, against CLAUDE_PROJECT_DIR).
+# CLAUDE_PROJECT_DIR is fixed at session start, so a commit run in a git worktree created inside
+# that session (e.g. `git -C <wt> commit`) would otherwise be gated against main (staged diff
+# invisible · branch-bound tier marker mismatch · relative module-lint misses worktree files).
+# --classify above detected it by branch-key; an empty answer keeps ROOT on main.
+if [ -n "$_wt" ] && [ -d "$_wt" ]; then
+  ROOT="$_wt"
 fi
 
 cd "$ROOT" || exit 0
@@ -218,14 +222,13 @@ fi
 LOG_DIR="${TMPDIR:-/tmp}"
 mod_log="$LOG_DIR/harness-tier-precommit-module.log"
 while IFS= read -r mod_cmd; do
+  mod_cmd="${mod_cmd%$'\r'}"   # CRLF from the Windows host, as above
   [ -n "$mod_cmd" ] || continue
   echo "▶ 모듈 사전검사 실행: $mod_cmd …" 1>&2
   if ! bash -c "$mod_cmd" > "$mod_log" 2>&1; then
     cat "$mod_log" 1>&2
     deny "모듈 사전검사 실패: $mod_cmd. 위 출력을 확인해 수정한 뒤 다시 커밋하세요."
   fi
-done <<EOF
-$mod_cmds
-EOF
+done <<< "$mod_cmds"
 
 allow

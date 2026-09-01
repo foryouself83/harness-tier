@@ -69,19 +69,70 @@ safe_token() {  # <value> -> the value, or nothing when it holds anything but a 
   esac
 }
 
+version_gt() {  # <a> <b> -> 0 when a has higher semver precedence than b, 1 otherwise
+  # `sort -V` cannot answer this: it ranks 1.0.0-rc.1 ABOVE 1.0.0, and every release this repo
+  # ships passes through an rc, so the consumer still on the candidate would never be told the
+  # release exists while the consumer on the release would be told to take the candidate back.
+  # Semver precedence instead — numeric core first, then a prerelease ranks BELOW its own core,
+  # then identifier by identifier. Pure bash: this runs before the session does, and the pipeline
+  # it replaces cost two forks. A version that is not X.Y.Z[-pre] is not ordered at all and the
+  # caller stays silent, because direction is the entire content of the notice.
+  local a="$1" b="$2" ap="" bp="" i x y
+  case "$a" in *-*) ap="${a#*-}"; a="${a%%-*}" ;; esac
+  case "$b" in *-*) bp="${b#*-}"; b="${b%%-*}" ;; esac
+  case "$a$b" in *[!0-9.]*) return 1 ;; esac
+  local -a A B
+  IFS=. read -r -a A <<< "$a"
+  IFS=. read -r -a B <<< "$b"
+  { [ "${#A[@]}" -eq 3 ] && [ "${#B[@]}" -eq 3 ]; } || return 1
+  for i in 0 1 2; do
+    x="${A[i]}"; y="${B[i]}"
+    { [ -n "$x" ] && [ -n "$y" ]; } || return 1
+    [ "$x" -gt "$y" ] && return 0
+    [ "$x" -lt "$y" ] && return 1
+  done
+  # Equal cores. A build with no prerelease is the finished one, and outranks every candidate.
+  [ -n "$ap" ] && [ -z "$bp" ] && return 1
+  [ -z "$ap" ] && { [ -n "$bp" ] && return 0 || return 1; }
+  local -a P Q
+  IFS=. read -r -a P <<< "$ap"
+  IFS=. read -r -a Q <<< "$bp"
+  i=0
+  while [ "$i" -lt "${#P[@]}" ] || [ "$i" -lt "${#Q[@]}" ]; do
+    x="${P[i]-}"; y="${Q[i]-}"
+    [ -z "$x" ] && return 1          # the shorter identifier list ranks lower
+    [ -z "$y" ] && return 0
+    if [ "$x" != "$y" ]; then
+      case "$x$y" in
+        *[!0-9]*)                    # at least one is alphanumeric
+          case "$x" in *[!0-9]*) ;; *) return 1 ;; esac   # all-numeric ranks below it
+          case "$y" in *[!0-9]*) ;; *) return 0 ;; esac
+          [[ $x > $y ]] && return 0 || return 1 ;;
+        *) [ "$x" -gt "$y" ] && return 0 || return 1 ;;
+      esac
+    fi
+    i=$((i + 1))
+  done
+  return 1
+}
+
 plugins_root() {  # the directory holding both `cache/` and `marketplaces/`, or nothing
   # Derived by walking up from the loaded build rather than assuming ~/.claude/plugins, which
   # CLAUDE_CONFIG_DIR can relocate. A plugin loaded from a source tree finds no marketplaces
   # sibling and the feature simply does not apply.
   local at="$PLUGIN_ROOT" _
   for _ in 1 2 3 4 5 6; do
-    at="$(dirname "$at")"
+    # Substitution, not `dirname`: six forks is most of what this hook costs, and it runs
+    # on the critical path of every session start. Both separators, since the variable is
+    # whatever the host set.
+    at="${at%[/\\]}"
+    case "$at" in *[/\\]*) at="${at%[/\\]*}" ;; *) return 0 ;; esac
     [ -d "$at/marketplaces" ] && printf '%s' "$at" && return 0
   done
 }
 
 published_notice() {
-  local root loaded pair name version pub_version newest market
+  local root loaded pair name version pub_version market
   loaded="${PLUGIN_ROOT}/.claude-plugin/plugin.json"
   # `-f` is also what stops a FIFO on either path from blocking the hook forever — the read below
   # has no timeout and nothing downstream does either.
@@ -100,31 +151,30 @@ published_notice() {
     [ "${pair%%$'\t'*}" = "$name" ] || continue
     pub_version="$(safe_token "${pair##*$'\t'}")"
     { [ -n "$pub_version" ] && [ "$pub_version" != "$version" ]; } || return 0
-    # Announce only when the marketplace is AHEAD. A maintainer running a release candidate is
-    # ahead of what is published, and telling them to update would name a remedy that fetches the
-    # older pin — noise nothing can clear. `sort -V` absent → any difference is worth saying.
-    newest="$(printf '%s\n%s\n' "$version" "$pub_version" | sort -V 2>/dev/null | tail -n 1)"
-    { [ -z "$newest" ] || [ "$newest" = "$pub_version" ]; } || return 0
+    # Announce only when the marketplace is AHEAD. A maintainer running a release candidate
+    # is ahead of what is published, and telling them to update would name a remedy that
+    # fetches the older pin — noise nothing can clear.
+    version_gt "$pub_version" "$version" || return 0
     printf '[%s] 설치된 버전은 %s 인데 마켓플레이스는 %s 를 게시하고 있습니다. /plugin 에서 업데이트하세요.' \
       "$name" "$version" "$pub_version"
     return 0
   done
 }
 
-# Announce on a fresh session only — repeating it on every clear/compact is noise. The read
-# carries a timeout because a pipe that never closes must not hang session start, and an
-# unreadable source announces rather than going quiet: a notice nobody needed beats a feature
-# that silently stopped working.
-hook_stdin=""
-IFS= read -r -t 1 -d '' hook_stdin 2>/dev/null || true
-hook_source=""
-if [[ $hook_stdin =~ \"source\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]]; then
-  hook_source="${BASH_REMATCH[1]}"
-fi
-
-notice=""
-if [ -z "$hook_source" ] || [ "$hook_source" = "startup" ]; then
-  notice="$(published_notice)"
+# Announce on a fresh session only — repeating it on every clear/compact is noise. The
+# source is read only when there IS a notice to suppress: the read carries a timeout, so on
+# a session with nothing to say it would be pure latency on the critical path, and the two
+# manifest reads that decide it are cheaper than the timeout they would wait out.
+# An unreadable source announces rather than going quiet: a notice nobody needed beats a
+# feature that silently stopped working.
+notice="$(published_notice)"
+if [ -n "$notice" ]; then
+  hook_stdin=""
+  IFS= read -r -t 1 -d '' hook_stdin 2>/dev/null || true
+  if [[ $hook_stdin =~ \"source\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]] &&
+     [ "${BASH_REMATCH[1]}" != "startup" ]; then
+    notice=""
+  fi
 fi
 
 # A hook's `systemMessage` reaches no channel this could be observed on, so the notice

@@ -590,10 +590,11 @@ and guides you — don't skip to manual implementation.
 
 ### It blocked me just for mentioning `git commit`
 
-The commit gate reads the command the way a shell would — `git`, its global options, then the
-subcommand — but it does not ask whether the invocation is real. A command that merely quotes
-one (`grep "git commit"`) is blocked too, and that is expected. A mention that sits after
-another command has finished is not: `git log --oneline && echo "now commit"` runs untouched.
+It should not. The gate reads the command the way a shell does and asks one question: is there
+a real `git … commit` in it? A mention inside quotes, a comment or a heredoc body is text, so
+`grep "git commit"` and `git log --oneline && echo "now commit"` both run untouched.
+If one of those is still blocked, the host's copy of the gate scripts is older than the plugin
+— re-run `/flow-init`.
 
 ### The gate does nothing (suspected no-op)
 

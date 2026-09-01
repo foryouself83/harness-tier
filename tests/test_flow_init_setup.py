@@ -1242,3 +1242,15 @@ def test_the_generated_deploy_orchestrator_keeps_contexts_out_of_its_run_block()
         "the generated deploy.yml interpolates a context value into the shell:\n  "
         + "\n  ".join(offenders)
     )
+
+
+def test_the_gate_answerer_is_copied_before_the_runner_that_asks_it():
+    """precommit-runner.sh routes on what flow_gate_check.py --classify answers, so a sync that
+    lands the runner first leaves a window where the new runner asks a script that does not know
+    the question — it reads no verdict and gates nothing. The other order is harmless: an old
+    runner's question goes unanswered and ROOT stays on main, which is the documented FAIL-OPEN.
+    """
+    from scripts.flow_init_setup import COPY_FILES
+
+    files = COPY_FILES
+    assert files.index("scripts/flow_gate_check.py") < files.index("scripts/precommit-runner.sh")

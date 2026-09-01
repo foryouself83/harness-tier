@@ -15,6 +15,7 @@ import json
 import os
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 
 import pytest
@@ -26,7 +27,10 @@ SCRIPT = REPO / "hooks" / "inject-risk-tiers.sh"
 BASH = shutil.which("bash") or "bash"
 
 STARTUP = json.dumps({"hook_event_name": "SessionStart", "source": "startup"})
-RULE_BODY = "# rule\nthe body the hook must actually read\n"
+# Larger than a pipe buffer on purpose: the hook writes the whole rule to stdout, and a test
+# that waits on the process without draining it would deadlock against that write rather
+# than measure what it meant to.
+RULE_BODY = "# rule\nthe body the hook must actually read\n" + "filler line\n" * 8000
 
 NOTICE_OPEN = "<harness-tier-stale-build>"
 NOTICE_CLOSE = "</harness-tier-stale-build>"
@@ -172,6 +176,51 @@ def test_no_marketplace_clone_is_silent(tmp_path):
     assert _notice(_run(_plugins_root(tmp_path, published=None))) is None
 
 
+# ── which of two versions is newer ──────────────────────────────────────────────
+# `sort -V` ranks 0.2.3-rc.2 ABOVE 0.2.3, which is backwards for the only version scheme this
+# repo ships: every release passes through an rc first. Under that ordering the consumer who
+# most needs the notice — the one still on the rc — is the one who never gets it, and the one on
+# the finished release is told to "update" to the candidate it superseded.
+
+
+@pytest.mark.parametrize(
+    "loaded,published",
+    [
+        ("0.2.3-rc.2", "0.2.3"),
+        ("1.0.0-rc1", "1.0.0"),
+        ("1.0.0-rc.1", "1.0.0-rc.2"),
+        ("1.0.0-rc.9", "1.0.0-rc.10"),
+        ("1.9.0", "1.10.0"),
+    ],
+)
+def test_a_higher_published_version_is_announced(tmp_path, loaded, published):
+    plugin = _plugins_root(tmp_path, loaded=loaded, published=published)
+    assert _notice(_run(plugin)) is not None, f"{published} is newer than {loaded}"
+
+
+@pytest.mark.parametrize(
+    "loaded,published",
+    [
+        ("0.2.3", "0.2.3-rc.2"),
+        ("1.0.0", "1.0.0-rc1"),
+        ("1.0.0-rc.2", "1.0.0-rc.1"),
+        ("1.0.0-rc.10", "1.0.0-rc.9"),
+        ("1.10.0", "1.9.0"),
+    ],
+)
+def test_a_lower_published_version_stays_silent(tmp_path, loaded, published):
+    plugin = _plugins_root(tmp_path, loaded=loaded, published=published)
+    assert _notice(_run(plugin)) is None, f"{published} is older than {loaded}"
+
+
+@pytest.mark.parametrize("pair", [("nightly", "1.0.0"), ("1.0.0", "nightly"), ("1.0", "1.0.1")])
+def test_a_version_that_is_not_semver_stays_silent(tmp_path, pair):
+    """Direction is the whole point of the notice, and it cannot be established here. Announcing
+    anyway is how a consumer gets told to fetch the build they already replaced."""
+    plugin = _plugins_root(tmp_path, loaded=pair[0], published=pair[1])
+    assert _notice(_run(plugin)) is None
+
+
 def test_a_marketplace_publishing_another_plugin_is_silent(tmp_path):
     plugin = _plugins_root(tmp_path, published="9.9.9", market_name="some-other-plugin")
     assert _notice(_run(plugin)) is None
@@ -282,14 +331,26 @@ def test_stdin_that_never_closes_does_not_hang(tmp_path):
         text=True,
         env=env,
     )
+    # stdin stays open and empty for the whole run — communicate() would close it and the
+    # hook would see EOF, which is the case that passes with or without the timeout.
+    # The reader runs WHILE we wait: the injected rule is larger than a pipe buffer, so a
+    # wait() that drains nothing deadlocks against the hook's own blocked write and the test
+    # reports a stdin hang that never happened.
+    # Verified on Linux, where CI runs: an undrained wait() times out on this fixture while
+    # the drained one reads all 105KB. A Windows pipe buffers the whole thing, so the
+    # deadlock cannot be observed there — do not simplify this back on a green Windows run.
+    assert proc.stdout is not None
+    captured: list[str] = []
+    reader = threading.Thread(target=lambda: captured.append(proc.stdout.read()), daemon=True)
+    reader.start()
     try:
-        # stdin stays open and empty for the whole run — communicate() would close it and the
-        # hook would see EOF, which is the case that passes with or without the timeout.
-        proc.wait(timeout=20)
-        assert proc.stdout is not None
-        stdout = proc.stdout.read()
+        reader.join(20)
+        if reader.is_alive():
+            pytest.fail("the hook blocked on stdin — session start would hang")
+        proc.wait(timeout=5)
+        stdout = captured[0]
     except subprocess.TimeoutExpired:
-        pytest.fail("the hook blocked on stdin — session start would hang")
+        pytest.fail("the hook wrote its output but never exited")
     finally:
         proc.kill()
         for pipe in (proc.stdin, proc.stdout, proc.stderr):
