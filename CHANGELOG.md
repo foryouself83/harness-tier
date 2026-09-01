@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.2.3-rc.3 (2026-09-01)
+
+### Bug Fixes
+
+- **gate**: One authority for what a command is
+  ([`ec32a56`](https://github.com/foryouself83/harness-tier/commit/ec32a562738fb31233fe2145c66d22ed816526b0))
+
+
 ## v0.2.3-rc.2 (2026-09-01)
 
 ### Bug Fixes
