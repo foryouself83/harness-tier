@@ -1014,6 +1014,16 @@ def test_parse_merge_worktree_dash_c():
     assert src == "feature/x"
 
 
+@pytest.mark.parametrize("prefix", ["/usr/bin/", "/usr/local/bin/", "C:/Git/bin/"])
+def test_parse_merge_path_qualified_git(prefix: str):
+    """The merge verdict is one of the three fail-CLOSED exceptions, so a spelling this half
+    stops recognising does not degrade — it stops enforcing merge strategy in silence, while
+    the runner's unanchored self-filter still engages the hook. Invariant #1 exception 3."""
+    flags, src = parse_merge_command(f"{prefix}git merge --no-ff dev")
+    assert flags == {"--no-ff"}
+    assert src == "dev"
+
+
 def test_parse_merge_message_arg_not_source():
     # -m's quoted argument must not be mistaken for the source branch
     flags, src = parse_merge_command('git merge --no-ff -m "Merge stage: headline" origin/stage')

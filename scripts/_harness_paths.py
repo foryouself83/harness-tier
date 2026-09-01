@@ -231,8 +231,17 @@ def git_subcommand_re(word: str) -> re.Pattern[str]:
     One grammar for both subcommands the gate cares about: the merge path had its own split and
     kept the bug the commit path was fixed for. Match it against :func:`mask_literals` output,
     never the raw command, or a word inside a message is read as an invocation.
+
+    The optional prefix admits `/usr/bin/git` while still rejecting `mygit`: it has to end in a
+    separator, so a different program name never reaches the word. Requiring `git` to sit at a
+    word boundary alone dropped the path-qualified spelling, which the runner's own self-filter
+    is unanchored enough to accept — and a spelling only one half recognises is the gate off in
+    silence, not a narrower gate.
     """
-    return re.compile(rf"(?:^|[\s;&|(])git((?:\s+-\S+(?:\s+(?!-)\S+)?)*)\s+{word}(?![\w-])")
+    return re.compile(
+        rf"(?:^|[\s;&|(])(?:[^\s;&|()'\"]*[/\\])?"
+        rf"git((?:\s+-\S+(?:\s+(?!-)\S+)?)*)\s+{word}(?![\w-])"
+    )
 
 
 _GIT_COMMIT_RE = git_subcommand_re("commit")

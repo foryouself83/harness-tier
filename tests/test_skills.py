@@ -25,6 +25,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+import scripts._harness_paths as vp
+
 REPO = Path(__file__).resolve().parent.parent
 SKILLS = sorted(REPO.glob("skills/*/SKILL.md"))
 SKILL_IDS = [p.parent.name for p in SKILLS]
@@ -406,6 +408,58 @@ def test_self_filter_does_not_claim_a_command_that_only_mentions_the_word(comman
     as an unclassified commit — the gate blocking work it was never meant to see."""
     for name in ("_commit_re", "_merge_re"):
         assert not gate_self_filter(name).search(command), (name, command)
+
+
+@pytest.mark.parametrize("name", ["_commit_re", "_merge_re"])
+@pytest.mark.parametrize(
+    "option",
+    [r"-C /home/o\'b/wt", r'-c user.name="a\"b"', r"""-C '/a/o'\''b'"""],
+    ids=["escaped-apostrophe", "escaped-quote-in-value", "close-escape-reopen"],
+)
+def test_self_filter_reads_a_backslash_escaped_quote(name: str, option: str):
+    """A backslash makes the next character literal, so an escaped quote opens no span. Without
+    that alternative the option token ends at the quote, the subcommand anchor is never reached,
+    and the runner exits 0 before the dependency check, the tier gates, the wiki gate and the
+    merge verdict — the silent skip of Invariant #1. The third spelling is the `'\\''` idiom the
+    commit skill's template emits for a path holding an apostrophe, which the Python half
+    already reads correctly: the two halves must not disagree about one construct."""
+    word = name.removeprefix("_").removesuffix("_re")
+    command = f"git {option} {word} -m x"
+    assert gate_self_filter(name).search(command), command
+
+
+REAL_INVOCATIONS = [
+    "git commit -m x",
+    "git -C '/c/My Work/wt' commit -F -",
+    'git -C "/c/My Work/wt" commit -F -',
+    r"git -C /home/o\'b/wt commit -m x",
+    r"""git -C '/a/o'\''b' commit -F -""",
+    r'git -c user.name="a\"b" commit -m x',
+    "/usr/bin/git -C /a/wt commit -m x",
+    "C:/Git/bin/git commit --amend --no-edit",
+]
+
+
+@pytest.mark.parametrize("command", REAL_INVOCATIONS)
+def test_every_real_invocation_reaches_the_runners_self_filter(command: str):
+    """The two halves are pinned to each other, not merely written alike.
+
+    `test_the_two_self_filters_share_one_grammar` compares the shell patterns to one another, so
+    both can drift away from the Python grammar together — which is how a path-qualified `git`
+    and an escaped quote each became a silent skip while this suite stayed green. The property
+    that matters is that the half deciding what an invocation *is* and the half deciding whether
+    the gate *runs* agree on every real one. Either direction failing is the gate off: a
+    spelling the shell drops never engages the hook, and one the Python half drops leaves ROOT
+    on the main repo while the hook believes it engaged.
+    """
+    assert vp.git_subcommand_re("commit").search(vp.mask_literals(command)), (
+        f"{command!r} is in the corpus as a real invocation but the grammar no longer reads it "
+        f"as one. The corpus is the spec — widen the grammar, not the corpus."
+    )
+    assert gate_self_filter("_commit_re").search(command), (
+        f"{command!r} is a real invocation the runner's self-filter drops: the hook exits 0 as "
+        f"'not a commit' and every gate behind it is skipped in silence."
+    )
 
 
 @pytest.mark.parametrize("skill", SKILLS, ids=SKILL_IDS)
