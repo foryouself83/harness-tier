@@ -73,15 +73,12 @@ except Exception:
 fi
 # Coarse pre-filter. The ONLY thing decided here is whether to spawn the gate at all — what the
 # command IS gets decided once, in flow_gate_check.py --classify below.
-# It used to be decided twice, by this shell pattern and by the Python grammar, and the two had
-# to agree: every spelling only one of them accepted was the gate off in silence rather than a
-# narrower gate. `/usr/bin/git … commit` reached this filter but resolved no worktree, leaving
-# ROOT on a clean main that exited 0; a `'\''` in a path ended the option token here and the
-# runner exited before every gate. Neither is a spelling to add — they are a second grammar to
-# delete, and this one is written so it CANNOT be narrower than the real one: the Python
-# invocation grammar requires the literal `git` and a blank-preceded `commit`/`merge` word, so a
-# command holding neither cannot be an invocation, and everything else is passed on to be judged.
-# Over-matching costs one python spawn and no verdict; under-matching costs the whole gate.
+# It must never be narrower than that grammar, which requires the literal `git` and a
+# blank-preceded `commit`/`merge` word: a command holding neither cannot be an invocation,
+# and everything else is passed on to be judged. So it states no opinion about quoting —
+# a second grammar has to agree with the first, and the spellings only one of them accepts
+# are the gate off in silence rather than a narrower gate. Over-matching costs one python
+# spawn and no verdict; under-matching costs the whole gate.
 case "${_hook_cmd:-$_hook_input}" in
   *git*) ;;
   *) exit 0 ;;
@@ -89,13 +86,52 @@ esac
 _word_re='[[:space:]](commit|merge)($|[^[:alnum:]_-])'
 [[ "${_hook_cmd:-$_hook_input}" =~ $_word_re ]] || exit 0
 
+ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+[ -n "$ROOT" ] || exit 0
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_SCRIPTS="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts}"
+PLUGIN_SCRIPTS="${PLUGIN_SCRIPTS:-$SCRIPT_DIR}"
+
+# The gate's own verdict on the command: whether it commits, whether it merges, and which
+# worktree the commit runs in. One spawn, one grammar, one authority — see --classify. A verdict
+# that says neither means the coarse filter over-matched and there is nothing to gate. Silence
+# (an unreadable payload, a python that died) says the same, which is FAIL-OPEN: this stage may
+# never be the thing that newly blocks a command (Invariant #1).
+_verdict=''
+if command -v python3 >/dev/null 2>&1; then
+  _verdict="$(printf '%s' "$_hook_input" | CLAUDE_PROJECT_DIR="$ROOT" \
+    python3 "$PLUGIN_SCRIPTS/flow_gate_check.py" --classify 2>/dev/null || true)"
+fi
+_is_commit=0
+_is_merge=0
+_answered=0
+_wt=""
+while IFS= read -r _line; do
+  # Python's print() emits CRLF on the Windows hook host and the command substitution eats
+  # only the trailing newline, so every line arrives with its CR. A `case` arm compares
+  # strings, so one written without it matches nothing at all (Invariant #2).
+  _line="${_line%$'\r'}"
+  case "$_line" in
+    ok=1) _answered=1 ;;
+    commit=1) _is_commit=1 ;;
+    merge=1) _is_merge=1 ;;
+    worktree=?*) _wt="${_line#worktree=}" ;;
+  esac
+done <<< "$_verdict"
+# A verdict of neither ends it here — the pre-filter over-matched and there is nothing to
+# gate. This is the ONLY place that decision can be made, and it must come before the
+# dependency deny below, or a read-only command that merely says the word is denied on a
+# host that has not installed the gate's dependencies yet.
+{ [ "$_answered" -eq 1 ] && [ "$_is_commit" -eq 0 ] && [ "$_is_merge" -eq 0 ]; } && exit 0
+
 # Dependency FAIL-CLOSED — the harness requires python3 + PyYAML (regardless of project language).
 # If they are missing and we silently pass (fail-open), the gate is disabled on non-Python teams, so
 # "absence of required tools" — unlike transitive internal errors — blocks the commit (re-commit after install).
-# It runs BEFORE --classify because --classify is python: without it nothing can tell an
-# invocation from a mention, so the pre-filter's over-matches are denied here too. That is the
-# fail-CLOSED direction and it is only reachable on a host where every real commit is blocked
-# anyway — the deny names the one fix.
+# It runs AFTER the verdict, so a command the gate has already called a non-invocation is
+# never denied for a dependency it does not need. Only python3's own absence reaches it
+# ahead of a verdict — nothing can classify without it, and on that host every real commit
+# is blocked anyway.
 #
 # DRY exception (intentional duplication): the floor(3, 8) / PyYAML install command in the bootstrap
 # check below are the same values as check-deps.sh, yet the code cannot be shared — (1) it directly
@@ -116,35 +152,11 @@ if ! python3 -c "import yaml" >/dev/null 2>&1; then
   deny "게이트에 PyYAML 이 필요합니다. python3 -m pip install pyyaml 후 다시 커밋하세요(점검: .claude/harness-tier/scripts/check-deps.sh)."
 fi
 
-ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}"
-[ -n "$ROOT" ] || exit 0
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLUGIN_SCRIPTS="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts}"
-PLUGIN_SCRIPTS="${PLUGIN_SCRIPTS:-$SCRIPT_DIR}"
-
-# The gate's own verdict on the command: whether it commits, whether it merges, and which
-# worktree the commit runs in. One spawn, one grammar, one authority — see --classify. A verdict
-# that says neither means the coarse filter over-matched and there is nothing to gate. Silence
-# (an unreadable payload, a python that died) says the same, which is FAIL-OPEN: this stage may
-# never be the thing that newly blocks a command (Invariant #1).
-_verdict="$(printf '%s' "$_hook_input" | CLAUDE_PROJECT_DIR="$ROOT" \
-  python3 "$PLUGIN_SCRIPTS/flow_gate_check.py" --classify 2>/dev/null || true)"
-_is_commit=0
-_is_merge=0
-_wt=""
-while IFS= read -r _line; do
-  # Python's print() emits CRLF on the Windows hook host, and only the LAST line's CR is
-  # eaten by the command substitution — so every line before it carries one, and a case
-  # arm written without it silently matches nothing (Invariant #2).
-  _line="${_line%$'\r'}"
-  case "$_line" in
-    commit=1) _is_commit=1 ;;
-    merge=1) _is_merge=1 ;;
-    worktree=?*) _wt="${_line#worktree=}" ;;
-  esac
-done <<< "$_verdict"
-[ "$_is_commit" -eq 1 ] || [ "$_is_merge" -eq 1 ] || exit 0
+# No verdict at all — python3 is present and its dependencies are installed, so the gate
+# script itself failed to answer. Gate the command rather than drop it: an unreadable hook
+# payload is the one case the raw-stdin filter above still has to carry, and the stages
+# below each fail open on their own if the script is genuinely broken.
+[ "$_answered" -eq 1 ] || _is_commit=1
 
 # merge gate — a merge runs on a clean tree, so it must be inspected before the `git status`
 # early-exit below, and before the worktree re-designation (Invariant #6: the merge path is
@@ -222,7 +234,6 @@ fi
 LOG_DIR="${TMPDIR:-/tmp}"
 mod_log="$LOG_DIR/harness-tier-precommit-module.log"
 while IFS= read -r mod_cmd; do
-  mod_cmd="${mod_cmd%$'\r'}"   # CRLF from the Windows host, as above
   [ -n "$mod_cmd" ] || continue
   echo "▶ 모듈 사전검사 실행: $mod_cmd …" 1>&2
   if ! bash -c "$mod_cmd" > "$mod_log" 2>&1; then

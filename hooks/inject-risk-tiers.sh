@@ -77,7 +77,10 @@ version_gt() {  # <a> <b> -> 0 when a has higher semver precedence than b, 1 oth
   # then identifier by identifier. Pure bash: this runs before the session does, and the pipeline
   # it replaces cost two forks. A version that is not X.Y.Z[-pre] is not ordered at all and the
   # caller stays silent, because direction is the entire content of the notice.
-  local a="$1" b="$2" ap="" bp="" i x y
+  # LC_ALL is local so the identifier comparison below sorts by byte, as semver 11 requires;
+  # `>` inside `[[ ]]` collates in the caller's locale, which is not a property of the input.
+  local LC_ALL=C a="$1" b="$2" ap="" bp="" i x y
+  a="${a%%+*}"; b="${b%%+*}"        # semver 10: build metadata is not part of the order
   case "$a" in *-*) ap="${a#*-}"; a="${a%%-*}" ;; esac
   case "$b" in *-*) bp="${b#*-}"; b="${b%%-*}" ;; esac
   case "$a$b" in *[!0-9.]*) return 1 ;; esac
@@ -87,7 +90,9 @@ version_gt() {  # <a> <b> -> 0 when a has higher semver precedence than b, 1 oth
   { [ "${#A[@]}" -eq 3 ] && [ "${#B[@]}" -eq 3 ]; } || return 1
   for i in 0 1 2; do
     x="${A[i]}"; y="${B[i]}"
-    { [ -n "$x" ] && [ -n "$y" ]; } || return 1
+    # Non-empty, and short enough for the shell to compare as integers — past that `[ -gt ]`
+    # writes a complaint to the stderr of a hook that runs before the session does.
+    { [ -n "$x" ] && [ -n "$y" ] && [ "${#x}" -le 18 ] && [ "${#y}" -le 18 ]; } || return 1
     [ "$x" -gt "$y" ] && return 0
     [ "$x" -lt "$y" ] && return 1
   done
@@ -150,11 +155,13 @@ published_notice() {
     # publishes a different plugin is not this plugin's publisher.
     [ "${pair%%$'\t'*}" = "$name" ] || continue
     pub_version="$(safe_token "${pair##*$'\t'}")"
-    { [ -n "$pub_version" ] && [ "$pub_version" != "$version" ]; } || return 0
+    [ -n "$pub_version" ] || continue
     # Announce only when the marketplace is AHEAD. A maintainer running a release candidate
     # is ahead of what is published, and telling them to update would name a remedy that
-    # fetches the older pin — noise nothing can clear.
-    version_gt "$pub_version" "$version" || return 0
+    # fetches the older pin — noise nothing can clear. A clone that is not ahead is not the
+    # answer for every clone: `continue`, or whichever directory sorts first decides, and one
+    # stale clone hides the update the next one publishes.
+    version_gt "$pub_version" "$version" || continue
     printf '[%s] 설치된 버전은 %s 인데 마켓플레이스는 %s 를 게시하고 있습니다. /plugin 에서 업데이트하세요.' \
       "$name" "$version" "$pub_version"
     return 0

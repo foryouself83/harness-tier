@@ -1253,4 +1253,10 @@ def test_the_gate_answerer_is_copied_before_the_runner_that_asks_it():
     from scripts.flow_init_setup import COPY_FILES
 
     files = COPY_FILES
-    assert files.index("scripts/flow_gate_check.py") < files.index("scripts/precommit-runner.sh")
+    # The whole chain, not one link: flow_gate_check.py imports _harness_paths, so landing
+    # it first beside a stale module answers every question with ModuleNotFoundError.
+    for earlier, later in (
+        ("scripts/_harness_paths.py", "scripts/flow_gate_check.py"),
+        ("scripts/flow_gate_check.py", "scripts/precommit-runner.sh"),
+    ):
+        assert files.index(earlier) < files.index(later), (earlier, later)

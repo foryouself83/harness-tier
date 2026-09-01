@@ -593,8 +593,9 @@ and guides you — don't skip to manual implementation.
 It should not. The gate reads the command the way a shell does and asks one question: is there
 a real `git … commit` in it? A mention inside quotes, a comment or a heredoc body is text, so
 `grep "git commit"` and `git log --oneline && echo "now commit"` both run untouched.
-If one of those is still blocked, the host's copy of the gate scripts is older than the plugin
-— re-run `/flow-init`.
+If one of those is still blocked, read the deny: without python3 the gate cannot tell an
+invocation from a mention and blocks rather than guess, and the message names the install.
+Otherwise the host's copy of the gate scripts is older than the plugin — re-run `/flow-init`.
 
 ### The gate does nothing (suspected no-op)
 
@@ -611,7 +612,9 @@ The gate checker is itself bash, so it can't detect a missing `bash`/coreutils o
 ### Re-run `/flow-init` — sync after a plugin update
 
 A session tells you when an update is waiting: at startup the hook compares the build it
-loaded against the version the marketplace publishes and reports a difference in one line.
+loaded against the version the marketplace publishes and says so in one line when the
+marketplace is ahead — a release candidate is ahead of what is published, and telling its
+maintainer to update would name a remedy that fetches the older pin.
 Both numbers are local files — the marketplace clone Claude Code keeps beside the install
 cache — so nothing goes over the network, and a clone that has not refreshed says nothing.
 

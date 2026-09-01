@@ -388,7 +388,7 @@ def test_classify_names_no_worktree_for_a_single_tree(tmp_path: Path):
     payload = {"cwd": str(main), "tool_input": {"command": "git commit -m m"}}
     r = _classify(main, payload)
     assert r.returncode == 0
-    assert r.stdout.split() == ["commit=1"]
+    assert r.stdout.split() == ["ok=1", "commit=1"]
 
 
 @requires_git
@@ -404,7 +404,9 @@ def test_classify_says_nothing_for_a_command_that_only_mentions_the_word(tmp_pat
     }
     r = _classify(main, payload)
     assert r.returncode == 0
-    assert r.stdout.strip() == ""
+    # `ok=1` alone: the command was read, and it is neither. The runner needs that apart from
+    # silence, which means the gate could not answer at all.
+    assert r.stdout.split() == ["ok=1"]
 
 
 @requires_git
@@ -415,10 +417,12 @@ def test_classify_reports_a_merge_without_resolving_a_worktree(tmp_path: Path):
     _init_repo(main)
     wt = tmp_path / "repo-wt"
     _rg(["worktree", "add", "-b", "feature/x", str(wt)], main)
-    payload = {"cwd": str(main), "tool_input": {"command": f"git -C {wt} merge --no-ff dev"}}
+    # The hook's own cwd is the worktree — the rung the guard actually stands in front of. With
+    # `cwd` on main the command names no commit either way, so the guard would go unexercised.
+    payload = {"cwd": str(wt), "tool_input": {"command": "git merge --no-ff dev"}}
     r = _classify(main, payload)
     assert r.returncode == 0
-    assert r.stdout.split() == ["merge=1"]
+    assert r.stdout.split() == ["ok=1", "merge=1"]
 
 
 @requires_git
@@ -1258,6 +1262,17 @@ def test_parse_merge_keeps_a_flag_inside_its_own_quoted_message():
     )
 
 
+def test_parse_merge_keeps_a_separator_that_sits_inside_its_message():
+    """The cut is located on the MASK. Searched on the raw string, the `&&` inside a merge
+    subject ends the operands before the source branch, `shlex` sees no operand at all, and
+    the strategy verdict never runs — fail-CLOSED turned off by a commit message."""
+    assert parse_merge_command('git merge --no-ff -m "Merge stage: a && b" origin/stage') == (
+        {"--no-ff"},
+        "origin/stage",
+    )
+    assert parse_merge_command('git merge -m "wip; done" feature/x') == (set(), "feature/x")
+
+
 def test_target_from_command_reads_a_path_qualified_switch():
     # the switch shares the one invocation grammar now; its own spelling admitted no directory
     # prefix, so this chain named no target and the merge was judged against whatever HEAD was.
@@ -1889,3 +1904,56 @@ def test_target_from_command_reads_a_quoted_switch_operand():
         == "release/1.0"
     )
     assert fgc._target_from_command('git switch "my branch" && git merge --no-ff x') == "my branch"
+
+
+@requires_bash_git
+def test_runner_lets_a_command_that_only_mentions_committing_through(tmp_path: Path):
+    """The tree is dirty and unclassified, so a real commit here is denied — which is what makes
+    this a test rather than a tautology. The gate reads the command, finds no invocation, and
+    says so; the runner must act on that answer rather than on the pre-filter that spawned it."""
+    main = tmp_path / "main"
+    _init_repo(main)
+    (main / ".claude" / "harness-tier" / "config").mkdir(parents=True)
+    (main / ".claude" / "harness-tier" / "config" / "flow-config.yaml").write_text(
+        "modules: []\n", encoding="utf-8"
+    )
+    assert _run_runner(main, "git commit -m x").returncode == 2  # the control
+    for mention in (
+        'git log --oneline && echo "now commit"',
+        'grep -rn "git commit" scripts/',
+        "git log -1 --format=%s  # merge check",
+    ):
+        r = _run_runner(main, mention)
+        assert r.returncode == 0, (mention, r.returncode, r.stdout, r.stderr)
+
+
+@requires_bash_git
+def test_runner_reads_every_line_of_a_multi_line_verdict(tmp_path: Path):
+    """`$(…)` eats the trailing CRLF, so the LAST verdict line arrives clean and every earlier
+    one carries its CR. A `case` arm compares strings: unstripped, `merge=1` on line three
+    matches nothing and the merge-strategy check — one of the three fail-CLOSED exceptions —
+    is never spawned. The stub stands in for flow_gate_check so the verdict is fixed and the
+    merge check's deny is the only thing under test."""
+    main = tmp_path / "main"
+    _init_repo(main)
+    (main / ".claude" / "harness-tier" / "config").mkdir(parents=True)
+    (main / ".claude" / "harness-tier" / "config" / "flow-config.yaml").write_text(
+        "modules: []\n", encoding="utf-8"
+    )
+    plugin = tmp_path / "plugin"
+    (plugin / "scripts").mkdir(parents=True)
+    # Written as BYTES so the CRLF is the same on every platform — a text-mode write would add
+    # its own CR on Windows and none on Linux, and the test would stop being about the CR.
+    verdict = b"\r\n".join([b"ok=1", b"commit=1", b"merge=1", b"worktree="]) + b"\r\n"
+    (plugin / "scripts" / "flow_gate_check.py").write_text(
+        "import sys\n"
+        "if '--merge-check' in sys.argv:\n"
+        "    sys.stderr.buffer.write('merge 전략 위반'.encode())\n"
+        "    sys.exit(2)\n"
+        "if '--classify' in sys.argv:\n"
+        f"    sys.stdout.buffer.write({verdict!r})\n",
+        encoding="utf-8",
+    )
+    r = _run_runner(main, "git merge --no-ff dev && git commit -m x", plugin_root=plugin)
+    assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)
+    assert "merge 전략 위반" in (r.stdout + r.stderr)
