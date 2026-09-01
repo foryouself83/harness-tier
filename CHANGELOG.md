@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v0.2.3-rc.1 (2026-09-01)
+
+### Bug Fixes
+
+- **gate**: One quoting authority for both halves
+  ([`dc15b70`](https://github.com/foryouself83/harness-tier/commit/dc15b7005c1507b7f5cf271f9c15e8fb423c01f0))
+
+- **gate**: Read a command the way a shell would
+  ([`4b920af`](https://github.com/foryouself83/harness-tier/commit/4b920afc7171cef4904e78e7544c3b042a6463cb))
+
+- **release**: Exclude the one broken GitPython
+  ([`d44c555`](https://github.com/foryouself83/harness-tier/commit/d44c555b57c9cd85fa0e6a32dc11e1a0e5e602fe))
+
+### Features
+
+- **hook**: Tell a consumer an update is waiting
+  ([`e8870a3`](https://github.com/foryouself83/harness-tier/commit/e8870a30e3436e80a197f230f79b43cf75838267))
+
+
 ## v0.2.2-rc.1 (2026-08-28)
 
 ### Bug Fixes
