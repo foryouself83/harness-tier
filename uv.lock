@@ -200,7 +200,7 @@ wheels = [
 
 [[package]]
 name = "harness-tier"
-version = "0.2.3rc2"
+version = "0.2.3rc3"
 source = { virtual = "." }
 dependencies = [
     { name = "pyyaml" },
