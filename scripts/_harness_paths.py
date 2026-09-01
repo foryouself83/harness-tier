@@ -215,23 +215,172 @@ def _git(args: list[str], cwd: str | Path) -> str | None:
     return out.stdout.strip()
 
 
+# The global-options region of a `git … commit`, matched from the `git` itself rather than found
+# by splitting on the first " commit" in the string. A commit message reaches the command line
+# ahead of the invocation whenever it is built in a heredoc and piped, and it says "commit" often;
+# splitting there ends the region inside the body and drops the `-C` the skill was told to write.
+# Read against the MASK below, where every literal region is one quote-delimited NUL run, so a
+# token is plain `\S+` and this pattern states no opinion about quoting — `_shell_regions` is the
+# one place that decides what a quote means. `(?!-)` on the optional argument keeps a `-` token a
+# flag rather than the previous flag's argument. The leading separator is what stops `mygit`.
+
+
+def git_subcommand_re(word: str) -> re.Pattern[str]:
+    """A real ``git … <word>`` invocation, with its global-options region as group 1.
+
+    One grammar for both subcommands the gate cares about: the merge path had its own split and
+    kept the bug the commit path was fixed for. Match it against :func:`mask_literals` output,
+    never the raw command, or a word inside a message is read as an invocation.
+    """
+    return re.compile(rf"(?:^|[\s;&|(])git((?:\s+-\S+(?:\s+(?!-)\S+)?)*)\s+{word}(?![\w-])")
+
+
+_GIT_COMMIT_RE = git_subcommand_re("commit")
+# A heredoc introducer, whose body is literal text however it is quoted. A `<<<` here-string is
+# already excluded by the word grammar (`<` starts no word); the lookarounds add what a longer
+# run of `<` would otherwise reach, by refusing to start mid-run. The word may itself be quoted,
+# which is what turns off expansion inside. Group 1 is the `-` of `<<-`, which alone strips the
+# terminator.
+_HEREDOC_RE = re.compile(r"(?<!<)<<(-?)(?!<)\s*(?:'([^']*)'|\"([^\"]*)\"|([\w.-]+))")
+# `-C` as an option rather than a substring of a value. Located on the mask, then the value is
+# read from the raw string at that offset — a `-C` inside a quoted option value is not an option,
+# and its path must not be the answer.
+_DASH_C_RE = re.compile(r"(?:^|\s)-C\s+")
+_PATH_TOKEN_RE = re.compile(_PATH_TOKEN)
+
+
+def _heredoc_body(command: str, start: int, word: str, dash: bool) -> int:
+    """End of the heredoc body opened at `start` (index of its first line).
+
+    An unterminated body runs to end of input, exactly as the shell consumes it — returning
+    "no body" instead would hand a message to the parser as syntax. `<<-` strips leading TABS
+    from the terminator and nothing else, so a plain `<<` needs the line to match exactly; a
+    looser test ends the region early on an indented look-alike and the rest of the body is
+    read as commands.
+    """
+    at = start
+    while at < len(command):
+        eol = command.find("\n", at)
+        line = command[at : len(command) if eol == -1 else eol]
+        if (line.lstrip("\t") if dash else line) == word:
+            return at
+        if eol == -1:
+            break
+        at = eol + 1
+    return len(command)
+
+
+def _shell_regions(command: str) -> list[tuple[int, int]]:
+    """Index ranges of the literal text in `command` — quoted-span interiors and heredoc bodies.
+
+    One state machine rather than a parity count per quote character: a `"` inside a `'…'` region
+    is literal text, and `python3 -c '… "x" …'` is exactly the shape the commit skill issues, so
+    counting the two independently would read everything after it as quoted. Outside `'…'` a
+    backslash escapes the next character, so the `'\\''` idiom — the only way to put an apostrophe
+    inside a single-quoted string, and what a commit subject holding one produces — does not leave
+    the tally one quote short and shift every later pairing.
+
+    A heredoc body is literal to the shell without being a quoted span, and it is where this
+    repo's commit messages live: a body that says `git -C <wt> commit` is the message talking
+    about a commit, not making one, and reading its directory re-points ROOT at a tree the commit
+    does not run in (Invariant #6).
+    """
+    regions: list[tuple[int, int]] = []
+    body: tuple[int, int] | None = None  # a heredoc body, entered once the introducer line ends
+    i, n = 0, len(command)
+    while i < n:
+        if body and i >= body[0]:
+            regions.append(body)
+            i, body = body[1], None
+            continue
+        ch = command[i]
+        if ch == "\\":
+            i += 2
+            continue
+        if ch == "#" and (i == 0 or command[i - 1] in " \t\n;&|("):
+            eol = command.find("\n", i)
+            end = n if eol == -1 else eol
+            regions.append((i, end))  # a `-C` in a comment is not an option either
+            i = end
+            continue
+        if ch == "$" and command[i + 1 : i + 2] == "'":  # $'…' — backslash escapes inside
+            j = i + 2
+            while j < n and command[j] != "'":
+                j += 2 if command[j] == "\\" else 1
+            regions.append((i + 2, min(j, n)))
+            i = j + 1
+            continue
+        if ch in "\"'":
+            j = i + 1
+            while j < n and command[j] != ch:
+                j += 2 if ch == '"' and command[j] == "\\" else 1
+            regions.append((i + 1, min(j, n)))
+            i = j + 1
+            continue
+        m = _HEREDOC_RE.match(command, i)
+        if m and body is None:  # one body per line; a second `<<` on it keeps the first
+            eol = command.find("\n", m.end())
+            if eol != -1:  # no newline → no body at all, and the rest of the line is still syntax
+                word = next(g for g in m.groups()[1:] if g is not None)
+                body = (eol + 1, _heredoc_body(command, eol + 1, word, bool(m.group(1))))
+            i = m.end()
+            continue
+        i += 1
+    if body:  # the introducer line was the whole scan
+        regions.append(body)
+    return regions
+
+
+def mask_literals(command: str) -> str:
+    """`command` with every literal region blanked to NUL, same length and same delimiters.
+
+    A quoted argument stays one whitespace-free token, so the option grammar can be written
+    without respelling the quoting rules, and offsets still index back into the original.
+    """
+    out = list(command)
+    for a, b in _shell_regions(command):
+        out[a:b] = "\x00" * (b - a)
+    return "".join(out)
+
+
+def dash_c_value(command: str, masked: str, start: int, end: int) -> str | None:
+    """The `-C <dir>` of the options region `command[start:end]`, or None.
+
+    The option is located on the MASK so a `-C` inside a quoted value is not one, and the path is
+    then read from the raw string at that offset so the value itself survives its quotes.
+    """
+    d = _DASH_C_RE.search(masked, start, end)
+    if not d:
+        return None
+    m = _PATH_TOKEN_RE.match(command, d.end())
+    return next((g for g in m.groups() if g is not None), None) if m else None
+
+
 def _dir_from_command(command: str | None) -> str | None:
     """Extract the commit's execution directory from the command string (deterministic signals).
 
-    ① ``git -C <dir>`` (git's own -C overrides cwd) — scanned only in the global-options region
-       before the ``commit`` subcommand, so a ``-C`` inside the commit message is not mistaken
-       for a directory. ② a leading ``cd <dir> && … git commit`` prefix. Conservative shell-lite
-       parse (quoted or bare paths); if nothing matches, None → the caller drops to the next rung.
+    ① ``git -C <dir>`` (git's own -C overrides cwd), read from the global-options region of every
+       real ``git … commit`` in the command — a quoted or heredoc'd one is the message talking
+       about a commit, not making one. Invocations that name ONE directory answer with it, which
+       is what commit-then-amend produces; invocations that disagree answer with nothing, because
+       Invariant #6 requires ambiguity to end the read rather than guess a third tree.
+       ② a leading ``cd <dir> && … git commit`` prefix, reached only when no invocation carried a
+       `-C` at all. Conservative shell-lite parse (quoted or bare paths); if nothing matches,
+       None → the caller drops to the next rung.
     """
     if not command:
         return None
-    head = command.split(" commit", 1)[0]  # ① global-options region only
-    m = re.search(rf"(?:^|\s)-C\s+(?:{_PATH_TOKEN})", head)
-    if not m:  # ② leading `cd <dir> &&`
-        m = _CD_PREFIX_RE.match(command)
-    if not m:
-        return None
-    return next(g for g in m.groups() if g is not None)
+    masked = mask_literals(command)
+    answers = {
+        dash_c_value(command, masked, m.start(1), m.end(1)) for m in _GIT_COMMIT_RE.finditer(masked)
+    }
+    if len(answers) == 1:  # ① one answer, however many invocations gave it
+        if (only := answers.pop()) is not None:
+            return only
+    elif answers:  # invocations that disagree — never guess (Invariant #6). One that names no
+        return None  # directory disagrees with one that does: they run in different trees.
+    m = _CD_PREFIX_RE.match(command)  # ② leading `cd <dir> &&`
+    return next(g for g in m.groups() if g is not None) if m else None
 
 
 def _parse_worktree_list(porcelain: str) -> list[tuple[str, str | None]]:

@@ -28,6 +28,8 @@ import yaml
 REPO = Path(__file__).resolve().parent.parent
 SKILLS = sorted(REPO.glob("skills/*/SKILL.md"))
 SKILL_IDS = [p.parent.name for p in SKILLS]
+# rules/ ships to consumers and the SessionStart hook injects it, so its commands run too.
+SHIPPED_RULES = sorted(REPO.glob("rules/*.md"))
 
 # Every field the official SKILL.md frontmatter reference defines. Anything else is
 # either a typo or a command-era leftover that silently does nothing.
@@ -329,14 +331,18 @@ def gate_self_filter(name: str) -> re.Pattern[str]:
     translation — `[[:space:]]` and `[^[:alnum:]-]` have no Python spelling.
     """
     src = (REPO / "scripts/precommit-runner.sh").read_text(encoding="utf-8")
-    m = re.search(rf"^{name}='(.+)'$", src, re.M)
+    m = re.search(rf"^{name}=(?:'(?P<sq>.+)'|\"(?P<dq>.+)\")$", src, re.M)
     assert m, f"{name} is gone from precommit-runner.sh — the self-filter moved"
-    return re.compile(m.group(1).replace("[:space:]", r"\s").replace("[:alnum:]", "0-9A-Za-z"))
+    # A `'` cannot appear inside a single-quoted shell string, so the pattern is assigned in
+    # double quotes, where a backslash is literal EXCEPT before one of these four. Undo exactly
+    # that set in one pass — chained replaces would rewrite what the previous one produced.
+    dq = m.group("dq")
+    pattern = m.group("sq") if dq is None else re.sub(r'\\(["$`\\])', r"\1", dq)
+    return re.compile(pattern.replace("[:space:]", r"\s").replace("[:alnum:]", "0-9A-Za-z"))
 
 
-@pytest.mark.parametrize("skill", SKILLS, ids=SKILL_IDS)
-def test_git_commands_a_skill_issues_reach_the_flow_gate(skill: Path):
-    """A `git commit` / `git merge` a skill issues has to match precommit-runner's self-filter.
+def assert_git_commands_reach_the_gate(label: str, commands: list[str]) -> None:
+    """Every `git commit` / `git merge` in `commands` must match precommit-runner's self-filter.
 
     The hook is handed `tool_input.command` *before* the shell expands it, and both regexes need
     the token after `git` to start with `-`, so a variable supplying the flag itself — `git
@@ -347,15 +353,75 @@ def test_git_commands_a_skill_issues_reach_the_flow_gate(skill: Path):
     literal `-C <dir>` out of that same string. Invariant #6.
     """
     filters = [("commit", gate_self_filter("_commit_re")), ("merge", gate_self_filter("_merge_re"))]
-    for cmd in issued_commands(skill):
+    for cmd in commands:
         if not re.match(r"git(\s|$)", cmd):
             continue
         for word, pattern in filters:
             if re.search(rf"(?<![\w-]){word}(?![\w-])", cmd) and not pattern.search(cmd):
                 raise AssertionError(
-                    f"{skill.parent.name}: {cmd!r} never reaches the gate — the {word} "
-                    f"self-filter reads the command unexpanded. Write the path literally."
+                    f"{label}: {cmd!r} never reaches the gate — the {word} self-filter reads "
+                    f"the command unexpanded. Spell the flags literally."
                 )
+
+
+def test_the_two_self_filters_share_one_grammar():
+    """Only the subcommand word may differ. The two were widened by hand once already, and the
+    merge half is the one that fails CLOSED — a grammar that lags there does not degrade, it
+    stops enforcing merge strategy while the suite stays green."""
+    commit, merge = gate_self_filter("_commit_re"), gate_self_filter("_merge_re")
+    assert commit.pattern.replace("commit", "@") == merge.pattern.replace("merge", "@")
+
+
+@pytest.mark.parametrize("name", ["_commit_re", "_merge_re"])
+@pytest.mark.parametrize("quote", ['"', "'"])
+def test_self_filter_reads_either_quote_around_a_path_that_holds_a_space(name: str, quote: str):
+    """A worktree path with a space has to be quoted, and `'…'` is the more idiomatic spelling.
+    A token that ends at the first space reads the line as "not a command" and every gate behind
+    the filter is skipped in silence (Invariant #1)."""
+    word = name.removeprefix("_").removesuffix("_re")
+    command = f"git -C {quote}/c/My Work/wt{quote} {word} -m x"
+    assert gate_self_filter(name).search(command), command
+
+
+@pytest.mark.parametrize("name", ["_commit_re", "_merge_re"])
+def test_self_filter_reads_a_lone_quote_inside_an_option_value(name: str):
+    """`-c user.name='a"b'` is one literal `"`, not the start of a span."""
+    word = name.removeprefix("_").removesuffix("_re")
+    assert gate_self_filter(name).search(f"git -c user.name='a\"b' -C /wt {word} -m x")
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'git -c user.email="a@b.c" log --oneline && echo "please commit"',
+        'git -C "/c/wt" log --oneline -5 && echo "now commit"',
+        'git --no-pager log --format="%s" && echo "then merge"',
+        "git commit-graph write",
+        "git merge-base HEAD dev",
+    ],
+)
+def test_self_filter_does_not_claim_a_command_that_only_mentions_the_word(command: str):
+    """A token must not cross whitespace by pairing one string's closing quote with a later
+    string's opening quote. When it does, a read-only `git log` reaches the gate and is denied
+    as an unclassified commit — the gate blocking work it was never meant to see."""
+    for name in ("_commit_re", "_merge_re"):
+        assert not gate_self_filter(name).search(command), (name, command)
+
+
+@pytest.mark.parametrize("skill", SKILLS, ids=SKILL_IDS)
+def test_git_commands_a_skill_issues_reach_the_flow_gate(skill: Path):
+    assert_git_commands_reach_the_gate(skill.parent.name, issued_commands(skill))
+
+
+@pytest.mark.parametrize("rule", SHIPPED_RULES, ids=[p.stem for p in SHIPPED_RULES])
+def test_git_commands_a_rule_issues_reach_the_flow_gate(rule: Path):
+    """The same guard for `rules/`, which reaches the agent the way a skill does.
+
+    The SessionStart hook injects these files into every session, so a `git merge` spelled out
+    in one is a command the agent runs — `risk-tiers.md` is where the merge strategy the
+    promotions follow is written down. A guard over `skills/` alone leaves that unmeasured.
+    """
+    assert_git_commands_reach_the_gate(rule.name, issued_commands(rule))
 
 
 @pytest.mark.parametrize("name", sorted(MUST_STILL_PROMPT), ids=sorted(MUST_STILL_PROMPT))

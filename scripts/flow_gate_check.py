@@ -30,9 +30,12 @@ try:
         STAGING_TIER,
         TIERS_FILENAME,
         config_path,
+        dash_c_value,
         flow_dir,
         force_utf8_io,
+        git_subcommand_re,
         host_root,
+        mask_literals,
         working_root,
     )
 except ImportError:
@@ -45,9 +48,12 @@ except ImportError:
         STAGING_TIER,
         TIERS_FILENAME,
         config_path,
+        dash_c_value,
         flow_dir,
         force_utf8_io,
+        git_subcommand_re,
         host_root,
+        mask_literals,
         working_root,
     )
 
@@ -128,9 +134,17 @@ def load_merge_strategy(tiers_path: Path) -> list[dict]:
     return [r for r in rules if isinstance(r, dict)]
 
 
-# `merge` as a whole word — keeps `git merge-base` / `git merge-file` from false-positiving.
-# Mirrors the _commit_re convention in precommit-runner.sh.
-_MERGE_SPLIT_RE = re.compile(r"(?:^|\s)merge(?=$|[^\w-])")
+# The `git … merge` invocation itself, not the first ` merge` in the string. Sharing the commit
+# path's grammar is the point: a word inside a quoted argument or a heredoc body is text, and
+# splitting there starts the operand region mid-string (shlex then raises and the strategy verdict
+# never runs) or truncates the head before the `-C` that names another worktree.
+_MERGE_RE = git_subcommand_re("merge")
+
+
+def _merge_match(command: str) -> re.Match[str] | None:
+    """The command's `git … merge`, read with every literal region masked out."""
+    return _MERGE_RE.search(mask_literals(command)) if command else None
+
 
 # Flags that consume the next token as their argument. If not skipped, `-m "msg"` would leak
 # the message into the source-branch slot.
@@ -173,12 +187,13 @@ _MERGE_SWITCH_RE = re.compile(
 # policy documents is precisely the shape that would bypass it. `\r` covers CRLF.
 _SHELL_SEP_RE = re.compile(r"[;&|\n\r]")
 
-# `git -C <dir>` in the global-options region before the `merge` subcommand. `-C` is a directory
-# only as git's OWN global option: unanchored, any unrelated `-C` (`grep -C 3`, `gcc -C`, …)
-# earlier in the chain resolves to a foreign directory and switches the entire merge gate off.
-# Reuses the path-token spec from _harness_paths (quoted or bare) — no second definition of the
-# same grammar.
-_MERGE_DASH_C_RE = re.compile(rf"(?:^|[\s;&|])git\s+(?:-\S+\s+(?:\S+\s+)?)*-C\s+(?:{_PATH_TOKEN})")
+
+def _merge_dash_c(command: str) -> str | None:
+    """The `-C <dir>` of the command's own `git … merge`, or None when it names no directory."""
+    masked = mask_literals(command)
+    m = _MERGE_RE.search(masked)
+    return dash_c_value(command, masked, m.start(1), m.end(1)) if m else None
+
 
 # A leading `cd <dir>` before the merge — the merge path's own separator variant of
 # _harness_paths._CD_PREFIX_RE, which recognises `&&` only. `cd <wt>` followed by a NEWLINE (the
@@ -202,13 +217,13 @@ def parse_merge_command(command: str) -> tuple[set[str], str | None]:
     """
     if not command:
         return set(), None
-    parts = _MERGE_SPLIT_RE.split(command, maxsplit=1)
-    if len(parts) < 2:
+    m = _merge_match(command)
+    if not m:
         return set(), None
     import shlex
 
     try:
-        tokens = shlex.split(parts[1])
+        tokens = shlex.split(command[m.end() :])
     except ValueError:  # unbalanced quotes → FAIL-OPEN
         return set(), None
     flags: set[str] = set()
@@ -227,11 +242,6 @@ def parse_merge_command(command: str) -> tuple[set[str], str | None]:
         if source is None:
             source = tok
     return flags, source
-
-
-def _merge_region_head(command: str) -> str:
-    """The part of the command *before* the `merge` subcommand (the whole string if not a merge)."""
-    return _MERGE_SPLIT_RE.split(command, maxsplit=1)[0]
 
 
 def _switch_operand(operands: str) -> str | None:
@@ -275,12 +285,17 @@ def _target_from_command(command: str) -> str | None:
     """
     if not command:
         return None
-    head = _merge_region_head(command)
+    # Located on the mask like every other subcommand read here: a `git switch` written in a
+    # comment, quoted in a message, or sitting in a heredoc body is text, and adopting its branch
+    # judges the merge against a flow nobody ran. Operands are sliced from the raw string, so
+    # _switch_operand still sees their quotes.
+    masked = mask_literals(command)
+    merge = _MERGE_RE.search(masked)
+    head_end = merge.end(1) if merge else len(command)
     target: str | None = None
-    for m in _MERGE_SWITCH_RE.finditer(head):
-        rest = head[m.end() :]
-        sep = _SHELL_SEP_RE.search(rest)
-        branch = _switch_operand(rest[: sep.start()] if sep else rest)
+    for m in _MERGE_SWITCH_RE.finditer(masked, 0, head_end):
+        sep = _SHELL_SEP_RE.search(masked, m.end(), head_end)
+        branch = _switch_operand(command[m.end() : sep.start() if sep else head_end])
         if branch is None:  # one unclear switch voids the whole chain
             return None
         target = branch
@@ -302,10 +317,10 @@ def _points_elsewhere(command: str, root: Path) -> bool:
     before precommit-runner.sh's `cd "$ROOT"`, so the interpreter's cwd is the hook cwd and
     reading `git -C .` there would call root itself foreign and skip the gate.
     """
-    m = _MERGE_DASH_C_RE.search(_merge_region_head(command)) or _MERGE_CD_PREFIX_RE.match(command)
-    if not m:
-        return False
-    cdir = next((g for g in m.groups() if g is not None), None)
+    cdir = _merge_dash_c(command)
+    if not cdir:
+        m = _MERGE_CD_PREFIX_RE.match(command)
+        cdir = next((g for g in m.groups() if g is not None), None) if m else None
     if not cdir:
         return False
     try:

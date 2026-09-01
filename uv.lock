@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.12"
 
 [[package]]
@@ -208,6 +208,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "gitpython" },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "python-semantic-release" },
@@ -219,6 +220,7 @@ requires-dist = [{ name = "pyyaml", specifier = ">=6.0" }]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "gitpython", specifier = "!=3.1.60" },
     { name = "pre-commit", specifier = ">=3.5" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "python-semantic-release", specifier = ">=10,<11" },
