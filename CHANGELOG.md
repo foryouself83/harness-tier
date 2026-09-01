@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.2.3-rc.4 (2026-09-01)
+
+### Bug Fixes
+
+- **gate**: Read the commands a shell actually runs
+  ([`89fbab7`](https://github.com/foryouself83/harness-tier/commit/89fbab7d31a64d4ee6ca8336e436a3ca3c8f12fe))
+
+
 ## v0.2.3-rc.3 (2026-09-01)
 
 ### Bug Fixes
