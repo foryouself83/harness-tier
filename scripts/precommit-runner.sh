@@ -89,14 +89,17 @@ fi
 # alternative for a bare quote would do that too, but it lets a token pair one string's closing
 # quote with a later string's opening quote and so cross whitespace — which made `git log … &&
 # echo "please commit"` read as a commit and be denied as unclassified.
+# A backslash makes the next character literal, so `\'` opens no span. Without that alternative
+# the token ends at the quote and the same silent skip returns — and `'\''`, the spelling for a
+# path holding an apostrophe, is what the commit skill's own template emits.
 # The assignment is double-quoted because a `'` cannot appear inside a single-quoted shell string;
 # `\$` is the end anchor, and test_skills.py::gate_self_filter undoes exactly this escaping.
-_commit_re="git([[:space:]]+-([^[:space:]\"']|\"[^\"]*\"|'[^']*')+([[:space:]]+([^[:space:]\"']|\"[^\"]*\"|'[^']*')+)?)*[[:space:]]+commit(\$|[^[:alnum:]-])"
+_commit_re="git([[:space:]]+-(\\\\.|[^[:space:]\"']|\"(\\\\.|[^\"])*\"|'[^']*')+([[:space:]]+(\\\\.|[^[:space:]\"']|\"(\\\\.|[^\"])*\"|'[^']*')+)?)*[[:space:]]+commit(\$|[^[:alnum:]-])"
 
 # Detect `git merge` with the same convention as _commit_re: git global options (notably
 # `git -C <worktree>`) may sit between `git` and the subcommand, and `merge` is matched as a
 # whole word so `git merge-base` / `git merge-file` do not false-positive.
-_merge_re="git([[:space:]]+-([^[:space:]\"']|\"[^\"]*\"|'[^']*')+([[:space:]]+([^[:space:]\"']|\"[^\"]*\"|'[^']*')+)?)*[[:space:]]+merge(\$|[^[:alnum:]-])"
+_merge_re="git([[:space:]]+-(\\\\.|[^[:space:]\"']|\"(\\\\.|[^\"])*\"|'[^']*')+([[:space:]]+(\\\\.|[^[:space:]\"']|\"(\\\\.|[^\"])*\"|'[^']*')+)?)*[[:space:]]+merge(\$|[^[:alnum:]-])"
 
 _is_commit=0
 _is_merge=0

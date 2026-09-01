@@ -13,12 +13,12 @@
   "wiki-init": {
     "fired_hits": 0,
     "fired_rate": 0.0,
-    "measured_at": "2026-08-31",
+    "measured_at": "2026-09-01",
     "model": "claude-opus-4-8",
     "outcome_hits": 3,
     "outcome_n": 3,
     "outcome_pass_rate": 1.0,
-    "outcome_sha": "82222c8be486",
+    "outcome_sha": "1cb1cc0ffa19",
     "reps": 3
   }
 }

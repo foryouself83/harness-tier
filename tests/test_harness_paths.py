@@ -211,6 +211,19 @@ def test_dir_from_command_requires_the_word_git():
     # belongs to a command the gate knows nothing about.
     assert vp._dir_from_command("mygit -C /evil commit -m x") is None
     assert vp._dir_from_command("legit -C /evil commit -m x") is None
+    # A directory prefix names the same program, so requiring the word must not reject one.
+    assert vp._dir_from_command("/usr/bin/mygit -C /evil commit -m x") is None
+
+
+@pytest.mark.parametrize(
+    "prefix", ["/usr/bin/", "/usr/local/bin/", "C:/Git/bin/", "C:\\Git\\bin\\", "./"]
+)
+def test_dir_from_command_reads_a_path_qualified_git(prefix: str):
+    """`/usr/bin/git … commit` is the same invocation, and the runner's self-filter — which is
+    unanchored — agrees. Only this half stops recognising it, and that disagreement is the gate
+    silently off: the hook engages, resolves no worktree, leaves ROOT on the main repo, and a
+    clean main exits 0 with the commit never classified. Invariant #6."""
+    assert vp._dir_from_command(f"{prefix}git -C /a/wt commit -m x") == "/a/wt"
 
 
 def test_parse_worktree_list_blocks_and_detached():

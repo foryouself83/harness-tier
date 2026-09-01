@@ -590,9 +590,10 @@ and guides you — don't skip to manual implementation.
 
 ### It blocked me just for mentioning `git commit`
 
-The commit gate matches whenever the command contains the string `git commit`. A command
-that merely mentions that string (e.g. `grep "git commit"`) can be blocked too — this is
-expected.
+The commit gate reads the command the way a shell would — `git`, its global options, then the
+subcommand — but it does not ask whether the invocation is real. A command that merely quotes
+one (`grep "git commit"`) is blocked too, and that is expected. A mention that sits after
+another command has finished is not: `git log --oneline && echo "now commit"` runs untouched.
 
 ### The gate does nothing (suspected no-op)
 
