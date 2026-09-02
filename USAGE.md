@@ -598,12 +598,14 @@ runs a program the gate does not know to be a reader. Searching and listing tool
 known — `grep`, `rg`, `ls`, `cat`, `head` and their kin run untouched — but not `awk`,
 `sed`, `find`, `ack` or `ag`, each of which can run a command written in its own
 arguments, and not `git` itself, so `git log --grep="git commit"` trips it as well.
-Anything else may be handed that text as a script, and nothing in the command says which;
-a commit missed is the worse mistake, so the gate asks you to classify. When the quote
-belongs to a different command, separating the two with `;`, `&&` or a newline is enough —
-each part of a command list is read alone. When it is that command's own argument there is
-nothing to separate, and the deny names the remedy it wants: classify the work with
-`/flow`, and a command carrying a tier marker is no longer an unclassified commit.
+Only text shaped like the invocation counts, so `awk '/git commit/{print}' a.txt` is a
+search and runs untouched. Anything else may be handed that text as a script, and nothing
+in the command says which; a commit missed is the worse mistake, so the gate asks you to
+classify. When the quote belongs to a different command, separating the two with `;`,
+`&&` or a newline is enough — each part of a command list is read alone. When it is that
+command's own argument there is nothing to separate, and the deny is the one an
+unclassified commit gets: `/flow` classifies the work, and the command runs once that
+tier's gate evidence exists — the same bar the commit itself has to clear.
 If something else is still blocked, read the deny: without python3 the gate cannot tell an
 invocation from a mention and blocks rather than guess, and the message names the install.
 Otherwise the host's copy of the gate scripts is older than the plugin — re-run `/flow-init`.

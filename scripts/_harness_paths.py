@@ -317,7 +317,57 @@ _READS_ONLY = frozenset(
     )
 )
 # A program token at a command position, with the name captured.
-_PROGRAM_RE = re.compile(r"(?:^|[;&|(){}`\n])[ \t]*(?:[^\s;&|()'\"]*[/\\])?([A-Za-z0-9_.+-]+)")
+# Shell syntax standing where a program would. The list is the shell's own and therefore
+# closed, unlike a list of programs, and both readings need it: a command may start after one
+# of these words, and the word itself is not the program that starts there.
+_RESERVED_WORDS = frozenset(
+    (
+        "case",
+        "do",
+        "done",
+        "elif",
+        "else",
+        "esac",
+        "fi",
+        "for",
+        "function",
+        "if",
+        "in",
+        "select",
+        "then",
+        "time",
+        "until",
+        "while",
+    )
+)
+# Where a command may start. One fragment for everything that has to find one, since each
+# place that spelled its own ended up narrower than the shell somewhere.
+_COMMAND_START = r"(?:^|[;&|(){}`\n]|\b(?:" + "|".join(sorted(_RESERVED_WORDS)) + r")\b)"
+_PROGRAM_RE = re.compile(_COMMAND_START + r"[ \t]*(?:[^\s;&|()'\"]*[/\\])?([A-Za-z0-9_.+-]+)")
+# A command position holding a substitution: the element runs what that prints.
+_RUNS_ITS_OUTPUT_RE = re.compile(_COMMAND_START + r"[ \t]*(?:\$\(|`)")
+
+
+def _programs(element: str) -> list[str]:
+    """The names in command position in `element`, spelled without a host's `.exe`.
+
+    A reserved word is both a token and the start of the command after it, and one pass cannot
+    be both: matched as the name, the scan resumes past it and the program it introduces is
+    never seen — which left a `grep` inside a `do` looking like a command with no program at
+    all, and every quoted mention in a loop body was denied.
+    """
+    names: list[str] = []
+    at, guard = 0, -1
+    while True:
+        m = _PROGRAM_RE.search(element, at)
+        if m is None:
+            return names
+        name = m.group(1)
+        names.append(name[:-4] if name.lower().endswith(".exe") else name)
+        if name in _RESERVED_WORDS and m.start(1) > guard:
+            at, guard = m.start(1), m.start(1)
+        else:
+            at = m.end()
 
 
 def _reads_only(element: str) -> bool:
@@ -325,24 +375,31 @@ def _reads_only(element: str) -> bool:
 
     An element with no program at all is NOT exempt: a bare assignment holds a script
     something later runs, and exemption has to be earned by a name, not by the absence
-    of one.
+    of one. Neither is an element whose command position is a substitution: `$(echo "git
+    commit -m x")` runs the OUTPUT of the reader written in it, and reading the reader's own
+    name as the program it runs is how that spelling passed.
+
+    A shell reserved word is not a program, so the reader inside a loop or a conditional is
+    still the only program there — read as one, `for f in *; do grep … done` had a program
+    that is on no list and every quoted mention in it was denied.
     """
-    names = [
-        n[:-4] if n.lower().endswith(".exe") else n
-        for n in (m.group(1) for m in _PROGRAM_RE.finditer(element))
-    ]
+    if _RUNS_ITS_OUTPUT_RE.search(element):
+        return False
+    names = [n for n in _programs(element) if n not in _RESERVED_WORDS]
     return bool(names) and all(n in _READS_ONLY for n in names)
 
 
-# One of those as the PROGRAM a command starts with. Located on the mask, so a name inside a
-# message is not a program; and required at a command position, so `--type sh` and `which
-# bash` are not either — those are what a developer writes all day, and being wrong about
-# them denies read-only work. The price is the prefix forms (`time bash -c …`, `xargs bash
-# -c …`), which the net does not reach. `ssh` keeps its `s`: the token has to begin where the
+# One of those named anywhere in the element, as a whole token on the mask. It decides one
+# thing only — whether a heredoc body in that element is a script or a message — and asking
+# where the interpreter sits was the same mistake as the old trigger list: a reserved word, a
+# prefix command, an assignment or a redirection in front of it all made `bash <<EOF` stop
+# looking like an interpreter, and the body carrying a real commit went unread. Named rather
+# than positioned, the cost is an element that runs something else and quotes an interpreter's
+# name in a heredoc, which over-gates. `ssh` keeps its `s`: the token has to begin where the
 # name does.
 _INTERPRETER_RE = re.compile(
-    r"(?:^|[;&|(){}`\n])[ \t]*(?:[^\s;&|()'\"]*[/\\])?"
-    r"(?:" + "|".join(_RUNS_TEXT) + r")(?:\.exe)?(?=$|[\s;&|)])"
+    r"(?:^|[^\w/\\.-])(?:[^\s;&|()'\"]*[/\\])?"
+    r"(?:" + "|".join(_RUNS_TEXT) + r")(?:\.exe)?(?=$|[\s;&|)<>`])"
 )
 # Quoting, and the backslash that escapes a quote. A backslash escaping anything else is left
 # alone: on the host this gate runs on it is a path separator, and rubbing it out turns
@@ -393,12 +450,10 @@ _EXECUTES_NEXT_RE = re.compile(
 # What the two anchored predicates above can reach back over: the longest word either
 # names, plus the blanks after it. Bounding the scan keeps them O(1) per quote.
 _EXECUTES_NEXT_WINDOW = 128
-# Where `(( … ))` may open: after a separator, or after a word that introduces a command
-# list. Judged more widely than a quoted span's command position, because reading it as
-# two subshells turns its left shift into a heredoc introducer.
-_ARITH_START_RE = re.compile(
-    r"(?:^|[;&|(){}`\n]|\b(?:if|then|elif|else|while|until|do|done|case|esac)\b)[ \t]*$"
-)
+# Where `(( … ))` may open: anywhere a command may start. Judged more widely than a quoted
+# span's command position, because reading it as two subshells turns its left shift into a
+# heredoc introducer.
+_ARITH_START_RE = re.compile(_COMMAND_START + r"[ \t]*$")
 _AT_COMMAND_START_RE = re.compile(r"(?:^|(?<!\\)[;&|({}\n])[ \t]*$")
 # Kinds the mask turns into blanks rather than NUL: they separate tokens, they are not
 # literal text sitting inside one.

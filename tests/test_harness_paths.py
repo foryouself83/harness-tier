@@ -790,6 +790,22 @@ RUNS_A_COMMIT = [
     ("find . -exec 'git' commit -m x ;", "commit"),
     ("find . -exec git 'commit' -m x ;", "commit"),
     ("ack --pager='git commit -m x' pattern .", "commit"),
+    # an interpreter is one wherever it is written. A reserved word, a prefix command, an
+    # assignment and a redirection in front of it are all still the interpreter running,
+    # and the heredoc it is handed is a script in every one of them
+    ("if true; then bash <<'EOF'\ngit commit -m x\nEOF\nfi", "commit"),
+    ("time bash <<'EOF'\ngit commit -m x\nEOF", "commit"),
+    ("A=1 bash <<'EOF'\ngit commit -m x\nEOF", "commit"),
+    ("2>/dev/null bash <<'EOF'\ngit commit -m x\nEOF", "commit"),
+    # a command position holding a substitution runs what that prints, so the reader
+    # written inside it is not the program the element runs
+    ('$(echo "git commit -m x")', "commit"),
+    ('`echo "git commit -m x"`', "commit"),
+    ('$(echo "git merge --no-ff dev")', "merge"),
+    # a program that runs its arguments as a command is not a reader, and the list is only
+    # as good as a case that notices a name arriving on it
+    ("ls | xargs 'git' commit -m x", "commit"),
+    ('cat a.txt | xargs "git" merge --no-ff dev', "merge"),
     # text a builtin runs later, and text a variable holds for something else to run
     ("trap 'git commit -m x' EXIT; true", "commit"),
     ('C="git commit -m x"; eval "$C"', "commit"),
@@ -819,6 +835,14 @@ RUNS_NO_COMMIT = [
     # a tool that runs a program by PATH rather than a shell string spells no command
     "sort --compress-program='git commit -m x' f",
     "rg --pre 'git commit' pattern .",
+    # a reader inside a loop or a conditional is still the only program there
+    ("for f in *; do grep -n 'git commit' $f; done"),
+    ("if true; then echo 'git commit'; fi"),
+    ('while read l; do echo "git commit"; done < a.txt'),
+    # a backslash before a `$(` leaves it text, and a heredoc body runs to its terminator
+    # rather than to the first quote in it
+    ("cat <<EOF\n\\$(git commit -am wip)\nEOF"),
+    ('cat <<EOF\nsay "hi" then git commit -m x\nEOF'),
     # an escaped separator is a literal character, not the end of a command
     "echo a\\; 'git commit'",
 ]
