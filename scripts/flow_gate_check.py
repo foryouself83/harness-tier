@@ -35,6 +35,7 @@ try:
         force_utf8_io,
         git_subcommand_re,
         host_root,
+        is_invocation,
         mask_literals,
         operand_end,
         working_root,
@@ -54,6 +55,7 @@ except ImportError:
         force_utf8_io,
         git_subcommand_re,
         host_root,
+        is_invocation,
         mask_literals,
         operand_end,
         working_root,
@@ -141,7 +143,6 @@ def load_merge_strategy(tiers_path: Path) -> list[dict]:
 # splitting there starts the operand region mid-string (shlex then raises and the strategy verdict
 # never runs) or truncates the head before the `-C` that names another worktree.
 _MERGE_RE = git_subcommand_re("merge")
-_COMMIT_RE = git_subcommand_re("commit")
 
 
 # Flags that consume the next token as their argument. If not skipped, `-m "msg"` would leak
@@ -881,11 +882,16 @@ def classify_output() -> None:
         payload = json.loads(raw) if raw.strip() else {}
     except Exception:
         return  # FAIL-OPEN → neither, and the runner stops
-    command = (payload.get("tool_input") or {}).get("command") or ""
+    tool_input = payload.get("tool_input")
+    command = tool_input.get("command") if isinstance(tool_input, dict) else None
+    if not isinstance(command, str):
+        # No command to read, so there is no verdict to give. Answering `ok=1` here would say
+        # "read it, not a commit", and the runner takes that as leave — dropping the raw-stdin
+        # backstop that is all it has left when the payload is not the shape the tool sends.
+        return
     try:
-        masked = mask_literals(command)
-        is_commit = bool(_COMMIT_RE.search(masked))
-        is_merge = bool(_MERGE_RE.search(masked))
+        is_commit = is_invocation(command, "commit")
+        is_merge = is_invocation(command, "merge")
     except Exception:
         return  # FAIL-OPEN
     print("ok=1")

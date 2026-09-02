@@ -593,7 +593,12 @@ and guides you — don't skip to manual implementation.
 It should not. The gate reads the command the way a shell does and asks one question: is there
 a real `git … commit` in it? A mention inside quotes, a comment or a heredoc body is text, so
 `grep "git commit"` and `git log --oneline && echo "now commit"` both run untouched.
-If one of those is still blocked, read the deny: without python3 the gate cannot tell an
+One shape does trip it, deliberately: one command that runs an interpreter — `bash`, `sh`,
+`python3`, `perl` — and quotes something commit-shaped in that same command. The quoted
+text may be the script the interpreter is handed, and nothing in the command says which;
+a commit missed is the worse mistake, so the gate asks you to classify. Separate the two
+with `;`, `&&` or a newline and neither is — each part of a command list is read alone.
+If something else is still blocked, read the deny: without python3 the gate cannot tell an
 invocation from a mention and blocks rather than guess, and the message names the install.
 Otherwise the host's copy of the gate scripts is older than the plugin — re-run `/flow-init`.
 

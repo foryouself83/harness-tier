@@ -246,6 +246,51 @@ def git_subcommand_re(word: str) -> re.Pattern[str]:
 
 
 _GIT_COMMIT_RE = git_subcommand_re("commit")
+# Programs that take TEXT and run it as code. The gate reads the PROGRAMS rather than the
+# channels that carry text to them — a `-c` argument, a here-string, a heredoc, a pipeline,
+# a substitution: the channels are unbounded, the programs are a list, and a channel left
+# unnamed is a real commit the gate exits 0 on. Longest first, so `python3` is not read as
+# `python` with a digit after it.
+_RUNS_TEXT = (
+    "powershell",
+    "python3",
+    "python2",
+    "busybox",
+    "python",
+    "source",
+    "perl",
+    "pwsh",
+    "ruby",
+    "node",
+    "bash",
+    "dash",
+    "eval",
+    "zsh",
+    "ksh",
+    "ash",
+    "cmd",
+    "sh",
+)
+# One of those as the PROGRAM a command starts with. Located on the mask, so a name inside a
+# message is not a program; and required at a command position, so `--type sh` and `which
+# bash` are not either — those are what a developer writes all day, and being wrong about
+# them denies read-only work. The price is the prefix forms (`time bash -c …`, `xargs bash
+# -c …`), which the net does not reach. `ssh` keeps its `s`: the token has to begin where the
+# name does.
+_INTERPRETER_RE = re.compile(
+    r"(?:^|[;&|(){}`\n])[ \t]*(?:[^\s;&|()'\"]*[/\\])?"
+    r"(?:" + "|".join(_RUNS_TEXT) + r")(?:\.exe)?(?=$|[\s;&|)])"
+)
+# Quoting, and the backslash that escapes a quote. A backslash escaping anything else is left
+# alone: on the host this gate runs on it is a path separator, and rubbing it out turns
+# `bash C:\\git\\commit\\run.sh` into an invocation.
+_QUOTING_RE = re.compile(r"\\?[\"'`]")
+# Where one element of a command list ends. The net reads ONE element: an interpreter in
+# another element does not make this one's quoted text a script, and reading the whole
+# string instead denies every read-only command that runs beside a python or a bash.
+# A pipe is NOT a boundary — `printf '…' | bash` puts the script in the element before its
+# interpreter.
+_LIST_SEPARATOR_RE = re.compile(r"&&|\|\||[;\n]")
 # A heredoc introducer. The delimiter is ONE WORD — quoted and unquoted pieces concatenated,
 # ending at a blank or a metacharacter, exactly as the shell reads it — and group 2 is that word
 # before quote removal. Read as a single bare token instead, three spellings go unrecognised and
@@ -577,6 +622,68 @@ def mask_literals(command: str) -> str:
     for a, b, kind in _shell_regions(command):
         out[a:b] = (" " if kind in _BLANKED else "\x00") * (b - a)
     return "".join(out)
+
+
+def _unquoted_view(command: str) -> str:
+    """`command` with its quoting rubbed out rather than its quoted text erased.
+
+    What the net reads. The point is to see the script an interpreter was handed, which a mask
+    that blanks it cannot show. Comments go the other way and are blanked: a `#` run is the one
+    literal region no interpreter can ever be handed. Same length throughout, so the two
+    readings describe the same string.
+    """
+    out = list(command)
+    for a, b, kind in _shell_regions(command):
+        if kind == "comment":
+            out[a:b] = " " * (b - a)
+    return _QUOTING_RE.sub(lambda m: " " * len(m.group()), "".join(out))
+
+
+def _list_elements(command: str, masked: str) -> list[tuple[int, int]]:
+    """Index ranges of `command`, one per element of its command list.
+
+    Split on the mask, so a separator inside a message or a comment ends nothing. A newline
+    that opens a heredoc body is not a boundary either: the body is that command's input, and
+    cut away from it the interpreter and the script it is handed land in different elements.
+    """
+    bodies = {a for a, _b, kind in _shell_regions(command) if kind == "heredoc"}
+    spans, start = [], 0
+    for m in _LIST_SEPARATOR_RE.finditer(masked):
+        if m.group() == chr(10) and m.end() in bodies:
+            continue
+        spans.append((start, m.start()))
+        start = m.end()
+    spans.append((start, len(command)))
+    return spans
+
+
+def is_invocation(command: str, word: str) -> bool:
+    """Whether `command` runs `git <word>` — the gate's single authority on that question.
+
+    Two readings, in order. The precise one asks the grammar about the mask, where quoted text
+    is data: that is what keeps a read-only `git -c commit.gpgsign=false log` from being denied
+    as an unclassified commit. Behind it sits a net for the case the mask is wrong about — the
+    element of the command list STARTS an interpreter, so some of that element's quoted text
+    is a script and not data. Then, and only then, the same grammar is tried again over that
+    element with its quoting rubbed out.
+
+    The net cannot fire on a command that starts no interpreter, so it adds nothing to the
+    read-only side. What it costs is a command that both starts one and says something
+    commit-shaped: that one is gated rather than missed, which is the direction this gate is
+    allowed to be wrong in.
+
+    Detection only. A merge's FLAGS are still read off the mask, so a merge the net alone
+    finds has no strategy verdict and fails open — uncertain, therefore allowed.
+    """
+    pattern = git_subcommand_re(word)
+    masked = mask_literals(command)
+    if pattern.search(masked):
+        return True
+    view = _unquoted_view(command)
+    return any(
+        _INTERPRETER_RE.search(masked[a:b]) and pattern.search(view[a:b])
+        for a, b in _list_elements(command, masked)
+    )
 
 
 def operand_end(command: str, masked: str, start: int, end: int | None = None) -> int:

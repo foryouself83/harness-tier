@@ -73,8 +73,8 @@ except Exception:
 fi
 # Coarse pre-filter. The ONLY thing decided here is whether to spawn the gate at all — what the
 # command IS gets decided once, in flow_gate_check.py --classify below.
-# It must never be narrower than that grammar, which requires the literal `git` and a
-# blank-preceded `commit`/`merge` word: a command holding neither cannot be an invocation,
+# It must never be narrower than that grammar, which requires the literal `git` and the
+# word `commit`/`merge`: a command holding neither cannot be an invocation,
 # and everything else is passed on to be judged. So it states no opinion about quoting —
 # a second grammar has to agree with the first, and the spellings only one of them accepts
 # are the gate off in silence rather than a narrower gate. Over-matching costs one python
@@ -83,7 +83,11 @@ case "${_hook_cmd:-$_hook_input}" in
   *git*) ;;
   *) exit 0 ;;
 esac
-_word_re='[[:space:]](commit|merge)($|[^[:alnum:]_-])'
+# The word is not required to follow a BLANK. The grammar reads a command an interpreter
+# runs with its quoting rubbed out, where a quote becomes the separator — so `eval 'git'commit`
+# is an invocation to the gate while a blank-anchored filter drops it, and a filter narrower
+# than the grammar is the gate off in silence.
+_word_re='(commit|merge)($|[^[:alnum:]_-])'
 [[ "${_hook_cmd:-$_hook_input}" =~ $_word_re ]] || exit 0
 
 ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}"
@@ -156,7 +160,16 @@ fi
 # script itself failed to answer. Gate the command rather than drop it: an unreadable hook
 # payload is the one case the raw-stdin filter above still has to carry, and the stages
 # below each fail open on their own if the script is genuinely broken.
-[ "$_answered" -eq 1 ] || _is_commit=1
+if [ "$_answered" -ne 1 ]; then
+  _is_commit=1
+  # The merge check is entered too: it is reached only through `_is_merge`, and a
+  # merge-strategy violation is one of the three things this gate may never fail open
+  # on. It is guarded on the script EXISTING because, alone among the stages, it
+  # reads stderr for its reason — and `python3 <missing file>` writes the
+  # interpreter's own complaint there and exits 2, which a half-copied host would
+  # then serve as a merge verdict on every commit.
+  [ -f "$PLUGIN_SCRIPTS/flow_gate_check.py" ] && _is_merge=1
+fi
 
 # merge gate — a merge runs on a clean tree, so it must be inspected before the `git status`
 # early-exit below, and before the worktree re-designation (Invariant #6: the merge path is
@@ -173,7 +186,9 @@ if [ "$_is_merge" -eq 1 ]; then
   if [ "$merge_rc" -eq 2 ] && [ -n "$merge_reason" ]; then
     deny "$merge_reason"
   fi
-  [ -n "$merge_reason" ] && printf '%s\n' "$merge_reason" >&2   # warning passthrough
+  # A warning is what a check that RAN has to say. Anything on this channel after a
+  # non-zero exit is the interpreter's, not the gate's, and reads as a verdict.
+  [ "$merge_rc" -eq 0 ] && [ -n "$merge_reason" ] && printf '%s\n' "$merge_reason" >&2
   [ "$_is_commit" -eq 1 ] || exit 0
 fi
 
