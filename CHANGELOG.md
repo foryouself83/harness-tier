@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.2.3-rc.5 (2026-09-02)
+
+### Bug Fixes
+
+- **gate**: Read the commit an interpreter runs
+  ([`0db7e5c`](https://github.com/foryouself83/harness-tier/commit/0db7e5ce1464295bbedbafb7a8ef93c61a89632e))
+
+
 ## v0.2.3-rc.4 (2026-09-01)
 
 ### Bug Fixes

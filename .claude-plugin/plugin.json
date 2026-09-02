@@ -1,6 +1,6 @@
 {
   "name": "harness-tier",
-  "version": "0.2.3-rc.4",
+  "version": "0.2.3-rc.5",
   "description": "harness-tier risk-tiered workflow + Teams notification harness",
   "author": { "name": "foryouself83" }
 }
