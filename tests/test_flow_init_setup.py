@@ -6,6 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import yaml as _yaml
 
 from scripts.flow_init_setup import (
@@ -1291,8 +1292,12 @@ def test_a_gate_entry_under_another_tool_is_repaired(tmp_path: Path):
     settings.write_text(json.dumps(planted), encoding="utf-8")
     fis.register_gate(tmp_path)
     after = json.loads(settings.read_text(encoding="utf-8"))
-    matchers = [e.get("matcher") for e in after["hooks"]["PreToolUse"]]
-    assert "Bash" in matchers, matchers
+    firing = [
+        e
+        for e in after["hooks"]["PreToolUse"]
+        if any(fis.GATE_MARKER in (h.get("command") or "") for h in e.get("hooks") or [])
+    ]
+    assert [e["matcher"] for e in firing] == ["Bash"], after["hooks"]["PreToolUse"]
 
 
 def _planted(tmp_path: Path, entries: list) -> Path:
@@ -1343,3 +1348,174 @@ def test_a_matcher_that_already_covers_bash_is_left_alone(tmp_path: Path):
     pre = json.loads(settings.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
     assert [e["matcher"] for e in pre] == ["Bash|Write"], pre
     assert "skip" in out, out
+
+
+# Spellings the hooks reference defines as one tool name or a `|`/`,` list of them. Every one
+# of these fires on a commit, so the gate is already registered under it and narrowing it would
+# drop coverage the host asked for.
+COVERS_BASH = ["Bash", "Bash|Write", "Bash, Write", "Bash | Write", "Bash ", "Write, Bash", "*", ""]
+# Spellings this interpreter cannot decide. A matcher outside the name alphabet is a JavaScript
+# regular expression, and Python's dialect disagrees with it — `(?i)` and `\Z` are Python's
+# alone — so each of these has to be read as NOT the gate, which costs an entry rather than a
+# gate that never fires.
+COVERS_NOTHING = [
+    "Bash|.*",
+    "Read",
+    "^Notebook",
+    "mcp__.*",
+    "Bash[",
+    "(?i)bash",
+    "Bash" + chr(92) + "Z",
+    "bash",
+    ["Bash"],
+    7,
+    {"tool": "Bash"},
+]
+
+
+@pytest.mark.parametrize("matcher", COVERS_BASH, ids=[repr(m) for m in COVERS_BASH])
+def test_a_matcher_that_already_names_bash_is_the_gate(tmp_path: Path, matcher):
+    import scripts.flow_init_setup as fis
+
+    settings = _planted(tmp_path, [{"matcher": matcher, "hooks": [_gate_hook()]}])
+    out = fis.register_gate(tmp_path)
+    pre = json.loads(settings.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+    assert "skip" in out, out
+    assert [e["matcher"] for e in pre] == [matcher], pre
+
+
+def test_a_matcher_left_out_entirely_is_every_tool(tmp_path: Path):
+    import scripts.flow_init_setup as fis
+
+    settings = _planted(tmp_path, [{"hooks": [_gate_hook()]}])
+    out = fis.register_gate(tmp_path)
+    pre = json.loads(settings.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+    assert "skip" in out, out
+    assert len(pre) == 1, pre
+
+
+@pytest.mark.parametrize("matcher", COVERS_NOTHING, ids=[repr(m) for m in COVERS_NOTHING])
+def test_a_matcher_this_interpreter_cannot_decide_is_not_the_gate(tmp_path: Path, matcher):
+    import scripts.flow_init_setup as fis
+
+    settings = _planted(tmp_path, [{"matcher": matcher, "hooks": [_gate_hook()]}])
+    fis.register_gate(tmp_path)
+    pre = json.loads(settings.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+    firing = [
+        e
+        for e in pre
+        if any(fis.GATE_MARKER in (h.get("command") or "") for h in e.get("hooks") or [])
+    ]
+    assert [e.get("matcher") for e in firing] == ["Bash"], pre
+    assert pre[0].get("matcher") == matcher, pre
+
+
+def test_the_report_counts_the_hooks_it_moved(tmp_path: Path):
+    """One entry holding two gate hooks is two hooks moved, not one entry and not two
+    entries — the earlier implementation collected the entry once per hook and said 2."""
+    import scripts.flow_init_setup as fis
+
+    settings = _planted(tmp_path, [{"matcher": "Read", "hooks": [_gate_hook(), _gate_hook()]}])
+    assert "2건" in fis.register_gate(tmp_path)
+    pre = json.loads(settings.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+    assert pre[0]["hooks"] == [], pre
+
+
+def test_an_emptied_host_entry_keeps_what_the_host_wrote(tmp_path: Path):
+    """Taking the gate hook out of an entry does not make the entry ours. Its matcher and the
+    keys beside `hooks` are configuration this plugin never wrote."""
+    import scripts.flow_init_setup as fis
+
+    settings = _planted(
+        tmp_path, [{"matcher": "Read", "team_note": "ours", "hooks": [_gate_hook()]}]
+    )
+    out = fis.register_gate(tmp_path)
+    pre = json.loads(settings.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+    assert "skip" not in out, out
+    assert pre[0] == {"matcher": "Read", "team_note": "ours", "hooks": []}, pre
+
+
+# A settings.json the host hand-edited into a shape the schema does not describe. /flow-init
+# runs unguarded, so an exception here takes the marketplace, pre-commit, .gitignore and the
+# rendered workflows down with the gate.
+MALFORMED = [
+    ("hooks is a list", {"hooks": []}),
+    ("hooks is null", {"hooks": None}),
+    ("hooks is a string", {"hooks": "x"}),
+    ("the document is a list", [1, 2]),
+    ("PreToolUse is a dict", {"hooks": {"PreToolUse": {}}}),
+    ("an entry is a string", {"hooks": {"PreToolUse": ["x"]}}),
+    ("entry hooks is a number", {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": 5}]}}),
+    ("entry hooks is true", {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": True}]}}),
+    (
+        "a foreign entry's hooks is a number",
+        {"hooks": {"PreToolUse": [{"matcher": "Read", "hooks": 5}]}},
+    ),
+    (
+        "a foreign entry's hooks is a string",
+        {"hooks": {"PreToolUse": [{"matcher": "Read", "hooks": "x"}]}},
+    ),
+]
+
+
+@pytest.mark.parametrize("label,payload", MALFORMED, ids=[label for label, _ in MALFORMED])
+def test_a_settings_shape_the_schema_does_not_describe_is_reported(
+    tmp_path: Path, label: str, payload
+):
+    import scripts.flow_init_setup as fis
+
+    (tmp_path / ".claude").mkdir(parents=True)
+    (tmp_path / ".claude" / "settings.json").write_text(json.dumps(payload), encoding="utf-8")
+    assert isinstance(fis.register_gate(tmp_path), str)
+    assert isinstance(fis.unregister_gate(tmp_path), str)
+
+
+def test_a_byte_order_mark_is_not_a_broken_settings_file(tmp_path: Path):
+    """An editor on this host writes one. Read as a parse failure it leaves the gate
+    uninstalled, with a message that names the wrong problem."""
+    import scripts.flow_init_setup as fis
+
+    (tmp_path / ".claude").mkdir(parents=True)
+    (tmp_path / ".claude" / "settings.json").write_text("\ufeff{}", encoding="utf-8")
+    assert "등록" in fis.register_gate(tmp_path)
+
+
+def test_uninstall_leaves_a_host_hook_that_shares_the_gate_entry(tmp_path: Path):
+    """The gate hook stays inside a host entry whenever that entry already fires on Bash, so
+    removing the entry on the way out takes hooks the host wrote."""
+    import scripts.flow_init_setup as fis
+
+    fis.register_gate(tmp_path)
+    settings = tmp_path / ".claude" / "settings.json"
+    data = json.loads(settings.read_text(encoding="utf-8"))
+    theirs = {"type": "command", "command": "my-audit.sh"}
+    data["hooks"]["PreToolUse"][0]["hooks"].append(theirs)
+    settings.write_text(json.dumps(data), encoding="utf-8")
+
+    assert "skip" in fis.register_gate(tmp_path)
+    fis.unregister_gate(tmp_path)
+    pre = json.loads(settings.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+    hooks = [h for e in pre for h in e.get("hooks") or []]
+    assert theirs in hooks, pre
+    assert not [h for h in hooks if fis.GATE_MARKER in (h.get("command") or "")], pre
+
+
+def test_uninstall_keeps_a_host_entry_it_only_emptied(tmp_path: Path):
+    import scripts.flow_init_setup as fis
+
+    settings = _planted(
+        tmp_path, [{"matcher": "Read", "team_note": "ours", "hooks": [_gate_hook()]}]
+    )
+    fis.register_gate(tmp_path)
+    fis.unregister_gate(tmp_path)
+    pre = json.loads(settings.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+    assert {"matcher": "Read", "team_note": "ours", "hooks": []} in pre, pre
+
+
+def test_uninstall_drops_the_entry_it_wrote_itself(tmp_path: Path):
+    import scripts.flow_init_setup as fis
+
+    fis.register_gate(tmp_path)
+    fis.unregister_gate(tmp_path)
+    settings = tmp_path / ".claude" / "settings.json"
+    assert json.loads(settings.read_text(encoding="utf-8"))["hooks"]["PreToolUse"] == []

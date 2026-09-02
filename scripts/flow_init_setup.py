@@ -187,7 +187,7 @@ def _load_settings(host: Path) -> tuple[Path, dict | None, str | None]:
     if not settings.is_file():
         return settings, {}, None
     try:
-        return settings, json.loads(settings.read_text(encoding="utf-8")) or {}, None
+        return settings, json.loads(settings.read_text(encoding="utf-8-sig")) or {}, None
     except json.JSONDecodeError:
         return settings, None, "  [!] settings.json 파싱 실패 — 수동 확인 필요"
 
@@ -200,21 +200,26 @@ def _is_gate_hook(hook: object) -> bool:
     return isinstance(hook, dict) and GATE_MARKER in (hook.get("command") or "")
 
 
+# The alphabet that keeps a matcher a name rather than a pattern, per the hooks reference.
+_EXACT_MATCHER_RE = re.compile(r"[A-Za-z0-9_\- ,|]*")
+
+
 def _covers_bash(matcher: object) -> bool:
     """Whether a PreToolUse matcher fires on Bash — the only tool a commit arrives through.
 
-    An absent or `*` matcher is every tool; anything else is read as the regex the host wrote.
-    Read too strictly this costs one added entry, which the next run then recognises as the
-    gate; read too loosely it reports a gate that never fires on a commit.
+    Three readings, as the hooks reference defines them: `*`, an empty matcher and an absent
+    one are every tool; a matcher spelled only with the name alphabet is one tool name or a
+    `|`/`,` list of them; anything else is a JavaScript regular expression. That last one
+    counts as NOT covering rather than being approximated with Python's, whose dialect
+    disagrees (`(?i)` and `\\Z` are Python's alone). The disagreement is one-sided: called
+    "not covering" the gate gains an entry of its own, which the next run recognises as
+    itself, while called "covering" it reports a gate that never fires on a commit.
     """
     if matcher is None or matcher in ("", "*"):
         return True
-    if not isinstance(matcher, str):
+    if not isinstance(matcher, str) or not _EXACT_MATCHER_RE.fullmatch(matcher):
         return False
-    try:
-        return re.fullmatch(matcher, GATE_ENTRY["matcher"]) is not None
-    except re.error:
-        return False
+    return GATE_ENTRY["matcher"] in [name.strip() for name in re.split(r"[|,]", matcher)]
 
 
 def register_gate(host: Path) -> str:
@@ -223,6 +228,8 @@ def register_gate(host: Path) -> str:
     settings, data, err = _load_settings(host)
     if data is None:
         return err or "  [!] settings.json 파싱 실패"
+    if not isinstance(data, dict) or not isinstance(data.get("hooks", {}), dict):
+        return "  [!] settings.json hooks 형식 비정상 — 게이트 미등록(수동 확인)"
     pre = data.setdefault("hooks", {}).setdefault("PreToolUse", [])
     if not isinstance(pre, list):
         return "  [!] hooks.PreToolUse 형식 비정상 — 게이트 미등록(수동 확인)"
@@ -230,25 +237,25 @@ def register_gate(host: Path) -> str:
     # The matcher decides whether a hook fires at all, so a gate hook under one that misses Bash
     # is not the gate — counting it as one leaves the host reporting a gate it does not have.
     # The entry around it is the HOST's, though: it may carry the host's own hooks, and its
-    # matcher may be a wider expression that already covers Bash. So the gate hook moves out of
-    # an entry that does not fire and the entry keeps everything else, rather than the entry
-    # being rewritten to our matcher — which would relocate a hook we never wrote.
-    orphaned = []
+    # matcher may already name Bash among several tools. So the gate hook moves out of an entry
+    # that does not fire and everything else about that entry stays — its matcher, the keys
+    # beside `hooks`, and the entry itself once emptied. Rewriting or dropping it would take
+    # configuration this plugin never wrote.
     moved = 0
     for entry in entries:
         hooks = entry.get("hooks")
         if _covers_bash(entry.get("matcher")) or not isinstance(hooks, list):
             continue
         kept = [h for h in hooks if not _is_gate_hook(h)]
-        if len(kept) == len(hooks):
-            continue
         moved += len(hooks) - len(kept)
         entry["hooks"] = kept
-        if not kept:
-            orphaned.append(entry)
-    if orphaned:
-        pre[:] = [e for e in pre if not any(e is o for o in orphaned)]
-    gate_hooks = [h for e in entries for h in e.get("hooks") or [] if _is_gate_hook(h)]
+    gate_hooks = [
+        h
+        for e in entries
+        if isinstance(e.get("hooks"), list)
+        for h in e["hooks"]
+        if _is_gate_hook(h)
+    ]
     added = not gate_hooks
     if added:
         pre.append(copy.deepcopy(GATE_ENTRY))
@@ -266,6 +273,8 @@ def register_gate(host: Path) -> str:
         hook["command"] = GATE_COMMAND
         hook["statusMessage"] = GATE_STATUS
     _write_json(settings, data)
+    if added and moved:
+        return f"  [+] 커밋 게이트 등록 (settings.json, 발화하지 않던 항목에서 {moved}건 회수)"
     if added:
         return "  [+] 커밋 게이트 등록 (settings.json)"
     return f"  [+] 커밋 게이트 보정 (settings.json, {len(stale) + moved}건)"
@@ -376,24 +385,42 @@ def check_precommit(plugin: Path, host: Path) -> list[str]:
 # ── uninstall (cleanup) — the inverse of setup ─────────────────────────────────
 
 
-def _entry_has_gate(entry: dict) -> bool:
-    """True if a hook command in the PreToolUse entry contains the gate marker."""
-    hooks = (entry or {}).get("hooks", []) or []
-    return any(GATE_MARKER in (h.get("command") or "") for h in hooks)
+def _strip_gate_hooks(entry: object) -> int:
+    """Remove the gate's own hooks from one entry; returns how many. The entry stays.
+
+    `register_gate` leaves the gate hook inside a host entry whenever that entry already fires
+    on Bash, so an entry holding the gate may hold the host's hooks beside it — taking the
+    entry would take those with it.
+    """
+    if not isinstance(entry, dict) or not isinstance(entry.get("hooks"), list):
+        return 0
+    hooks = entry["hooks"]
+    entry["hooks"] = [h for h in hooks if not _is_gate_hook(h)]
+    return len(hooks) - len(entry["hooks"])
+
+
+def _is_own_empty_entry(entry: object) -> bool:
+    """An entry this plugin wrote and has just emptied — nothing of the host's is in it."""
+    return (
+        isinstance(entry, dict)
+        and set(entry) == set(GATE_ENTRY)
+        and entry.get("matcher") == GATE_ENTRY["matcher"]
+        and entry.get("hooks") == []
+    )
 
 
 def unregister_gate(host: Path) -> str:
-    """Remove the commit gate hook (entry) from settings.json (skip if absent)."""
+    """Remove the commit gate hook from settings.json (skip if absent)."""
     settings, data, err = _load_settings(host)
     if data is None:
         return err or "  [!] settings.json 파싱 실패"
-    pre = (data.get("hooks") or {}).get("PreToolUse")
+    hooks = data.get("hooks") if isinstance(data, dict) else None
+    pre = hooks.get("PreToolUse") if isinstance(hooks, dict) else None
     if not isinstance(pre, list):
         return "  [=] 게이트 훅 없음 (skip)"
-    kept = [e for e in pre if not _entry_has_gate(e)]
-    if len(kept) == len(pre):
+    if not sum(_strip_gate_hooks(entry) for entry in pre):
         return "  [=] 게이트 훅 없음 (skip)"
-    data["hooks"]["PreToolUse"] = kept
+    hooks["PreToolUse"] = [e for e in pre if not _is_own_empty_entry(e)]
     _write_json(settings, data)
     return "  [-] 커밋 게이트 해제 (settings.json)"
 
