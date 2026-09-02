@@ -1260,3 +1260,86 @@ def test_the_gate_answerer_is_copied_before_the_runner_that_asks_it():
         ("scripts/flow_gate_check.py", "scripts/precommit-runner.sh"),
     ):
         assert files.index(earlier) < files.index(later), (earlier, later)
+
+
+def test_a_gate_entry_under_another_tool_is_repaired(tmp_path: Path):
+    """The matcher is the gate's identity too. An entry naming this script under another
+    tool is a hook that never fires on a commit, and counting it as the gate leaves the
+    host reporting a gate it does not have."""
+    import scripts.flow_init_setup as fis
+
+    (tmp_path / ".claude").mkdir(parents=True)
+    planted = {
+        "hooks": {
+            "PreToolUse": [
+                {
+                    "matcher": "Read",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "shell": "bash",
+                            "command": fis.GATE_COMMAND,
+                            "timeout": 600,
+                            "statusMessage": fis.GATE_STATUS,
+                        }
+                    ],
+                }
+            ]
+        }
+    }
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.write_text(json.dumps(planted), encoding="utf-8")
+    fis.register_gate(tmp_path)
+    after = json.loads(settings.read_text(encoding="utf-8"))
+    matchers = [e.get("matcher") for e in after["hooks"]["PreToolUse"]]
+    assert "Bash" in matchers, matchers
+
+
+def _planted(tmp_path: Path, entries: list) -> Path:
+    (tmp_path / ".claude").mkdir(parents=True)
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.write_text(json.dumps({"hooks": {"PreToolUse": entries}}), encoding="utf-8")
+    return settings
+
+
+def _gate_hook() -> dict:
+    import scripts.flow_init_setup as fis
+
+    return {
+        "type": "command",
+        "shell": "bash",
+        "command": fis.GATE_COMMAND,
+        "timeout": 600,
+        "statusMessage": fis.GATE_STATUS,
+    }
+
+
+def test_a_hook_the_host_wrote_stays_where_the_host_put_it(tmp_path: Path):
+    """An entry is a container for several hooks, and it is the HOST's. Rewriting its matcher
+    to reach our hook re-points every other hook in it at another tool — the host's audit hook
+    would start firing on Bash, which is a change to config this plugin does not own."""
+    import scripts.flow_init_setup as fis
+
+    theirs = {"type": "command", "command": "my-audit.sh"}
+    settings = _planted(tmp_path, [{"matcher": "Read", "hooks": [_gate_hook(), theirs]}])
+    fis.register_gate(tmp_path)
+    pre = json.loads(settings.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+    survivors = [e for e in pre if theirs in (e.get("hooks") or [])]
+    assert [e["matcher"] for e in survivors] == ["Read"], pre
+    assert any(
+        e.get("matcher") == "Bash"
+        and any(fis.GATE_MARKER in (h.get("command") or "") for h in e.get("hooks") or [])
+        for e in pre
+    ), pre
+
+
+def test_a_matcher_that_already_covers_bash_is_left_alone(tmp_path: Path):
+    """`Bash|Write` fires on a commit, so it is the gate. Narrowing it to `Bash` would silently
+    drop the Write coverage the host asked for, and nothing about the gate needs it gone."""
+    import scripts.flow_init_setup as fis
+
+    settings = _planted(tmp_path, [{"matcher": "Bash|Write", "hooks": [_gate_hook()]}])
+    out = fis.register_gate(tmp_path)
+    pre = json.loads(settings.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+    assert [e["matcher"] for e in pre] == ["Bash|Write"], pre
+    assert "skip" in out, out

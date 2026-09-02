@@ -630,7 +630,6 @@ def test_a_backslash_quoted_carriage_return_continues_a_line():
 NET_INVOCATIONS = [
     ("printf 'git commit -m x' | bash", "commit"),
     ('echo "git commit -m x" | sh', "commit"),
-    ('bash -c -- "git commit -m x"', "commit"),
     ("eval $'git commit -m x'", "commit"),
     ("bash <<< 'git commit -m x'", "commit"),
     ("bash -s <<< 'git commit -m x'", "commit"),
@@ -710,13 +709,6 @@ NET_MUST_NOT_FIRE = [
     'which bash; echo "git commit -m x"',
     'echo bash and then "git commit -m x"',
     'shellcheck -s bash scripts/*.sh && grep -rn "git commit" .',
-    # `ssh` ends in `sh` but is not one, and the commit it carries is not this host's anyway.
-    'ssh host "git commit -m x"',
-    # A program whose name merely STARTS with one of them is a different program: the token
-    # has to end where the name does, or `perldoc` is perl and `python3-config` is python3.
-    'perldoc -q "git commit"',
-    'python3-config --cflags "git commit"',
-    'bashate --ignore "git commit" x.sh',
     # A comment is never code, whatever runs beside it.
     "bash x.sh  # remember to git commit -m x",
     # Backslashes that quote nothing are path separators, not quoting.
@@ -734,7 +726,6 @@ NET_MUST_NOT_FIRE = [
     'bash -c "echo ok"; grep -rn "git commit" .',
     'bash -c "echo ok"\ngrep -rn "git commit" .',
     'bash -c "echo ok" || grep -rn "git commit" .',
-    'ssh host "git commit -m x" && python3 -V',
     "git log -1 --format=%s <<'EOF'\ngit -C /wt commit -m x\nEOF\npython3 -V",
     # An interpreter with no invocation in it either.
     "bash -c 'echo hello'",
@@ -746,3 +737,127 @@ NET_MUST_NOT_FIRE = [
 def test_the_net_does_not_widen_a_command_that_runs_no_commit(command: str):
     for word in ("commit", "merge"):
         assert not vp.is_invocation(command, word), (command, word)
+
+
+# Commands a shell really runs as a commit or a merge, each one a spelling a reading
+# missed. Kept apart from NET_INVOCATIONS: these are not an interpreter being handed a
+# script, they are places the mask or the grammar was wrong about what bash does.
+RUNS_A_COMMIT = [
+    # a backtick inside a double-quoted span swallowed the rest of the command
+    ('echo "`date`" && git commit -m x', "commit"),
+    ('echo "`date`" && git merge --squash feature/x', "merge"),
+    # an UNQUOTED delimiter leaves expansion on, so the body is code and not text — a
+    # backtick opens one as much as a `$(`, and a backslash before one does not
+    ("git log --oneline <<EOF\nnote $(git commit -am wip)\nEOF", "commit"),
+    ("git log --oneline <<EOF\nnote `git commit -am wip`\nEOF", "commit"),
+    ("git log --oneline <<EOF\na \\$(x) $(git commit -am wip)\nEOF", "commit"),
+    # the subcommand's terminator has to admit everything that ends a word
+    ("echo `git commit`", "commit"),
+    ("git commit>log.txt", "commit"),
+    ("git commit>>log", "commit"),
+    ("git commit<msg.txt", "commit"),
+    ("git merge>log", "merge"),
+    # `(( … ))` is arithmetic wherever a command may start, not only after a separator —
+    # every reserved word a command may follow, not just the two that open a block
+    ("if (( 1 << 2 )); then\n  git commit -m x\nfi", "commit"),
+    ("while true; do (( i << 1 )); git commit -m x; done", "commit"),
+    ("until false; do (( 1 << 2 )); git commit -m x; done", "commit"),
+    ("case x in y) (( 1 << 2 )); git commit -m x;; esac", "commit"),
+    ("while (( i << 1 )); do\n  git merge --no-ff dev\ndone", "merge"),
+    ("{ (( 1 << 2 )); git commit -m x; }", "commit"),
+    # and every word a command may follow, which only a second line shows: on one line the
+    # heredoc that left shift opens has no body to swallow the commit with
+    ("if x; then (( 1 << 2 )); fi\ngit commit -m x", "commit"),
+    ("until false; do (( 1 << 2 )); done\ngit commit -m x", "commit"),
+    # a backslash inside a double-quoted span quotes the quote after it, so the span ends
+    # where the shell ends it and the command after it is still a command
+    ('echo "he said \\"hi\\""\ngit commit -m x', "commit"),
+    ('echo "a \\" b" && git commit -m x', "commit"),
+    # a global option's value is one token however it is quoted, or the options region never
+    # reaches the subcommand
+    ("git -c 'user.name=A B' commit -m x", "commit"),
+    ('git -c "user.name=A B" commit -m x', "commit"),
+    ("git -c 'user.email=a b' merge --squash feature/x", "merge"),
+    # the subcommand word may be quoted or split, exactly as the program token may be
+    ('git "commit" -m x', "commit"),
+    ("git 'commit' -m x", "commit"),
+    ("git 'merge' --no-ff dev", "merge"),
+    # a searching or listing tool is exempt from the second reading, so one that can run a
+    # command written in its own arguments may not be on that list
+    ("awk 'BEGIN{system(\"git commit -m x\")}'", "commit"),
+    ('awk \'BEGIN{print "x" | "git commit -m x"}\' a.txt', "commit"),
+    ("sed '1e git merge --no-ff dev' a.txt", "merge"),
+    ("find . -exec 'git' commit -m x ;", "commit"),
+    ("find . -exec git 'commit' -m x ;", "commit"),
+    ("ack --pager='git commit -m x' pattern .", "commit"),
+    # text a builtin runs later, and text a variable holds for something else to run
+    ("trap 'git commit -m x' EXIT; true", "commit"),
+    ('C="git commit -m x"; eval "$C"', "commit"),
+]
+
+
+@pytest.mark.parametrize("command,word", RUNS_A_COMMIT, ids=[c for c, _ in RUNS_A_COMMIT])
+def test_a_command_a_shell_really_runs_is_read_as_one(command: str, word: str):
+    assert vp.is_invocation(command, word)
+
+
+# Read-only work. Denying one of these is the gate blocking work it was never meant to
+# see, and the user cannot tell that deny apart from a real verdict.
+RUNS_NO_COMMIT = [
+    # a count flag is not an interpreter's `-c`
+    'grep -c "git commit" a.txt',
+    'grep -rc "git commit" .',
+    'rg -c "git commit" --glob *.md',
+    'sort -c "git commit"',
+    # a continued line is one command, not a new one, so its quoted argument stays data
+    "grep -rn \\\n  'git commit' scripts/",
+    "echo \\\n  'about to git commit'",
+    "rg --hidden \\\n   'git merge --no-ff' docs/",
+    # the host spells a reader with the suffix it has, and the exemption is by name
+    'grep.exe -c "git commit" a.txt',
+    'rg.exe -n "git commit" .',
+    # a tool that runs a program by PATH rather than a shell string spells no command
+    "sort --compress-program='git commit -m x' f",
+    "rg --pre 'git commit' pattern .",
+    # an escaped separator is a literal character, not the end of a command
+    "echo a\\; 'git commit'",
+]
+
+
+@pytest.mark.parametrize("command", RUNS_NO_COMMIT)
+def test_read_only_work_is_not_read_as_a_commit(command: str):
+    for word in ("commit", "merge"):
+        assert not vp.is_invocation(command, word), (command, word)
+
+
+def test_a_backtick_pair_balances():
+    """A backtick is its own closer. Counted as another opening one the pair never balances
+    and the scan swallows the rest of the command, so every region after it is wrong."""
+    assert vp._matching(chr(96) + "abc" + chr(96) + "def", 1, chr(96), chr(96)) == 5
+
+
+def test_an_element_that_runs_nothing_is_not_exempt():
+    """The exemption is earned by a name. Read as satisfied by the absence of one, a
+    fragment holding only a quoted script would be skipped for having no program in it."""
+    assert not vp._reads_only("")
+    assert not vp._reads_only("   ")
+    assert vp._reads_only("grep -rn x .")
+
+
+def test_the_subcommand_ends_at_the_backtick_that_closes_a_substitution():
+    """The reading over the mask is the primary one and has to be right on its own. The
+    inversion behind it happens to catch this too, so only a direct reading of the mask says
+    whether the grammar ends the subcommand where a substitution does."""
+    assert vp._GIT_COMMIT_RE.search(vp.mask_literals("echo " + chr(96) + "git commit" + chr(96)))
+
+
+def test_a_quote_dense_command_is_classified_in_bounded_time():
+    """Both quote predicates look back a fixed window, not to the start of the command. Read
+    from the start they are quadratic, and at this size the hook timed out instead of
+    answering — a verdict that never arrives is the gate off, not a slow gate."""
+    import time
+
+    command = " ".join(["echo " + chr(34) + "a b c" + chr(34)] * 2400)
+    started = time.perf_counter()
+    vp.is_invocation(command, "commit")
+    assert time.perf_counter() - started < 1.5

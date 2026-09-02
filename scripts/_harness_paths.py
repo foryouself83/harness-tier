@@ -241,7 +241,7 @@ def git_subcommand_re(word: str) -> re.Pattern[str]:
     """
     return re.compile(
         rf"(?:^|[\s;&|(`])(?:[^\s;&|()'\"]*[/\\])?"
-        rf"git(?:\.exe)?((?:\s+-\S+(?:\s+(?!-)\S+)?)*)\s+{word}(?=$|[\s;&|)])"
+        rf"git(?:\.exe)?((?:\s+-\S+(?:\s+(?!-)\S+)?)*)\s+{word}(?=$|[\s;&|)`<>])"
     )
 
 
@@ -271,6 +271,69 @@ _RUNS_TEXT = (
     "cmd",
     "sh",
 )
+# Programs that only read. An element is exempt from the second reading when every
+# program it runs is one of these — the inverse of listing what executes text, because
+# a name missing from THIS list costs a false deny, which the user can see and work
+# around, while a name missing from that one turned the gate off in silence.
+# A name earns its place by having no documented way to run a command written in its own
+# arguments. `awk` (`system`, a piped command, `getline`), `sed` (GNU `e`), `find`
+# (`-exec`, whose program and subcommand may be quoted), and the two searchers whose
+# `--pager` goes through a shell (`ack`, `ag`) all do, which is why the tools a developer
+# reaches for beside them are here and they are not. The ones that stay run a program by
+# PATH rather than a shell string — `sort --compress-program`, `rg --pre` — where nothing
+# the command spells becomes a command.
+_READS_ONLY = frozenset(
+    (
+        "cat",
+        "cut",
+        "diff",
+        "dirname",
+        "du",
+        "echo",
+        "egrep",
+        "false",
+        "fgrep",
+        "file",
+        "grep",
+        "head",
+        "less",
+        "ls",
+        "more",
+        "printf",
+        "pwd",
+        "rg",
+        "shellcheck",
+        "sort",
+        "stat",
+        "tail",
+        "tr",
+        "tree",
+        "true",
+        "type",
+        "uniq",
+        "wc",
+        "whereis",
+        "which",
+    )
+)
+# A program token at a command position, with the name captured.
+_PROGRAM_RE = re.compile(r"(?:^|[;&|(){}`\n])[ \t]*(?:[^\s;&|()'\"]*[/\\])?([A-Za-z0-9_.+-]+)")
+
+
+def _reads_only(element: str) -> bool:
+    """Whether every program `element` runs only reads — measured on the MASK.
+
+    An element with no program at all is NOT exempt: a bare assignment holds a script
+    something later runs, and exemption has to be earned by a name, not by the absence
+    of one.
+    """
+    names = [
+        n[:-4] if n.lower().endswith(".exe") else n
+        for n in (m.group(1) for m in _PROGRAM_RE.finditer(element))
+    ]
+    return bool(names) and all(n in _READS_ONLY for n in names)
+
+
 # One of those as the PROGRAM a command starts with. Located on the mask, so a name inside a
 # message is not a program; and required at a command position, so `--type sh` and `which
 # bash` are not either — those are what a developer writes all day, and being wrong about
@@ -307,21 +370,36 @@ _HEREDOC_RE = re.compile(
 # so a quoted span or a backslash-escaped blank is part of one whitespace-free token and this
 # pattern states no opinion about quoting.
 _MASK_TOKEN_RE = re.compile(r"\S+")
+# Characters the scanners name rather than spell: the first three are what a heredoc
+# delimiter must carry for its body to be literal text rather than code.
+SQ_CH, DQ_CH, BS_CH, BT_CH, DOLLAR_CH = chr(39), chr(34), chr(92), chr(96), chr(36)
 # What a backslash quotes: a blank, either quote, itself, and a newline (which joins two
 # lines rather than quoting a character). Everything it precedes outside that set stays an
 # ordinary pair, so a path written with backslash separators keeps them.
-_QUOTED_BY_BACKSLASH = frozenset(" \t\"'\\\n")
-# What runs the quoted argument that follows it. `bash -c`, `eval` and their kin hand the
-# span to a shell, so its contents are code however they are quoted — and a mask that calls
-# them text loses a real commit, which is the one direction this gate may never fail in.
-# `-C` is deliberately outside the class: git's own directory option takes a path, not a
-# command.
+_QUOTED_BY_BACKSLASH = frozenset(" \t\"'\\\n;&|()<>")
+# What runs the quoted argument that follows it. Two shapes: a word that takes a command
+# (`eval`, `trap`), and an interpreter's script flag — which has to be preceded by the
+# interpreter, or the same `-c` claims git's own global option and every tool's count
+# flag. `-C` stays outside either: git's directory option takes a path, not a command.
 _EXECUTES_NEXT_RE = re.compile(
-    r"(?:^|[\s;&|(`])(?:eval|foreach|--run|-[a-z]*c|-Command|/[cCkK])[ \t]+$"
+    r"(?:^|[\s;&|(`])(?:"
+    r"(?:eval|trap|source|exec|foreach)"
+    r"|(?:[^\s;&|()'\"]*[/\\])?"
+    r"(?:" + "|".join(_RUNS_TEXT) + r""
+    r")(?:\.exe)?(?:\s+-[^\s-]\S*)*\s+-[a-z]*c(?:\s+--)?"
+    r"|--run|-Command|/[cCkK]"
+    r")[ \t]+$"
 )
-# A `((` here opens arithmetic rather than two subshells. Judged by position, as the shell
-# judges it: only at the start of a command can the pair be read as one token.
-_AT_COMMAND_START_RE = re.compile(r"(?:^|[;&|(\n])[ \t]*$")
+# What the two anchored predicates above can reach back over: the longest word either
+# names, plus the blanks after it. Bounding the scan keeps them O(1) per quote.
+_EXECUTES_NEXT_WINDOW = 128
+# Where `(( … ))` may open: after a separator, or after a word that introduces a command
+# list. Judged more widely than a quoted span's command position, because reading it as
+# two subshells turns its left shift into a heredoc introducer.
+_ARITH_START_RE = re.compile(
+    r"(?:^|[;&|(){}`\n]|\b(?:if|then|elif|else|while|until|do|done|case|esac)\b)[ \t]*$"
+)
+_AT_COMMAND_START_RE = re.compile(r"(?:^|(?<!\\)[;&|({}\n])[ \t]*$")
 # Kinds the mask turns into blanks rather than NUL: they separate tokens, they are not
 # literal text sitting inside one.
 _BLANKED = frozenset({"continuation", "delimiter"})
@@ -333,7 +411,7 @@ _DASH_C_RE = re.compile(r"(?:^|\s)-C\s+")
 # commands exactly as `&&` does, and the block risk-tiers documents for a squash merge is
 # three newline-separated lines, so omitting it lets the shape the policy prescribes read as
 # one command. CR covers CRLF.
-_SEPARATOR_RE = re.compile(r"[;&|\n\r]")
+_SEPARATOR_RE = re.compile(r"[;&|)\n\r]")
 
 
 def _heredoc_body(command: str, start: int, word: str, dash: bool) -> int:
@@ -358,17 +436,22 @@ def _heredoc_body(command: str, start: int, word: str, dash: bool) -> int:
 
 
 def _matching(command: str, at: int, opener: str, closer: str, depth: int = 1) -> int:
-    """Index just past the `closer` that balances `depth` open `opener`s, starting at `at`."""
+    """Index just past the `closer` that balances `depth` open `opener`s, starting at `at`.
+
+    The closer is tested first because a backtick is its own closer: counted as another
+    opening one the pair never balances, and the scan then swallows the rest of the
+    command — every invocation after it included.
+    """
     n = len(command)
     while at < n and depth:
         c = command[at]
         if c == "\\":
             at += 2
             continue
-        if c == opener:
-            depth += 1
-        elif c == closer:
+        if c == closer:
             depth -= 1
+        elif c == opener:
+            depth += 1
         at += 1
     return at
 
@@ -417,7 +500,9 @@ def _delimiter_word(raw: str) -> str:
     return "".join(out)
 
 
-def _heredoc_bodies(command: str, at: int, pending: list[tuple[bool, str]]) -> tuple[int, list]:
+def _heredoc_bodies(
+    command: str, at: int, pending: list[tuple[bool, str, bool]]
+) -> tuple[int, list[tuple[int, int, str]]]:
     """Consume the bodies of the heredocs opened on one line, in the order the shell reads them.
 
     Each body runs to its own terminator line and the next begins after it, so a second `<<` on
@@ -426,45 +511,64 @@ def _heredoc_bodies(command: str, at: int, pending: list[tuple[bool, str]]) -> t
     """
     regions = []
     n = len(command)
-    for dash, word in pending:
+    for dash, word, literal in pending:
         end = _heredoc_body(command, at, word, dash)
-        regions.append((at, end, "heredoc"))
+        # Only a quoted or backslashed delimiter turns expansion off. With it on, a
+        # substitution in the body is a command the shell runs, and masking the body
+        # whole loses it.
+        regions.extend(
+            [(at, end, "heredoc")]
+            if literal
+            else _expanding(command, at, min(end, n), "heredoc")[1]
+        )
         eol = command.find("\n", end)
         at = n if eol == -1 else eol + 1
     return at, regions
 
 
-def _double_quoted(command: str, i: int) -> tuple[int, list[tuple[int, int, str]]]:
-    """Scan the `"…"` span opening at `i`; returns where it ends and the regions inside it.
+def _expanding(
+    command: str, a: int, b: int, kind: str, stop: str | None = None
+) -> tuple[int, list[tuple[int, int, str]]]:
+    """Regions for `command[a:b]`, whose text is literal except where the shell expands.
 
-    A double-quoted span is literal text EXCEPT for the substitutions the shell still performs
-    in it. `"$(git commit)"` runs a commit; masking the span whole makes it disappear, and the
-    runner then exits 0 on a real commit. So the literal runs are masked around the
-    substitutions, and each substitution is scanned as the command it is.
+    A double-quoted span and an unquoted heredoc body are the same shape: the runs between
+    substitutions are text, and each substitution is the command it is. Masking the span
+    whole loses a commit the shell really runs — `"$(git commit)"` runs one — and scanning it
+    whole hands the parser a message as syntax. `stop` ends the run at the first unescaped
+    occurrence of that character instead of at `b`, which is the only thing a quoted span does
+    differently: it closes where the shell closes it, never at a quote inside a substitution
+    the scan steps over on the way. Returns where the run ended and the regions in it.
     """
-    n = len(command)
     regions: list[tuple[int, int, str]] = []
-    j = lit = i + 1
-    while j < n and command[j] != '"':
-        if command[j] == "\\":
+    j = lit = a
+    while j < b and command[j] != stop:
+        if command[j] == BS_CH:
             j += 2
             continue
-        if command[j] == "`" or (command[j] == "$" and command[j + 1 : j + 2] == "("):
+        if command[j] == BT_CH or (command[j] == DOLLAR_CH and command[j + 1 : j + 2] == "("):
             if j > lit:
-                regions.append((lit, j, "quote"))
-            opened = j + 1 if command[j] == "`" else j + 2
+                regions.append((lit, j, kind))
+            opened = j + 1 if command[j] == BT_CH else j + 2
             end = (
-                _matching(command, opened, "`", "`")
-                if command[j] == "`"
+                _matching(command, opened, BT_CH, BT_CH)
+                if command[j] == BT_CH
                 else _matching(command, opened, "(", ")")
             )
-            regions.extend(_nested(command, opened, min(end, n) - 1))
-            j = lit = min(end, n)
+            regions.extend(_nested(command, opened, min(end, b) - 1))
+            j = lit = min(end, b)
             continue
         j += 1
-    if j > lit:
-        regions.append((lit, min(j, n), "quote"))
-    return min(j + 1, n), regions
+    end = min(j, b)
+    if end > lit:
+        regions.append((lit, end, kind))
+    return end, regions
+
+
+def _double_quoted(command: str, i: int) -> tuple[int, list[tuple[int, int, str]]]:
+    """Scan the `"…"` span opening at `i`; returns where it ends and the regions inside it."""
+    n = len(command)
+    end, regions = _expanding(command, i + 1, n, "quote", DQ_CH)
+    return min(end + 1, n), regions
 
 
 def _code_span(command: str, a: int, b: int) -> list[tuple[int, int, str]]:
@@ -487,11 +591,15 @@ def _executed_span(command: str, quote_at: int) -> bool:
     do is be narrower than the substring match it replaced on the spellings agents actually
     write.
     """
+    # Both patterns end at `$`, so only the characters immediately before the span can
+    # match. Scanning from 0 re-reads the command once per quote, which is seconds of
+    # hook latency on a quote-dense argument and, past the timeout, no verdict at all.
+    start = max(0, quote_at - _EXECUTES_NEXT_WINDOW)
     return bool(
-        _EXECUTES_NEXT_RE.search(command, 0, quote_at)
+        _EXECUTES_NEXT_RE.search(command, start, quote_at)
         # A quoted span at a command position is the PROGRAM's name, not data: `'git'
         # commit` runs a commit, and reading the quotes as literal loses it entirely.
-        or _AT_COMMAND_START_RE.search(command, 0, quote_at)
+        or _AT_COMMAND_START_RE.search(command, start, quote_at)
     )
 
 
@@ -527,7 +635,8 @@ def _shell_regions(command: str) -> tuple[tuple[int, int, str], ...]:
     are code, and are scanned as such rather than masked.
     """
     regions: list[tuple[int, int, str]] = []
-    pending: list[tuple[bool, str]] = []  # heredocs opened on this line, in the order bash reads
+    # heredocs opened on this line, in the order bash reads them
+    pending: list[tuple[bool, str, bool]] = []
     body_at: int | None = None  # where the first of their bodies starts
     i, n = 0, len(command)
     while i < n:
@@ -563,7 +672,7 @@ def _shell_regions(command: str) -> tuple[tuple[int, int, str], ...]:
         if (
             ch == "("
             and command[i + 1 : i + 2] == "("
-            and _AT_COMMAND_START_RE.search(command, 0, i)
+            and _ARITH_START_RE.search(command, max(0, i - _EXECUTES_NEXT_WINDOW), i)
         ):
             i = _arith_end(command, i + 2)  # `(( … ))` as a command, not two subshells
             continue
@@ -601,7 +710,9 @@ def _shell_regions(command: str) -> tuple[tuple[int, int, str], ...]:
             if eol != -1:  # no newline → no body at all, and the rest of the line is still syntax
                 if body_at is None:
                     body_at = eol + 1
-                pending.append((bool(m.group(1)), _delimiter_word(m.group(2))))
+                raw = m.group(2)
+                literal = any(q in raw for q in (SQ_CH, DQ_CH, BS_CH))
+                pending.append((bool(m.group(1)), _delimiter_word(raw), literal))
             i = m.end()
             continue
         i += 1
@@ -624,7 +735,7 @@ def mask_literals(command: str) -> str:
     return "".join(out)
 
 
-def _unquoted_view(command: str) -> str:
+def _unquoted_view(command: str, *, keep_heredoc: bool = False) -> str:
     """`command` with its quoting rubbed out rather than its quoted text erased.
 
     What the net reads. The point is to see the script an interpreter was handed, which a mask
@@ -634,7 +745,7 @@ def _unquoted_view(command: str) -> str:
     """
     out = list(command)
     for a, b, kind in _shell_regions(command):
-        if kind == "comment":
+        if kind == "comment" or (kind == "heredoc" and not keep_heredoc):
             out[a:b] = " " * (b - a)
     return _QUOTING_RE.sub(lambda m: " " * len(m.group()), "".join(out))
 
@@ -663,9 +774,13 @@ def is_invocation(command: str, word: str) -> bool:
     Two readings, in order. The precise one asks the grammar about the mask, where quoted text
     is data: that is what keeps a read-only `git -c commit.gpgsign=false log` from being denied
     as an unclassified commit. Behind it sits a net for the case the mask is wrong about — the
-    element of the command list STARTS an interpreter, so some of that element's quoted text
-    is a script and not data. Then, and only then, the same grammar is tried again over that
-    element with its quoting rubbed out.
+    element of the command list runs something other than a reader, so its quoted text
+    may be a script rather than data. The same grammar is then tried over that element
+    with its quoting rubbed out.
+
+    The exemption is the list, not the gating: a program nobody listed as read-only
+    over-gates, which the user sees and can work around, where a channel nobody listed
+    as executing turned the gate off with nothing reported.
 
     The net cannot fire on a command that starts no interpreter, so it adds nothing to the
     read-only side. What it costs is a command that both starts one and says something
@@ -679,11 +794,36 @@ def is_invocation(command: str, word: str) -> bool:
     masked = mask_literals(command)
     if pattern.search(masked):
         return True
-    view = _unquoted_view(command)
-    return any(
-        _INTERPRETER_RE.search(masked[a:b]) and pattern.search(view[a:b])
-        for a, b in _list_elements(command, masked)
-    )
+    plain = _unquoted_view(command)
+    scripted = _unquoted_view(command, keep_heredoc=True)
+    for a, b in _list_elements(command, masked):
+        if _reads_only(masked[a:b]):
+            continue
+        view = scripted if _INTERPRETER_RE.search(masked[a:b]) else plain
+        if pattern.search(view[a:b]):
+            return True
+    return False
+
+
+def operand_words(command: str, masked: str, start: int, end: int) -> list[str]:
+    """The words `command[start:end]` holds, read the way the shell splits them.
+
+    Taken from the unquoted view rather than the raw string: extents are measured on the
+    mask, so a raw slice can carry the closing delimiter of a span the mask blanked, and
+    shlex then raises on it — which reads as `no merge here` and drops a fail-CLOSED
+    verdict. Continuations go too: a `\\` before a newline is not a word.
+    """
+    import shlex
+
+    text = list(command[start:end])
+    for a, b, kind in _shell_regions(command):
+        if kind in _BLANKED:
+            for i in range(max(a, start), min(b, end)):
+                text[i - start] = " "
+    try:
+        return shlex.split("".join(text))
+    except ValueError:
+        return []
 
 
 def operand_end(command: str, masked: str, start: int, end: int | None = None) -> int:

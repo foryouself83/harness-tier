@@ -28,7 +28,9 @@ Each function takes paths as arguments and returns its result, making it unit-te
 from __future__ import annotations
 
 import argparse
+import copy
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -194,6 +196,27 @@ def _write_json(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def _is_gate_hook(hook: object) -> bool:
+    return isinstance(hook, dict) and GATE_MARKER in (hook.get("command") or "")
+
+
+def _covers_bash(matcher: object) -> bool:
+    """Whether a PreToolUse matcher fires on Bash — the only tool a commit arrives through.
+
+    An absent or `*` matcher is every tool; anything else is read as the regex the host wrote.
+    Read too strictly this costs one added entry, which the next run then recognises as the
+    gate; read too loosely it reports a gate that never fires on a commit.
+    """
+    if matcher is None or matcher in ("", "*"):
+        return True
+    if not isinstance(matcher, str):
+        return False
+    try:
+        return re.fullmatch(matcher, GATE_ENTRY["matcher"]) is not None
+    except re.error:
+        return False
+
+
 def register_gate(host: Path) -> str:
     """Register the commit gate in .claude/settings.json. Skip if already present; if the registered
     command/statusMessage differs from the current value, fix it up (for plugin updates)."""
@@ -203,16 +226,32 @@ def register_gate(host: Path) -> str:
     pre = data.setdefault("hooks", {}).setdefault("PreToolUse", [])
     if not isinstance(pre, list):
         return "  [!] hooks.PreToolUse 형식 비정상 — 게이트 미등록(수동 확인)"
-    gate_hooks = [
-        hook
-        for entry in pre
-        for hook in (entry or {}).get("hooks", []) or []
-        if GATE_MARKER in (hook.get("command") or "")
-    ]
-    if not gate_hooks:
-        pre.append(GATE_ENTRY)
-        _write_json(settings, data)
-        return "  [+] 커밋 게이트 등록 (settings.json)"
+    entries = [e for e in pre if isinstance(e, dict)]
+    # The matcher decides whether a hook fires at all, so a gate hook under one that misses Bash
+    # is not the gate — counting it as one leaves the host reporting a gate it does not have.
+    # The entry around it is the HOST's, though: it may carry the host's own hooks, and its
+    # matcher may be a wider expression that already covers Bash. So the gate hook moves out of
+    # an entry that does not fire and the entry keeps everything else, rather than the entry
+    # being rewritten to our matcher — which would relocate a hook we never wrote.
+    orphaned = []
+    moved = 0
+    for entry in entries:
+        hooks = entry.get("hooks")
+        if _covers_bash(entry.get("matcher")) or not isinstance(hooks, list):
+            continue
+        kept = [h for h in hooks if not _is_gate_hook(h)]
+        if len(kept) == len(hooks):
+            continue
+        moved += len(hooks) - len(kept)
+        entry["hooks"] = kept
+        if not kept:
+            orphaned.append(entry)
+    if orphaned:
+        pre[:] = [e for e in pre if not any(e is o for o in orphaned)]
+    gate_hooks = [h for e in entries for h in e.get("hooks") or [] if _is_gate_hook(h)]
+    added = not gate_hooks
+    if added:
+        pre.append(copy.deepcopy(GATE_ENTRY))
     # Already registered — a plugin update may have changed command/statusMessage, so fix up
     # **every** entry that diverges from the current value (fixing only the first would leave a
     # duplicate stale entry pointing at a deleted path forever).
@@ -221,13 +260,15 @@ def register_gate(host: Path) -> str:
         for h in gate_hooks
         if h.get("command") != GATE_COMMAND or h.get("statusMessage") != GATE_STATUS
     ]
-    if not stale:
+    if not added and not stale and not moved:
         return "  [=] 커밋 게이트 이미 등록됨 (skip)"
     for hook in stale:
         hook["command"] = GATE_COMMAND
         hook["statusMessage"] = GATE_STATUS
     _write_json(settings, data)
-    return f"  [+] 커밋 게이트 보정 (settings.json, {len(stale)}건)"
+    if added:
+        return "  [+] 커밋 게이트 등록 (settings.json)"
+    return f"  [+] 커밋 게이트 보정 (settings.json, {len(stale) + moved}건)"
 
 
 def register_marketplace(host: Path) -> str:

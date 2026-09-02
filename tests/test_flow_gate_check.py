@@ -2084,3 +2084,35 @@ def test_a_gate_that_cannot_classify_still_inspects_the_merge(tmp_path: Path, co
     r = _run_runner(main, command, plugin_root=plugin)
     assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)
     assert "merge 전략 위반" in (r.stdout + r.stderr)
+
+
+# `git merge` reads the whole command, not the first match in it. Each of these was a
+# strategy verdict that silently did not run, and that verdict is one of the three this
+# gate may never fail open on.
+MERGE_PARSES = [
+    # the plain shape
+    ("git merge feature/x", [(set(), "feature/x")]),
+    # a continued line is one command; shlex reads the backslash-newline as a word otherwise
+    ("git merge \\\n  feature/x", [(set(), "feature/x")]),
+    # a closing paren ends the words, or it rides along in the branch name and matches no rule
+    ("(git switch stage && git merge dev)", [(set(), "dev")]),
+    ("git switch stage && (git merge dev)", [(set(), "dev")]),
+    # the extents come from the mask, so an executed span's blanked delimiter must not reach
+    # shlex in the raw slice
+    ("bash -c 'git merge feature/x'", [(set(), "feature/x")]),
+    # a merge naming no source in front of a real one left the rest unjudged
+    ("git merge --abort && git merge feature/a", [(set(), "feature/a")]),
+    # every merge, in order — the checker judges each against its own rule
+    (
+        "git merge --squash feature/a && git merge feature/b",
+        [({"--squash"}, "feature/a"), (set(), "feature/b")],
+    ),
+    # the merge a builtin runs later, and the one an interpreter is handed past a `--`
+    ("trap 'git merge feature/x' EXIT", [(set(), "feature/x")]),
+    ('bash -c -- "git merge feature/x"', [(set(), "feature/x")]),
+]
+
+
+@pytest.mark.parametrize("command,expected", MERGE_PARSES, ids=[c for c, _ in MERGE_PARSES])
+def test_every_merge_in_a_command_is_parsed(command: str, expected: list):
+    assert fgc.parse_merge_commands(command) == expected

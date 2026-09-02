@@ -38,6 +38,7 @@ try:
         is_invocation,
         mask_literals,
         operand_end,
+        operand_words,
         working_root,
     )
 except ImportError:
@@ -58,6 +59,7 @@ except ImportError:
         is_invocation,
         mask_literals,
         operand_end,
+        operand_words,
         working_root,
     )
 
@@ -206,16 +208,32 @@ def parse_merge_command(command: str) -> tuple[set[str], str | None]:
     """
     if not command:
         return set(), None
-    masked = mask_literals(command)
-    m = _MERGE_RE.search(masked)
-    if not m:
-        return set(), None
-    import shlex
+    merges = parse_merge_commands(command)
+    return merges[0] if merges else (set(), None)
 
-    try:
-        tokens = shlex.split(command[m.end() : operand_end(command, masked, m.end())])
-    except ValueError:  # unbalanced quotes → FAIL-OPEN
-        return set(), None
+
+def parse_merge_commands(command: str) -> list[tuple[set[str], str]]:
+    """Every `git merge` the command runs that names a source, in order.
+
+    All of them, because a merge that names no source (`--abort`, `--continue`) or one
+    the policy accepts sitting in front of another left everything after it unjudged —
+    and the strategy verdict is one of the three this gate may never fail open on.
+    """
+    if not command:
+        return []
+    masked = mask_literals(command)
+    out: list[tuple[set[str], str]] = []
+    for m in _MERGE_RE.finditer(masked):
+        flags, source = _merge_operands(
+            operand_words(command, masked, m.end(), operand_end(command, masked, m.end()))
+        )
+        if source:
+            out.append((flags, source))
+    return out
+
+
+def _merge_operands(tokens: list[str]) -> tuple[set[str], str | None]:
+    """(flags, source) from the words after one `merge`."""
     flags: set[str] = set()
     source: str | None = None
     skip_next = False
@@ -381,8 +399,8 @@ def merge_check_output() -> None:
     except Exception:
         sys.exit(0)
     command = (payload.get("tool_input") or {}).get("command") or ""
-    flags, source = parse_merge_command(command)
-    if not source:
+    merges = parse_merge_commands(command)
+    if not merges:
         sys.exit(0)
 
     root = host_root()
@@ -402,36 +420,43 @@ def merge_check_output() -> None:
     except Exception:
         branches = {}
 
-    rule = match_merge_rule(load_merge_strategy(tiers_path(root)), source, target, branches)
-    if rule is None:
-        sys.exit(0)
+    strategy = load_merge_strategy(tiers_path(root))
+    # Every merge the command runs, not only the first: one the policy accepts in front
+    # of another left the rest unjudged, and this verdict may not fail open.
+    for flags, source in merges:
+        rule = match_merge_rule(strategy, source, target, branches)
+        if rule is None:
+            continue
 
-    required = rule.get("require")
-    if required and required not in flags:
-        print(
-            f"머지 전략 위반 — '{rule.get('source')}' → '{target}' 는 {required} 가 필요합니다. "
-            f"절차는 risk-tiers 규칙의 Merge strategy 절을 따르세요.",
-            file=sys.stderr,
-        )
-        sys.exit(BLOCK_EXIT_CODE)
+        required = rule.get("require")
+        if required and required not in flags:
+            print(
+                f"머지 전략 위반 — '{rule.get('source')}' → '{target}' 는 "
+                f"{required} 가 필요합니다. "
+                f"절차는 risk-tiers 규칙의 Merge strategy 절을 따르세요.",
+                file=sys.stderr,
+            )
+            sys.exit(BLOCK_EXIT_CODE)
 
-    forbidden = rule.get("forbid")
-    if forbidden and forbidden in flags:
-        print(
-            f"머지 전략 위반 — '{rule.get('source')}' → '{target}' 에는 "
-            f"{forbidden} 를 쓰지 않습니다. "
-            f"절차는 risk-tiers 규칙의 Merge strategy 절을 따르세요.",
-            file=sys.stderr,
-        )
-        sys.exit(BLOCK_EXIT_CODE)
+        forbidden = rule.get("forbid")
+        if forbidden and forbidden in flags:
+            print(
+                f"머지 전략 위반 — '{rule.get('source')}' → '{target}' 에는 "
+                f"{forbidden} 를 쓰지 않습니다. "
+                f"절차는 risk-tiers 규칙의 Merge strategy 절을 따르세요.",
+                file=sys.stderr,
+            )
+            sys.exit(BLOCK_EXIT_CODE)
 
-    if rule.get("warn_unless_rebased") and not _is_rebased(root, source, target):
-        print(
-            f"[경고] 머지 전략: '{rule.get('source')}' → '{target}' 는 rebase 선행이 요구됩니다. "
-            f"'{source}' 가 '{target}' 위에 rebase되어 있지 않은 것으로 보입니다"
-            f"(origin ref 가 낡았다면 무시하세요).",
-            file=sys.stderr,
-        )
+        if rule.get("warn_unless_rebased") and not _is_rebased(root, source, target):
+            print(
+                f"[경고] 머지 전략: '{rule.get('source')}' → '{target}' 는 "
+                f"rebase 선행이 요구됩니다. "
+                f"'{source}' 가 '{target}' 위에 rebase되어 있지 않은 것으로 보입니다"
+                f"(origin ref 가 낡았다면 무시하세요).",
+                file=sys.stderr,
+            )
+
     sys.exit(0)
 
 

@@ -2,7 +2,7 @@
   "doc-sync": {
     "fired_hits": 3,
     "fired_rate": 1.0,
-    "measured_at": "2026-08-21",
+    "measured_at": "2026-09-02",
     "model": "claude-opus-4-8",
     "outcome_hits": 3,
     "outcome_n": 3,
@@ -18,7 +18,7 @@
     "outcome_hits": 3,
     "outcome_n": 3,
     "outcome_pass_rate": 1.0,
-    "outcome_sha": "39da943d19a7",
+    "outcome_sha": "d30ffe2e7c57",
     "reps": 3
   }
 }

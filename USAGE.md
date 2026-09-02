@@ -593,11 +593,17 @@ and guides you — don't skip to manual implementation.
 It should not. The gate reads the command the way a shell does and asks one question: is there
 a real `git … commit` in it? A mention inside quotes, a comment or a heredoc body is text, so
 `grep "git commit"` and `git log --oneline && echo "now commit"` both run untouched.
-One shape does trip it, deliberately: one command that runs an interpreter — `bash`, `sh`,
-`python3`, `perl` — and quotes something commit-shaped in that same command. The quoted
-text may be the script the interpreter is handed, and nothing in the command says which;
-a commit missed is the worse mistake, so the gate asks you to classify. Separate the two
-with `;`, `&&` or a newline and neither is — each part of a command list is read alone.
+One shape does trip it, deliberately: a command that quotes something commit-shaped and
+runs a program the gate does not know to be a reader. Searching and listing tools are
+known — `grep`, `rg`, `ls`, `cat`, `head` and their kin run untouched — but not `awk`,
+`sed`, `find`, `ack` or `ag`, each of which can run a command written in its own
+arguments, and not `git` itself, so `git log --grep="git commit"` trips it as well.
+Anything else may be handed that text as a script, and nothing in the command says which;
+a commit missed is the worse mistake, so the gate asks you to classify. When the quote
+belongs to a different command, separating the two with `;`, `&&` or a newline is enough —
+each part of a command list is read alone. When it is that command's own argument there is
+nothing to separate, and the deny names the remedy it wants: classify the work with
+`/flow`, and a command carrying a tier marker is no longer an unclassified commit.
 If something else is still blocked, read the deny: without python3 the gate cannot tell an
 invocation from a mention and blocks rather than guess, and the message names the install.
 Otherwise the host's copy of the gate scripts is older than the plugin — re-run `/flow-init`.
