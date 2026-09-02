@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -352,6 +353,22 @@ def _init_repo(path: Path) -> None:
     _rg(["commit", "-m", "init"], path)
 
 
+def test_both_import_paths_carry_the_same_names():
+    """flow_gate_check is run as a sibling script on a host and imported as a package in
+    tests, so it spells its imports twice. A name in one list only is a NameError on the
+    other path, swallowed by the FAIL-OPEN except around the caller — the gate off in
+    silence rather than anything reported."""
+    src = (Path(__file__).resolve().parent.parent / "scripts/flow_gate_check.py").read_text(
+        encoding="utf-8"
+    )
+    lists = re.findall(r"import \(\n(.*?)\n\s*\)", src, re.S)
+    assert len(lists) == 2, f"expected two import lists, found {len(lists)}"
+    names = [sorted(n.strip().rstrip(",") for n in one.strip().splitlines()) for one in lists]
+    assert names[0] == names[1], (
+        f"the two _harness_paths import lists differ: {set(names[0]) ^ set(names[1])}"
+    )
+
+
 def _classify(root: Path, payload: dict) -> subprocess.CompletedProcess[str]:
     env = {**os.environ, "CLAUDE_PROJECT_DIR": str(root), "PYTHONIOENCODING": "utf-8"}
     return subprocess.run(
@@ -406,6 +423,56 @@ def test_classify_says_nothing_for_a_command_that_only_mentions_the_word(tmp_pat
     assert r.returncode == 0
     # `ok=1` alone: the command was read, and it is neither. The runner needs that apart from
     # silence, which means the gate could not answer at all.
+    assert r.stdout.split() == ["ok=1"]
+
+
+@requires_git
+@pytest.mark.parametrize(
+    "command,expected",
+    [
+        ("printf 'git commit -m x' | bash", "commit=1"),
+        ("bash <<< 'git commit -m x'", "commit=1"),
+        ("printf 'git merge --no-ff dev' | bash", "merge=1"),
+    ],
+    ids=["pipe", "here-string", "merge"],
+)
+def test_classify_reads_a_commit_an_interpreter_is_handed(
+    tmp_path: Path, command: str, expected: str
+):
+    """The verdict the runner routes on has to come from the same authority the grammar
+    tests use. Scored here through the subprocess, because a classify that reads the mask
+    alone answers `ok=1` for these and the runner then exits 0 on a real commit."""
+    main = tmp_path / "repo"
+    _init_repo(main)
+    r = _classify(main, {"cwd": str(main), "tool_input": {"command": command}})
+    assert expected in r.stdout.split(), (command, r.stdout, r.stderr)
+
+
+@requires_git
+def test_classify_says_nothing_when_the_payload_carries_no_command(tmp_path: Path):
+    """`ok=1` says the command was READ. With no command there is nothing to read, and claiming
+    otherwise answers "not a commit" — which the runner takes as leave, dropping the raw-stdin
+    backstop that is the only thing left when the payload is not the shape the tool sends."""
+    main = tmp_path / "repo"
+    _init_repo(main)
+    for payload in (
+        {"tool_name": "Bash", "command": "git commit -m x"},  # command at the wrong level
+        {"cwd": str(main), "tool_input": None},
+        {"cwd": str(main), "tool_input": {"command": None}},
+        {"cwd": str(main), "tool_input": {"command": ["git", "commit"]}},
+        {"cwd": str(main), "tool_input": "git commit -m x"},
+    ):
+        r = _classify(main, payload)
+        assert r.returncode == 0, (payload, r.stderr)
+        assert r.stdout.strip() == "", (payload, r.stdout)
+
+
+@requires_git
+def test_classify_still_answers_for_an_empty_command(tmp_path: Path):
+    # An empty string IS a command, and it is not an invocation — a verdict, not a silence.
+    main = tmp_path / "repo"
+    _init_repo(main)
+    r = _classify(main, {"cwd": str(main), "tool_input": {"command": ""}})
     assert r.stdout.split() == ["ok=1"]
 
 
@@ -1955,5 +2022,65 @@ def test_runner_reads_every_line_of_a_multi_line_verdict(tmp_path: Path):
         encoding="utf-8",
     )
     r = _run_runner(main, "git merge --no-ff dev && git commit -m x", plugin_root=plugin)
+    assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)
+    assert "merge 전략 위반" in (r.stdout + r.stderr)
+
+
+@requires_bash_git
+def test_a_merge_check_that_did_not_run_says_nothing(tmp_path: Path):
+    """The merge stage reads STDERR for its reason, so whatever a non-zero exit leaves there
+    is the interpreter's and not the gate's. Passed through it reads as a verdict, and on a
+    host whose script copy is broken every commit would carry a traceback."""
+    main = tmp_path / "main"
+    _init_repo(main)
+    (main / ".claude" / "harness-tier" / "config").mkdir(parents=True)
+    (main / ".claude" / "harness-tier" / "config" / "flow-config.yaml").write_text(
+        "modules: []\n", encoding="utf-8"
+    )
+    plugin = tmp_path / "plugin"
+    (plugin / "scripts").mkdir(parents=True)
+    (plugin / "scripts" / "flow_gate_check.py").write_text(
+        "import sys\n"
+        "if '--merge-check' in sys.argv:\n"
+        "    sys.stderr.write('TRACEBACK-NOISE')\n"
+        "    sys.exit(1)\n"
+        "if '--classify' in sys.argv:\n"
+        "    sys.exit(3)\n",
+        encoding="utf-8",
+    )
+    r = _run_runner(main, "git merge --no-ff dev", plugin_root=plugin)
+    assert "TRACEBACK-NOISE" not in (r.stdout + r.stderr), (r.stdout, r.stderr)
+
+
+@requires_bash_git
+@pytest.mark.parametrize(
+    "command",
+    ["git merge --no-ff dev", "git merge --squash dev && git commit -m x"],
+    ids=["merge-only", "merge-then-commit"],
+)
+def test_a_gate_that_cannot_classify_still_inspects_the_merge(tmp_path: Path, command: str):
+    """No verdict is an internal error, and the fallback below it treats the command as a
+    commit — but a merge-strategy violation is decided from the command string alone and is one
+    of the three things this gate may never fail open on. Reached only through `_is_merge`, the
+    check would be skipped for exactly the command it exists to judge. The stub answers nothing
+    for `--classify` and denies for `--merge-check`, so the deny is the only thing under test."""
+    main = tmp_path / "main"
+    _init_repo(main)
+    (main / ".claude" / "harness-tier" / "config").mkdir(parents=True)
+    (main / ".claude" / "harness-tier" / "config" / "flow-config.yaml").write_text(
+        "modules: []\n", encoding="utf-8"
+    )
+    plugin = tmp_path / "plugin"
+    (plugin / "scripts").mkdir(parents=True)
+    (plugin / "scripts" / "flow_gate_check.py").write_text(
+        "import sys\n"
+        "if '--merge-check' in sys.argv:\n"
+        "    sys.stderr.buffer.write('merge 전략 위반'.encode())\n"
+        "    sys.exit(2)\n"
+        "if '--classify' in sys.argv:\n"
+        "    sys.exit(3)\n",
+        encoding="utf-8",
+    )
+    r = _run_runner(main, command, plugin_root=plugin)
     assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)
     assert "merge 전략 위반" in (r.stdout + r.stderr)

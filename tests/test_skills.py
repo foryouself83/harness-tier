@@ -349,7 +349,7 @@ def reaches_the_gate(command: str) -> bool:
 
 def reads_as_an_invocation(command: str, word: str) -> bool:
     """Whether the gate's own grammar — the single authority — calls `command` a `git <word>`."""
-    return bool(vp.git_subcommand_re(word).search(vp.mask_literals(command)))
+    return vp.is_invocation(command, word)
 
 
 def assert_git_commands_reach_the_gate(label: str, commands: list[str]) -> None:
@@ -423,6 +423,21 @@ REAL_INVOCATIONS = [
     ("git.exe commit -m x", "commit"),
     ("C:/Git/bin/git.exe -C /a/wt commit -m x", "commit"),
     ("'git' commit -m x", "commit"),
+    # Text handed to a program that RUNS it. The channel is not always the argument of a `-c`:
+    # a here-string, a heredoc, and a pipeline all deliver a script, and each spelling closed
+    # by name has been followed by one that was not. What they share is that the command
+    # starts an interpreter, and that is what is matched.
+    ("printf 'git commit -m x' | bash", "commit"),
+    ('echo "git commit -m x" | sh', "commit"),
+    ('bash -c -- "git commit -m x"', "commit"),
+    ("eval $'git commit -m x'", "commit"),
+    ("bash <<< 'git commit -m x'", "commit"),
+    ("bash -s <<< 'git commit -m x'", "commit"),
+    ("""perl -e 'system("git commit -m x")'""", "commit"),
+    ("bash <<'EOF'\ngit commit -m x\nEOF", "commit"),
+    ("printf 'git merge --no-ff dev' | bash", "merge"),
+    ("bash -c 'git \"commit\" -m x'", "commit"),
+    ("bash <<< 'git merge --squash feature/x'", "merge"),
 ]
 
 NON_INVOCATIONS = [
@@ -436,6 +451,11 @@ NON_INVOCATIONS = [
     'grep -rn "git commit" scripts/',
     "echo '''nothing to merge'''",
     "git -c commit.gpgsign=false log --oneline",
+    # The net widens only a command that starts an interpreter. These start none, so the word
+    # stays data — a read-only `git log` denied as an unclassified commit is the gate blocking
+    # work it was never meant to see.
+    'echo "run bash and then git commit -m x"',
+    "cat script.sh | less",
 ]
 
 
