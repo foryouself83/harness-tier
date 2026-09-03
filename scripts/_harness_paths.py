@@ -276,7 +276,10 @@ _RUNS_TEXT = (
 # a name missing from THIS list costs a false deny, which the user can see and work
 # around, while a name missing from that one turned the gate off in silence.
 # A name earns its place by having no documented way to run a command written in its own
-# arguments. `awk` (`system`, a piped command, `getline`), `sed` (GNU `e`), `find`
+# arguments OR NAMED BY ITS ENVIRONMENT. `less` reads a command out of `LESSOPEN`, which
+# a login profile sets on most distributions, so it is on neither side of the command it
+# runs — and `more` is `less` on enough hosts to go with it.
+# `awk` (`system`, a piped command, `getline`), `sed` (GNU `e`), `find`
 # (`-exec`, whose program and subcommand may be quoted), and the two searchers whose
 # `--pager` goes through a shell (`ack`, `ag`) all do, which is why the tools a developer
 # reaches for beside them are here and they are not. The ones that stay run a program by
@@ -296,9 +299,7 @@ _READS_ONLY = frozenset(
         "file",
         "grep",
         "head",
-        "less",
         "ls",
-        "more",
         "printf",
         "pwd",
         "rg",
@@ -342,32 +343,110 @@ _RESERVED_WORDS = frozenset(
 )
 # Where a command may start. One fragment for everything that has to find one, since each
 # place that spelled its own ended up narrower than the shell somewhere.
-_COMMAND_START = r"(?:^|[;&|(){}`\n]|\b(?:" + "|".join(sorted(_RESERVED_WORDS)) + r")\b)"
-_PROGRAM_RE = re.compile(_COMMAND_START + r"[ \t]*(?:[^\s;&|()'\"]*[/\\])?([A-Za-z0-9_.+-]+)")
-# A command position holding a substitution: the element runs what that prints.
-_RUNS_ITS_OUTPUT_RE = re.compile(_COMMAND_START + r"[ \t]*(?:\$\(|`)")
+_SEPARATOR_CHARS = ";&|(){}" + chr(96) + chr(10)
+_COMMAND_START = (
+    r"(?:\b(?:" + "|".join(sorted(_RESERVED_WORDS)) + r")\b|^|[" + _SEPARATOR_CHARS + r"])"
+)
+# A substitution the element expands. Where it sits is not asked: read as a command position
+# the question needs every prefix a command may carry — `!`, a redirection, an assignment,
+# `env`, `exec`, `nice` — and one missing prefix hands back the exemption. An element that
+# expands anything is one whose programs are not only the ones written in it.
+_SUBSTITUTION_RE = re.compile(r"\$\(|`")
 
 
-def _programs(element: str) -> list[str]:
-    """The names in command position in `element`, spelled without a host's `.exe`.
+_COMMAND_START_RE = re.compile(_COMMAND_START)
+# Everything a command may carry in front of the program it runs. None of them is a
+# name, so the scan steps over them and decides the exemption on the names it found
+# BEFORE one — which is how `cat f | > /dev/null 'git' commit -m x` counted one `cat`
+# and read as a reader.
+_NOT_SEPARATOR = r"[^\s<>" + re.escape(_SEPARATOR_CHARS) + r"]"
+_COMMAND_PREFIX_RE = re.compile(
+    r"[ \t]*(?:!|[0-9]*[<>]{1,2}&?[ \t]*"
+    + _NOT_SEPARATOR
+    + r"+|(?P<assign>[A-Za-z_][A-Za-z0-9_]*=)"
+    + _NOT_SEPARATOR
+    + r"*)"
+)
+_PROGRAM_NAME_RE = re.compile(r"(?:[^\s;&|()'\"]*[/\\])?[A-Za-z0-9_.+-]+")
+# What has to stand in front of a reserved word for the word to be one. The `then` in
+# `echo bash and then "…"` is an argument, and reading it as the start of a command makes
+# the quoted text after it a program the scan cannot name — a denial nothing runs.
+_RESERVED_ALTERNATION = "|".join(sorted(_RESERVED_WORDS))
+_RESERVED_TAIL_RE = re.compile(r"\b(?:" + _RESERVED_ALTERNATION + r")$")
+_LONGEST_RESERVED = max(len(w) for w in _RESERVED_WORDS)
 
-    A reserved word is both a token and the start of the command after it, and one pass cannot
-    be both: matched as the name, the scan resumes past it and the program it introduces is
-    never seen — which left a `grep` inside a `do` looking like a command with no program at
-    all, and every quoted mention in a loop body was denied.
+
+def _programs(element: str) -> list[str | None]:
+    """The program at every command position in `element`, `None` where it has none.
+
+    One walk, because two disagreed. The one that stepped over what a command may carry in
+    front of its program found the program behind it; the one that built the names did not,
+    and `cat f | > /dev/null env 'git' commit -m x` was exempted as a `cat`.
+
+    A reserved word starts the command after it, and is a reserved word only where a command
+    may start: read as one in an argument, `echo bash and then "…"` had the quoted text after
+    it for a program and was denied.
+
+    `None` is what the mask leaves where the program was written quoted, and what stands at a
+    position no name reads from. Left out instead of recorded, it would be a program the
+    exemption was decided without — the direction this may not fail in. Nothing here can fail
+    to finish: the starts come from one scan of a fixed pattern, and the walk over the
+    prefixes only ever moves forward.
     """
-    names: list[str] = []
-    at, guard = 0, -1
-    while True:
-        m = _PROGRAM_RE.search(element, at)
-        if m is None:
-            return names
-        name = m.group(1)
-        names.append(name[:-4] if name.lower().endswith(".exe") else name)
-        if name in _RESERVED_WORDS and m.start(1) > guard:
-            at, guard = m.start(1), m.start(1)
-        else:
-            at = m.end()
+    found: list[str | None] = []
+    # How far a walk has already resolved. A start landing inside that is a token of the
+    # command already read, not a new one — and re-reading from each of them is what made
+    # `do do do …` cost a walk per word.
+    seen = -1
+    for m in _COMMAND_START_RE.finditer(element):
+        word = m.group()
+        if word == "&" and m.start() and element[m.start() - 1] in "<>":
+            continue  # the `&` of a `2>&1`, not a command that follows one
+        if word and word not in _SEPARATOR_CHARS:
+            j = m.start()
+            while j and element[j - 1] in " \t":
+                j -= 1
+            if (
+                j
+                and element[j - 1] not in _SEPARATOR_CHARS
+                and not _RESERVED_TAIL_RE.search(element, max(0, j - _LONGEST_RESERVED), j)
+            ):
+                continue
+        i = m.end()
+        assigned = False
+        while True:
+            while (n := _COMMAND_PREFIX_RE.match(element, i)) and n.end() > i:
+                assigned = assigned or n.group("assign") is not None
+                i = n.end()
+            while i < len(element) and element[i] in " \t":
+                i += 1
+            if i <= seen:
+                break  # a walk already resolved the command this start is inside of
+            if i >= len(element) or element[i] in _SEPARATOR_CHARS:
+                seen = i
+                break  # the start opened no command
+            name = _PROGRAM_NAME_RE.match(element, i)
+            if name is None:
+                found.append(None)
+                seen = i
+                break
+            text = name.group().rsplit("/", 1)[-1].rsplit(chr(92), 1)[-1]
+            if text in _RESERVED_WORDS:
+                # The word is not the program; the command it introduces is, and its own
+                # prefixes come after it. Reported as the name instead, it was dropped as a
+                # reserved word further on and the program behind it went unmentioned.
+                i = name.end()
+                continue
+            if assigned:
+                # The name is there, but what it runs is not what the name says: an
+                # assignment reaches inside the program (`LESSOPEN`, `LD_PRELOAD`) and
+                # the exemption was earned by the name alone. Unnamed is what that is.
+                found.append(None)
+            else:
+                found.append(text[:-4] if text.lower().endswith(".exe") else text)
+            seen = i
+            break
+    return found
 
 
 def _reads_only(element: str) -> bool:
@@ -375,18 +454,22 @@ def _reads_only(element: str) -> bool:
 
     An element with no program at all is NOT exempt: a bare assignment holds a script
     something later runs, and exemption has to be earned by a name, not by the absence
-    of one. Neither is an element whose command position is a substitution: `$(echo "git
-    commit -m x")` runs the OUTPUT of the reader written in it, and reading the reader's own
-    name as the program it runs is how that spelling passed.
+    of one. Neither is an element that expands a substitution: `$(echo "git commit -m x")`
+    runs the OUTPUT of the reader written in it, and the name written there is not the
+    program that runs.
 
     A shell reserved word is not a program, so the reader inside a loop or a conditional is
     still the only program there — read as one, `for f in *; do grep … done` had a program
     that is on no list and every quoted mention in it was denied.
+
+    An assignment the element carries is not one either, and it is not an argument: it
+    reaches inside the program the list vouched for. `LESSOPEN='|git commit -m x %s'
+    less -f f` commits, and reading `less` there is reading the name of something else.
     """
-    if _RUNS_ITS_OUTPUT_RE.search(element):
+    if _SUBSTITUTION_RE.search(element):
         return False
-    names = [n for n in _programs(element) if n not in _RESERVED_WORDS]
-    return bool(names) and all(n in _READS_ONLY for n in names)
+    names = _programs(element)
+    return bool(names) and all(n is not None and n in _READS_ONLY for n in names)
 
 
 # One of those named anywhere in the element, as a whole token on the mask. It decides one
@@ -396,9 +479,12 @@ def _reads_only(element: str) -> bool:
 # looking like an interpreter, and the body carrying a real commit went unread. Named rather
 # than positioned, the cost is an element that runs something else and quotes an interpreter's
 # name in a heredoc, which over-gates. `ssh` keeps its `s`: the token has to begin where the
-# name does.
+# name does. Asked as a LOOKBEHIND, because asked forwards it restarted at every character
+# a name cannot hold and walked the rest of the run for a path separator: `{` forty
+# thousand times took ten seconds, and a verdict that never arrives is the gate off
+# rather than a slow gate.
 _INTERPRETER_RE = re.compile(
-    r"(?:^|[^\w/\\.-])(?:[^\s;&|()'\"]*[/\\])?"
+    r"(?:(?<=[/\\])|(?<![\w/\\.-]))"
     r"(?:" + "|".join(_RUNS_TEXT) + r")(?:\.exe)?(?=$|[\s;&|)<>`])"
 )
 # Quoting, and the backslash that escapes a quote. A backslash escaping anything else is left
@@ -805,17 +891,41 @@ def _unquoted_view(command: str, *, keep_heredoc: bool = False) -> str:
     return _QUOTING_RE.sub(lambda m: " " * len(m.group()), "".join(out))
 
 
+def _substitutions(masked: str) -> list[tuple[int, int]]:
+    """Where each `$( … )` and backtick span sits on the mask, outermost first."""
+    spans, i, n = [], 0, len(masked)
+    while i < n:
+        if masked[i] == DOLLAR_CH and masked[i + 1 : i + 2] == "(":
+            end = _matching(masked, i + 2, "(", ")")
+        elif masked[i] == BT_CH:
+            end = _matching(masked, i + 1, BT_CH, BT_CH)
+        else:
+            i += 1
+            continue
+        spans.append((i, min(end, n)))
+        i = min(end, n) if end > i else i + 1
+    return spans
+
+
 def _list_elements(command: str, masked: str) -> list[tuple[int, int]]:
     """Index ranges of `command`, one per element of its command list.
 
     Split on the mask, so a separator inside a message or a comment ends nothing. A newline
     that opens a heredoc body is not a boundary either: the body is that command's input, and
     cut away from it the interpreter and the script it is handed land in different elements.
+    Nor is a separator INSIDE a substitution: `$(date; echo "git commit -m x")` is one command
+    whose programs include everything written in it, and split there the tail became an
+    element whose only program reads — the exemption handed straight back.
     """
     bodies = {a for a, _b, kind in _shell_regions(command) if kind == "heredoc"}
-    spans, start = [], 0
+    inside = _substitutions(masked)
+    spans, start, k = [], 0, 0
     for m in _LIST_SEPARATOR_RE.finditer(masked):
         if m.group() == chr(10) and m.end() in bodies:
+            continue
+        while k < len(inside) and inside[k][1] <= m.start():
+            k += 1
+        if k < len(inside) and inside[k][0] < m.start() < inside[k][1]:
             continue
         spans.append((start, m.start()))
         start = m.end()
@@ -854,7 +964,8 @@ def is_invocation(command: str, word: str) -> bool:
     for a, b in _list_elements(command, masked):
         if _reads_only(masked[a:b]):
             continue
-        view = scripted if _INTERPRETER_RE.search(masked[a:b]) else plain
+        runs_text = _INTERPRETER_RE.search(masked[a:b]) or _SUBSTITUTION_RE.search(masked[a:b])
+        view = scripted if runs_text else plain
         if pattern.search(view[a:b]):
             return True
     return False

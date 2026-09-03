@@ -13,6 +13,8 @@ import pytest
 
 import scripts._harness_paths as vp
 
+_Q3 = chr(39) + chr(0) * 3 + chr(39)  # a quoted program, as the mask leaves it
+
 
 def test_path_segment_constants():
     # the host write root and its subcategories are all gathered under
@@ -743,6 +745,11 @@ def test_the_net_does_not_widen_a_command_that_runs_no_commit(command: str):
 # missed. Kept apart from NET_INVOCATIONS: these are not an interpreter being handed a
 # script, they are places the mask or the grammar was wrong about what bash does.
 RUNS_A_COMMIT = [
+    # A reader that runs what its environment names, verified under a real bash with a
+    # stub `git`: the assignment is neither the program nor its argument.
+    ("LESSOPEN='|git commit -m x %s' less -f big.txt", "commit"),
+    ("LESSCLOSE='git commit -m x %s %s' LESSOPEN='|cat %s' less -f big.txt", "commit"),
+    ("cat f | LESSOPEN='|git commit -m x %s' less -f big.txt", "commit"),
     # a backtick inside a double-quoted span swallowed the rest of the command
     ('echo "`date`" && git commit -m x', "commit"),
     ('echo "`date`" && git merge --squash feature/x', "merge"),
@@ -751,6 +758,46 @@ RUNS_A_COMMIT = [
     ("git log --oneline <<EOF\nnote $(git commit -am wip)\nEOF", "commit"),
     ("git log --oneline <<EOF\nnote `git commit -am wip`\nEOF", "commit"),
     ("git log --oneline <<EOF\na \\$(x) $(git commit -am wip)\nEOF", "commit"),
+    # a substitution written as `$((` is one too — a reader in front of it does not
+    # make the output it runs data
+    ('cat $((echo "git commit -m x") )', "commit"),
+    # `&` ends a command as well as carrying a redirection's fd, and the program of
+    # the command after it is a program like any other
+    ("cat f & xargs 'git' commit -m x", "commit"),
+    # a reserved word standing behind a prefix introduces the command after it. Read
+    # as the program itself it was dropped further on for being reserved, and the
+    # quoted program behind it went unmentioned — the last two need the lookback to
+    # see a whole reserved word behind the one it is asking about.
+    ("cat f | A=1 time 'git' commit -m x", "commit"),
+    ("cat f | 2>/dev/null time 'git' commit -m x", "commit"),
+    ("cat f | > /dev/null time 'git' commit -m x", "commit"),
+    ("cat f | > /dev/null time 'git' merge --no-ff dev", "merge"),
+    ("! time 'git' commit -m x | cat f", "commit"),
+    ("if true; then time 'git' commit -m x | cat f; fi", "commit"),
+    ("for i in 1; do time 'git' commit -m x | cat f; done", "commit"),
+    # a program the scan cannot NAME is one the exemption is decided without. Both ways
+    # it goes unnamed run a commit a real bash was made to run here: the program is
+    # written quoted, which the mask blanks, or it stands behind a `!`, a redirection or
+    # an assignment, where the scan looks for a name and finds punctuation.
+    ("time cat a.txt | > /dev/null 'git' commit -m x", "commit"),
+    ("time grep -q x a.txt | >> out.txt 'git' commit -m x", "commit"),
+    ('time echo hi | > /dev/null "git" commit -m x', "commit"),
+    ("time cat a.txt | > /dev/null 'git' merge --no-ff dev", "merge"),
+    ("time 'git' commit -m x | echo hi", "commit"),
+    ("true | time 'git' commit -m x", "commit"),
+    ("echo hi | time 'git' commit -m x | grep -q x a.txt", "commit"),
+    ("sort a.txt | > /dev/null 'git' commit -m x", "commit"),
+    ("for i in 1; do cat a.txt | > /dev/null 'git' commit -m x; done", "commit"),
+    ("if true; then cat a.txt | > /dev/null 'git' commit -m x; fi", "commit"),
+    ("while true; do echo hi | > /dev/null 'git' commit -m x; break; done", "commit"),
+    ("LC_ALL=C cat f | > /dev/null 'git' commit -m x", "commit"),
+    # a separator inside the SECOND substitution is no element boundary either: the
+    # pointer has to walk to the span the separator sits in, not stop at the first one
+    ('echo $(date); $(true; echo "git commit -m x")', "commit"),
+    (
+        'x=$(date) ; $(date > /dev/null; echo "git merge --no-ff dev")',
+        "merge",
+    ),
     # the subcommand's terminator has to admit everything that ends a word
     ("echo `git commit`", "commit"),
     ("git commit>log.txt", "commit"),
@@ -790,6 +837,28 @@ RUNS_A_COMMIT = [
     ("find . -exec 'git' commit -m x ;", "commit"),
     ("find . -exec git 'commit' -m x ;", "commit"),
     ("ack --pager='git commit -m x' pattern .", "commit"),
+    # a shell written over several lines puts a reserved word at the very start of an
+    # element, where the scan has to find the program the word introduces without ever
+    # claiming the word again — the corpus shapes with a blank after the separator do not
+    # reach that
+    ("time 'git' commit -m x", "commit"),
+    ("if [ -f a ]; then git commit -m x; fi", "commit"),
+    ("for f in a\ndo\ngit commit -m x\ndone", "commit"),
+    # what a substitution prints is a command, so a heredoc it is handed is a script even
+    # when the element names no interpreter of its own
+    ("$(cat <<'EOT'\ngit commit -m x\nEOT\n)", "commit"),
+    ('X=$(cat <<EOT\ngit commit -m x\nEOT\n); eval "$X"', "commit"),
+    ("`head -1 <<'EOT'\ngit merge --no-ff dev\nEOT\n`", "merge"),
+    # a separator inside a substitution ends nothing: split there, the tail is an element
+    # whose only program reads and the exemption comes straight back
+    ('$(date > /dev/null; echo "git commit -m x")', "commit"),
+    ('$(\n  echo "git commit -m wip"\n)', "commit"),
+    ('`true; echo "git merge --no-ff dev"`', "merge"),
+    ('CMD=$(\n  echo "git commit -m x"\n)\neval "$CMD"', "commit"),
+    # the host spells an interpreter with the path it has, with or without a blank after it
+    ("bash.exe <<'EOF'\ngit commit -m x\nEOF", "commit"),
+    ("bash<<'EOF'\ngit commit -m x\nEOF", "commit"),
+    ("/bin/sh <<'EOF'\ngit commit -m x\nEOF", "commit"),
     # an interpreter is one wherever it is written. A reserved word, a prefix command, an
     # assignment and a redirection in front of it are all still the interpreter running,
     # and the heredoc it is handed is a script in every one of them
@@ -797,13 +866,26 @@ RUNS_A_COMMIT = [
     ("time bash <<'EOF'\ngit commit -m x\nEOF", "commit"),
     ("A=1 bash <<'EOF'\ngit commit -m x\nEOF", "commit"),
     ("2>/dev/null bash <<'EOF'\ngit commit -m x\nEOF", "commit"),
-    # a command position holding a substitution runs what that prints, so the reader
-    # written inside it is not the program the element runs
+    # an element that expands a substitution runs what that prints, so the reader written
+    # inside it is not the program the element runs — and where the substitution sits is
+    # not the question: `!`, a redirection, an assignment and every prefix command stand
+    # between it and the command position
+    ('! $(echo "git commit -m x")', "commit"),
+    ('> /dev/null $(echo "git commit -m x")', "commit"),
+    ('if true; then ! $(echo "git commit -m x"); fi', "commit"),
+    ('time env $(echo "git commit -m x")', "commit"),
+    ('for i in 1; do ! `echo "git merge --no-ff dev"`; done', "merge"),
     ('$(echo "git commit -m x")', "commit"),
     ('`echo "git commit -m x"`', "commit"),
     ('$(echo "git merge --no-ff dev")', "merge"),
     # a program that runs its arguments as a command is not a reader, and the list is only
-    # as good as a case that notices a name arriving on it
+    # as good as a case that notices a name arriving on it. A name is compared whole, so a
+    # reader's own name with anything appended to it is a different program
+    ("env -S 'git commit -m x'", "commit"),
+    ("cat.sh 'git commit -m x'", "commit"),
+    # `$((` is a substitution holding a subshell as readily as it is arithmetic, and the
+    # shell runs what the first one prints
+    ('$((echo "git commit -m x") )', "commit"),
     ("ls | xargs 'git' commit -m x", "commit"),
     ('cat a.txt | xargs "git" merge --no-ff dev', "merge"),
     # text a builtin runs later, and text a variable holds for something else to run
@@ -820,6 +902,41 @@ def test_a_command_a_shell_really_runs_is_read_as_one(command: str, word: str):
 # Read-only work. Denying one of these is the gate blocking work it was never meant to
 # see, and the user cannot tell that deny apart from a real verdict.
 RUNS_NO_COMMIT = [
+    # the fd a redirection duplicates is written after `<` as well as after `>`, the
+    # `&` between them belongs to the redirection, and `>>` is a redirection too
+    "grep -rn 'git commit' . 0<&3",
+    "cat f | 2>&1 grep 'git commit' .",
+    "cat f | >> out.txt grep 'git commit'",
+    # an interpreter's name has to END where the token does: `nodemon` is not `node`
+    "nodemon <<EOF\ngit commit -m x\nEOF",
+    "bashful <<EOF\ngit commit -m x\nEOF",
+    # the `&` of a `2>&1` starts no command, and the fd after it is not a program:
+    # counted as one it is on no reader's list and a piped-and-redirected grep was
+    # denied
+    "grep -rn 'git commit' . 2>&1 | head -20",
+    "grep 'git commit' f 1>&2",
+    "cat f 2>&1 | grep 'git commit'",
+    # `!` is one of the things that may stand in front of a program, so the reader
+    # behind it is still the program the exemption is decided over
+    "! grep -q 'git commit' f",
+    "! rg 'git commit' .",
+    # a reader keeps its exemption however the host spells its path
+    "/usr/bin/grep -rn 'git commit' .",
+    "./grep -rn 'git commit' .",
+    # the walk over what may stand in front of a program is what keeps these exempt:
+    # a redirection ahead of the program, and a start that opens no command at all
+    "cat f | > out.txt grep 'git commit'",
+    "{ grep -q 'git commit' f; }",
+    "grep -q 'git commit' f;",
+    # a reserved word is reserved only where a command may start; read as one in an
+    # argument, the quoted text after it is a program the scan cannot name and the
+    # element stops being exempt — a denial nothing runs
+    'echo bash and then "git commit -m x"',
+    'echo "the time is now" | grep "git commit"',
+    "cat notes | grep -n 'then git commit'",
+    "grep -rn 'git commit' . > out.txt",
+    "grep -q 'git commit' f && echo yes",
+    "for f in *.md; do grep -c 'git commit' $f; done",
     # a count flag is not an interpreter's `-c`
     'grep -c "git commit" a.txt',
     'grep -rc "git commit" .',
@@ -835,7 +952,15 @@ RUNS_NO_COMMIT = [
     # a tool that runs a program by PATH rather than a shell string spells no command
     "sort --compress-program='git commit -m x' f",
     "rg --pre 'git commit' pattern .",
-    # a reader inside a loop or a conditional is still the only program there
+    # a reader inside a loop or a conditional is still the only program there, wherever the
+    # reserved word sits — including at the very start, where the scan used to claim the
+    # word itself as the program and never reach the one it introduces
+    ("time grep 'git commit' a.txt"),
+    ("if grep -q 'git commit' a.txt; then echo hi; fi"),
+    ("while grep -q 'git commit' a.txt; do echo hi; break; done"),
+    ("until grep -q 'git commit' a.txt; do echo hi; break; done"),
+    # a name that merely ENDS with an interpreter's is not one
+    ("rebash <<EOF\ngit commit -m x\nEOF"),
     ("for f in *; do grep -n 'git commit' $f; done"),
     ("if true; then echo 'git commit'; fi"),
     ('while read l; do echo "git commit"; done < a.txt'),
@@ -885,3 +1010,148 @@ def test_a_quote_dense_command_is_classified_in_bounded_time():
     started = time.perf_counter()
     vp.is_invocation(command, "commit")
     assert time.perf_counter() - started < 1.5
+
+
+def test_a_substitution_is_one_element_however_it_is_spelled():
+    """The verdict for a backtick happens to survive being split — the closing backtick is the
+    opening one, so it lands in the tail and withdraws the exemption there. `$( … )` has no
+    such luck, and neither spelling should be split at all: what is written inside one
+    substitution is one command's worth of programs."""
+    for command in (
+        "$(date; echo " + chr(34) + "x" + chr(34) + ")",
+        chr(96) + "date; echo " + chr(34) + "x" + chr(34) + chr(96),
+        "$(date" + chr(10) + "echo x)",
+    ):
+        assert len(vp._list_elements(command, vp.mask_literals(command))) == 1, command
+
+
+def test_a_reserved_word_starts_the_command_after_it():
+    """A reserved word is a token and the start of the command after it, and taken for the
+    program itself the `grep` inside a `do` looked like a command with no program at all —
+    every quoted mention in a loop body was denied. With nothing after it the word starts no
+    command, and an element with no program of its own earns no exemption either way."""
+    assert vp._programs(" then git commit -m x") == ["git"]
+    assert vp._programs(" do grep -rn x .") == ["grep"]
+    assert vp._programs("time grep -rn x .") == ["grep"]
+    # A reserved word may also stand at a command position because another one stands in front
+    # of it, which is what the lookback needs a whole word of room to see. Without it the
+    # position reads as an argument and the program there is never asked about.
+    assert vp._programs("cat f done then " + _Q3 + " commit") == ["cat", None]
+    for element in sorted(vp._RESERVED_WORDS):
+        assert vp._programs(element) == [], element
+        assert vp._programs(element + " ; ") == [], element
+        assert vp._reads_only(element) is False, element
+
+
+def test_a_command_position_the_scan_cannot_name_is_not_a_reader():
+    """The exemption is decided over the programs the walk reports, so one it cannot name has
+    to be reported as that rather than left out. A program written quoted is blanked by the
+    mask; one standing behind a `!`, a redirection or an assignment sits where a second scan
+    used to look for a name and find punctuation."""
+    for element in (
+        "cat f | > /dev/null '\0\0\0' commit",
+        "cat f | ! '\0\0\0' commit",
+        "cat f | A=1 '\0\0\0' commit",
+    ):
+        assert None in vp._programs(element), element
+        assert vp._reads_only(element) is False, element
+    # A program BEHIND one of those is found, not stepped past — the half two scans disagreed
+    # about, where the walk saw `env` and the name list did not.
+    behind = "cat f | > /dev/null env '\0\0\0' commit"
+    assert vp._programs(behind) == ["cat", "env"], vp._programs(behind)
+    assert vp._reads_only(behind) is False
+    for element in (
+        "grep -rn x .",
+        "grep -rn x . > out.txt",
+        " do grep -q x f",
+        "echo bash and then '\0\0\0'",
+    ):
+        assert None not in vp._programs(element), element
+        assert vp._reads_only(element) is True, element
+
+
+def test_one_long_unquoted_run_is_classified_in_bounded_time():
+    """The quoted one below is only half the shape: the interpreter search restarted at every
+    character a name cannot hold — `=`, `{`, `,`, `:` — and walked the rest of the run for a
+    path separator. A real `aws … --metadata git-commit=…,k=v,…` at 70KB took twelve seconds."""
+    import time
+
+    command = "aws s3 cp b/ s3://b/ --metadata git-commit=abc," + "k0=v0," * 12000
+    started = time.perf_counter()
+    vp.is_invocation(command, "commit")
+    vp.is_invocation(command, "merge")
+    assert time.perf_counter() - started < 1.5
+
+
+def test_one_long_quoted_token_is_classified_in_bounded_time():
+    """The other three time tests are many SHORT quoted spans, and what costs is ONE long one:
+    the interpreter search restarted at every character the mask had blanked and each attempt
+    walked the rest of the run. 80KB took eighty seconds — and the runner asks about `commit`
+    and `merge` both, so a long commit message alone paid it twice."""
+    import time
+
+    command = "echo '" + "a" * 80000 + "' | base64 -d"
+    started = time.perf_counter()
+    assert not vp.is_invocation(command, "merge")
+    assert not vp.is_invocation(command, "commit")
+    assert time.perf_counter() - started < 1.5
+
+
+def test_a_redirection_dense_command_is_classified_in_bounded_time():
+    """`{` both starts a command and may sit in a redirection target, so every one of them sent
+    the walk over the prefixes to the end of the element: 48KB took 12 seconds, past the hook
+    timeout, and a verdict that never arrives is the gate off rather than a slow gate."""
+    import time
+
+    command = "cat f | " + "{2>&1x" * 16000 + " 'git' commit -m x"
+    started = time.perf_counter()
+    assert vp.is_invocation(command, "commit")
+    assert time.perf_counter() - started < 1.5
+
+
+def test_a_reserved_word_dense_command_is_classified_in_bounded_time():
+    """Whether a reserved word is at a command position was asked by searching back to the
+    start of the element, which is quadratic: 60KB took 39 seconds, past the hook timeout, and
+    a verdict that never arrives is the gate off rather than a slow gate. What may precede the
+    word is a separator or one more reserved word, so the answer fits in a fixed window."""
+    import time
+
+    # Reading past a reserved word to the command it introduces costs one walk per
+    # word unless each command is resolved once.
+    command = "do " * 20000
+    started = time.perf_counter()
+    vp.is_invocation(command, "commit")
+    assert time.perf_counter() - started < 1.5
+
+
+def test_a_separator_dense_command_is_classified_in_bounded_time():
+    """Each separator asked every substitution span whether it contained it, which is
+    quadratic: 64KB took a minute, past the hook timeout, and a verdict that never arrives is
+    the gate off rather than a slow gate."""
+    import time
+
+    command = (chr(96) + "; ") * 20000
+    started = time.perf_counter()
+    vp.is_invocation(command, "commit")
+    assert time.perf_counter() - started < 1.5
+
+
+def test_an_assignment_the_element_carries_is_not_the_program():
+    """The exemption is earned by a NAME, and an assignment is neither that name nor one of
+    its arguments — it reaches inside the program the list vouched for. `less` runs what
+    `LESSOPEN` names, so an element carrying one is reported unnamed rather than read as a
+    reader. The cost is a reader denied for an assignment that changes nothing, which the
+    user sees; the other direction turned the gate off in silence."""
+    assert vp._programs("LC_ALL=C grep x f") == [None]
+    assert vp._reads_only("LC_ALL=C grep x f") is False
+    assert vp._programs("A=1 time grep -rn x .") == [None]
+    # …and the name is still read where nothing stands in front of it.
+    assert vp._programs("grep x f") == ["grep"]
+    assert vp._reads_only("grep x f") is True
+
+
+def test_a_program_that_runs_what_its_environment_names_is_not_a_reader():
+    """Most distributions set `LESSOPEN` in a login profile, so `less` runs a command nobody
+    wrote in the command — the list's criterion is about arguments and missed it."""
+    assert "less" not in vp._READS_ONLY
+    assert "more" not in vp._READS_ONLY  # `more` is `less` on enough hosts

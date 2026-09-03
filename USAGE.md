@@ -598,9 +598,18 @@ runs a program the gate does not know to be a reader. Searching and listing tool
 known — `grep`, `rg`, `ls`, `cat`, `head` and their kin run untouched — but not `awk`,
 `sed`, `find`, `ack` or `ag`, each of which can run a command written in its own
 arguments, and not `git` itself, so `git log --grep="git commit"` trips it as well.
-Only text shaped like the invocation counts, so `awk '/git commit/{print}' a.txt` is a
-search and runs untouched. Anything else may be handed that text as a script, and nothing
-in the command says which; a commit missed is the worse mistake, so the gate asks you to
+`less` is not among the kin either: `LESSOPEN`, which a login profile sets on most
+distributions, names a command it runs. `more` goes with it, being the same program on
+many hosts. So `grep 'git commit' f | less` is denied where `grep 'git commit' f` is not.
+What counts is `git` and the subcommand standing as two whole words once the quoting is
+rubbed out, so `awk '/git commit/{print}'` runs — the `/` after the word breaks it — while
+`sed -e 's|git commit|Y|g'` does not. A `$( … )`, a backtick or a `$(( … ))` anywhere in
+the same command withdraws the exemption too, since what a substitution prints is a
+command; put it in a separate one and the reading tools are known again. So does an
+environment assignment standing in front of one (`LC_ALL=C grep …`) — it reaches inside
+the program rather than beside it, which is how `LESSOPEN` makes `less` run a command
+nobody wrote. Anything else may be handed that text as a script, and nothing in the
+command says which; a commit missed is the worse mistake, so the gate asks you to
 classify. When the quote belongs to a different command, separating the two with `;`,
 `&&` or a newline is enough — each part of a command list is read alone. When it is that
 command's own argument there is nothing to separate, and the deny is the one an
