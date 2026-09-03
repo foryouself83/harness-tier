@@ -2,6 +2,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 from pathlib import Path
@@ -12,8 +13,8 @@ import yaml as _yaml
 from scripts.flow_init_setup import (
     CLAUDE_MD_BEGIN,
     GATE_COMMAND,
-    GATE_MARKER,
     GITIGNORE_LINES,
+    _is_gate_hook,
     append_gitignore,
     check_precommit,
     copy_artifacts,
@@ -37,9 +38,34 @@ from scripts.flow_init_setup import (
 )
 
 PLUGIN = Path(__file__).resolve().parent.parent  # repo root == plugin root
+ACCESS_ENTRIES = "system.posix_acl_access"
 # Same resolution as tests/test_check_merge_ruleset.py: a bare "bash" hits the System32
 # WSL stub first on Windows, which mangles backslash paths.
 BASH = shutil.which("bash") or "bash"
+
+
+def _is_gate(command: str) -> bool:
+    """Ask the installer's own predicate. A test that spells the marker itself stops asking
+    the code what it counts as the gate, which is the half that decides whose hook it takes."""
+    return _is_gate_hook({"type": "command", "command": command})
+
+
+def _gate_is_in(settings: Path) -> bool:
+    """Whether the gate reached this host's file, read in a way every malformed shape
+    survives — the shapes this is asked about are exactly the ones with no healthy layout."""
+    try:
+        data = json.loads(settings.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    hooks = data.get("hooks") if isinstance(data, dict) else None
+    entries = hooks.get("PreToolUse") if isinstance(hooks, dict) else None
+    return any(
+        _is_gate(h["command"])
+        for e in (entries if isinstance(entries, list) else [])
+        if isinstance(e, dict) and isinstance(e.get("hooks"), list)
+        for h in e["hooks"]
+        if isinstance(h, dict) and isinstance(h.get("command"), str)
+    )
 
 
 def _gate_commands(settings: Path) -> list[str]:
@@ -51,7 +77,7 @@ def test_register_gate_creates(tmp_path: Path):
     msg = register_gate(tmp_path)
     assert "등록" in msg
     cmds = _gate_commands(tmp_path / ".claude" / "settings.json")
-    assert any(GATE_MARKER in c for c in cmds)
+    assert any(_is_gate(c) for c in cmds)
 
 
 def test_register_gate_idempotent(tmp_path: Path):
@@ -60,7 +86,7 @@ def test_register_gate_idempotent(tmp_path: Path):
     assert "이미" in msg
     # not registered twice
     cmds = _gate_commands(tmp_path / ".claude" / "settings.json")
-    assert sum(GATE_MARKER in c for c in cmds) == 1
+    assert sum(_is_gate(c) for c in cmds) == 1
 
 
 def test_register_gate_preserves_existing(tmp_path: Path):
@@ -71,7 +97,7 @@ def test_register_gate_preserves_existing(tmp_path: Path):
     register_gate(tmp_path)
     cmds = _gate_commands(settings)
     assert "echo other" in cmds
-    assert any(GATE_MARKER in c for c in cmds)
+    assert any(_is_gate(c) for c in cmds)
 
 
 def test_append_gitignore_creates_and_idempotent(tmp_path: Path):
@@ -179,12 +205,12 @@ def test_main_setup_then_uninstall_dispatch(tmp_path: Path, monkeypatch):
     settings = tmp_path / ".claude" / "settings.json"
     assert (vd / "scripts" / "precommit-runner.sh").is_file()
     assert (vd / "config" / "flow-tiers.yaml").is_file()
-    assert any(GATE_MARKER in c for c in _gate_commands(settings))
+    assert any(_is_gate(c) for c in _gate_commands(settings))
     # --uninstall dispatch → inverse operation
     monkeypatch.setattr(sys, "argv", ["flow_init_setup.py", "--uninstall"])
     main()
     assert not vd.exists()
-    assert not any(GATE_MARKER in c for c in _gate_commands(settings))
+    assert not any(_is_gate(c) for c in _gate_commands(settings))
 
 
 def test_copy_artifacts_includes_shared_helper(tmp_path: Path):
@@ -263,7 +289,7 @@ def test_uninstall_round_trip(tmp_path: Path):
     assert "삭제" in remove_harness_dir(tmp_path)
 
     data = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
-    assert not any(GATE_MARKER in c for c in _gate_commands(tmp_path / ".claude" / "settings.json"))
+    assert not any(_is_gate(c) for c in _gate_commands(tmp_path / ".claude" / "settings.json"))
     assert "harness-tier" not in (data.get("extraKnownMarketplaces") or {})
     gi = (tmp_path / ".gitignore").read_text(encoding="utf-8")
     assert all(line not in gi for line in GITIGNORE_LINES)
@@ -301,7 +327,7 @@ def test_uninstall_preserves_other_settings(tmp_path: Path):
     unregister_gate(tmp_path)
     cmds = _gate_commands(settings)
     assert "echo other" in cmds
-    assert not any(GATE_MARKER in c for c in cmds)
+    assert not any(_is_gate(c) for c in cmds)
 
 
 def test_remove_claude_md_block(tmp_path: Path):
@@ -1295,7 +1321,7 @@ def test_a_gate_entry_under_another_tool_is_repaired(tmp_path: Path):
     firing = [
         e
         for e in after["hooks"]["PreToolUse"]
-        if any(fis.GATE_MARKER in (h.get("command") or "") for h in e.get("hooks") or [])
+        if any(fis._is_gate_hook(h) for h in e.get("hooks") or [])
     ]
     assert [e["matcher"] for e in firing] == ["Bash"], after["hooks"]["PreToolUse"]
 
@@ -1332,8 +1358,7 @@ def test_a_hook_the_host_wrote_stays_where_the_host_put_it(tmp_path: Path):
     survivors = [e for e in pre if theirs in (e.get("hooks") or [])]
     assert [e["matcher"] for e in survivors] == ["Read"], pre
     assert any(
-        e.get("matcher") == "Bash"
-        and any(fis.GATE_MARKER in (h.get("command") or "") for h in e.get("hooks") or [])
+        e.get("matcher") == "Bash" and any(fis._is_gate_hook(h) for h in e.get("hooks") or [])
         for e in pre
     ), pre
 
@@ -1350,27 +1375,58 @@ def test_a_matcher_that_already_covers_bash_is_left_alone(tmp_path: Path):
     assert "skip" in out, out
 
 
-# Spellings the hooks reference defines as one tool name or a `|`/`,` list of them. Every one
-# of these fires on a commit, so the gate is already registered under it and narrowing it would
-# drop coverage the host asked for.
-COVERS_BASH = ["Bash", "Bash|Write", "Bash, Write", "Bash | Write", "Bash ", "Write, Bash", "*", ""]
-# Spellings this interpreter cannot decide. A matcher outside the name alphabet is a JavaScript
-# regular expression, and Python's dialect disagrees with it — `(?i)` and `\Z` are Python's
-# alone — so each of these has to be read as NOT the gate, which costs an entry rather than a
-# gate that never fires.
-COVERS_NOTHING = [
+# Spellings the hooks reference defines as one tool name or a `|` list of them, in the one form
+# every host version reads the same way. Each fires on a commit, so the gate is already
+# registered under it and touching the entry would drop coverage the host asked for.
+COVERS_BASH = [
+    "Bash",
+    "Bash|Write",
+    "Bash|",
+    "|Bash",
+    "Bash||Write",
+    "Bash| Write",
+    "Bash|code-reviewer",
+    "Write|Read|Bash",
+    "Bash|tool_2",
+    "*",
+    "",
+]
+# Spellings that name no tool a commit arrives through. Both readings agree, so the gate hook
+# comes out of the entry and the entry keeps everything else.
+COVERS_NOTHING = ["Read", "bash", "Write|Edit", "Write, Edit"]
+# Spellings this script cannot decide. A matcher outside the name alphabet is a JavaScript
+# regular expression and Python's dialect disagrees with it (`(?i)` and `\Z` are Python's
+# alone); the comma separator and the whitespace around a name are newer than the oldest host
+# this runs on, which reads the same text as a pattern. Undecided leaves the entry exactly as
+# the host wrote it AND gives the gate an entry of its own, so the gate exists either way.
+CANNOT_DECIDE = [
+    ["Bash"],
+    7,
+    False,
+    0,
+    {"tool": "Bash"},
+    "Bash, Write",
+    "Bash,Write",
+    "ash|x-y",
+    "Bash | Write",
+    "Bash ",
+    "Write, Bash",
+    "^Bash$",
+    ".*",
     "Bash|.*",
-    "Read",
+    "Bash|mcp__x.y",
     "^Notebook",
     "mcp__.*",
     "Bash[",
     "(?i)bash",
     "Bash" + chr(92) + "Z",
-    "bash",
-    ["Bash"],
-    7,
-    {"tool": "Bash"},
 ]
+
+
+def _firing(pre: list) -> list:
+    import scripts.flow_init_setup as fis
+
+    return [e for e in pre if any(fis._is_gate_hook(h) for h in e.get("hooks") or [])]
 
 
 @pytest.mark.parametrize("matcher", COVERS_BASH, ids=[repr(m) for m in COVERS_BASH])
@@ -1395,30 +1451,43 @@ def test_a_matcher_left_out_entirely_is_every_tool(tmp_path: Path):
 
 
 @pytest.mark.parametrize("matcher", COVERS_NOTHING, ids=[repr(m) for m in COVERS_NOTHING])
-def test_a_matcher_this_interpreter_cannot_decide_is_not_the_gate(tmp_path: Path, matcher):
+def test_a_matcher_naming_no_tool_the_gate_uses_gives_the_hook_up(tmp_path: Path, matcher):
     import scripts.flow_init_setup as fis
 
-    settings = _planted(tmp_path, [{"matcher": matcher, "hooks": [_gate_hook()]}])
+    settings = _planted(
+        tmp_path, [{"matcher": matcher, "team_note": "ours", "hooks": [_gate_hook()]}]
+    )
     fis.register_gate(tmp_path)
     pre = json.loads(settings.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
-    firing = [
-        e
-        for e in pre
-        if any(fis.GATE_MARKER in (h.get("command") or "") for h in e.get("hooks") or [])
-    ]
-    assert [e.get("matcher") for e in firing] == ["Bash"], pre
-    assert pre[0].get("matcher") == matcher, pre
+    assert [e.get("matcher") for e in _firing(pre)] == ["Bash"], pre
+    assert pre[0] == {"matcher": matcher, "team_note": "ours", "hooks": []}, pre
 
 
-def test_the_report_counts_the_hooks_it_moved(tmp_path: Path):
-    """One entry holding two gate hooks is two hooks moved, not one entry and not two
-    entries — the earlier implementation collected the entry once per hook and said 2."""
+@pytest.mark.parametrize("matcher", CANNOT_DECIDE, ids=[repr(m) for m in CANNOT_DECIDE])
+def test_a_matcher_this_script_cannot_decide_is_left_as_written(tmp_path: Path, matcher):
+    """Acted on as "does not fire", a `^Bash$` the host anchored on purpose loses the hook it
+    was holding and the report says the entry never fired. Both are false, and the entry is the
+    host's, so the only thing this script may do about it is add one of its own."""
     import scripts.flow_init_setup as fis
 
-    settings = _planted(tmp_path, [{"matcher": "Read", "hooks": [_gate_hook(), _gate_hook()]}])
-    assert "2건" in fis.register_gate(tmp_path)
+    planted = {"matcher": matcher, "team_note": "ours", "hooks": [_gate_hook()]}
+    settings = _planted(tmp_path, [dict(planted)])
+    fis.register_gate(tmp_path)
     pre = json.loads(settings.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
-    assert pre[0]["hooks"] == [], pre
+    assert pre[0] == planted, pre
+    assert "Bash" in [e.get("matcher") for e in _firing(pre)], pre
+
+
+def test_registering_twice_over_a_matcher_that_cannot_be_decided_settles(tmp_path: Path):
+    """The added entry has to be recognised as the gate on the next run, or every /flow-init
+    adds another one beside a hook it will not touch."""
+    import scripts.flow_init_setup as fis
+
+    settings = _planted(tmp_path, [{"matcher": "^Bash$", "hooks": [_gate_hook()]}])
+    fis.register_gate(tmp_path)
+    first = settings.read_text(encoding="utf-8")
+    assert "skip" in fis.register_gate(tmp_path)
+    assert settings.read_text(encoding="utf-8") == first
 
 
 def test_an_emptied_host_entry_keeps_what_the_host_wrote(tmp_path: Path):
@@ -1455,6 +1524,21 @@ MALFORMED = [
         "a foreign entry's hooks is a string",
         {"hooks": {"PreToolUse": [{"matcher": "Read", "hooks": "x"}]}},
     ),
+    (
+        "a hook command is a number",
+        {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"command": 7}]}]}},
+    ),
+    (
+        "a hook command is true",
+        {"hooks": {"PreToolUse": [{"matcher": "Read", "hooks": [{"command": True}]}]}},
+    ),
+    (
+        "a hook is a string",
+        {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": ["theirs.sh"]}]}},
+    ),
+    ("the document is a string", "x"),
+    ("the document is a number", 7),
+    ("the document is true", True),
 ]
 
 
@@ -1465,9 +1549,21 @@ def test_a_settings_shape_the_schema_does_not_describe_is_reported(
     import scripts.flow_init_setup as fis
 
     (tmp_path / ".claude").mkdir(parents=True)
-    (tmp_path / ".claude" / "settings.json").write_text(json.dumps(payload), encoding="utf-8")
-    assert isinstance(fis.register_gate(tmp_path), str)
-    assert isinstance(fis.unregister_gate(tmp_path), str)
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.write_text(json.dumps(payload), encoding="utf-8")
+    before = settings.read_bytes()
+    outs = [fis.register_gate(tmp_path), fis.unregister_gate(tmp_path)]
+    for out in outs:
+        assert out[:5] in ("  [!]", "  [=]", "  [+]", "  [-]"), (label, out)
+    if outs[0].startswith("  [!]"):
+        # Refused: the document itself is the shape that cannot be read, so nothing was written.
+        assert settings.read_bytes() == before, label
+        return
+    # Accepted: the junk sits below the level this reads, so the gate installs around it and
+    # every entry the host wrote is still there afterwards.
+    planted = (payload.get("hooks") or {}).get("PreToolUse")
+    kept = json.loads(settings.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+    assert all(entry in kept for entry in planted), (label, kept)
 
 
 def test_a_byte_order_mark_is_not_a_broken_settings_file(tmp_path: Path):
@@ -1497,7 +1593,7 @@ def test_uninstall_leaves_a_host_hook_that_shares_the_gate_entry(tmp_path: Path)
     pre = json.loads(settings.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
     hooks = [h for e in pre for h in e.get("hooks") or []]
     assert theirs in hooks, pre
-    assert not [h for h in hooks if fis.GATE_MARKER in (h.get("command") or "")], pre
+    assert not [h for h in hooks if fis._is_gate_hook(h)], pre
 
 
 def test_uninstall_keeps_a_host_entry_it_only_emptied(tmp_path: Path):
@@ -1519,3 +1615,1031 @@ def test_uninstall_drops_the_entry_it_wrote_itself(tmp_path: Path):
     fis.unregister_gate(tmp_path)
     settings = tmp_path / ".claude" / "settings.json"
     assert json.loads(settings.read_text(encoding="utf-8"))["hooks"]["PreToolUse"] == []
+
+
+def test_a_gate_that_runs_more_than_once_says_so(tmp_path: Path):
+    """Two gate hooks the host can reach are two gate runs per commit. Removing one would take
+    a hook this plugin may not have written; not saying so reports a gate state that is not the
+    one the host has."""
+    import scripts.flow_init_setup as fis
+
+    _planted(tmp_path, [{"matcher": "Bash", "hooks": [_gate_hook(), _gate_hook()]}])
+    assert "2개" in fis.register_gate(tmp_path)
+
+
+def test_moving_a_hook_is_written_even_when_the_gate_is_already_there(tmp_path: Path):
+    """A move with nothing else to do still changes the file, so reporting it as a skip leaves
+    the host with a gate hook under a matcher that does not fire and no record of it."""
+    import scripts.flow_init_setup as fis
+
+    settings = _planted(
+        tmp_path,
+        [
+            {"matcher": "Bash", "hooks": [_gate_hook()]},
+            {"matcher": "Read", "hooks": [_gate_hook()]},
+        ],
+    )
+    out = fis.register_gate(tmp_path)
+    pre = json.loads(settings.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+    assert "skip" not in out and "1건" in out, out
+    assert pre[1]["hooks"] == [], pre
+
+
+def test_the_repair_count_covers_the_hooks_it_moved(tmp_path: Path):
+    import scripts.flow_init_setup as fis
+
+    # The path a release before the scripts/ subdirectory installed to. It still says
+    # harness-tier, which is what separates this from a hook the host wrote.
+    stale = dict(
+        _gate_hook(),
+        command='bash "${CLAUDE_PROJECT_DIR:-.}/.claude/harness-tier/precommit-runner.sh"',
+    )
+    _planted(
+        tmp_path,
+        [
+            {"matcher": "Bash", "hooks": [stale]},
+            {"matcher": "Read", "hooks": [_gate_hook()]},
+        ],
+    )
+    assert "2건" in fis.register_gate(tmp_path)
+
+
+def test_uninstall_keeps_the_keys_the_host_put_beside_the_gate(tmp_path: Path):
+    """The entry carries the gate's own matcher, so only its key set says whether the host
+    wrote anything into it."""
+    import scripts.flow_init_setup as fis
+
+    settings = _planted(
+        tmp_path, [{"matcher": "Bash", "team_note": "ours", "hooks": [_gate_hook()]}]
+    )
+    fis.unregister_gate(tmp_path)
+    pre = json.loads(settings.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+    assert pre == [{"matcher": "Bash", "team_note": "ours", "hooks": []}], pre
+
+
+def test_uninstall_keeps_a_host_entry_that_only_looks_like_the_gates(tmp_path: Path):
+    """Same keys, same emptiness — the matcher is the only thing left that says whose entry it
+    is, and dropping it here takes an entry the host wrote."""
+    import scripts.flow_init_setup as fis
+
+    settings = _planted(tmp_path, [{"matcher": "Read", "hooks": [_gate_hook()]}])
+    fis.register_gate(tmp_path)
+    fis.unregister_gate(tmp_path)
+    pre = json.loads(settings.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+    assert pre == [{"matcher": "Read", "hooks": []}], pre
+
+
+def test_uninstall_with_no_gate_present_writes_nothing(tmp_path: Path):
+    import scripts.flow_init_setup as fis
+
+    settings = _planted(tmp_path, [{"matcher": "Bash", "hooks": [{"command": "theirs.sh"}]}])
+    before = settings.read_text(encoding="utf-8")
+    assert "skip" in fis.unregister_gate(tmp_path)
+    assert settings.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.parametrize("label,payload", MALFORMED, ids=[label for label, _ in MALFORMED])
+def test_setup_finishes_its_other_steps_on_a_settings_shape_it_cannot_use(
+    tmp_path: Path, label: str, payload, monkeypatch, capsys
+):
+    """/flow-init prints each step's result unguarded, so one raise takes the marketplace
+    registration, the pre-commit check, the .gitignore lines and every rendered workflow down
+    with the gate — and a guard in the gate alone only moves the raise to the next step.
+
+    Finishing is not succeeding, though: a gate that did not register is the install's whole
+    point missing, and its one `[!]` scrolls past among forty other lines. So the last line and
+    the exit code have to agree with the gate, whichever way it went."""
+    import scripts.flow_init_setup as fis
+
+    (tmp_path / ".claude").mkdir(parents=True)
+    (tmp_path / ".claude" / "settings.json").write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+    monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(PLUGIN))
+    monkeypatch.setattr(sys, "argv", ["flow_init_setup.py"])
+    code = 0
+    try:
+        fis.main()
+    except SystemExit as exc:
+        code = exc.code
+    out = capsys.readouterr().out
+    # Asked of the output, the question answers itself: a build that never prints the
+    # line agrees with itself about there being nothing wrong. The host's file knows.
+    registered = _gate_is_in(tmp_path / ".claude" / "settings.json")
+    assert (code == 0) is registered, (label, code, out)
+    assert ("기계적 셋업 완료" in out) is registered, (label, out)
+    assert (tmp_path / ".gitignore").is_file()
+    assert (tmp_path / ".claude" / "harness-tier" / "scripts" / "precommit-runner.sh").is_file()
+
+
+def test_a_settings_file_that_is_not_utf8_is_reported(tmp_path: Path):
+    """The host this gate was written for runs a cp949 console, so a settings.json with a
+    Korean comment in the local code page is an ordinary file there, not a corrupt one."""
+    import scripts.flow_init_setup as fis
+
+    (tmp_path / ".claude").mkdir(parents=True)
+    (tmp_path / ".claude" / "settings.json").write_bytes('{"note": "한글"}'.encode("cp949"))
+    assert "UTF-8" in fis.register_gate(tmp_path)
+    assert "UTF-8" in fis.unregister_gate(tmp_path)
+
+
+def test_a_settings_path_that_cannot_be_written_is_reported(tmp_path: Path):
+    import scripts.flow_init_setup as fis
+
+    (tmp_path / ".claude" / "settings.json").mkdir(parents=True)
+    out = fis.register_gate(tmp_path)
+    assert out.startswith("  [!]"), out
+
+
+def test_a_document_that_is_not_an_object_is_left_alone(tmp_path: Path):
+    """Reported, not overwritten. The guard is only worth having if the file survives it."""
+    import scripts.flow_init_setup as fis
+
+    (tmp_path / ".claude").mkdir(parents=True)
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.write_text('["the host\'s own array-shaped config", {"keep": "me"}]', encoding="utf-8")
+    before = settings.read_text(encoding="utf-8")
+    assert fis.register_gate(tmp_path).startswith("  [!]")
+    assert settings.read_text(encoding="utf-8") == before
+
+
+def test_the_move_count_is_hooks_not_entries(tmp_path: Path):
+    """One entry can hold several gate hooks, and the number the host reads has to be the
+    number that moved."""
+    import scripts.flow_init_setup as fis
+
+    _planted(
+        tmp_path,
+        [{"matcher": "Read", "hooks": [_gate_hook(), _gate_hook(), _gate_hook()]}],
+    )
+    assert "3건" in fis.register_gate(tmp_path)
+
+
+def test_a_stale_hook_under_an_undecidable_matcher_is_still_brought_forward(tmp_path: Path):
+    """The entry stays as the host wrote it; the gate's own hook inside it does not, because
+    a path this plugin no longer installs to is a hook that runs nothing."""
+    import scripts.flow_init_setup as fis
+
+    # The path a release before the scripts/ subdirectory installed to. It still says
+    # harness-tier, which is what separates this from a hook the host wrote.
+    stale = dict(
+        _gate_hook(),
+        command='bash "${CLAUDE_PROJECT_DIR:-.}/.claude/harness-tier/precommit-runner.sh"',
+    )
+    settings = _planted(tmp_path, [{"matcher": "^Bash$", "hooks": [stale]}])
+    fis.register_gate(tmp_path)
+    pre = json.loads(settings.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+    assert pre[0]["matcher"] == "^Bash$", pre
+    assert pre[0]["hooks"][0]["command"] == fis.GATE_COMMAND, pre
+
+
+def test_a_hook_under_an_undecidable_matcher_is_reported_as_a_maybe(tmp_path: Path):
+    """It may fire and it may not — saying it does is the same false statement about the
+    host's configuration that reading the matcher wrongly makes."""
+    import scripts.flow_init_setup as fis
+
+    out = fis.register_gate(
+        _host_with(tmp_path, [{"matcher": "^Notebook", "hooks": [_gate_hook()]}])
+    )
+    assert "판정할 수 없는" in out and "1개" in out, out
+    assert "발화하는 게이트 훅" not in out, out
+
+
+def _host_with(tmp_path: Path, entries: list) -> Path:
+    _planted(tmp_path, entries)
+    return tmp_path
+
+
+def test_a_settings_file_that_cannot_be_read_is_reported(tmp_path: Path, monkeypatch):
+    """The file exists and the read still fails — a lock, a permission, a device. Every other
+    step of the setup runs after this one."""
+    import scripts.flow_init_setup as fis
+
+    (tmp_path / ".claude").mkdir(parents=True)
+    (tmp_path / ".claude" / "settings.json").write_text("{}", encoding="utf-8")
+    real = Path.read_text
+
+    def refuse(self, *a, **kw):
+        if self.name == "settings.json":
+            raise OSError(13, "Permission denied")
+        return real(self, *a, **kw)
+
+    monkeypatch.setattr(Path, "read_text", refuse)
+    assert "읽지 못했습니다" in fis.register_gate(tmp_path)
+    assert "읽지 못했습니다" in fis.unregister_gate(tmp_path)
+
+
+def test_a_settings_file_holding_null_is_an_empty_one(tmp_path: Path):
+    """`null` parses, and it is not an object; read as one the gate refuses a file that says
+    nothing at all rather than registering into it."""
+    import scripts.flow_init_setup as fis
+
+    (tmp_path / ".claude").mkdir(parents=True)
+    (tmp_path / ".claude" / "settings.json").write_text("null", encoding="utf-8")
+    assert "등록" in fis.register_gate(tmp_path)
+
+
+def test_one_gate_hook_is_not_reported_as_several(tmp_path: Path):
+    import scripts.flow_init_setup as fis
+
+    assert "게이트 훅" not in fis.register_gate(tmp_path)
+    assert "게이트 훅" not in fis.register_gate(tmp_path)
+
+
+def test_the_undecided_note_counts_hooks_not_entries(tmp_path: Path):
+    import scripts.flow_init_setup as fis
+
+    _planted(tmp_path, [{"matcher": "^Bash$", "hooks": [_gate_hook(), _gate_hook()]}])
+    out = fis.register_gate(tmp_path)
+    assert "판정할 수 없는" in out and "2개" in out, out
+
+
+def test_a_write_that_fails_leaves_the_host_file_as_it_was(tmp_path: Path):
+    """Opening for writing truncates before it writes, so a failure partway through is the
+    host's settings gone — and the report line would call that "could not write"."""
+    import scripts.flow_init_setup as fis
+
+    (tmp_path / ".claude").mkdir(parents=True)
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.write_text(json.dumps({"permissions": {"allow": ["Bash"]}}), encoding="utf-8")
+    before = settings.read_text(encoding="utf-8")
+    # A lone surrogate parses as JSON and encodes as nothing.
+    settings.write_text(
+        json.dumps({"permissions": {"allow": ["Bash"]}, "n": "\ud800"}), encoding="utf-8"
+    )
+    poisoned = settings.read_text(encoding="utf-8")
+    out = fis.register_gate(tmp_path)
+    assert out.startswith("  [!]"), out
+    assert settings.read_text(encoding="utf-8") == poisoned
+    assert before != poisoned
+    assert not list((tmp_path / ".claude").glob("settings.json.*")), "the temporary file stayed"
+
+
+def test_a_claude_directory_that_is_a_file_is_reported(tmp_path: Path):
+    import scripts.flow_init_setup as fis
+
+    (tmp_path / ".claude").write_text("not a directory", encoding="utf-8")
+    assert fis.register_gate(tmp_path).startswith("  [!]")
+    assert fis.unregister_gate(tmp_path).startswith("  [!]")
+    assert fis.register_marketplace(tmp_path).startswith("  [!]")
+
+
+def test_a_settings_file_too_deep_to_parse_is_reported(tmp_path: Path):
+    import scripts.flow_init_setup as fis
+
+    (tmp_path / ".claude").mkdir(parents=True)
+    (tmp_path / ".claude" / "settings.json").write_text(
+        "[" * 100000 + "]" * 100000, encoding="utf-8"
+    )
+    assert "파싱 실패" in fis.register_gate(tmp_path)
+
+
+def test_the_undecided_note_counts_only_the_gates_own_hooks(tmp_path: Path):
+    """The host's hooks under an undecidable matcher are the host's, and counting them as gate
+    runs tells them their commit does something it does not."""
+    import scripts.flow_init_setup as fis
+
+    _planted(
+        tmp_path,
+        [{"matcher": "^Bash$", "hooks": [{"command": "my-audit.sh"}, {"command": "lint.sh"}]}],
+    )
+    out = fis.register_gate(tmp_path)
+    assert "게이트 훅" not in out, out
+
+
+def test_a_settings_file_the_host_keeps_as_a_link_is_written_through(tmp_path: Path):
+    """A rename replaces the name, so the link became a plain file and the dotfiles copy the
+    host actually manages kept the old content — which their next sync puts back, gate and
+    all."""
+    import scripts.flow_init_setup as fis
+
+    managed = tmp_path / "dotfiles-settings.json"
+    managed.write_text(json.dumps({"permissions": {"allow": ["Bash"]}}), encoding="utf-8")
+    (tmp_path / ".claude").mkdir()
+    link = tmp_path / ".claude" / "settings.json"
+    try:
+        link.symlink_to(managed)
+    except OSError as exc:  # a host without the privilege to make one
+        pytest.skip(str(exc))
+    assert "등록" in fis.register_gate(tmp_path)
+    assert link.is_symlink()
+    assert _is_gate(_gate_commands(managed)[0])
+
+
+def test_a_temporary_file_does_not_consume_one_the_host_already_had(tmp_path: Path):
+    """The name beside settings.json was fixed, and whatever the host had there went with the
+    rename."""
+    import scripts.flow_init_setup as fis
+
+    (tmp_path / ".claude").mkdir(parents=True)
+    victim = tmp_path / ".claude" / "settings.json.harness-new"
+    victim.write_text("the host wrote this", encoding="utf-8")
+    fis.register_gate(tmp_path)
+    assert victim.read_text(encoding="utf-8") == "the host wrote this"
+
+
+@pytest.mark.parametrize("field", [{"if": "Bash(rm *)"}, {"async": True}, {"type": "prompt"}])
+def test_a_gate_hook_the_host_switched_off_is_not_the_gate(tmp_path: Path, field: dict):
+    """Each of these leaves the hook registered and firing on nothing: `if` suppresses it per
+    build (Invariant 4), `async` puts it where it cannot deny, and another `type` runs
+    something else. Reported as already registered, the commit gate is off in silence."""
+    import scripts.flow_init_setup as fis
+
+    settings = _planted(tmp_path, [{"matcher": "Bash", "hooks": [dict(_gate_hook(), **field)]}])
+    assert "보정" in fis.register_gate(tmp_path)
+    hook = json.loads(settings.read_text(encoding="utf-8"))["hooks"]["PreToolUse"][0]["hooks"][0]
+    assert hook == fis.GATE_ENTRY["hooks"][0], hook
+
+
+def test_a_hook_of_the_hosts_that_merely_shares_the_script_name_is_left_alone(tmp_path: Path):
+    """`precommit-runner.sh` is a name a host writes for itself. Claimed as this gate's, theirs
+    was rewritten to this path under a firing matcher and deleted under one that does not
+    fire."""
+    import scripts.flow_init_setup as fis
+
+    theirs = {"type": "command", "command": "bash ./tools/precommit-runner.sh --their-flags"}
+    for matcher in ("Bash", "Edit"):
+        host = tmp_path / matcher
+        settings = _planted(host, [{"matcher": matcher, "hooks": [dict(theirs)]}])
+        fis.register_gate(host)
+        cmds = _gate_commands(settings)
+        assert theirs["command"] in cmds, (matcher, cmds)
+        assert any(_is_gate(c) for c in cmds), (matcher, cmds)
+
+
+@pytest.mark.parametrize("document", ["false", "0", '""', "[]", "0.0"])
+def test_a_falsy_document_is_data_not_an_empty_one(tmp_path: Path, document: str):
+    """`json.loads(...) or {}` ran before the shape check, so every falsy value reached the
+    writer as an empty object and was overwritten under a clean registration line. `null`
+    alone is the host's own spelling for nothing set yet."""
+    import scripts.flow_init_setup as fis
+
+    (tmp_path / ".claude").mkdir(parents=True)
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.write_text(document, encoding="utf-8")
+    assert fis.register_gate(tmp_path).startswith("  [!]")
+    assert settings.read_text(encoding="utf-8") == document
+
+
+def test_a_settings_file_holding_only_null_still_takes_the_gate(tmp_path: Path):
+    import scripts.flow_init_setup as fis
+
+    (tmp_path / ".claude").mkdir(parents=True)
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.write_text("null", encoding="utf-8")
+    assert "등록" in fis.register_gate(tmp_path)
+    assert any(_is_gate(c) for c in _gate_commands(settings))
+
+
+def test_hooks_turned_off_wholesale_is_said_out_loud(tmp_path: Path):
+    """Registering into a settings.json that disables every hook reported a clean install of a
+    gate that cannot run."""
+    import scripts.flow_init_setup as fis
+
+    (tmp_path / ".claude").mkdir(parents=True)
+    (tmp_path / ".claude" / "settings.json").write_text(
+        json.dumps({"disableAllHooks": True}), encoding="utf-8"
+    )
+    assert "disableAllHooks" in fis.register_gate(tmp_path)
+
+
+def test_a_reason_survives_an_error_that_carries_no_strerror():
+    import scripts.flow_init_setup as fis
+
+    assert fis._why(OSError()) == "OSError"
+    assert fis._why(ValueError("surrogates not allowed")) == "surrogates not allowed"
+    assert fis._why(OSError(2, "no such file")) == "no such file"
+
+
+def test_uninstall_leaves_a_hook_of_the_hosts_that_shares_the_script_name(tmp_path: Path):
+    """The install side stopped claiming it; the removal side takes hooks by the same
+    predicate, and a host hook deleted by an uninstall is gone for good."""
+    import scripts.flow_init_setup as fis
+
+    theirs = {"type": "command", "command": "bash ./tools/precommit-runner.sh --their-flags"}
+    settings = _planted(tmp_path, [{"matcher": "Bash", "hooks": [dict(theirs), _gate_hook()]}])
+    assert "해제" in fis.unregister_gate(tmp_path)
+    cmds = _gate_commands(settings)
+    assert cmds == [theirs["command"]], cmds
+
+
+def test_the_mode_the_host_gave_settings_json_survives_a_write(tmp_path: Path):
+    """A rename carries the temporary file's mode, and mkstemp makes one only its owner can
+    read. On a build machine where another uid reads .claude/settings.json that is the config
+    gone, and git tracks no mode but the exec bit, so nothing shows it."""
+    import stat
+
+    import scripts.flow_init_setup as fis
+
+    (tmp_path / ".claude").mkdir(parents=True)
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.write_text(json.dumps({"permissions": {"allow": ["Bash"]}}), encoding="utf-8")
+    settings.chmod(0o644)
+    before = stat.S_IMODE(settings.stat().st_mode)
+    if before != 0o644:  # a host whose filesystem does not carry the bits
+        pytest.skip(f"mode not honoured here: {before:o}")
+    assert "등록" in fis.register_gate(tmp_path)
+    assert stat.S_IMODE(settings.stat().st_mode) == before
+
+
+def test_a_settings_file_the_host_locked_is_not_replaced(tmp_path: Path):
+    """A rename asks the DIRECTORY for permission, not the file, so read-only stopped meaning
+    anything the moment the write went through a temporary file."""
+    import scripts.flow_init_setup as fis
+
+    (tmp_path / ".claude").mkdir(parents=True)
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.write_text(json.dumps({"permissions": {"allow": ["Bash"]}}), encoding="utf-8")
+    before = settings.read_text(encoding="utf-8")
+    settings.chmod(0o444)
+    try:
+        if os.access(settings, os.W_OK):  # a host where the bit does not deny the owner
+            pytest.skip("read-only is not enforced here")
+        assert fis.register_gate(tmp_path).startswith("  [!]")
+        assert settings.read_text(encoding="utf-8") == before
+    finally:
+        settings.chmod(0o644)
+
+
+def test_the_temporary_file_is_made_beside_the_file_it_replaces(tmp_path: Path, monkeypatch):
+    """A rename cannot cross a filesystem. Made anywhere but next to the target, the write
+    fails on exactly the hosts that keep their project on another volume."""
+    import scripts.flow_init_setup as fis
+
+    seen = []
+    real = fis.tempfile.mkstemp
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs.get("dir"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(fis.tempfile, "mkstemp", spy)
+    fis.register_gate(tmp_path)
+    assert seen == [tmp_path / ".claude"], seen
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        PermissionError(13, "Permission denied"),
+        OSError(28, "No space left on device"),
+        OSError(122, "Disk quota exceeded"),
+    ],
+    ids=["no permission", "full disk", "over quota"],
+)
+def test_a_write_that_cannot_make_a_temporary_file_leaves_the_host_alone(
+    tmp_path: Path, monkeypatch, failure
+):
+    """Writing in place instead would be the truncation the temporary file exists to prevent,
+    and `mkstemp` fails for more than a directory it may not write — a full disk and exhausted
+    inodes reach the same call, with the host's own file perfectly writable."""
+    import scripts.flow_init_setup as fis
+
+    settings = _planted(tmp_path, [{"matcher": "Read", "hooks": []}])
+    before = settings.read_bytes()
+
+    def refuse(*_args, **_kwargs):
+        raise failure
+
+    monkeypatch.setattr(fis.tempfile, "mkstemp", refuse)
+    assert fis.register_gate(tmp_path).startswith("  [!]")
+    assert settings.read_bytes() == before
+    assert not list((tmp_path / ".claude").glob("settings.json.*"))
+
+
+def test_hooks_turned_off_wholesale_is_not_a_finished_setup(tmp_path: Path, monkeypatch, capsys):
+    """It is the one input that says outright the gate will never fire, and it was the one
+    that ended `기계적 셋업 완료.` with exit 0."""
+    import scripts.flow_init_setup as fis
+
+    (tmp_path / ".claude").mkdir(parents=True)
+    (tmp_path / ".claude" / "settings.json").write_text(
+        json.dumps({"disableAllHooks": True}), encoding="utf-8"
+    )
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+    monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(PLUGIN))
+    monkeypatch.setattr(sys, "argv", ["flow_init_setup.py"])
+    with pytest.raises(SystemExit) as raised:
+        fis.main()
+    assert raised.value.code == 1
+    out = capsys.readouterr().out
+    assert "기계적 셋업 완료" not in out
+    assert "disableAllHooks" in out
+
+
+def test_an_uninstall_that_leaves_the_hook_behind_says_so(tmp_path: Path, monkeypatch, capsys):
+    """The scripts the hook names are deleted by the same run, so a settings.json it could not
+    write leaves every Bash command in that host running a file that is not there."""
+    import scripts.flow_init_setup as fis
+
+    settings = _planted(tmp_path, [{"matcher": "Bash", "hooks": [_gate_hook()]}])
+    settings.chmod(0o444)
+    try:
+        if os.access(settings, os.W_OK):  # a host where the bit does not deny the owner
+            pytest.skip("read-only is not enforced here")
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+        monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(PLUGIN))
+        monkeypatch.setattr(sys, "argv", ["flow_init_setup.py", "--uninstall"])
+        with pytest.raises(SystemExit) as raised:
+            fis.main()
+        assert raised.value.code == 1
+        out = capsys.readouterr().out
+        assert "정리 완료" not in out
+        assert "남았습니다" in out
+        assert any(_is_gate(c) for c in _gate_commands(settings))
+    finally:
+        settings.chmod(0o644)
+
+
+def test_the_access_entries_and_owner_are_carried_over(tmp_path: Path, monkeypatch):
+    """Neither survives a rename, and neither shows up in a diff — `st_mode` reports the ACL
+    MASK in its group bits, so putting that back as a plain mode is what gave group write to a
+    file whose owner had granted one named user, and the new inode is the writer's own. The
+    host running Windows has no way to observe either, so what is held here is that the calls
+    are made with the values that were read."""
+    import scripts.flow_init_setup as fis
+
+    (tmp_path / ".claude").mkdir(parents=True)
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.write_text(json.dumps({"permissions": {"allow": ["Bash"]}}), encoding="utf-8")
+    entries = b"entries the host set"
+    chowned, xattred = [], []
+    monkeypatch.setattr(fis, "_access_entries", lambda _p: entries)
+    monkeypatch.setattr(
+        fis.os, "setxattr", lambda p, name, value: xattred.append((name, value)), raising=False
+    )
+    monkeypatch.setattr(fis.os, "getuid", lambda: 4242, raising=False)
+    monkeypatch.setattr(fis.os, "getgid", lambda: 4242, raising=False)
+    monkeypatch.setattr(
+        fis.os, "chown", lambda p, uid, gid: chowned.append((uid, gid)), raising=False
+    )
+    before = settings.stat()
+    assert "등록" in fis.register_gate(tmp_path)
+    assert xattred == [(fis._ACCESS_ENTRIES, entries)], xattred
+    assert chowned == [(before.st_uid, before.st_gid)], chowned
+
+
+def test_a_marketplace_write_that_fails_is_reported(tmp_path: Path, monkeypatch):
+    """Every step that writes settings.json has to say so — the setup's verdict reads the
+    file, but the step's own line is what names which write went wrong."""
+    import scripts.flow_init_setup as fis
+
+    _planted(tmp_path, [{"matcher": "Bash", "hooks": [_gate_hook()]}])
+
+    def refuse(*_args, **_kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(fis.tempfile, "mkstemp", refuse)
+    assert fis.register_marketplace(tmp_path).startswith("  [!]")
+
+
+def test_a_gate_that_is_there_and_firing_is_a_finished_setup(tmp_path: Path, monkeypatch, capsys):
+    """The registration line said something was wrong — a gate hook it wanted to move out of a
+    non-firing entry, and a settings.json it could not write to do it. The gate itself was
+    registered and firing the whole time, and the setup's verdict is about the gate."""
+    import scripts.flow_init_setup as fis
+
+    settings = _planted(
+        tmp_path,
+        [
+            {"matcher": "Bash", "hooks": [_gate_hook()]},
+            {"matcher": "Read", "hooks": [_gate_hook()]},
+        ],
+    )
+    settings.chmod(0o444)
+    try:
+        if os.access(settings, os.W_OK):  # a host where the bit does not deny the owner
+            pytest.skip("read-only is not enforced here")
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+        monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(PLUGIN))
+        monkeypatch.setattr(sys, "argv", ["flow_init_setup.py"])
+        fis.main()
+        out = capsys.readouterr().out
+        assert "기계적 셋업 완료" in out
+        assert "커밋 게이트가 settings.json 에 없습니다" not in out
+    finally:
+        settings.chmod(0o644)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ['{"a": 1,,}', "settings".encode("cp949").decode("latin-1"), '["a host array"]'],
+    ids=["unparseable", "not utf-8", "not an object"],
+)
+def test_an_uninstall_that_cannot_read_settings_says_the_hook_may_remain(
+    tmp_path: Path, monkeypatch, capsys, raw: str
+):
+    """A file it cannot read is one it cannot clear, and the same run has already deleted the
+    scripts the hook names. `정리 완료.` over that is the lie this verdict exists to stop, and
+    the cp949 spelling is the host this gate was written for (Invariant 2)."""
+    import scripts.flow_init_setup as fis
+
+    (tmp_path / ".claude").mkdir(parents=True)
+    (tmp_path / ".claude" / "settings.json").write_text(raw, encoding="latin-1")
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+    monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(PLUGIN))
+    monkeypatch.setattr(sys, "argv", ["flow_init_setup.py", "--uninstall"])
+    with pytest.raises(SystemExit) as raised:
+        fis.main()
+    assert raised.value.code == 1
+    out = capsys.readouterr().out
+    assert "남았습니다" in out
+    assert "정리 완료" not in out
+
+
+def test_an_uninstall_prints_the_follow_ups_it_is_quoted_for(tmp_path: Path, capsys):
+    """`/flow-uninstall` sends the user to "the manual follow-ups the script prints", and the
+    only instruction for turning off a git hook that now names a deleted script is in them."""
+    import scripts.flow_init_setup as fis
+
+    _planted(tmp_path, [{"matcher": "Bash", "hooks": [_gate_hook()]}])
+    assert fis.run_uninstall(tmp_path) is True
+    out = capsys.readouterr().out
+    assert "pre-commit uninstall" in out
+    assert "정리 완료." in out
+
+
+def test_a_gate_hook_under_a_matcher_that_does_not_fire_is_not_a_gate(
+    tmp_path: Path, monkeypatch, capsys
+):
+    """The hook is in the file, so asking only whether one is there says the setup finished.
+    It fires on `Read`, and a commit arrives through Bash — and the settings.json this would
+    normally move it out of cannot be written."""
+    import scripts.flow_init_setup as fis
+
+    settings = _planted(tmp_path, [{"matcher": "Read", "hooks": [_gate_hook()]}])
+    settings.chmod(0o444)
+    try:
+        if os.access(settings, os.W_OK):  # a host where the bit does not deny the owner
+            pytest.skip("read-only is not enforced here")
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+        monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(PLUGIN))
+        monkeypatch.setattr(sys, "argv", ["flow_init_setup.py"])
+        with pytest.raises(SystemExit) as raised:
+            fis.main()
+        assert raised.value.code == 1
+        out = capsys.readouterr().out
+        assert "커밋 게이트가 settings.json 에 없습니다" in out
+        assert "기계적 셋업 완료" not in out
+        assert any(_is_gate(c) for c in _gate_commands(settings)), "the hook is still there"
+    finally:
+        settings.chmod(0o644)
+
+
+@pytest.mark.parametrize(
+    "field", [{"if": "Bash(git commit:*)"}, {"async": True}, {"type": "prompt"}]
+)
+def test_a_gate_hook_the_repair_could_not_reach_is_not_a_finished_setup(
+    tmp_path: Path, monkeypatch, capsys, field: dict
+):
+    """The repair that takes an `if` back off the gate hook lands only when the write lands.
+    Asked whether A gate hook is under a firing matcher, a settings.json that could not be
+    written reports a finished setup over a hook that fires on nothing (Invariant 4)."""
+    import scripts.flow_init_setup as fis
+
+    settings = _planted(tmp_path, [{"matcher": "Bash", "hooks": [dict(_gate_hook(), **field)]}])
+    settings.chmod(0o444)
+    try:
+        if os.access(settings, os.W_OK):  # a host where the bit does not deny the owner
+            pytest.skip("read-only is not enforced here")
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+        monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(PLUGIN))
+        monkeypatch.setattr(sys, "argv", ["flow_init_setup.py"])
+        with pytest.raises(SystemExit) as raised:
+            fis.main()
+        assert raised.value.code == 1
+        assert "기계적 셋업 완료" not in capsys.readouterr().out
+    finally:
+        settings.chmod(0o644)
+
+
+def test_a_matcher_this_cannot_decide_is_not_a_missing_gate(tmp_path: Path, monkeypatch, capsys):
+    """`^Bash$` fires. Read as a matcher that does not, a host who anchored it on purpose is
+    told the gate is missing and sent to fix what is not broken."""
+    import scripts.flow_init_setup as fis
+
+    settings = _planted(tmp_path, [{"matcher": "^Bash$", "hooks": [_gate_hook()]}])
+    settings.chmod(0o444)
+    try:
+        if os.access(settings, os.W_OK):
+            pytest.skip("read-only is not enforced here")
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+        monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(PLUGIN))
+        monkeypatch.setattr(sys, "argv", ["flow_init_setup.py"])
+        fis.main()
+        assert "기계적 셋업 완료" in capsys.readouterr().out
+    finally:
+        settings.chmod(0o644)
+
+
+def test_a_settings_file_this_creates_is_as_open_as_the_umask_allows(tmp_path: Path):
+    """`mkstemp` makes a file only its owner can read and a rename carries that, so the
+    commonest path of all — a first install — left a settings.json the session's own uid may
+    not be able to read. It is the failure this writer's docstring names."""
+    import stat
+
+    import scripts.flow_init_setup as fis
+
+    assert "등록" in fis.register_gate(tmp_path)
+    settings = tmp_path / ".claude" / "settings.json"
+    mode = stat.S_IMODE(settings.stat().st_mode)
+    mask = os.umask(0)
+    os.umask(mask)
+    if 0o666 & ~mask == 0o666:  # a host whose filesystem does not carry the bits
+        pytest.skip(f"mode not honoured here: {mode:o}")
+    assert mode == 0o666 & ~mask, oct(mode)
+
+
+def test_a_claude_directory_that_cannot_be_entered_is_reported(tmp_path: Path):
+    """`Path.is_file()` does not swallow a permission error, so the line after the guarded
+    mkdir took the script down where the guard had just been added — and the copy that runs
+    first did the same, taking the workflows and the .gitignore with it."""
+    import scripts.flow_init_setup as fis
+
+    closed = tmp_path / ".claude"
+    closed.mkdir()
+    closed.chmod(0o000)
+    try:
+        if os.access(closed, os.R_OK):  # a host where the bits do not deny the owner
+            pytest.skip("a closed directory is not enforced here")
+        assert fis.register_gate(tmp_path).startswith("  [!]")
+        assert fis.copy_artifacts(PLUGIN, tmp_path)[0].startswith("  [!]")
+    finally:
+        closed.chmod(0o755)
+
+
+def _acl_blob(uid: int) -> bytes:
+    """One POSIX access list, in the layout the kernel stores: a version word, then a tag,
+    permission bits and an id per entry, ordered by tag. It has to be a real one — the blob
+    this test used to set was refused as malformed, which skipped the test on Linux and left
+    the reader it exists to hold unheld on Windows too."""
+    undefined = 0xFFFFFFFF
+    out = struct.pack("<I", 2)
+    for tag, perm, ident in (
+        (0x01, 6, undefined),  # the owner
+        (0x02, 6, uid),  # one named user — what a plain mode cannot carry
+        (0x04, 4, undefined),  # the owning group
+        (0x10, 6, undefined),  # the mask `st_mode` reports as group bits
+        (0x20, 0, undefined),  # everyone else
+    ):
+        out += struct.pack("<HHI", tag, perm, ident)
+    return out
+
+
+def _set_acl(path: Path) -> bytes:
+    """Put one on the file, or say why this host cannot hold the test."""
+    if not hasattr(os, "setxattr"):
+        pytest.skip("no extended attributes here")
+    acl = _acl_blob(65534)  # nobody
+    try:
+        os.setxattr(path, ACCESS_ENTRIES, acl)
+    except OSError as exc:  # a filesystem that will not take one
+        pytest.skip(str(exc))
+    return acl
+
+
+def test_the_access_entries_are_read_from_the_file_itself(tmp_path: Path):
+    """The carry-over test replaces this function, so nothing ran it — an xattr name spelled
+    wrong, or a reader that always answers None, left the suite green."""
+    import scripts.flow_init_setup as fis
+
+    assert fis._ACCESS_ENTRIES == ACCESS_ENTRIES
+    plain = tmp_path / "plain.json"
+    plain.write_text("{}", encoding="utf-8")
+    assert fis._access_entries(plain) is None  # nothing set, and nothing raised
+    acl = _set_acl(plain)
+    assert fis._access_entries(plain) == acl
+
+
+def test_a_named_user_entry_survives_the_write(tmp_path: Path):
+    """What the carry-over is for, asked of the file rather than of the calls: a rename
+    lands a new inode, and the entry granting one named user is the part no mode can put
+    back. The host running Windows skips this; the CI running Linux does not."""
+    import scripts.flow_init_setup as fis
+
+    (tmp_path / ".claude").mkdir(parents=True)
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.write_text("{}", encoding="utf-8")
+    acl = _set_acl(settings)
+    assert "등록" in fis.register_gate(tmp_path)
+    assert os.getxattr(settings, ACCESS_ENTRIES) == acl
+
+
+def test_an_uninstall_write_that_fails_is_reported(tmp_path: Path, monkeypatch):
+    """Every step that writes settings.json says so. The removal side dropped its result while
+    the two beside it kept theirs."""
+    import scripts.flow_init_setup as fis
+
+    _planted(tmp_path, [{"matcher": "Bash", "hooks": [_gate_hook()]}])
+
+    def refuse(*_args, **_kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(fis.tempfile, "mkstemp", refuse)
+    assert fis.unregister_gate(tmp_path).startswith("  [!]")
+
+
+def test_the_gate_command_resolves_against_the_host():
+    """The hook runs wherever Claude Code's shell happens to be, so the path has to be the
+    host's own — spelled relative it names whatever directory the session sat in."""
+    import scripts.flow_init_setup as fis
+
+    assert "${CLAUDE_PROJECT_DIR:-.}/" in fis.GATE_COMMAND, fis.GATE_COMMAND
+    assert fis.GATE_ENTRY["hooks"][0]["command"] == fis.GATE_COMMAND
+
+
+def test_every_file_the_gate_needs_is_one_a_finished_setup_leaves(tmp_path: Path, capsys):
+    """The verdict asks the host for these by name, so a rename on one side and not the
+    other is a setup that reports a gate it just failed to install — or one that cries
+    wolf over a gate that is fine."""
+    import scripts.flow_init_setup as fis
+
+    assert fis.run_setup(tmp_path, PLUGIN) is True
+    assert "기계적 셋업 완료." in capsys.readouterr().out
+    for rel, source in fis.GATE_FILES:
+        assert (tmp_path / rel).read_bytes() == (PLUGIN / source).read_bytes(), rel
+
+
+def test_a_gate_whose_scripts_did_not_land_is_not_a_finished_setup(
+    tmp_path: Path, monkeypatch, capsys
+):
+    """The hook is a line of text naming a file. Registering it over a host the copy step
+    could not write leaves `bash` answering 127 to every command — never the exit 2 that
+    denies a commit — and the run said `기계적 셋업 완료.` over it, so the host believed
+    every commit was gated while none was."""
+    import scripts.flow_init_setup as fis
+
+    real = fis.shutil.copyfile
+
+    def refuse(src, dst, *args, **kwargs):
+        if Path(dst).name == "precommit-runner.sh":
+            raise PermissionError(13, "Permission denied")
+        return real(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(fis.shutil, "copyfile", refuse)
+    assert fis.run_setup(tmp_path, PLUGIN) is False
+    out = capsys.readouterr().out
+    assert "복사 실패" in out, out
+    assert "커밋 게이트가 쓰는 파일이 호스트에 없거나 손상됐습니다" in out, out
+    assert "precommit-runner.sh" in out, out
+    assert "기계적 셋업 완료." not in out, out
+    # …and the one file it could not copy is the only one it gave up on.
+    assert (tmp_path / ".claude/harness-tier/scripts/flow_gate_check.py").is_file()
+
+
+def test_a_step_that_cannot_finish_still_reaches_the_verdict(tmp_path: Path, monkeypatch, capsys):
+    """A step reports the trouble it went looking for, and raises out of the rest. The verdict
+    is the line the caller came for, so no step may end the run before it."""
+    import scripts.flow_init_setup as fis
+
+    def refuse(*_args, **_kwargs):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(fis, "render_workflow", refuse)
+    assert fis.run_setup(tmp_path, PLUGIN) is True
+    out = capsys.readouterr().out
+    assert "이 단계를 끝내지 못했습니다" in out, out
+    # The gate is on, so the answer is True — but the word 완료 alone would hide the
+    # step that did not finish, which is the same lie in small.
+    assert "끝내지 못한 단계가 있습니다" in out, out
+    assert "기계적 셋업 완료." not in out, out
+
+
+def test_a_closed_claude_directory_does_not_end_the_run(tmp_path: Path, capsys):
+    """The guarded `mkdir` was one of several probes under that directory, and the next
+    unguarded one raised — `load_contract_config` asks `is_file()` of a path inside it.
+    The run died there, before the verdict that says whether the gate is on."""
+    import scripts.flow_init_setup as fis
+
+    closed = tmp_path / ".claude"
+    closed.mkdir()
+    closed.chmod(0o000)
+    try:
+        if os.access(closed, os.R_OK):  # a host where the bits do not deny the owner
+            pytest.skip("a closed directory is not enforced here")
+        assert fis.run_setup(tmp_path, PLUGIN) is False
+    finally:
+        closed.chmod(0o755)
+    out = capsys.readouterr().out
+    assert "이 단계를 끝내지 못했습니다" in out, out
+    assert "커밋 게이트가 쓰는 파일이 호스트에 없거나 손상됐습니다" in out, out
+
+
+def test_a_policy_that_did_not_land_is_not_a_finished_setup(tmp_path: Path, monkeypatch, capsys):
+    """Without `flow-tiers.yaml` nothing parses, so the tier of a commit cannot be read and
+    the unclassified-commit deny — one of the three things this gate may never fail open on —
+    never fires. Measured through the runner itself: exit 0 on `git commit -m x` with no
+    policy, exit 2 once it is put back. The copy failure that used to raise was made a report,
+    and the run then called itself finished over a gate that denies nothing."""
+    import scripts.flow_init_setup as fis
+
+    real = fis.shutil.copyfile
+
+    def refuse(src, dst, *args, **kwargs):
+        if Path(dst).name == fis.TIERS_FILENAME:
+            raise PermissionError(13, "Permission denied")
+        return real(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(fis.shutil, "copyfile", refuse)
+    assert fis.run_setup(tmp_path, PLUGIN) is False
+    out = capsys.readouterr().out
+    assert "복사 실패" in out, out
+    assert "커밋 게이트가 쓰는 파일이 호스트에 없거나 손상됐습니다" in out, out
+    assert fis.TIERS_FILENAME in out, out
+    assert "기계적 셋업 완료" not in out, out
+
+
+def test_the_config_directory_is_made_with_no_policy_source(tmp_path: Path):
+    """`/flow-init` puts the host's own flow-config beside the policy, so the directory is
+    not the policy's to withhold — guarding the copy had made the source's absence skip the
+    `mkdir` that ran unconditionally before."""
+    import scripts.flow_init_setup as fis
+
+    plugin = tmp_path / "plugin"
+    (plugin / "scripts").mkdir(parents=True)
+    host = tmp_path / "host"
+    host.mkdir()
+    fis.copy_artifacts(plugin, host)
+    assert (host / fis.CONFIG_DIR).is_dir()
+
+
+def test_an_uninstall_step_that_cannot_finish_still_reaches_the_verdict(
+    tmp_path: Path, monkeypatch, capsys
+):
+    """The setup half got the wrapper and this one did not, so a `.claude` the host closed
+    ended the run before the line saying the hook was left behind — pointing at scripts this
+    same run had already deleted."""
+    import scripts.flow_init_setup as fis
+
+    _planted(tmp_path, [{"matcher": "Bash", "hooks": [_gate_hook()]}])
+
+    def refuse(*_args, **_kwargs):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(fis, "remove_harness_dir", refuse)
+    assert fis.run_uninstall(tmp_path) is True
+    out = capsys.readouterr().out
+    assert "이 단계를 끝내지 못했습니다" in out, out
+    # The hook is gone, so the answer is True — but the directory the step could not
+    # delete is still there, and `정리 완료.` alone says otherwise.
+    assert "끝내지 못한 단계가 있습니다" in out, out
+    assert "정리 완료." not in out, out
+
+
+def test_the_files_the_gate_needs_are_named_exactly():
+    """Spelled out rather than read off the constant, because a test that iterates the list
+    cannot notice an entry LEAVING it — and each of these, removed from a host, was measured
+    to make the runner exit 0 on a real commit."""
+    import scripts.flow_init_setup as fis
+
+    assert {Path(rel).name for rel, _source in fis.GATE_FILES} == {
+        "precommit-runner.sh",
+        "flow_gate_check.py",
+        "_harness_paths.py",
+        "flow-tiers.yaml",
+    }
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [
+        ".claude/harness-tier/scripts/precommit-runner.sh",
+        ".claude/harness-tier/scripts/flow_gate_check.py",
+        ".claude/harness-tier/scripts/_harness_paths.py",
+        ".claude/harness-tier/config/flow-tiers.yaml",
+    ],
+)
+def test_a_gate_file_that_landed_corrupt_is_not_a_finished_setup(tmp_path: Path, rel: str):
+    """A copy that fails after creating or truncating the destination leaves the name, so
+    asking whether the file is THERE answered yes over an empty one — `bash` exits 0 on it
+    and PyYAML reads it as nothing, and the gate that called itself installed denied no
+    commit. A partial write is the same case, which is why the host copy is compared."""
+    import scripts.flow_init_setup as fis
+
+    assert fis.run_setup(tmp_path, PLUGIN) is True
+    assert fis._gate_problems(tmp_path, PLUGIN) == []
+    (tmp_path / rel).write_bytes(b"")
+    problems = fis._gate_problems(tmp_path, PLUGIN)
+    assert problems and Path(rel).name in problems[0], (rel, problems)
+
+
+def test_a_host_config_whose_shape_is_wrong_does_not_end_the_run(tmp_path: Path, capsys):
+    """`flow-config.yaml` is a file a person edits, so a list or a scalar at its top is a
+    spelling mistake rather than an impossibility — and read as a mapping it raised past
+    the step wrapper, six steps before the verdict, with a traceback."""
+    import scripts.flow_init_setup as fis
+
+    cfg = fis.config_path(tmp_path)
+    cfg.parent.mkdir(parents=True, exist_ok=True)
+    cfg.write_text("- a" + chr(10) + "- b" + chr(10), encoding="utf-8")
+    assert fis.run_setup(tmp_path, PLUGIN) is True
+    assert "기계적 셋업 완료" in capsys.readouterr().out
+
+
+def test_a_pre_commit_config_whose_shape_is_wrong_is_reported(tmp_path: Path):
+    """The same hand-edit, in the file the hygiene layer owns: read as a mapping it took
+    the run down instead of reporting a line."""
+    import scripts.flow_init_setup as fis
+
+    (tmp_path / ".pre-commit-config.yaml").write_text("- a" + chr(10), encoding="utf-8")
+    lines = fis.check_precommit(PLUGIN, tmp_path)
+    assert lines and lines[0].startswith("  [!]"), lines
