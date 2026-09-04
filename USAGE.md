@@ -214,9 +214,12 @@ pass before it can commit**.
   same verification read-only on push/PR, catching drift from terminal and merge
   commits the hook never sees.
 - **`review` · `doc-sync` · `security` · `bump`** leave an evidence marker after `/flow`
-  passes the gate; the commit hook passes only when the marker exists. `bump` is the
-  human major/minor/patch choice at a staging promotion — fail-closed, so the staging
-  commit stays blocked until the choice is made.
+  passes the gate; the commit hook passes only when the marker exists. `review` and
+  `doc-sync` judge the working tree, so a PostToolUse hook deletes **both** markers on any
+  edit — including the fixes the review asked for. A fix therefore re-runs doc-sync and the
+  review; an edit the hook never sees — a terminal command, another tool — leaves them
+  standing. `bump` is the human major/minor/patch choice at a staging promotion —
+  fail-closed, so the staging commit stays blocked until the choice is made.
 - The single source of truth for risk classification is the `risk-tiers` rule, injected
   automatically every session.
 
@@ -246,8 +249,8 @@ The **mandatory first step for all code changes**. Sequence:
 4. **Execute** — run the tier's process and gates.
    - **Docs**: edit directly → reconcile docs via `doc-sync` → commit via `/commit`
    - **Dev**: `superpowers` pipeline (design → plan → implement → verify → review) →
-     domain review (`review_checklist` + callers of changed symbols) → `doc-sync` →
-     commit via `/commit`
+     `doc-sync` → domain review (`review_checklist` + callers of changed symbols) →
+     commit via `/commit` — the review runs last because an edit voids it
 
 > **Promotion (Staging/Release)**: integration→staging and staging→production merges are
 > driven by the **target branch** (no separate marker needed). Each tier's mandatory gates

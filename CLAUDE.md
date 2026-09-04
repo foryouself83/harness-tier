@@ -59,7 +59,8 @@ When modifying `*.sh`, verify with ShellCheck (the hook runtime is Windows, so b
 ```text
 .claude-plugin/  plugin.json (minimal manifest) · marketplace.json (self-exposed; source=github + immutable sha pin)
 agents/          harness-researcher · harness-code-analyzer · harness-critic
-hooks/           hooks.json (SessionStart + Notification) · inject-risk-tiers.sh (rule injection + stale-build warning)
+hooks/           hooks.json (SessionStart + PostToolUse + Notification) · inject-risk-tiers.sh (rule injection +
+                 stale-build warning) · invalidate-gate-markers.sh (an edit voids the review/doc-sync evidence)
 skills/          /slash = skill — one dir each; open the dir for its SKILL.md
 rules/           risk-tiers.md (SSOT: tier classification + commit discipline) · harness-rules.md (SSOT: harness-gen)
                  — both SHIP to consumers, unlike .claude/rules/ which never leaves this repo
@@ -96,6 +97,15 @@ evals/           skill measurement: invocation (cases.yaml · run.py · scores.p
 - **Three verification layers**, independent (per-gate mechanism → [`rules/risk-tiers.md`](rules/risk-tiers.md) · [`flow-tiers.yaml`](flow-tiers.yaml)):
   1. **Hygiene** — the host's `.pre-commit-config.yaml` (git-native): gitlint · teams-notify-push · language-agnostic checks.
   2. **Flow gate** — `precommit-runner.sh` (PreToolUse), **Claude-session commits & merges only** (terminal commits and CI bypass it). Blocks unclassified commits, then runs the tier's `gates`; `git merge` takes a separate path judged against `merge_strategy`. When `flow-config.merge_workflow.pull_request` routes a flow through a PR instead of a direct merge, that flow's `merge_strategy` row never fires here (the hook never sees a `git merge`) — enforcement of the merge method shifts server-side to a GitHub branch ruleset, which `scripts/check-merge-ruleset.sh` (read-only) checks the state of at `/flow-init` Step 2.7, without ever writing to GitHub. **That shift is exact only for `promotion`** (one allowed method per branch); a ruleset targets the *destination* ref, so on `daily` it bars merge commits into integration but cannot separate `feature/*`=Squash from `fix/*`=Rebase, and it also makes "require a PR" govern flows nobody selected — the back-merge push and `hotfix/*` → production — which is why both need a bypass actor or a PR of their own ([`rules/risk-tiers.md`](rules/risk-tiers.md) PR workflow). Gate internals & the FAIL-OPEN rules → **Invariants** below.
+  A `review`/`doc-sync` marker outlives the commit that used it, so `hooks/invalidate-gate-markers.sh`
+  (PostToolUse) deletes **both** on any edit — passing is a fixpoint (both recorded, nothing edited
+  since), which is why Dev runs doc-sync first and the review last. Which tree's evidence goes is
+  the edited file's own repo root — that root bounds the search — plus `CLAUDE_PROJECT_DIR`
+  unless the two are provably different repos — two git dirs that both exist and are not the
+  same directory, asked of the filesystem — since the gate reads the worktree's
+  markers only when it can name the worktree and otherwise falls back to the project dir
+  (Invariant 6). Every undecidable case deletes, since a marker
+  wrongly kept is an unreviewed commit; the hook's own failure keeps them (FAIL-OPEN).
   The `wiki` runtime gate runs **in-process as the flow gate's final stage** (one spawn;
   `--wiki-check` remains a compat alias) — never through the module-command channel, whose
   "any nonzero exit = failure" contract would make an internal error block every commit.

@@ -217,15 +217,15 @@ tiers you pick during feature development.
 | Tier | `superpowers` pipeline | Validation skills | Suppressed |
 |------|------------------------|-------------------|------------|
 | **Docs** | OFF — no code | `/doc-sync` (harmonize docs), `wiki` (verify graph) | brainstorming, writing-plans, TDD |
-| **Dev** | ON | selective TDD, domain review, verification, `/doc-sync`, `wiki` | — |
+| **Dev** | ON | selective TDD, verification, `/doc-sync`, domain review, `wiki` | — |
 | **Staging** | (promotion gate) | precommit, review, security-scan, `wiki` | — |
 | **Release** | (promotion gate) | + security | — |
 
 **Docs = `superpowers` OFF** (no-code edit, made directly).
 **Dev = `superpowers` ON**: enter via `using-superpowers` — it
 auto-runs the pipeline (brainstorm → plan → implement → verify →
-review). Overlays on top: selective TDD scope, domain review,
-`/doc-sync` (see Step 3).
+review). Overlays on top: selective TDD scope, `/doc-sync`, and
+the domain review last (see Step 3).
 **Staging / Release** are validation checklists over already-built
 work, not new implementation.
 
@@ -297,6 +297,7 @@ work started on. `hotfix/*` off the production branch is the exception
      [ponytail](https://github.com/DietrichGebert/ponytail), MIT.)
    - **Selective TDD** — business logic / core nodes / validators /
      workflow orchestration only; not every change.
+   - **`/doc-sync`** → record `doc-sync`.
    - **Domain review** — the last gate before commit, and *not* a
      repeat of the `superpowers` reviews: those run per task for
      plan-conformance (recall); this one runs once, at commit, for
@@ -357,7 +358,16 @@ work started on. `hotfix/*` off the production branch is the exception
      the checklist's cross-service row.
      ④ Report High + Medium, discard Low, and state the reviewed-file
      count against ①'s list → record `review`.
-   - **`/doc-sync`** → record `doc-sync`.
+     ⑤ The marker is branch-bound and outlives the commit that used
+     it, so an edit after the pass would commit against evidence
+     earned over code no reviewer saw. A `PostToolUse` hook deletes
+     the `review` **and** `doc-sync` markers the moment a file
+     changes — the fixes this review asked for included. Passing is
+     therefore a fixpoint: both recorded, nothing edited since, which
+     is also why doc-sync runs first. A fix re-runs doc-sync, then
+     this review. An edit the hook never saw (a terminal command,
+     another tool) leaves the markers standing — delete them by hand:
+     `rm -f .claude/harness-tier/.flow/review.done .claude/harness-tier/.flow/doc-sync.done`.
 3. Integration human gate (feature → integration branch; see Merge
    Strategy below) → commit via `/commit` → merge, or open a PR when
    `merge_workflow.pull_request` includes `daily` (see PR workflow).

@@ -204,7 +204,10 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
   `/flow-init` 은 같은 검증을 push/PR 에서 읽기 전용으로 돌리는 `wiki-verify.yml` CI
   워크플로도 렌더합니다 — 훅이 못 보는 터미널·머지 커밋의 drift 를 여기서 잡습니다.
 - **`review` · `doc-sync` · `security` · `bump`** 은 `/flow` 가 게이트를 통과시킨 뒤 증거
-  마커를 남기고, 커밋 훅은 그 마커가 있어야 통과시킵니다. `bump` 은 staging 승격 때 사람이
+  마커를 남기고, 커밋 훅은 그 마커가 있어야 통과시킵니다. `review` 와 `doc-sync` 는 워킹트리를
+  판정하므로, PostToolUse 훅이 편집이 일어나면 **두 마커를 모두** 지웁니다 — 리뷰가 요구한
+  수정도 포함입니다. 그래서 수정이 생기면 doc-sync 와 리뷰를 다시 밟습니다. 훅이 보지 못하는 편집
+  (터미널 명령, 다른 도구)은 마커를 그대로 남깁니다. `bump` 은 staging 승격 때 사람이
   고르는 major/minor/patch 선택으로, fail-closed 라 선택하기 전까지 staging 커밋이 계속
   막힙니다.
 - 위험도 분류의 단일 기준은 룰 `risk-tiers` 이며, 세션마다 자동으로 주입됩니다.
@@ -234,8 +237,9 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
    불확실하면 한 단계 위로 잡습니다.
 4. **실행** — 등급별 절차와 게이트를 수행합니다.
    - **Docs**: 직접 편집 → `doc-sync` 로 문서 정합화 → `/commit` 으로 커밋
-   - **Dev**: `superpowers` 파이프라인(설계→계획→구현→검증→리뷰) → 도메인 리뷰
-     (`review_checklist` + 변경 심볼 호출자 점검) → `doc-sync` → `/commit` 으로 커밋
+   - **Dev**: `superpowers` 파이프라인(설계→계획→구현→검증→리뷰) → `doc-sync` → 도메인 리뷰
+     (`review_checklist` + 변경 심볼 호출자 점검) → `/commit` 으로 커밋 — 편집이 리뷰를
+     무효화하므로 리뷰가 마지막입니다
 
 > **승격(Staging/Release)**: integration→staging, staging→production 머지는 **타깃
 > 브랜치**가 등급을 결정합니다(별도 표시 불필요). 각 등급의 필수 게이트(§2.3)를 통과해야
