@@ -146,7 +146,7 @@ $targets
 EOF
 [ -n "$voided" ] || exit 0
 
-# Only when something was actually voided: on every edit this is noise, on none the agent
+# Only when something was voided: on every edit this is noise, on none the agent
 # re-runs a gate it does not know it lost.
 printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}
 '   "harness-tier: this edit voided the ${voided} gate evidence. Re-run those gates before committing."

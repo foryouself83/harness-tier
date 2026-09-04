@@ -86,14 +86,25 @@ Two kinds:
     `python3 .claude/harness-tier/scripts/wiki_graph.py --build` and include the result in
     the promotion commit.
 
+  - **`doc-style`** — the prose gate, the other in-process stage. When
+    `flow-config.doc_style` is enabled it lints the files this commit changes that its
+    `paths`/`exclude` globs put in scope (default `**/*.md`; name `**/*.py`·`**/*.sh` to
+    cover comments and docstrings) against [`doc-style.md`](doc-style.md) and reports
+    what it finds as a `systemMessage`. Scope is read by the same function CI's
+    `--lint-config` uses, so an `exclude` holds in both arms. It **never blocks**: the
+    verdict belongs to `doc-style.yml` in CI, which sees the whole tree, where a rule
+    tightening cannot deny a commit nobody could predict. No `doc_style` block,
+    `enable: false`, or any internal error → nothing runs (Invariant #1). Runs on every
+    tier including `docs`.
+
   Hosts add their own runtime checks by putting extra keys under
   `flow-config.modules[].checks` — a command string (timing defaults by key name:
   `security` → promotion, else every-commit) or `{ run, when }` to set timing
   explicitly (use `when`, not `on` — YAML reads a bare `on` key as a boolean).
   **Timing is bound to that bucket's gate existing in the tier**: the `docs` tier has
   neither *bucket* gate, so host custom checks never run on a docs commit — the module
-  pre-check short-circuits there. (`wiki` still runs on a docs commit; it is not a module
-  check and never enters that path.) Both gates are ordinary entries in each tier's `flow-tiers.yaml`
+  pre-check short-circuits there. (`wiki`·`doc-style` still run on a docs commit; neither is
+  a module check and neither enters that path.) Both gates are ordinary entries in each tier's `flow-tiers.yaml`
   `gates` list, so **removing one disables that whole bucket** for that tier (the
   gates list is the single on/off switch, not a hardcoded branch). Like all
   layer-2 checks these run **only on Claude-session commits** — terminal/CI commits
@@ -157,7 +168,7 @@ promotion gates run once over the accumulated work.
 ### Staging — integration → staging branch (QA / rc cut)
 
 The release candidate enters QA/staging. Gates: `precommit`, `review`,
-`security-scan`, `bump`, `wiki` (see Gate glossary). Performance and integration are
+`security-scan`, `bump`, `wiki`, `doc-style` (see Gate glossary). Performance and integration are
 independent skills; the `/security-review` LLM review is added at Release.
 
 Staging also **forces a human bump-level choice**: `/flow` asks major/minor/patch
@@ -204,8 +215,8 @@ production→main). No branch is literally named `integration`.
 
 | Moment | Tier | Gates |
 |--------|------|-------|
-| Work on `feature/*` / `fix/*` → integration branch | **Docs** (no code) / **Dev** (any code) | Docs: doc-sync, wiki · Dev: precommit, review, doc-sync, wiki |
-| integration → staging (QA / rc cut) | **Staging** | precommit, review, security-scan, bump, wiki |
+| Work on `feature/*` / `fix/*` → integration branch | **Docs** (no code) / **Dev** (any code) | Docs: doc-sync, wiki, doc-style · Dev: precommit, review, doc-sync, wiki, doc-style |
+| integration → staging (QA / rc cut) | **Staging** | precommit, review, security-scan, bump, wiki, doc-style |
 | staging → production, or prod deploy | **Release** | + security |
 | A feature-branch change that is irreversible / prod-critical / security | escalate to **Release** | — |
 
@@ -216,9 +227,9 @@ tiers you pick during feature development.
 
 | Tier | `superpowers` pipeline | Validation skills | Suppressed |
 |------|------------------------|-------------------|------------|
-| **Docs** | OFF — no code | `/doc-sync` (harmonize docs), `wiki` (verify graph) | brainstorming, writing-plans, TDD |
-| **Dev** | ON | selective TDD, verification, `/doc-sync`, domain review, `wiki` | — |
-| **Staging** | (promotion gate) | precommit, review, security-scan, `wiki` | — |
+| **Docs** | OFF — no code | `/doc-sync` (harmonize docs), `wiki` (verify graph), `doc-style` | brainstorming, writing-plans, TDD |
+| **Dev** | ON | selective TDD, verification, `/doc-sync`, domain review, `wiki`, `doc-style` | — |
+| **Staging** | (promotion gate) | precommit, review, security-scan, `wiki`, `doc-style` | — |
 | **Release** | (promotion gate) | + security | — |
 
 **Docs = `superpowers` OFF** (no-code edit, made directly).
@@ -390,7 +401,7 @@ Staging gates **plus** — but the regression `review` re-runs against
 `git diff --name-only "origin/<production>..origin/<staging>"`.
 Inheriting Staging's pair is the trap here, and it does not announce
 itself: staging is not empty relative to integration, it is *ahead* by
-the rc bump CI just pushed, so the wrong pair returns a plausible
+the rc bump CI has pushed, so the wrong pair returns a plausible
 handful of release plumbing (`plugin.json`, `CHANGELOG.md`,
 `pyproject.toml`, `uv.lock`) while hiding every substantive change in
 the release. The highest-risk gate then reports full coverage of the
@@ -431,7 +442,7 @@ every rule it applies.
   sentences (noun phrases + `cause → effect`). Never prefix a bullet
   with `feat:`/`fix:` — the subject owns the type. Drop anything that
   restates another bullet, and anything the reader need not know.
-- **No history narration in the body** — no "previously X", no
+- **No history narration in the body** — no before-and-after, no
   migration note, no account of what an earlier round of the same
   work did. The commit *is* the history entry.
 - **Footer** — `BREAKING CHANGE: …`, `Refs: #123`; same ≤72.
@@ -555,7 +566,7 @@ exactly for the promotion rows, partially for integration (caveat under the tabl
 > the single allowed method makes the ruleset an exact translation; only integration carries
 > this gap.
 
-> **A branch ruleset covers every merge into that branch, not just the flow named above.**
+> **A branch ruleset covers every merge into that branch, not only the flow named above.**
 > The `daily` ruleset's "require a PR" + `rebase,squash` on integration also governs the
 > **back-merge** (table row 6, `production → integration`): it blocks the documented
 > `git push origin <integration>` step outright, and routing the back-merge through a PR

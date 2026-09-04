@@ -131,7 +131,7 @@ def test_multiple_rulesets_intersect():
 # GitHub decides this from conditions.ref_name: `exclude` wins over `include`, and both
 # accept fnmatch patterns plus the ~ALL / ~DEFAULT_BRANCH aliases. Counting a ruleset that
 # does NOT apply is the unsafe direction — it reports "match" for a repo that is not
-# actually protected. Failing to count one that does apply is only noise.
+# protected. Failing to count one that does apply is only noise.
 
 
 def test_excluded_ref_is_not_counted():
@@ -318,7 +318,7 @@ def _cp949_env() -> dict:
 def test_non_ascii_ruleset_name_still_decodes():
     # Invariant #2. A ruleset `name` is free user text — Korean here — and the API answers
     # UTF-8. Decoding it with the locale codec raises UnicodeDecodeError, which `except
-    # Exception` turns into exit 20 and the dispatch used to collapse into "your ruleset
+    # Exception` turns into exit 20, which must not collapse into "your ruleset
     # differs": a correctly configured repo reported as misconfigured.
     sets = [_ruleset("refs/heads/stage", ["merge"])]
     sets[0]["name"] = "릴리스 보호"
@@ -364,7 +364,7 @@ def test_non_dict_array_elements_exits_20():
 
 
 def test_object_instead_of_array_exits_20():
-    # valid JSON, wrong top-level shape: `{}` used to silently read as "no ruleset matched"
+    # valid JSON, wrong top-level shape: `{}` must not read as "no ruleset matched"
     # (exit 10, i.e. "your config is wrong") when the truth is "we couldn't read this at all"
     r = subprocess.run(
         [BASH, str(SCRIPT), "--decode", "stage", "merge"],
@@ -416,7 +416,7 @@ def _gh_stub_script(
     return (
         "#!/usr/bin/env bash\n"
         # every api path is appended to GH_STUB_LOG when set, so a test can assert on which
-        # endpoints were actually reached — an exit code alone cannot tell "fetched id 2 and
+        # endpoints were reached — an exit code alone cannot tell "fetched id 2 and
         # found a gap" apart from "gave up at id 1"
         'if [ -n "${GH_STUB_LOG:-}" ]; then printf "%s\\n" "$2" >> "$GH_STUB_LOG"; fi\n'
         'if [ "$1" = "api" ]; then\n'
@@ -491,7 +491,7 @@ def test_release_bypass_warning_only_fires_for_promotion_failure():
 
 
 def test_daily_mismatch_warns_about_the_back_merge_bypass():
-    # An integration ruleset needs a bypass actor just as much as a promotion one, for a
+    # An integration ruleset needs a bypass actor as much as a promotion one does, for a
     # different reason: "require a PR" also rejects `git push origin <integration>`, which is
     # how the post-release back-merge lands (risk-tiers.md calls it not optional). Reporting
     # the merge-method gap without that warning walks a `daily`-only team straight into a
@@ -544,7 +544,7 @@ def test_promotion_bypass_gap_is_reported_even_when_methods_match():
     assert r.returncode == 10
     assert "BYPASS ACTOR for the release automation" in r.stderr
     assert "chore(release)" in r.stderr
-    # the merge methods really are correct, so no method guidance should be printed…
+    # the merge methods are correct, so no method guidance should be printed…
     assert "allowed merge methods must be exactly" not in r.stderr
     # …and the run must not simultaneously claim the rulesets are fine
     assert "match the required methods" not in r.stderr
@@ -678,7 +678,7 @@ def test_a_ruleset_readable_from_neither_endpoint_is_undetermined():
 def test_one_unreadable_ruleset_does_not_discard_the_readable_ones(tmp_path: Path):
     # The failure must stay scoped to its own id. The exit code cannot show that — the old
     # `|| exit 1` produced 20 here too, by abandoning the whole list — so assert on what
-    # actually distinguishes the two: whether id 2 was ever fetched.
+    # distinguishes the two: whether id 2 was ever fetched.
     log = tmp_path / "fetches.txt"
     r = _run_dispatch(
         {1: None, 2: _ruleset("refs/heads/stage", ["merge"], bypass_actors=ACTOR)},

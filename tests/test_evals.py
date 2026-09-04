@@ -212,7 +212,7 @@ def test_observe_reports_a_rate_limited_session():
 def test_a_rate_limit_warning_is_not_a_stop_signal():
     """A warning-level status rides on a session whose request succeeded — stopping on it
     made every run started late in the window abort on its first session, and every re-run
-    abort the same way until the window reset. Only "rejected" (the request actually failed)
+    abort the same way until the window reset. Only "rejected" (the request failed)
     stops the plan."""
     warned = json.dumps(
         {"type": "rate_limit_event", "rate_limit_info": {"status": "allowed_warning"}}
@@ -239,7 +239,7 @@ def test_a_null_skill_input_is_skipped_not_fatal():
 
 def test_observe_counts_every_tool_call_not_just_skill():
     """The counter exists to tell a genuinely ambiguous cut from a decided miss, which only
-    works if it counts every tool call the session made — Bash, Read, whatever — not just the
+    works if it counts every tool call the session made — Bash, Read, whatever — not only the
     Skill call itself. A counter placed after the Skill test would only ever see Skill calls."""
 
     def independent_tool_use_count(path: Path) -> int:
@@ -316,7 +316,7 @@ def test_the_narrowed_rule_only_counts_a_cut_that_never_had_its_chance(monkeypat
 
 
 def _injected_session_text() -> str:
-    """Everything the SessionStart hook puts into a session, not just the rule file.
+    """Everything the SessionStart hook puts into a session, not only the rule file.
 
     `hooks/inject-risk-tiers.sh` wraps `rules/risk-tiers.md` in a hardcoded preamble, and that
     preamble is the *strongest* form the help takes — it says outright that the agent's action
@@ -351,7 +351,7 @@ def _skills_named_as_commands(text: str) -> set[str]:
     one branch-role list to `staging/integration` would force a false `hook_assisted` onto the
     `integration` skill, which the same file explicitly calls a branch role and not a skill.
 
-    The boundary has to exclude a following hyphen, not just a following word character: `\\b`
+    The boundary has to exclude a following hyphen, not only a following word character: `\\b`
     matches between `w` and `-`, so `/flow` would be found inside `/flow-init`,
     `/flow-uninstall` and the link `](../flow-tiers.yaml)` — leaving `flow` permanently in the
     named set and disabling the reverse stale check for it."""
@@ -594,7 +594,7 @@ def test_the_truncation_warning_measures_distortion_not_the_miss_column(monkeypa
     result = run.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
 
     assert result["invoke_rate"] == 0.93
-    assert result["truncated"] == 1.0  # the miss column really is entirely unexplained
+    assert result["truncated"] == 1.0  # the miss column is entirely unexplained
     assert "cut short" not in capsys.readouterr().out
 
 
@@ -718,7 +718,7 @@ def test_lost_to_stays_out_of_the_gate():
 
 def test_a_rate_limit_stops_the_plan_instead_of_finishing_it(monkeypatch):
     """The window is exhausted, so every queued session would be refused the same way. The
-    check used to live in the aggregation loop, which ran only after all 35 futures had
+    the check must not live in the aggregation loop, which runs only after all 35 futures have
     resolved — hitting the cap on session 1 still spent the other 34 producing nothing.
 
     Every session but the first blocks until the assertion is done, which is what a real ~58s
@@ -988,7 +988,7 @@ def test_a_programmatic_reach_claim_names_a_real_caller(name: str):
     """`reached_programmatically` now grounds a low `expect_invoke` (harness-authoring's 0.10)
     rather than a floor exemption: the autonomous rate is only a liveness check because the
     primary path is another skill invoking it. If cases.yaml claims that path, some other
-    shipped skill has to actually invoke it — otherwise the claim is stale."""
+    shipped skill has to invoke it — otherwise the claim is stale."""
     if not CASES["skills"][name].get("reached_programmatically"):
         return
     callers = [
@@ -1121,7 +1121,7 @@ def test_every_skill_declares_its_expectation():
 
 
 def test_the_committed_baseline_passes_the_gate():
-    """The gate itself, applied to the file that is actually committed. Fail is the only hard
+    """The gate itself, applied to the file that gets committed. Fail is the only hard
     state; warns surface through pytest's warning summary (integration and flow warn today —
     both measured significantly below their declared expectation). The warn set is
     deliberately NOT pinned: a ratchet-approved dip adds a warn, an improvement removes one,

@@ -515,7 +515,7 @@ def test_allowed_tools_never_grants_a_command_the_user_should_decide(name: str):
 
 # Probes guarding against a *future* rule matching a command the skill never issues (the
 # skill's own text carries no such command, so the staleness check below cannot apply).
-# Everything not listed here is a command the skill text really carries, and the probe must
+# Everything not listed here is a command the skill text does carry, and the probe must
 # track its wording.
 DEFENSIVE_ONLY = {("doc-sync", "rm -rf .claude/harness-tier/.flow")}
 
@@ -544,7 +544,7 @@ def test_no_allowed_tools_rule_ends_in_a_path_glob(skill: Path):
     `*` (`k6 run *`) is the prefix-boundary form and stays legal; marker sets are finite,
     so path rules are enumerated exactly."""
     for rule in declared_rules(skill):
-        # `/\*` anywhere, not just at the end: `…/.flow/*.done` is the same hole — the
+        # `/\*` anywhere, not only at the end: `…/.flow/*.done` is the same hole — the
         # fnmatch `*` crosses separators wherever it sits after a slash.
         assert not re.search(r"/\*", rule), (
             f"{skill.parent.name}: {rule} carries a path glob — enumerate exact paths"
@@ -699,7 +699,7 @@ def test_the_commit_guide_slot_is_the_one_the_commit_skill_reads():
     """One fact in two files: the config key `/flow-init` backfills into every host, and the
     key the `commit` skill looks up to find the host's own guide. A rename on either side
     fails silently — the lookup returns nothing, the skill falls back to risk-tiers alone,
-    and the host guide it was supposed to prefer is simply never read."""
+    and the host guide it was supposed to prefer is never read."""
     example = yaml.safe_load((REPO / "flow-config.example.yaml").read_text(encoding="utf-8"))
     assert "commit_guide" in example, (
         "flow-config.example lost its `commit_guide` slot — /flow-init's Step 2.5 backfill "
@@ -707,7 +707,7 @@ def test_the_commit_guide_slot_is_the_one_the_commit_skill_reads():
     )
     skill = body(REPO / "skills/commit/SKILL.md")
     assert "'commit_guide'" in skill, "the commit skill no longer reads the commit_guide key"
-    # The example's default value has to be the path harness-authoring actually generates,
+    # The example's default value has to be the path harness-authoring generates,
     # otherwise the slot ships pointing at a file that never exists.
     assert example["commit_guide"] == "docs/operations/commit-versioning-guide.md"
     guide = (REPO / "skills/harness-authoring/references/tech-doc-guide.md").read_text(
@@ -722,7 +722,7 @@ def test_the_commit_guide_slot_is_the_one_the_commit_skill_reads():
 #
 # The case-discovery command decides "does this project already have tests?". A wrong
 # answer scaffolds a starter smoke over a suite that already exists. These tests run
-# the command the skills actually ship.
+# the command the skills ship.
 
 CASE_DISCOVERY_FILES = [
     "skills/integration/SKILL.md",
@@ -851,11 +851,11 @@ def test_discovery_sees_a_previous_runs_smoke_as_an_existing_case(tmp_path: Path
 def test_discovery_distinguishes_a_missing_testdir_from_an_empty_one(rel: str, tmp_path: Path):
     """`find … 2>/dev/null` renders "that directory does not exist" as an empty result —
     identical to "the directory is there and holds no cases". The empty result is what
-    authorises scaffolding, so a config pointing at a directory that is not there used to
+    authorises scaffolding, so a config pointing at a directory that is not there would
     read as a licence to scaffold. The `[ -d ]` guard makes the two states nameable.
 
-    A control agent on the pre-fix skill diagnosed this unprompted: "이 `0`은 케이스가
-    없다는 뜻이 아닙니다 … `2>/dev/null`이 이를 '케이스 0건'으로 위장시켰습니다."
+    A control agent on the guardless skill diagnosed it unprompted:
+    `이 0은 케이스가 없다는 뜻이 아닙니다 … 2>/dev/null이 이를 '케이스 0건'으로 위장시켰습니다.`
     """
     make_project(tmp_path, "./e2e", None)  # config says ./e2e; the directory is absent
     assert run_discovery(rel, tmp_path) == ["MISSING: ./e2e"]

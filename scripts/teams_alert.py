@@ -21,7 +21,7 @@ registration guidance to stderr to prompt registration.
 
 Usage (CLI):
   python teams_alert.py --channel personal --title "..." --text "..."
-  python teams_alert.py --set personal https://...   # passing just the URL auto-saves it
+  python teams_alert.py --set personal https://...   # the URL alone auto-saves it
 
 Usage (import):
   from teams_alert import send
@@ -85,7 +85,7 @@ def push_channels() -> list[str]:
     """List of push notification target channels (= branch names), from the tracked file's keys.
 
     Called by notify-push.sh to decide "which branch push should trigger a notification".
-    Branch names are not hardcoded, so simply adding/removing a key in teams-webhooks.json
+    Branch names are not hardcoded, so adding or removing a key in teams-webhooks.json
     is enough to change the target branches. Local-only channels such as personal
     (LOCAL_CHANNELS) are not push targets, so they are excluded.
     """

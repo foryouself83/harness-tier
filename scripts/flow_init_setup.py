@@ -74,6 +74,8 @@ UNIT_TEST_DEST = ".github/workflows/unit-test.yml"  # host (GitHub-forced — HA
 
 WIKI_VERIFY_TEMPLATE = "github/wiki-verify.workflow.example.yml"  # SOURCE (plugin-owned)
 WIKI_VERIFY_DEST = ".github/workflows/wiki-verify.yml"  # host (GitHub-forced — HARNESS_DIR exc.)
+DOC_STYLE_TEMPLATE = "github/doc-style.workflow.example.yml"  # SOURCE (plugin-owned)
+DOC_STYLE_DEST = ".github/workflows/doc-style.yml"  # host (GitHub-forced — HARNESS_DIR exc.)
 # per-job wall-clock cap (minutes) when unit_test.timeout_minutes is unset
 UNIT_TEST_DEFAULT_TIMEOUT = 10
 # Languages the unit-test template runs an official setup-* action for (its `if: matrix.language ==`
@@ -92,13 +94,14 @@ EXAMPLE_CONFIG = "flow-config.example.yaml"  # plugin SOURCE (basis for config-s
 # Order matters where one file asks another a question. precommit-runner.sh routes on what
 # flow_gate_check.py --classify answers, so the answerer is copied FIRST: mid-sync the host
 # then holds an old runner and a new script, where the old runner's question goes unanswered
-# and ROOT simply stays on main. The other order leaves a new runner asking an old script,
+# and ROOT stays on main. The other order leaves a new runner asking an old script,
 # which answers nothing it recognises — and a runner that reads no verdict gates nothing.
 COPY_FILES = [
     "scripts/_harness_paths.py",
     "scripts/flow_gate_check.py",
     "scripts/precommit-runner.sh",
     "scripts/wiki_graph.py",
+    "scripts/doc_style_check.py",
     "scripts/teams_alert.py",
     "scripts/notify-push.sh",
     "scripts/check-deps.sh",
@@ -273,7 +276,7 @@ def _installed(host: Path, plugin: Path, rel: str, source: str) -> bool:
     gate that reported itself installed denied no commit. A partial write is the same
     case one step along, which is why this compares rather than measures. A source it
     cannot read is not a confirmation either, and neither is a host directory this may not
-    enter: `read_bytes` RAISES there where it answers False for a name that is simply not
+    enter: `read_bytes` RAISES there where it answers False for a name that is merely not
     taken, and unanswered it took the run down before its verdict."""
     try:
         want = (plugin / source).read_bytes()
@@ -645,7 +648,7 @@ def _strip_gate_hooks(entry: object) -> int:
 
 
 def _is_own_empty_entry(entry: object) -> bool:
-    """An entry this plugin wrote and has just emptied — nothing of the host's is in it."""
+    """An entry this plugin wrote and has emptied — nothing of the host's is in it."""
     return (
         isinstance(entry, dict)
         and set(entry) == set(GATE_ENTRY)
@@ -999,7 +1002,7 @@ def _deploy_target_wired(t) -> bool:
     """True iff this target contributes a job to deploy.yml — i.e. its component workflow will
     exist. Authored targets (custom / sbt / unknown → no static template; the skill writes the
     file, or config `workflow` points at it) are wired by design. A mapped static template is
-    wired only if it actually renders: maven-central+gradle needs `publish` (no default), else
+    wired only if it renders: maven-central+gradle needs `publish` (no default), else
     it is skipped and would dangle."""
     target = str(t.get("target", "")).strip()
     build_tool = str(t.get("build_tool", "maven")).strip()
@@ -1374,6 +1377,14 @@ def render_wiki_verify_workflow(host: Path, plugin: Path) -> list[str]:
     )
 
 
+def render_doc_style_workflow(host: Path, plugin: Path) -> list[str]:
+    """Copy doc-style.yml as-is — no enable gate, no tokens. Unconditional for the same reason
+    as wiki-verify: without `flow-config.doc_style` the script no-ops green, so rendering here
+    costs a repo that never opted in nothing. Idempotent and non-destructive (existing dest →
+    report only)."""
+    return _render_one(plugin / DOC_STYLE_TEMPLATE, host / DOC_STYLE_DEST, {}, "doc-style 렌더")
+
+
 def _gate_problems(host: Path, plugin: Path) -> list[str]:
     """Why the commit gate would not run in this host, read back from what the run left.
 
@@ -1493,6 +1504,7 @@ def run_setup(host: Path, plugin: Path) -> bool:
         _step("[버저닝 워크플로우]", lambda: render_versioning_workflows(host, plugin)),
         _step("[유닛 테스트 워크플로우]", lambda: render_unit_test_workflow(host, plugin)),
         _step("[wiki 검증 워크플로우]", lambda: render_wiki_verify_workflow(host, plugin)),
+        _step("[문체 검증 워크플로우]", lambda: render_doc_style_workflow(host, plugin)),
         _step("[배포 워크플로우]", lambda: render_deploy_workflows(host, plugin)),
         _step("[config 슬롯 점검]", lambda: report_missing_config_slots(host, plugin)),
     ]
@@ -1532,7 +1544,7 @@ def run_uninstall(host: Path) -> bool:
     print("    않습니다(주석·팀 커스텀 보존). 필요 시 직접 제거하세요.")
     print("  - .github/workflows/api-contract.yml 은 자동 삭제하지 않습니다(팀 커스텀 보존).")
     print("    계약 테스트를 끄려면 직접 제거하세요.")
-    print("  - .github/workflows/wiki-verify.yml 은 방금 삭제된")
+    print("  - .github/workflows/wiki-verify.yml·doc-style.yml 은 방금 삭제된")
     print("    .claude/harness-tier/scripts/ 의 스크립트를 실행합니다. 없는 스크립트를 가드가")
     print("    보고 exit 0 하므로 CI 가 빨개지지는 않지만 더는 아무것도 검증하지 못하니 함께")
     print("    제거하세요. 같은 경로를 쓰는 release 워크플로우는 렌더한 종류에 달렸습니다 —")

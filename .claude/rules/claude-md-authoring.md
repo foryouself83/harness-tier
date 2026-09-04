@@ -28,8 +28,8 @@ discoverable elsewhere?**
 ## Write the durable fact, not the incident
 
 An entry gets the rule and, at most, a parenthetical on what enforces it. No commit
-shas, no naming the skill or test whose absence caused the gap, no "this went wrong
-once" narrative. Shas rot fastest: a squash merge can make a cited sha unreachable
+shas, no naming the skill or test whose absence caused the gap, no account of a past
+incident. Shas rot fastest: a squash merge can make a cited sha unreachable
 within the same session that wrote it.
 
 ## Keep it dense AND short-lined

@@ -1,0 +1,36 @@
+# Prose discipline over this repo's own docs and code comments (dogfood: consumers get the
+# same job rendered from github/doc-style.workflow.example.yml). The plugin repo has no
+# .claude/harness-tier/ install of itself, so it runs the SOURCE script against an explicit
+# path list instead of --lint-config.
+# docs/superpowers/ is out of scope by design: plans and specs are point-in-time records,
+# never shipped. CHANGELOG.md is out because python-semantic-release regenerates it from
+# commit subjects: a subject carrying a banned word would make this job red on every push
+# afterwards, with no edit that could fix it short of breaking release.yml.
+name: doc-style
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  doc-style:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install PyYAML
+        run: python3 -m pip install pyyaml
+
+      - name: Lint prose
+        run: |
+          git ls-files '*.md' 'scripts/*.py' 'scripts/*.sh' 'hooks/*.sh' 'evals/*.py' \
+              'tests/*.py' \
+            | grep -v '^docs/superpowers/' \
+            | grep -v '^\.superpowers/' \
+            | grep -v '^CHANGELOG\.md$' \
+            | xargs python3 scripts/doc_style_check.py --root . --lint

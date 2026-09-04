@@ -2,7 +2,7 @@
 encoding defenses.
 
 If this module breaks, path resolution in every gate script breaks along with it, so the
-consolidated behavior is pinned here in one place (previously each script carried its own
+consolidated behavior is pinned here in one place (rather than each script carrying its own
 host_root/force_utf8_io and tested it separately).
 """
 
@@ -87,7 +87,7 @@ def test_force_utf8_io_sets_pythonutf8(monkeypatch):
 
 # ── working_root: worktree-aware detection (branch-key ladder) ────────────────────
 # The gate assumes "working tree = one CLAUDE_PROJECT_DIR". working_root detects the
-# worktree where the commit actually runs, so git status/diff/tier-marker/module-lint
+# worktree where the commit runs, so git status/diff/tier-marker/module-lint
 # all read that worktree. Non-worktree / uncertain → project_dir (FAIL-OPEN, Invariant #1).
 
 
@@ -154,7 +154,7 @@ def test_dir_from_command_gives_up_on_two_real_invocations():
 
 def test_dir_from_command_gives_up_without_taking_the_cd_prefix():
     # ambiguity has to end the read, not fall through to rung ②: the `cd` target is a third tree,
-    # so answering with it re-points ROOT at a directory NEITHER commit runs in. A just-cd'd-into
+    # so answering with it re-points ROOT at a directory NEITHER commit runs in. A newly cd'd-into
     # worktree is usually clean, which makes the runner exit 0 and skip the gate in silence.
     assert vp._dir_from_command("cd /a && git -C /x commit -m 1 && git -C /y commit -m 2") is None
 
@@ -254,7 +254,7 @@ requires_git = pytest.mark.skipif(not _has_git(), reason="git not available")
 def test_git_survives_non_utf8_output(tmp_path: Path):
     # A single non-UTF-8 byte anywhere in git's output makes the decode raise and the whole
     # call return None — the gate then fails open silently for that entire repository.
-    # errors="replace" keeps the value: a path carrying a replacement character simply fails
+    # errors="replace" keeps the value: a path carrying a replacement character fails
     # to match, so only that one entry falls open, which is far narrower.
     if not _has_git():
         pytest.skip("git not available")
@@ -470,7 +470,7 @@ def test_dir_from_command_masks_a_comment_rather_than_only_skipping_it():
 
 
 def test_dir_from_command_finds_a_comment_that_starts_after_a_newline():
-    # the word-start test has to accept a newline, not just the start of the string.
+    # the word-start test has to accept a newline, not only the start of the string.
     command = "echo a\n# don't run git -C /evil commit\ngit -C /wt commit -m x"
     assert vp._dir_from_command(command) == "/wt"
 
@@ -502,7 +502,7 @@ def test_dir_from_command_reads_a_backslash_escaped_space_in_a_path():
 
 def test_dir_from_command_keeps_a_windows_backslash_path_intact():
     # bash would drop these backslashes; the gate deliberately does not, because a Windows path
-    # is the shape this option actually carries and dropping them resolves nothing.
+    # is the shape this option carries and dropping them resolves nothing.
     assert vp._dir_from_command(r"git -C C:\work\wt commit -m x") == r"C:\work\wt"
 
 
@@ -741,7 +741,7 @@ def test_the_net_does_not_widen_a_command_that_runs_no_commit(command: str):
         assert not vp.is_invocation(command, word), (command, word)
 
 
-# Commands a shell really runs as a commit or a merge, each one a spelling a reading
+# Commands a shell does run as a commit or a merge, each one a spelling a reading
 # missed. Kept apart from NET_INVOCATIONS: these are not an interpreter being handed a
 # script, they are places the mask or the grammar was wrong about what bash does.
 RUNS_A_COMMIT = [
@@ -805,7 +805,7 @@ RUNS_A_COMMIT = [
     ("git commit<msg.txt", "commit"),
     ("git merge>log", "merge"),
     # `(( … ))` is arithmetic wherever a command may start, not only after a separator —
-    # every reserved word a command may follow, not just the two that open a block
+    # every reserved word a command may follow, not only the two that open a block
     ("if (( 1 << 2 )); then\n  git commit -m x\nfi", "commit"),
     ("while true; do (( i << 1 )); git commit -m x; done", "commit"),
     ("until false; do (( 1 << 2 )); git commit -m x; done", "commit"),
@@ -953,7 +953,7 @@ RUNS_NO_COMMIT = [
     "sort --compress-program='git commit -m x' f",
     "rg --pre 'git commit' pattern .",
     # a reader inside a loop or a conditional is still the only program there, wherever the
-    # reserved word sits — including at the very start, where the scan used to claim the
+    # reserved word sits — including at the very start, where a scan can wrongly claim the
     # word itself as the program and never reach the one it introduces
     ("time grep 'git commit' a.txt"),
     ("if grep -q 'git commit' a.txt; then echo hi; fi"),
@@ -1047,7 +1047,7 @@ def test_a_command_position_the_scan_cannot_name_is_not_a_reader():
     """The exemption is decided over the programs the walk reports, so one it cannot name has
     to be reported as that rather than left out. A program written quoted is blanked by the
     mask; one standing behind a `!`, a redirection or an assignment sits where a second scan
-    used to look for a name and find punctuation."""
+    looks for a name and finds punctuation."""
     for element in (
         "cat f | > /dev/null '\0\0\0' commit",
         "cat f | ! '\0\0\0' commit",

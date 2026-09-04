@@ -26,7 +26,7 @@
      content does not need. A schema this file mandates (SRS §-numbering, code-style lens blocks) is
      content, not ornament.
    - **Never restate what the next line already says.**
-   - **No change history, migration note, or "previously X" narration** — the commit owns that
+   - **No change history, migration note, or before-and-after narration** — the commit owns that
      ([risk-tiers.md](risk-tiers.md) Commit Discipline).
    - **Rule files** (`CLAUDE.md`, `.claude/rules/**`) carry the rule in force, never the one it replaced.
    - **Markdown**: terse lists over prose; one fact in one place and a link everywhere else (rule 7).
@@ -55,7 +55,7 @@
    requirements · target users/scenarios · key constraints), ask about **every blank + ambiguous item** via `AskUserQuestion` —
    **ambiguous = unmeasurable · multiply interpretable · scope unclear** (e.g. "fast" · "user-friendly"). Keep asking **until it is measurable
    and single-interpretation**, but do not re-ask what is already clear (ambiguity is a sign of incomplete requirements analysis —
-   resolve it at the SRS stage). Additionally, fix what the **classification axes** are (domain etc. as primary; user roles/subdomains etc. as secondary) and the **depth
+   resolve it at the SRS stage). Fix as well what the **classification axes** are (domain etc. as primary; user roles/subdomains etc. as secondary) and the **depth
    (2nd–3rd level)** — ask which axes apply, and for axes that do not apply, do not delete them from the SRS but leave them as "N/A — reason"
    (distinguishing them from omissions — isomorphic to 9-2). If still unknown after asking, mark it "needs confirmation" in the SRS
    (no fabrication — rule 4). The produced **scope summary** is the single input source for research · rationale · SRS. Brownfield skips
@@ -81,7 +81,7 @@
    configuration · secrets · env · observability (metrics/tracing) · health check/readiness · graceful shutdown ·
    input validation · authentication/authorization · retry/timeout · circuit breaker · data migration/schema evolution ·
    rate limiting.
-9-2. **Emit is evidence-based**: coverage is mandatory, but each axis is **emitted only when the concern actually exists**
+9-2. **Emit is evidence-based**: coverage is mandatory, but each axis is **emitted only when the concern exists**
    for that stack (do not force health check/shutdown onto a static site). When applicability is **uncertain**, do not fabricate — ask the user in the Step 6
    preview (over-generation guard — FAIL-OPEN leans "skip + ask").
 9-3. **Directive is a rule, the flesh is a doc**: operational directives (1–3 line instructions) go in the `<!-- ops-conventions -->`
@@ -97,7 +97,7 @@
 9-6. **Every confirmed stack is a convention target (reuse artifact ≠ stack)**: *every* stack confirmed via reconcile (10-1) receives
    conventions (structure/detail SSOT separation follows 9-3 — no duplication here). In particular, infrastructure (DB · cache · queue ·
    container/image · CI/CD · IaC · cloud) tends to end as a mere reuse artifact, so if conventions (best practices · anti-patterns · operational axes)
-   **actually exist**, promote it to a stack (otherwise leave it as a reuse candidate only — 9-2 evidence-based).
+   **do exist**, promote it to a stack (otherwise leave it as a reuse candidate only — 9-2 evidence-based).
 9-7. **Quality-lens taxonomy (best-practice perspectives · open list · applicability-gated)**: the `docs/code-style/<stack>.md`
    **Best Practices** section is organized **by quality lens**, not as one flat bullet list. Researcher/code-analyzer **review all** of the
    following *coding-quality perspectives* (isomorphic to 9-1 — a common starting set, not a closed floor; add more per the stack's characteristics):
@@ -106,7 +106,7 @@
    UI stacks) · **performance** (re-render · N+1 · caching · memoization · payload/bundle — the perf-conscious *coding* practice) · **security**
    (input validation · authz at call sites · injection/escaping · secret handling) · **maintainability/testability** (module boundaries ·
    dependency direction · test seams) · **cross-cutting/integration** (idempotency = front guard + server idempotency · cross-layer consistency ·
-   contract adherence at call sites) · **i18n/l10n** (multi-locale products). Emit each lens **only when it actually applies** to the stack
+   contract adherence at call sites) · **i18n/l10n** (multi-locale products). Emit each lens **only when it applies** to the stack
    (9-2 evidence-based — no UX/a11y lens on a headless backend, no cross-cutting lens on a single-process app); uncertain applicability is asked in
    the Step 6 preview, never fabricated.
 9-8. **Lens boundaries (one fact, one place — 9-3 · rule 7)**: a lens carries the *coding* guidance only and **links** the SSOT that owns the rest —
@@ -117,14 +117,14 @@
    `<!-- ops-conventions -->` rule section and the lens references it.
 
 ## Multi-agent / critique
-10. **Research fans out via `Agent` (formerly `Task`, an alias) subagents** (researcher + code-analyzer for brownfield), dispatched in parallel and fanned in.
+10. **Research fans out via `Agent` subagents** (`Task` is an alias for it) (researcher + code-analyzer for brownfield), dispatched in parallel and fanned in.
     Cross-talk happens via `SendMessage` only when the Agent Teams experimental feature (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) is on (optional).
     Deprecated tools (`TeamCreate`·`TaskCreate`, etc.) are forbidden. Network/dispatch failures are FAIL-OPEN (warn + selection), not fabricated.
     **Fan-in write ownership** — sub-agents **return** their findings as their final message; the **leader** persists each to `.harness/research/<agent>_<topic>.md` under a **leader-assigned unique topic** (sub-agents do not write these files — parallel dispatch cannot collide on a filename, and the read-only code-analyzer needs no write access).
     **Partial fan-in** — after fan-in the leader verifies each expected output is present and non-empty, marking any missing/empty area **"needs confirmation"** (a legitimate "insufficient sample" is distinguished from a lost dispatch; FAIL-OPEN covers total failure, this covers the partial state).
 10-1. **Stack-inventory reconcile (converge before freeze — omission guard)**: `stack_map` is *provisionally*
     fixed during the interview, and the stacks (including infrastructure) surfaced by research (researcher's autonomous expansion · off-the-shelf solutions · stack-compatibility matrix)
-    are merged into `stack_map` **before** authoring. Stacks whose conventions actually exist (infrastructure is especially easy to miss)
+    are merged into `stack_map` **before** authoring. Stacks whose conventions do exist (infrastructure is especially easy to miss)
     are promoted to convention targets (9-6), and because a newly promoted stack was not dispatched as (layer, stack) in the first fan-out,
     run **targeted follow-up research** (a full sweep of that stack's ops_axes) to fill in its conventions — **the re-dispatch input must include the first pass's frozen stack-compatibility matrix / ceiling, and any version pick stays within it** (12-2; a fresh follow-up agent cannot see the first pass's matrix otherwise). Repeat **until the stack set is stable**
     (usually once), **then re-validate the whole merged set against the global ceiling as a single authoritative matrix before freezing** (the Step 5 critic cross-checks that one matrix, not divergent per-dispatch ones). **Do not grow the stack set by guessing** — only what has discovery evidence. The promote/reject decisions and reasons are **recorded** by authoring, one line each,
@@ -137,7 +137,7 @@
     verify the deliverables against the official authoring for the detected actual version (build ↔ config, e.g. `tsc -b` ↔ references).
     (b) **runtime-combination compatibility** — do the components that go onto one runtime together (app framework ↔ plugin/starter/
     engine/image) form the **latest set that is GA-compatible together**, and does the recommended off-the-shelf artifact
-    **actually provide** the assumed feature. **When building**, do not infer the config; **replicate the official scaffolder
+    **do provide** the assumed feature. **When building**, do not infer the config; **replicate the official scaffolder
     output** of the detected framework as the baseline (the config counterpart of reuse-first). researcher collects the config method per version
     and autonomously expands the items the framework's characteristics require.
 12-2. **Latest ≠ independently latest (ceiling first)**: **when selecting a version** (greenfield · undecided · intentional upgrade)

@@ -1,10 +1,10 @@
-"""The outcome arm: does a skill, once it fires, actually reach the right end-state?
+"""The outcome arm: does a skill, once it fires, reach the right end-state?
 
 Separate from run.py's invocation arm by design. The invocation arm asks whether a
 description makes the skill fire; this asks whether the skill's *body*, executed for real,
 produces the golden end-state — a different question, with a different freshness signal
 (body + fixture + golden, not the description) and a different recipe (bypassPermissions +
---add-dir, so the session can actually edit files).
+--add-dir, so the session can edit files).
 
 The pure half here (outcome_sha, outcome_check) is model-free like scores.py. run_outcome
 and the CLI spend real sessions and are guarded by the suite's no_real_sessions fixture
@@ -140,7 +140,7 @@ def outcome_check(
 
 
 OUTCOME_MAX_TURNS = 25
-# Higher than run.SESSION_TIMEOUT (180): outcome sessions actually edit files and may route
+# Higher than run.SESSION_TIMEOUT (180): outcome sessions edit files and may route
 # flow -> doc-sync, so they run longer than an invocation probe.
 OUTCOME_TIMEOUT = 300
 REPS = 3

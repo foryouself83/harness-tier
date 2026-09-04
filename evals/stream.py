@@ -2,7 +2,7 @@
 
 Two questions, both answered from events rather than from anything the model says about
 itself: which plugin skills the session was *offered* (the `init` event) and which ones it
-actually *invoked* (`tool_use` blocks named `Skill`).
+*invoked* (`tool_use` blocks named `Skill`).
 """
 
 import json

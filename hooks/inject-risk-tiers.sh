@@ -38,7 +38,7 @@ escape_for_json() {
 # than the one the marketplace publishes is running code the maintainer has already replaced —
 # and nothing else tells them. Both numbers are local files: the loaded build's own manifest, and
 # the marketplace clone Claude Code keeps beside the install cache. No network, so a stale or
-# absent clone simply means no notice. Every uncertain branch stays silent: FAIL-OPEN, because a
+# absent clone means no notice. Every uncertain branch stays silent: FAIL-OPEN, because a
 # hook that runs before the session does must never delay or break it.
 
 manifest_pair() {  # <file> -> "<name>\t<version>", the FIRST of each, read without a subprocess
@@ -124,7 +124,7 @@ version_gt() {  # <a> <b> -> 0 when a has higher semver precedence than b, 1 oth
 plugins_root() {  # the directory holding both `cache/` and `marketplaces/`, or nothing
   # Derived by walking up from the loaded build rather than assuming ~/.claude/plugins, which
   # CLAUDE_CONFIG_DIR can relocate. A plugin loaded from a source tree finds no marketplaces
-  # sibling and the feature simply does not apply.
+  # sibling and the feature does not apply.
   local at="$PLUGIN_ROOT" _
   for _ in 1 2 3 4 5 6; do
     # Substitution, not `dirname`: six forks is most of what this hook costs, and it runs

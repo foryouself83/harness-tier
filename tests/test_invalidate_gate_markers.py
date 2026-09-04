@@ -22,7 +22,7 @@ GIT_BASH = (r"C:\Program Files\Git\bin\bash.exe", r"C:\Program Files\Git\usr\bin
 
 
 def _repo_bash() -> str | None:
-    """A bash that can actually see the repo path (Git Bash on Windows / native bash on POSIX).
+    """A bash that can see the repo path (Git Bash on Windows / native bash on POSIX).
 
     PATH order is the shell's, so on Windows a bare `bash` is usually the System32 WSL stub,
     which cannot open a C:/… path — probe the candidate against a file that must exist and fall

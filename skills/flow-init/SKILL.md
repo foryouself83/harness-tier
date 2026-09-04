@@ -216,6 +216,12 @@ It performs, idempotently, and prints a report to relay:
   repo that gitignores `.claude/` has none in the checkout and would otherwise go red on
   every push. It runs `wiki_graph.py --verify` read-only in CI, closing the wiki gate's
   terminal/merge-commit blind spot.
+- **Renders** `.github/workflows/doc-style.yml` on the same terms — unconditional, no
+  config gate, guarded on the script being in the checkout. It runs
+  `doc_style_check.py --lint-config`, which exits 0 silently without a
+  `flow-config.doc_style` block, and holds the verdict the layer-2 prose gate declines to
+  give. A `flow-config.yaml` that is present but does not parse fails the job instead —
+  read as "off", one typo would take the whole layer down with nothing red to say so.
 
 Then remind the user to run `pre-commit install --hook-type pre-commit --hook-type commit-msg
 --hook-type pre-push` (activates gitlint, the push notifier, and the file-hygiene hooks) and
@@ -282,7 +288,7 @@ not-applicable case itself**: on the shipped `[]` default (or a config that pred
 slot) it prints a skip line and exits 0, so running it is always safe and never reads as a
 config defect.
 
-Derive the repo, the branch names, and the selected flow(s) from the config you just wrote
+Derive the repo, the branch names, and the selected flow(s) from the config you wrote
 in this same command — never type a branch name or flow list by hand. A typed branch name
 that doesn't match the config queries a ref that doesn't exist and silently reports a false
 mismatch; typing more flows than were selected reports a real gap against a branch the user
@@ -397,7 +403,7 @@ On a re-run this step doubles as a drift check.
    repo's Claude alerts **right before presenting `AskUserQuestion`** — which the
    Notification hook does *not* cover (it only auto-fires on permission/idle waits).
    The alert directive must be **emphasized** (e.g. `IMPORTANT`) so the host model
-   actually does it. Insert between the idempotent markers, **written in the same
+   does it. Insert between the idempotent markers, **written in the same
    language as the existing host `CLAUDE.md`** (the block below is the reference
    content — translate it to match the doc's language); if the markers
    already exist, **replace the block in place** (never duplicate). If
@@ -471,5 +477,5 @@ Teams-alert rule (pre-harness-tier), advise removing it — the managed block su
    exception, not a leak).
 4. **Host writes go through `${CLAUDE_PROJECT_DIR}`**, plugin reads through
    `${CLAUDE_PLUGIN_ROOT}` — never write into the plugin directory.
-5. **CLAUDE.md edits are a managed block only** — touch just the marked
+5. **CLAUDE.md edits are a managed block only** — touch only the marked
    `harness-tier:teams` region; never rewrite or reflow the user's own content.

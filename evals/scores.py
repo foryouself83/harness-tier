@@ -7,7 +7,7 @@ JSON file and a hash. Only the cheap half belongs in `pytest`.
 Cheap is not the same as pure, and this module has been described as pure more than once.
 `check` and `may_write` are: they take dicts and return a Verdict, touching nothing. `load`
 and `description_sha` read from disk — `scores.json` and every `skills/*/SKILL.md`. What the
-split actually guarantees is that nothing here spawns a session or reaches the network, which
+split guarantees is that nothing here spawns a session or reaches the network, which
 is the property `pytest` needs; a test calling `description_sha` still needs the repo on disk.
 """
 

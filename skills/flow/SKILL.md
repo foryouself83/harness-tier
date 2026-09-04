@@ -109,11 +109,13 @@ Record each completed gate as `.claude/harness-tier/.flow/<gate>.done`. `precomm
 checks of all modules) are executed by the commit hook itself — no marker (both are
 ordinary `gates` entries and timing buckets over `flow-config.modules[].checks`, routed
 by each check's `when`; removing one from a tier's list in
-[`flow-tiers.yaml`](../../flow-tiers.yaml) disables it for that tier). **`wiki`** is a
-third runtime gate needing no marker — not a timing bucket, the hook's gate script runs
-`wiki_graph.py --verify` in-process whenever `flow-config.wiki` is enabled (no-op
-otherwise). Do **not** `touch .claude/harness-tier/.flow/wiki.done` and do not go
-looking for a `wiki` gate skill — none exists; the hook runs the check itself.
+[`flow-tiers.yaml`](../../flow-tiers.yaml) disables it for that tier). **`wiki`** and
+**`doc-style`** are two more gates needing no marker — neither is a timing bucket; the
+hook's gate script runs both in-process, `wiki_graph.py --verify` whenever
+`flow-config.wiki` is enabled and the prose lint whenever `flow-config.doc_style` is
+(each a no-op otherwise). `doc-style` only ever warns; `doc-style.yml` in CI holds the
+verdict. Do **not** `touch .claude/harness-tier/.flow/wiki.done` or `doc-style.done`, and
+do not go looking for a skill behind either — none exists; the hook runs the checks.
 
 > **Precondition (Dev / Staging / Release)** — the `superpowers` plugin must
 > be installed. If `superpowers:using-superpowers` is **not** among the available
@@ -222,7 +224,7 @@ front matter — `--build` cannot resolve those.
      Settings/PAT how-to; exit 20/no tool → skip silently, never block).
   4. `touch .claude/harness-tier/.flow/review.done` ·
      `touch .claude/harness-tier/.flow/bump.done` (two commands, written out — the brace
-     form neither matches the exact allowed-tools rules nor reads as what actually runs).
+     form neither matches the exact allowed-tools rules nor reads as what runs).
   5. Commit on the staging branch through the `commit` skill (`Skill: commit`) —
      **pass the chosen level in the arguments**, the only channel it has: `bump.done`
      is an empty marker and nothing on disk carries the level. It appends the
@@ -236,7 +238,7 @@ front matter — `--build` cannot resolve those.
   ⚠️ The regression `review` here takes **its own** file list —
   `git diff --name-only "origin/<production>..origin/<staging>"`, not the Staging bullet's
   pair. Reusing that pair does not fail loudly: staging is *ahead* of integration by the rc
-  bump CI just pushed, so it returns a plausible handful of release plumbing and hides every
+  bump CI has pushed, so it returns a plausible handful of release plumbing and hides every
   substantive change — full coverage of the wrong set, with no empty result to give it away.
   ⚠️ **Merge the freshly fetched `origin/<staging>`** (post-rc — it carries the
   `X.Y.Z-rc.N` bump), not a stale local staging ref: otherwise the rc-strip finalize

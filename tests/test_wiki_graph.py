@@ -496,7 +496,7 @@ def test_source_scalar_form_blocks(tmp_path: Path):
 
 
 def test_non_string_source_key_does_not_raise(tmp_path: Path):
-    # YAML with a numeric key like `sources: { 42: abc1234 }` parses to {42: 'abc1234'}.
+    # YAML with a numeric key like `sources: { 42: abc1234 }` parses to `{42: 'abc1234'}`.
     # Must not raise TypeError anywhere it is consumed.
 
     (tmp_path / "docs").mkdir()
@@ -1070,7 +1070,7 @@ def test_bom_on_graph_yaml_is_not_drift(tmp_path: Path):
 
 def test_edge_constants_cannot_desync():
     # DERIVED_EDGES / MANUAL_EDGES / EDGE_KEYS encode one fact three times, and EDGE_KEYS keeps
-    # its own ORDER (it is the --neighbors budget priority), so it cannot simply be derived.
+    # its own ORDER (it is the --neighbors budget priority), so it cannot be derived.
     # Adding an edge kind and forgetting EDGE_KEYS would silently drop it from drift detection
     # and orphan reachability with no error — this is the enforcement.
 
@@ -1254,7 +1254,7 @@ def test_main_fails_open_on_internal_exception(tmp_path: Path, monkeypatch, caps
 
 def test_main_routes_an_empty_neighbors_id_to_the_lookup(tmp_path: Path, monkeypatch, capsys):
     # Branching on truthiness let `--neighbors ""` fall through to cmd_verify: the caller read
-    # an empty lookup while graph verification was actually running, and drift returned 1,
+    # an empty lookup while graph verification was running, and drift returned 1,
     # which looked like a failed lookup. Both exit 1, so only stderr tells them apart.
 
     _wiki_repo(tmp_path)  # no graph.yaml was built, so leaking into verify would fail on drift
@@ -1344,7 +1344,7 @@ def test_yaml_coerced_title_is_not_reported_as_missing(tmp_path: Path):
 
 
 def test_missing_source_path_is_flagged_in_stale(tmp_path: Path, capsys):
-    # git log answers for a deleted path, so a moved file used to read as an ordinary sha drift:
+    # git log answers for a deleted path, so a moved file must not read as an ordinary sha drift:
     # doc-sync stamped the new sha and --verify's "sources 경로 … 가 없습니다" block stayed.
     _git_repo_with_source(tmp_path, "null")
     subprocess.run(["git", "mv", "src/a.py", "src/b.py"], cwd=tmp_path, check=True)
@@ -1756,7 +1756,7 @@ def test_stamp_fails_open_when_the_parent_path_was_a_tree(tmp_path: Path):
     # and lets it through (Invariant #1).
     # Judged on the outcome alone the old `show` path also passes, for a different reason, so
     # what this test pins is not the result but the QUERY taken — the object-existence probe has
-    # to actually happen.
+    # to happen at all.
     root = _stamp_repo(tmp_path)
     d = root / "docs" / "x.md"
     d.mkdir()
@@ -2175,7 +2175,7 @@ def test_plain_markdown_is_not_reported_as_broken(tmp_path: Path):
 
 def test_empty_front_matter_is_not_reported_as_broken(tmp_path: Path):
     # An empty block, common Jekyll practice. safe_load returns None, but it is not broken —
-    # simply not a node. Warning on it makes an ordinary doc tree noisy all over again.
+    # not a node at all. Warning on it makes an ordinary doc tree noisy all over again.
     (tmp_path / "docs").mkdir()
     _write_config(tmp_path, "wiki:\n  enable: true\n  root: docs/\n")
     (tmp_path / "docs" / "empty.md").write_text("---\n---\n\n본문\n", encoding="utf-8")
@@ -2548,7 +2548,7 @@ _FENCE_CASES = [
         ["docs/keep.md"],
         "a list-nested fence closes within 3 past its opening indent",
     ),
-    # The same absolute coordinates as just above diverge from CommonMark once they are at top
+    # The same absolute coordinates as above diverge from CommonMark once they are at top
     # level: the regex knows nothing of containers, so it closes both.
     (
         f"{_FENCE_KEEP}\n\n   ```text\n   | `docs/body.md` | `body` |\n      ```\n{_FENCE_IN}\n",
@@ -2587,7 +2587,7 @@ _LITERAL_ID_TEMPLATES = {
 
 def test_template_literal_ids_are_parity_tested():
     # The map is DERIVED FROM THE TEMPLATE SET rather than held by hand, so a new literal-id
-    # template is caught here first — the same failure mode the comment test just below guards
+    # template is caught here first — the same failure mode the comment test below guards
     # against.
     tpl_dir = _REPO / "skills" / "harness-authoring" / "templates"
     literal = {}

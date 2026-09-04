@@ -21,6 +21,6 @@ The full structure of the project documentation. If you are new, start with [Onb
      .claude/rules/<framework>-conventions.md (loaded via CLAUDE.md), so they are reached from CLAUDE.md, not from this index. -->
 <!-- This file's id is `readme` (its path, mechanically derived), not the wiki graph's entry point — that is
      `wiki.index` (default docs/index.md), a separate file `/wiki-init` creates. Still link every child doc here,
-     not just the categories above: it is what makes this page useful as a human landing map regardless of the
+     not only the categories above: it is what makes this page useful as a human landing map regardless of the
      wiki, and every doc reachable from `docs/index.md` should also be reachable from here. -->
 <!-- Sources: {{SOURCES}} -->

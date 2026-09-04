@@ -21,7 +21,7 @@ Confirm against the official docs, not model knowledge, as the SSOT:
     reading the `/` menu: one line, no trigger list.
   - `allowed-tools` **pre-approves** tools; it does not restrict them ("every tool remains
     callable"). Bare `Bash` therefore grants every command — scope each rule to a command the
-    skill actually runs (`Bash(k6 run *)`), and leave out anything whose prompt is doing real
+    skill runs (`Bash(k6 run *)`), and leave out anything whose prompt is doing real
     work, such as an install or a commit. Tools that never prompt (`Read`, `Grep`, `Glob`,
     `AskUserQuestion`, `Agent`) add nothing but the false look of a limit. The grant expires at
     the user's next message, so a multi-turn wizard gets little from it; a session-wide grant

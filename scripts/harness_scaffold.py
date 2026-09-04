@@ -577,7 +577,7 @@ _H2_RE = re.compile(r"^##[ \t]+", re.MULTILINE)
 
 def find_bp_section(text: str):
     """(start, end) char offsets of the '## Best Practices...' section — heading
-    line through just before the next top-level '## ' heading (or EOF). None if
+    line through to one before the next top-level '## ' heading (or EOF). None if
     there is no Best Practices heading. '###' sub-headings do not terminate it."""
     m = _BP_HEADING_RE.search(text)
     if not m:

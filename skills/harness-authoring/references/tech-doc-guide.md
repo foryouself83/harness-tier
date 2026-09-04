@@ -69,11 +69,11 @@ Turn only confirmed facts into nodes (no speculative nodes). Add a data-flow dia
 **Module overview**: step each node of the structure diagram down one level into an implementation unit and record `implementation requirements·responsibility (single)·provided interfaces·
 used interfaces·owned data` (architecture = nodes, SDS = the nodes' contracts). **Implementation requirements back-trace to the SRS FRs this module
 satisfies via markdown links** — to the SRS FR anchor as `[FR-xxx](../srs/README.md#fr-xxx)`
-(kept paired with the SRS `<a id="fr-xxx">` anchor, serving as the standard Requirements Matrix). **However, brownfield (no SRS generated)
+(kept paired with the SRS `<a id="fr-xxx">` anchor, serving as the standard Requirements Matrix). **Brownfield (no SRS generated)
 omits this field, and infrastructure/cross-cutting modules (logging·config·DB adapters) are left as "no FR mapping"** (no forced mapping·no dead links).
 Provided/used interfaces follow the UML provided/required split — provided = the contract exposed to the outside, used = the external
 contract needed to operate (other internal modules + external systems, = the concretization of dependencies). **Decomposition axis**: procedural·data-pipeline·functional projects use
-processing stages·data flows as the primary unit instead of modules. Class/type details are absorbed into interfaces. If it is a single module, keep just one (YAGNI).
+processing stages·data flows as the primary unit instead of modules. Class/type details are absorbed into interfaces. If it is a single module, keep one (YAGNI).
 **NFR Realization (requirement→design→verification bridge)**: FRs are traced per-module via "Implemented requirements"; NFRs are traced in a dedicated
 `## NFR Realization` section — map each measurable SRS §6 NFR (`#nfr-xxx`) to the module/design decision that satisfies it, plus a link to the verification
 SSOT (`docs/verification/*`). Cross-cutting NFRs need not bind to one module. Brownfield (no SRS) or no measurable NFR → omit (YAGNI).
@@ -130,14 +130,14 @@ SSOT (no duplication on either side). If greenfield modules are not yet confirme
   filename patterns `test_*.py`·`*.test.ts`). If there are multiple modules, specify each module's
   tests/ location (e.g. `packages/<module>/tests/`). `/flow-init` uses this information when matching module boundaries to test
   paths.
-  However, **this item is guidance (an SSOT record), not gate enforcement** — enforcement is flow's job (harness-rules 14-1).
+  **This item is guidance (an SSOT record), not gate enforcement** — enforcement is flow's job (harness-rules 14-1).
 - **Base it on currently recommended tools** — for tools like package managers·build, record **what is recommended now** as
   confirmed by research, not the learned past standard (ecosystem standards move — do not revert to inertial defaults).
 - `code-style/README.md` keeps only the stack list links + shared principles (source attribution, etc.).
 - **Operational-concern sections** (9-1~9-4): give each `<stack>.md` a sub-section per operational axis (`## error-handling`, etc.). The
   sub-section holds the **adopted standard (recommended default/detected)·mapping·anti-patterns·examples·alternatives** and the **source URL (SSOT)**. Mark a greenfield
   unconfirmed standard as "recommended (subject to change)". Structural directives (rules) are not copied here; the rule links to this section
-  by anchor (`#error-handling`). Emit only the axes that actually exist for that stack (9-2).
+  by anchor (`#error-handling`). Emit only the axes that exist for that stack (9-2).
 
 ## research — research/README.md + <topic>.md
 

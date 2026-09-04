@@ -34,7 +34,7 @@ Project-agnostic — derive the memory path, document format, and language **fro
 
 ## 3. Promotion target: rules vs docs
 
-**Prefer conventions that actually exist** in the project (only those confirmed in Step 3).
+**Prefer conventions that exist** in the project (only those confirmed in Step 3).
 
 - **`.claude/rules/`** (or the project's `rules/`) — **always-apply discipline the model must follow on every task**:
   coding standards, commit discipline, prohibitions, policy.

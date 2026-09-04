@@ -7,7 +7,7 @@
 ## Secrets
 | Method | What's needed | Workflow config |
 |---|---|---|
-| **OIDC trusted publishing (recommended)** | None | Just add `permissions: id-token: write`. No `password`/`username` input needed — the action automatically exchanges the OIDC token for a temporary PyPI API token. |
+| **OIDC trusted publishing (recommended)** | None | Add `permissions: id-token: write`. No `password`/`username` input needed — the action automatically exchanges the OIDC token for a temporary PyPI API token. |
 | Long-lived token | `PYPI_API_TOKEN` | `with: password: ${{ secrets.PYPI_API_TOKEN }}` (username defaults to `__token__`) |
 
 ## Gotchas

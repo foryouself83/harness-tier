@@ -64,7 +64,7 @@ Output: feat(auth): implement JWT-based authentication
 **Companion folders** — when generating a skill, if there are references/cases that the role warrants splitting out,
 create `<skill>/references/` (detailed references) · `<skill>/examples/` (at least one input/output case) alongside it.
 Keep the body to an overview + pointers and push the detail down into references. **Do not force this on a simple skill**
-(YAGNI) — only when references/cases actually exist.
+(YAGNI) — only when references/cases exist.
 
 ## 6. Context economy
 

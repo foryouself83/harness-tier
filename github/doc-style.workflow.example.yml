@@ -1,0 +1,33 @@
+# harness-tier doc-style CI — copied as-is by /flow-init (no config tokens).
+# Layer-3 verdict for prose discipline (rules/doc-style.md). The layer-2 gate only warns, and
+# only on Claude-session commits; here a violation fails the push/PR.
+# Rendered unconditionally: with flow-config.doc_style absent or enable: false the script exits
+# 0 silently, so the job is green in a repo that never opted in. The step's own guard covers the
+# other case — a repo that gitignores .claude/ has no script in the checkout at all.
+name: doc-style
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  doc-style:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install PyYAML
+        run: python3 -m pip install pyyaml
+
+      - name: Lint prose
+        run: |
+          if [ ! -f .claude/harness-tier/scripts/doc_style_check.py ]; then
+            echo "no doc_style_check.py in the checkout - nothing to lint"
+            exit 0
+          fi
+          python3 .claude/harness-tier/scripts/doc_style_check.py --lint-config

@@ -15,7 +15,7 @@ in a structured form the problems that should be fixed before a human judges the
 2. **Interface coherence** (`coherence`): CLAUDE.md ↔ rules ↔ docs cross-references · dead links, duplication of the same fact (structure = rule /
    behavior = doc SSOT separation), marker coherence, whether the agent input/output protocol meshes with the orchestration.
    **Runtime-integration coherence** (multi-component): whether the inter-component communication declared by the SDS (reachability · issuer/origin
-   match · security-header/CSP continuity · credential provisioning · global-config blast radius) is actually wired up in the deliverables
+   match · security-header/CSP continuity · credential provisioning · global-config blast radius) is wired up in the deliverables
    — cases where individual settings are correct but do not mesh together (violation `high`). See critique-guide section 2 for details.
    **Operational conventions (9-1~9-5)**: were the checklist axes reviewed without omission (is the emit/skip reason in the rationale),
    does the operational standard have a **source**, are the directive (rule) and the standard details (doc) **not duplicated**, and does the security axis
@@ -33,10 +33,10 @@ in a structured form the problems that should be fixed before a human judges the
 5. **Version compatibility** (`version-compat`) — **two axes**: (A) **config-authoring coherence** — treating the toolchain as one set,
    whether the deliverables (real-folder scaffolding config) match the official authoring for the detected actual version, build ↔ config coherence
    (`tsc -b` ↔ references, etc.). Also look at **toolchain-axis completeness** — whether each of build · **package manager** · lint · test axes
-   has an explicit decision + source, and in particular whether the package manager did not just settle on an inertial default (npm/pip) without rationale
-   (inertia-boundary violation → `med`). (B) **runtime-combination compatibility** — whether the components that go up together form the latest set that GA-supports
+   has an explicit decision + source — a package manager left at an inertial default (npm/pip) with no rationale is an
+   inertia-boundary violation (`med`). (B) **runtime-combination compatibility** — whether the components that go up together form the latest set that GA-supports
    each other's major (anchor = ceiling dependency; cross-check against researcher's matrix — **`high` when the bundle is unsupported**), and whether the recommended off-the-shelf
-   artifact actually provides the assumed feature (`high` when the stock image's extension/run mode/credential is absent). (A)·(B)
+   artifact does provide the assumed feature (`high` when the stock image's extension/run mode/credential is absent). (A)·(B)
    violations are `high`. See critique-guide section 5 for detailed criteria.
 
 ## Input / output protocol

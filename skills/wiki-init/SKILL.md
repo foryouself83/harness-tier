@@ -115,7 +115,7 @@ generated fields, and writing them by hand blocks validation.
 `sources` records the code paths the document describes, as a map. Prefer **file**
 paths: staleness is a content hash of the file (`git hash-object`), so a directory key
 is looked up by `--nodes-for` but never appears in `--stale` and its marker is never
-refreshed — write one when the document really is about the directory as a whole and
+refreshed — write one when the document is about the directory as a whole and
 you accept that, not as a shorthand for the files inside it. Leave `sha` as
 `null` — [`doc-sync`](../doc-sync/SKILL.md) fills it in. Never write an empty string for
 an unknown sha: `""` compares equal to everything, so the node reports fresh forever.
@@ -130,7 +130,7 @@ template's `defect.<slug>` convention, not this section's path derivation.
 
 ## 6. Generate the index
 
-`<root>/index.md` is itself a wiki node, not just a human landing page — reachability
+`<root>/index.md` is itself a wiki node, not only a human landing page — reachability
 is computed **only** from front-matter edges (`related` · `depends_on` · `used_by`,
 direction ignored); markdown links in the body are never read for it (design §3). Give
 it front matter with its own `wiki_id` (conventionally `index`) and a `related:` list
@@ -140,7 +140,7 @@ the graph into a star, and the orphan check degenerates into "forgot to update t
 index" instead of measuring real connectivity.
 
 Every other node must be reachable from the index through real edges: wire it
-(`related`/`depends_on`) to the nodes it actually belongs with. An orphan warning
+(`related`/`depends_on`) to the nodes it belongs with. An orphan warning
 therefore means "this node is connected to nothing that matters" — fix it by linking
 the node to its related concepts, or to the index only when it genuinely is a
 top-level entry. A body-only bullet list of links, with no front matter or an empty

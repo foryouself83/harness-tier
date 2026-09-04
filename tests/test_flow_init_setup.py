@@ -174,7 +174,7 @@ def test_register_gate_repairs_all_stale_entries(tmp_path: Path):
     msg = register_gate(tmp_path)
     assert "보정" in msg
     cmds = _gate_commands(settings)
-    assert cmds == [GATE_COMMAND, GATE_COMMAND]  # both repaired (not just the first)
+    assert cmds == [GATE_COMMAND, GATE_COMMAND]  # both repaired (not only the first)
 
 
 def test_check_precommit_reports_stale_owned_entry(tmp_path: Path):
@@ -1908,7 +1908,7 @@ def test_the_undecided_note_counts_only_the_gates_own_hooks(tmp_path: Path):
 
 def test_a_settings_file_the_host_keeps_as_a_link_is_written_through(tmp_path: Path):
     """A rename replaces the name, so the link became a plain file and the dotfiles copy the
-    host actually manages kept the old content — which their next sync puts back, gate and
+    host manages kept the old content — which their next sync puts back, gate and
     all."""
     import scripts.flow_init_setup as fis
 
@@ -2180,7 +2180,7 @@ def test_the_access_entries_and_owner_are_carried_over(tmp_path: Path, monkeypat
 
 def test_a_marketplace_write_that_fails_is_reported(tmp_path: Path, monkeypatch):
     """Every step that writes settings.json has to say so — the setup's verdict reads the
-    file, but the step's own line is what names which write went wrong."""
+    file, but the step's own line is what names the failing write."""
     import scripts.flow_init_setup as fis
 
     _planted(tmp_path, [{"matcher": "Bash", "hooks": [_gate_hook()]}])
@@ -2351,7 +2351,7 @@ def test_a_settings_file_this_creates_is_as_open_as_the_umask_allows(tmp_path: P
 
 def test_a_claude_directory_that_cannot_be_entered_is_reported(tmp_path: Path):
     """`Path.is_file()` does not swallow a permission error, so the line after the guarded
-    mkdir took the script down where the guard had just been added — and the copy that runs
+    mkdir takes the script down where the guard was added — and the copy that runs
     first did the same, taking the workflows and the .gitignore with it."""
     import scripts.flow_init_setup as fis
 
@@ -2370,7 +2370,8 @@ def test_a_claude_directory_that_cannot_be_entered_is_reported(tmp_path: Path):
 def _acl_blob(uid: int) -> bytes:
     """One POSIX access list, in the layout the kernel stores: a version word, then a tag,
     permission bits and an id per entry, ordered by tag. It has to be a real one — the blob
-    this test used to set was refused as malformed, which skipped the test on Linux and left
+    a mode this test sets must not be refused as malformed, which would skip the test on
+    Linux and leave
     the reader it exists to hold unheld on Windows too."""
     undefined = 0xFFFFFFFF
     out = struct.pack("<I", 2)
@@ -2449,7 +2450,7 @@ def test_the_gate_command_resolves_against_the_host():
 
 def test_every_file_the_gate_needs_is_one_a_finished_setup_leaves(tmp_path: Path, capsys):
     """The verdict asks the host for these by name, so a rename on one side and not the
-    other is a setup that reports a gate it just failed to install — or one that cries
+    other is a setup that reports a gate it failed to install — or one that cries
     wolf over a gate that is fine."""
     import scripts.flow_init_setup as fis
 
@@ -2528,7 +2529,7 @@ def test_a_policy_that_did_not_land_is_not_a_finished_setup(tmp_path: Path, monk
     """Without `flow-tiers.yaml` nothing parses, so the tier of a commit cannot be read and
     the unclassified-commit deny — one of the three things this gate may never fail open on —
     never fires. Measured through the runner itself: exit 0 on `git commit -m x` with no
-    policy, exit 2 once it is put back. The copy failure that used to raise was made a report,
+    policy, exit 2 once it is put back. A copy failure is a report rather than a raise,
     and the run then called itself finished over a gate that denies nothing."""
     import scripts.flow_init_setup as fis
 
@@ -2643,3 +2644,114 @@ def test_a_pre_commit_config_whose_shape_is_wrong_is_reported(tmp_path: Path):
     (tmp_path / ".pre-commit-config.yaml").write_text("- a" + chr(10), encoding="utf-8")
     lines = fis.check_precommit(PLUGIN, tmp_path)
     assert lines and lines[0].startswith("  [!]"), lines
+
+
+def test_doc_style_check_is_copied_to_the_host():
+    # The rendered workflow runs .claude/harness-tier/scripts/doc_style_check.py, and its own
+    # `[ ! -f ]` guard exits 0 when it is absent — so a name that drifts out of COPY_FILES
+    # leaves a job that is green forever and verifies nothing.
+    from scripts.flow_init_setup import COPY_FILES
+
+    assert "scripts/doc_style_check.py" in COPY_FILES
+
+
+def test_run_setup_renders_doc_style(tmp_path: Path, capsys):
+    run_setup(tmp_path, PLUGIN)
+    dest = tmp_path / ".github" / "workflows" / "doc-style.yml"
+    assert dest.is_file()
+    assert "doc-style" in capsys.readouterr().out
+    # The guard the membership test above protects, read back from what was rendered.
+    assert "doc_style_check.py" in dest.read_text(encoding="utf-8")
+
+
+def _is_type_checking(test) -> bool:
+    """`if TYPE_CHECKING:` exactly — the one test whose body python never runs.
+
+    A substring search over the dumped node also exempts `if not TYPE_CHECKING:` and
+    `if x == "TYPE_CHECKING":`, whose bodies DO run.
+    """
+    import ast
+
+    if isinstance(test, ast.Name) and test.id == "TYPE_CHECKING":
+        return True
+    return isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+
+
+def _runtime_builtin_generics(source: str) -> list[int]:
+    """Line numbers where a builtin generic is subscripted somewhere python evaluates it.
+
+    Everything under an annotation is exempt (`from __future__ import annotations` makes those
+    strings), and so is an `if TYPE_CHECKING:` body, which never runs. What is left — a type
+    alias, a default argument, a class attribute, a `try:` body at module level, a call inside
+    a function — is evaluated for real and needs python 3.9.
+    """
+    import ast
+
+    tree = ast.parse(source)
+    exempt: set[int] = set()
+    for node in ast.walk(tree):
+        deferred = [
+            getattr(node, "annotation", None),
+            getattr(node, "returns", None),
+        ]
+        if isinstance(node, ast.If) and _is_type_checking(node.test):
+            deferred += node.body
+        for sub in (d for d in deferred if d is not None):
+            exempt.update(id(n) for n in ast.walk(sub))
+    builtins_ = {"list", "dict", "set", "tuple", "frozenset", "type"}
+    return sorted(
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Name)
+        and node.value.id in builtins_
+        and id(node) not in exempt
+    )
+
+
+def test_copied_scripts_carry_no_runtime_builtin_generic():
+    """Every script the host runs has to import under python 3.8 (Invariant #1, Exception 1).
+
+    A TypeError raised while importing one aborts whichever gate script imported it, and a gate
+    that never runs blocks nothing — including the unclassified commit it exists to catch.
+    """
+    from scripts.flow_init_setup import COPY_FILES
+
+    offenders = [
+        f"{rel}:{line}"
+        for rel in COPY_FILES
+        if rel.endswith(".py")
+        for line in _runtime_builtin_generics((PLUGIN / rel).read_text(encoding="utf-8"))
+    ]
+    assert offenders == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "Finding = tuple[str, int]\n",
+        "try:\n    Finding = tuple[str, int]\nexcept TypeError:\n    pass\n",
+        "class C:\n    Finding = tuple[str, int]\n",
+        "def f(x=list[int]()):\n    pass\n",
+        "def f():\n    return dict[str, int]()\n",
+        "tuple[int]\n",
+        "from typing import TYPE_CHECKING\nif not TYPE_CHECKING:\n    F = tuple[str]\n",
+        'if x == "TYPE_CHECKING":\n    F = tuple[str]\n',
+        "if TYPE_CHECKING_OFF:\n    F = tuple[str]\n",
+    ],
+)
+def test_the_38_guard_sees_every_place_python_evaluates_one(source: str):
+    # A guard that only reads module-level assignments passes five of these six.
+    assert _runtime_builtin_generics(source)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "def f(x: list[int]) -> dict[str, int]:\n    pass\n",
+        "x: tuple[int, str]\n",
+        "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    F = tuple[str, int]\n",
+    ],
+)
+def test_the_38_guard_exempts_what_python_never_evaluates(source: str):
+    assert _runtime_builtin_generics(source) == []

@@ -186,13 +186,13 @@ pass before it can commit**.
 
 | Tier | When | superpowers | Mandatory gates |
 |------|------|:---:|-----------------|
-| `docs` | no-code change (docs/comments/config values) | ✗ | `doc-sync` · `wiki` |
-| `dev` | change with code (feature/fix) | ✓ | `precommit` (changed-module every-commit checks) · `review` (domain review) · `doc-sync` · `wiki` |
-| `staging` | QA/RC promotion (integration→staging) | ✓ | `precommit` · `review` · `security-scan` (all-module promotion checks) · `bump` (human release-level choice) · `wiki` |
-| `release` | production deploy (staging→production) | ✓ | `precommit` · `review` · `security-scan` · `security` (security review) · `wiki` |
+| `docs` | no-code change (docs/comments/config values) | ✗ | `doc-sync` · `wiki` · `doc-style` |
+| `dev` | change with code (feature/fix) | ✓ | `precommit` (changed-module every-commit checks) · `review` (domain review) · `doc-sync` · `wiki` · `doc-style` |
+| `staging` | QA/RC promotion (integration→staging) | ✓ | `precommit` · `review` · `security-scan` (all-module promotion checks) · `bump` (human release-level choice) · `wiki` · `doc-style` |
+| `release` | production deploy (staging→production) | ✓ | `precommit` · `review` · `security-scan` · `security` (security review) · `wiki` · `doc-style` |
 
 - **`precommit` · `security-scan`** are executed by the commit hook itself (no marker).
-  Removing one from a tier's `gates` list disables just that check.
+  Removing one from a tier's `gates` list disables that check alone.
 - **`wiki`** is likewise executed by the commit hook itself (no marker), in-process as
   the flow gate's final stage — never through the module-check channel — but only when
   `flow-config.wiki` is enabled; otherwise nothing runs. Its graph-quality warnings
@@ -205,7 +205,7 @@ pass before it can commit**.
   blocks a commit whose only change to a node is its `sources` sha with no body edit
   (stamp discipline — two swaps stay allowed: doc-sync's legacy-marker migration
   rewrite, and a stamp whose body edit landed in the immediately preceding commit, so
-  stamping or amending the sync you just committed works — the gate follows a rename in
+  stamping or amending the sync you committed works — the gate follows a rename in
   that commit, so moving the document does not cost you the allowance). It reads the
   **working tree** — the hook fires before `git commit` stages anything, so there is no
   commit to inspect yet. Stage `graph.yaml` together with the documents it was built
@@ -213,6 +213,20 @@ pass before it can commit**.
   stale one. `/flow-init` also renders a `wiki-verify.yml` CI workflow that runs the
   same verification read-only on push/PR, catching drift from terminal and merge
   commits the hook never sees.
+- **`doc-style`** is the other in-process stage, and the only gate that **never blocks**. When
+  `flow-config.doc_style` is enabled it lints the files a commit changes that its `paths` and
+  `exclude` globs put in scope, against the `doc-style` rule — history narration, plan-record
+  pointers, filler, Korean `~다` endings, over-long prose lines — and reports them as a
+  `systemMessage`. `paths` defaults to `**/*.md`; add `**/*.py` · `**/*.sh` to cover comments
+  and docstrings, and put generated files (`CHANGELOG.md`) in `exclude` — a release tool
+  rewrites those from commit subjects, which no edit of yours can fix. The hook and CI read
+  that scope through one function, so an `exclude` cannot hold in only one of them. A
+  `flow-config.yaml` that does not parse fails the CI job rather than reading as "off". The
+  verdict belongs to the `doc-style.yml` CI workflow, which sees the whole tree; a commit-time
+  block would deny commits on a rule tightening nobody could predict.
+  `doc_style_check.py --verify-git` is the other half: it proves a rewrite kept every heading,
+  fenced block, URL and inline-code span, and for `.py`/`.sh` that the code is byte-identical
+  once comments and docstrings are stripped. `doc-sync` runs it after every rewrite.
 - **`review` · `doc-sync` · `security` · `bump`** leave an evidence marker after `/flow`
   passes the gate; the commit hook passes only when the marker exists. `review` and
   `doc-sync` judge the working tree, so a PostToolUse hook deletes **both** markers on any
@@ -332,7 +346,7 @@ Generates a `CLAUDE.md`, rules, and technical docs tailored to your project. It 
 - **Actual settings** like security scanners, CI, folder creation, and version pinning are
   applied **only with per-item consent** during the interview.
 - **It does not generate slash commands.**
-- **`.claude/rules/`, not just `CLAUDE.md`** — framework and structural conventions are
+- **`.claude/rules/`, not only `CLAUDE.md`** — framework and structural conventions are
   written as auto-loaded `.claude/rules/<name>.md` files (Claude Code's rules convention; an
   optional `paths` glob scopes a rule so it loads only when a matching file is read), so the
   harness follows the current multi-file convention rather than one monolithic `CLAUDE.md`.
@@ -468,11 +482,11 @@ guidance otherwise. Order: `/harness-init` → `/flow-init` → **`/harness-depl
 
 **Wiring** — `release.yml` calls `deploy.yml` via `workflow_call` in the **same run**: no
 cross-workflow trigger, no `RELEASE_TOKEN` for deploy. The release job exposes
-`outputs.tag` (the actual tag just created, or empty when the release was skipped) and a
+`outputs.tag` (the tag created, or empty when the release was skipped) and a
 managed block calls the orchestrator with that tag; the orchestrator resolves it once and
 calls each target component with per-target least-privilege permissions. Manual re-deploy:
 run `.github/workflows/deploy.yml` via `workflow_dispatch` with a `tag` input (and an
-optional `target` to redeploy just one).
+optional `target` to redeploy one).
 
 **Decoupled from release** — release (`versioning`) produces the tag and notes; deployment
 is a separate, opt-in layer (`flow-config.deploy.enable`) on top of it, not part of the
@@ -506,7 +520,7 @@ Notifies a Microsoft Teams channel when waiting for input, or at any point you c
 
 For each channel you'll use (personal, branch), obtain a Teams **incoming webhook URL** (a
 URL built with a Power Automate workflow — includes a `sig=` token). Channels can be turned
-on incrementally: start with just the personal channel and add branch channels later.
+on incrementally: start with the personal channel and add branch channels later.
 
 ### Webhook setup — 2 files
 
@@ -545,7 +559,7 @@ The release workflow pushes the version bump/tag, so its token needs **write**.
 > **Default** — the workflow authenticates with the auto-provided `GITHUB_TOKEN`. Every
 > checkout/step references `${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}`, so when
 > `RELEASE_TOKEN` is unset it **falls back to `GITHUB_TOKEN`** — releases work out of the box
-> with just the write permission below. `RELEASE_TOKEN` is an opt-in escalation (item 4).
+> with the write permission below. `RELEASE_TOKEN` is an opt-in escalation (item 4).
 
 1. **Primary** — Settings → Actions → General → **Workflow permissions** → **Read and
    write permissions** → Save.
@@ -557,7 +571,7 @@ The release workflow pushes the version bump/tag, so its token needs **write**.
    protection, trigger downstream workflows): create a fine-grained PAT with
    `Contents: Read and write` (+ `Workflows: Read and write` if the release touches
    workflow files) and store it as the repo secret `RELEASE_TOKEN`. The workflow already
-   references `${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}`, so **just adding the
+   references `${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}`, so **adding the
    secret takes effect — no YAML edit**; when it is absent the run falls back to `GITHUB_TOKEN`.
 
 The release preflight (`check-token-write.sh`) fails fast with this pointer when the
@@ -591,7 +605,7 @@ gate with `/flow-uninstall`.
 The `superpowers@claude-plugins-official` plugin must be installed. Without it `/flow` stops
 and guides you — don't skip to manual implementation.
 
-### It blocked me just for mentioning `git commit`
+### It blocked me for merely mentioning `git commit`
 
 It should not. The gate reads the command the way a shell does and asks one question: is there
 a real `git … commit` in it? A mention inside quotes, a comment or a heredoc body is text, so
@@ -668,14 +682,14 @@ If `/flow-uninstall` is no longer available, remove things by hand:
    marketplace registration (`extraKnownMarketplaces.harness-tier`).
 3. Remove the harness-tier lines from `.gitignore`.
 4. Remove the `harness-tier:teams` managed block from `CLAUDE.md`.
-5. Delete `.github/workflows/wiki-verify.yml`, and any release workflow that calls
-   `.claude/harness-tier/scripts/` — with step 1 done they run a script that is gone.
-   `wiki-verify.yml` guards on that and stays green — it verifies nothing, and still spends
-   a runner on every push to say so. Among the release renders, `gitversion` and `jreleaser`
+5. Delete `.github/workflows/wiki-verify.yml` and `.github/workflows/doc-style.yml`, and
+   any release workflow that calls `.claude/harness-tier/scripts/` — with step 1 done they
+   run a script that is gone. Both guard on that and stay green — they verify nothing, and
+   still spend a runner on every push to say so. Among the release renders, `gitversion` and `jreleaser`
    call the path unguarded and fail on pushes to your release branches;
    `python-semantic-release` guards its call, and `cargo-release` / `semantic-release` never
    reference the path. (`api-contract.yml` / `unit-test.yml` reference nothing of ours and
-   simply stay active.)
+   stay active.)
 6. (Optional) `pre-commit uninstall --hook-type pre-commit --hook-type commit-msg --hook-type pre-push`.
 
 ---

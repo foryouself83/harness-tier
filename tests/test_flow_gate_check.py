@@ -484,7 +484,7 @@ def test_classify_reports_a_merge_without_resolving_a_worktree(tmp_path: Path):
     _init_repo(main)
     wt = tmp_path / "repo-wt"
     _rg(["worktree", "add", "-b", "feature/x", str(wt)], main)
-    # The hook's own cwd is the worktree — the rung the guard actually stands in front of. With
+    # The hook's own cwd is the worktree — the rung the guard stands in front of. With
     # `cwd` on main the command names no commit either way, so the guard would go unexercised.
     payload = {"cwd": str(wt), "tool_input": {"command": "git merge --no-ff dev"}}
     r = _classify(main, payload)
@@ -507,7 +507,7 @@ def test_changed_files_isolated_per_worktree(tmp_path: Path):
 
 
 def _repo_bash() -> str | None:
-    """A bash that can actually see the repo path (Git Bash on Windows / native bash on POSIX).
+    """A bash that can see the repo path (Git Bash on Windows / native bash on POSIX).
 
     Windows PATH often resolves ``bash`` to WSL, which cannot access ``C:/…`` paths, so probe the
     candidate and fall back to known Git Bash locations. None → no usable bash (skip)."""
@@ -615,7 +615,7 @@ def test_runner_leaves_a_read_only_command_that_mentions_committing_alone(tmp_pa
     # a token that crosses whitespace by pairing one string's closing quote with a later string's
     # opening quote turns `git log … && echo "… commit"` into a commit, and the tree below — dirty
     # and unclassified — is exactly where that gets denied. The gate blocking a read-only command
-    # is the mirror image of the silent skip above, and just as wrong.
+    # is the mirror image of the silent skip above, and as wrong.
     main = tmp_path / "main"
     _init_repo(main)
     (main / ".claude" / "harness-tier" / "config").mkdir(parents=True)
@@ -712,7 +712,7 @@ def test_runner_merge_gate_survives_clean_tree(tmp_path: Path):
     # Commit the config so the tree is genuinely clean before the merge (as it would be for a
     # real team — flow-config.yaml is git-tracked, per /flow-init). Leaving it untracked would
     # make the tree dirty and let an unrelated gate block first, masking whether the merge
-    # branch actually runs before the `git status` early-exit.
+    # branch runs before the `git status` early-exit.
     _rg(["add", "-A"], main)
     _rg(["commit", "-m", "cfg"], main)
     r = _run_runner(main, "git merge origin/stage")  # missing the required --no-ff
@@ -762,7 +762,7 @@ def test_runner_merge_gate_reads_switch_target_from_command(tmp_path: Path):
 
 @requires_bash_git
 def test_runner_merge_gate_reads_a_newline_separated_switch_target(tmp_path: Path):
-    # The same idiom as above, written the way risk-tiers actually prints it: three LINES, no `&&`.
+    # The same idiom as above, written the way risk-tiers prints it: three LINES, no `&&`.
     # End-to-end because the unit test alone proved insufficient once — the whole merge suite was
     # written with `&&`, so a separator class missing `\n` passed 653 tests while every
     # newline-separated merge walked through the gate. Here the `--squash` the policy requires is
@@ -785,7 +785,7 @@ def test_runner_merge_gate_reads_a_newline_separated_switch_target(tmp_path: Pat
 @requires_bash_git
 def test_runner_merge_gate_fires_when_command_also_commits(tmp_path: Path):
     # `git merge X && git commit -m …` (the squash-merge idiom): the merge check must not be
-    # skipped just because the command also commits. Gated as a commit only, this exits 0 —
+    # skipped merely because the command also commits. Gated as a commit only, this exits 0 —
     # the merge verdict is never asked for, and the commit path early-exits on the clean tree.
     main = tmp_path / "main"
     _init_repo(main)
@@ -863,7 +863,7 @@ def test_runner_merge_gate_fails_open_on_a_cd_into_another_worktree(tmp_path: Pa
     # comes from the command but the target would be read from THIS root, naming a flow that is
     # not happening. Closing only the `-C` form left this one blocking (exit 2 demanding
     # --squash) — the merge path may not re-designate the worktree (Invariant #6), so it must
-    # simply fail open.
+    # fail open.
     main = _merge_repo(tmp_path, branch="dev", config="branches:\n  integration: dev\n")
     wt = tmp_path / "wt"
     _rg(["worktree", "add", "-b", "stage", str(wt)], main)
@@ -1260,7 +1260,7 @@ def test_target_from_command_checkout_with_a_pathspec_is_unclear():
 
 
 def test_target_from_command_one_unclear_switch_voids_the_whole_chain():
-    # HEAD really ends on feature/y. Scanning for the last *matching* switch skips the unclear
+    # HEAD ends on feature/y. Scanning for the last *matching* switch skips the unclear
     # `-c` form and adopts the stale `dev`, so the rule for a flow that is not happening fires.
     cmd = "git switch dev && git switch -c feature/y && git merge feature/x"
     assert _target_from_command(cmd) is None
@@ -1275,7 +1275,7 @@ def test_target_from_command_origin_ref_is_unclear():
     assert _target_from_command("git checkout origin/dev && git merge feature/x") is None
 
 
-# Every merge test above writes its chain with `&&`, and a shell separates commands just as well
+# Every merge test above writes its chain with `&&`, and a shell separates commands as well
 # with a newline or a `;`. That blind spot let an operand cut missing `\n` ship green: the
 # operand region ran past the end of the line, every switch read as unclear, and all
 # newline-separated merges fell back to HEAD — through the gate. The separator is therefore an
@@ -1296,7 +1296,8 @@ def test_target_from_command_reads_the_documented_block_under_any_separator(sep)
 
 
 # ── a command's operands stop where the next command starts ─────────────────────
-# The operand region used to run to end of input, so anything later in the chain joined this
+# The operand region must stop at the command boundary: run it to end of input and anything
+# later in the chain joins this
 # merge's flags. Both directions are policy failures: a `require` row satisfied by a word the
 # merge never carried lets a forbidden merge through, and a `forbid` row tripped by a word from
 # another command blocks one the policy allows.
@@ -1372,7 +1373,7 @@ def test_target_from_command_reads_the_documented_block_with_crlf():
 )
 def test_target_from_command_false_positives_stay_unclear_under_any_separator(steps, sep):
     # The other direction of the same widening: teaching the parser to see across newlines must
-    # not also teach it to *name* a target in the three shapes that previously produced false
+    # not also teach it to *name* a target in the three shapes that produce false
     # blocks. Each must stay None under every separator, so the hook-time branch stands.
     assert _target_from_command(sep.join(steps)) is None
 
@@ -1384,7 +1385,7 @@ def test_points_elsewhere_ignores_a_non_git_dash_c(tmp_path: Path):
 
 
 def test_points_elsewhere_detects_a_leading_cd(tmp_path: Path):
-    # `cd <dir> && git merge X` names the execution directory just as `git -C <dir>` does.
+    # `cd <dir> && git merge X` names the execution directory as `git -C <dir>` does.
     other = tmp_path / "other"
     assert fgc._points_elsewhere(f"cd {other} && git merge feature/x", tmp_path) is True
     assert fgc._points_elsewhere(f"cd {tmp_path} && git merge feature/x", tmp_path) is False
@@ -1674,7 +1675,7 @@ def test_gate_script_runs_without_the_wiki_sibling(tmp_path: Path):
     # host ONE FILE AT A TIME — so a host can legitimately hold this file without that sibling.
     # Unguarded, the ImportError would make the whole gate script unrunnable: the runner reads
     # that as an internal error and FAIL-OPENs, taking the tier and marker gates down with the
-    # wiki one and switching enforcement off in silence. Copy the two files it really needs.
+    # wiki one and switching enforcement off in silence. Copy the two files it needs.
     scripts_dir = tmp_path / "scripts"
     scripts_dir.mkdir()
     repo = Path(__file__).resolve().parent.parent
@@ -1755,6 +1756,121 @@ def test_runner_wiki_step_shows_warnings_on_a_passing_commit(tmp_path: Path):
     assert r.returncode == 0, f"stdout={r.stdout!r} stderr={r.stderr!r}"
     payload = json.loads(r.stdout.strip())
     assert "orphan" in payload["systemMessage"]
+
+
+def _doc_style_host(tmp_path: Path, prose: str, config: str = "") -> Path:
+    """A repo whose pending commit changes one document carrying `prose`."""
+    _init_repo(tmp_path)
+    cfgdir = tmp_path / ".claude" / "harness-tier" / "config"
+    cfgdir.mkdir(parents=True)
+    (cfgdir / "flow-config.yaml").write_text(
+        config or "doc_style:\n  enable: true\n", encoding="utf-8"
+    )
+    (tmp_path / "doc.md").write_text(prose, encoding="utf-8")
+    _rg(["add", "doc.md"], tmp_path)
+    return tmp_path
+
+
+def test_doc_style_is_a_runtime_gate_needing_no_marker(tmp_path: Path):
+    assert "doc-style" in RUNTIME_GATES
+    flow = tmp_path / ".flow"
+    flow.mkdir()
+    assert "doc-style" not in missing_gates(flow, ["doc-style", "doc-sync"])
+
+
+def test_doc_style_gate_reports_a_violation_in_a_changed_file(tmp_path: Path):
+    root = _doc_style_host(tmp_path, "The runner used to spawn twice.\n")
+    report = fgc.doc_style_gate(root, ["precommit", "doc-style"])
+    assert report and "HIST" in report and "doc.md" in report
+
+
+def test_doc_style_gate_is_silent_on_clean_prose(tmp_path: Path):
+    root = _doc_style_host(tmp_path, "The gate blocks an unclassified commit.\n")
+    assert fgc.doc_style_gate(root, ["doc-style"]) is None
+
+
+def test_doc_style_gate_is_silent_when_the_config_is_off(tmp_path: Path):
+    root = _doc_style_host(tmp_path, "The runner used to spawn twice.\n")
+    (root / ".claude" / "harness-tier" / "config" / "flow-config.yaml").write_text(
+        "doc_style:\n  enable: false\n", encoding="utf-8"
+    )
+    assert fgc.doc_style_gate(root, ["doc-style"]) is None
+
+
+def test_doc_style_gate_is_silent_when_the_gate_is_not_listed(tmp_path: Path):
+    # flow-tiers.yaml gates is the on/off switch, same as every other runtime gate.
+    root = _doc_style_host(tmp_path, "The runner used to spawn twice.\n")
+    assert fgc.doc_style_gate(root, ["precommit"]) is None
+    assert fgc.doc_style_gate(root, None) is None
+
+
+def test_doc_style_gate_internal_failure_is_fail_open(tmp_path: Path, monkeypatch):
+    root = _doc_style_host(tmp_path, "The runner used to spawn twice.\n")
+    monkeypatch.setattr(fgc, "lint_paths", lambda paths: 1 / 0)
+    assert fgc.doc_style_gate(root, ["doc-style"]) is None
+
+
+def test_doc_style_gate_opens_without_its_sibling(tmp_path: Path, monkeypatch):
+    # A half-copied host can hold flow_gate_check.py without doc_style_check.py.
+    root = _doc_style_host(tmp_path, "The runner used to spawn twice.\n")
+    monkeypatch.setattr(fgc, "lint_paths", None)
+    assert fgc.doc_style_gate(root, ["doc-style"]) is None
+
+
+def test_doc_style_gate_is_not_a_module_command(tmp_path: Path):
+    # Same contract as the wiki gate: down the module channel any nonzero exit reads as
+    # "the check failed", which a warn-only gate can never honour. The config carries a
+    # module WITH checks, so the empty answer is the routing's and not the early return
+    # module_commands takes when there are no modules at all.
+    root = _doc_style_host(
+        tmp_path,
+        "The runner used to spawn twice.\n",
+        config=(
+            "doc_style:\n  enable: true\n"
+            "modules:\n  - name: api\n    path: services/api/\n"
+            '    checks:\n      security: "echo SCAN"\n'
+        ),
+    )
+    with_bucket, _ = module_commands(root, "staging", ["security-scan"])
+    assert with_bucket, "the fixture must reach the routing, not the early return"
+    assert module_commands(root, "staging", ["security-scan", "doc-style"])[0] == with_bucket
+    assert module_commands(root, "staging", ["doc-style"]) == ([], [])
+    assert module_commands(root, "docs", ["doc-sync", "doc-style"]) == ([], [])
+
+
+@requires_bash_git
+def test_doc_style_never_blocks_a_commit(tmp_path: Path):
+    # The verdict belongs to doc-style.yml, which sees the whole tree. Here it only warns.
+    main = tmp_path / "main"
+    _init_repo(main)
+    wt = tmp_path / "wt"
+    _rg(["worktree", "add", "-b", "feature/x", str(wt)], main)
+    _classify_worktree_module(wt)
+    (wt / ".claude" / "harness-tier" / "config" / "flow-config.yaml").write_text(
+        "doc_style:\n  enable: true\n", encoding="utf-8"
+    )
+    (wt / "doc.md").write_text("The runner used to spawn twice.\n", encoding="utf-8")
+    _rg(["add", "doc.md"], wt)
+    r = _run_runner(main, f"git -C {wt} commit -m x", dryrun=False)
+    assert r.returncode == 0, f"stdout={r.stdout!r} stderr={r.stderr!r}"
+    assert "HIST" in json.loads(r.stdout.strip())["systemMessage"]
+
+
+def test_runtime_notices_carry_every_gate_in_one_payload(tmp_path: Path, monkeypatch, capsys):
+    # precommit-runner.sh echoes this stdout verbatim; a second JSON object would not parse.
+    monkeypatch.setattr(fgc, "_wiki_stage", lambda root, gates: "wiki note")
+    monkeypatch.setattr(fgc, "doc_style_gate", lambda root, gates: "prose note")
+    fgc._runtime_notices(tmp_path, ["wiki", "doc-style"])
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert "wiki note" in payload["systemMessage"]
+    assert "prose note" in payload["systemMessage"]
+
+
+def test_runtime_notices_stay_quiet_when_every_gate_is_clean(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.setattr(fgc, "_wiki_stage", lambda root, gates: None)
+    monkeypatch.setattr(fgc, "doc_style_gate", lambda root, gates: None)
+    fgc._runtime_notices(tmp_path, ["wiki", "doc-style"])
+    assert capsys.readouterr().out == ""
 
 
 def _classify_docs(root: Path) -> None:
@@ -2116,3 +2232,84 @@ MERGE_PARSES = [
 @pytest.mark.parametrize("command,expected", MERGE_PARSES, ids=[c for c, _ in MERGE_PARSES])
 def test_every_merge_in_a_command_is_parsed(command: str, expected: list):
     assert fgc.parse_merge_commands(command) == expected
+
+
+def test_doc_style_gate_honours_the_configured_scope(tmp_path: Path):
+    """`exclude` written for CI governs the hook arm too — one reader, both arms.
+
+    A hook that warned about a file CI never looks at would report a violation nobody can
+    resolve, since the file is out of scope everywhere the verdict is issued.
+    """
+    root = _doc_style_host(
+        tmp_path,
+        "The runner used to spawn twice.\n",
+        config="doc_style:\n  enable: true\n  paths: ['**/*.md']\n  exclude: ['doc.md']\n",
+    )
+    assert fgc.doc_style_gate(root, ["doc-style"]) is None
+
+
+def test_doc_style_gate_names_the_path_not_the_basename(tmp_path: Path):
+    # Every skill file is called SKILL.md; a basename cannot say which one.
+    root = _doc_style_host(tmp_path, "clean\n")
+    nested = root / "skills" / "flow"
+    nested.mkdir(parents=True)
+    (nested / "SKILL.md").write_text("The runner used to spawn twice.\n", encoding="utf-8")
+    _rg(["add", "skills/flow/SKILL.md"], root)
+    report = fgc.doc_style_gate(root, ["doc-style"])
+    assert report and "skills/flow/SKILL.md" in report
+
+
+def test_runtime_notices_are_silent_under_dryrun(tmp_path: Path, monkeypatch, capsys):
+    """A dry run prints the commands it would issue and nothing else on stdout.
+
+    The wiki stage guarded itself; doc-style did not, so a dry run in a doc_style repo wrote a
+    systemMessage the runner never expects there.
+    """
+    root = _doc_style_host(tmp_path, "The runner used to spawn twice.\n")
+    monkeypatch.setenv("HARNESS_PRECOMMIT_DRYRUN", "1")
+    fgc._runtime_notices(root, ["wiki", "doc-style"])
+    assert capsys.readouterr().out == ""
+
+
+def test_a_sibling_that_raises_at_import_does_not_take_the_gate_down(tmp_path: Path):
+    """`except ImportError` was too narrow.
+
+    doc_style_check.py runs on the host's python, whose floor is 3.8. A module-level expression
+    that python rejects raises TypeError, not ImportError — and an unguarded one aborts
+    flow_gate_check.py itself, which exits 1 with an empty stdout. precommit-runner.sh denies
+    only on exit 2, so the commit is allowed: Invariant #1's fail-CLOSED block on an
+    unclassified commit, off in silence.
+    """
+    repo = Path(__file__).resolve().parent.parent
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir()
+    for name in ("flow_gate_check.py", "_harness_paths.py", "wiki_graph.py"):
+        shutil.copy(repo / "scripts" / name, scripts_dir / name)
+    (scripts_dir / "doc_style_check.py").write_text(
+        "raise TypeError('a module-level expression this python rejects')\n",
+        encoding="utf-8",
+    )
+    host = tmp_path / "host"
+    cfg = host / ".claude" / "harness-tier" / "config"
+    cfg.mkdir(parents=True)
+    shutil.copy(repo / "flow-tiers.yaml", cfg / "flow-tiers.yaml")
+    r = subprocess.run(
+        [sys.executable, str(scripts_dir / "flow_gate_check.py")],
+        env={**os.environ, "CLAUDE_PROJECT_DIR": str(host), "PYTHONIOENCODING": "utf-8"},
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert r.returncode == fgc.BLOCK_EXIT_CODE, f"rc={r.returncode} err={r.stderr!r}"
+    assert "분류되지 않은 커밋" in r.stdout
+
+
+def test_doc_style_gate_fails_open_on_a_config_that_does_not_parse(tmp_path: Path):
+    """CI turns a malformed flow-config.yaml into a red job; the commit gate may not.
+
+    doc_style_check raises a plain ValueError so this `except Exception` still catches it. A
+    SystemExit would pass straight through and abort the gate script, which exits 1 with an
+    empty stdout — the runner then allows an unclassified commit (Invariant #1).
+    """
+    root = _doc_style_host(tmp_path, "The runner used to spawn twice.\n", config="doc_style: [\n")
+    assert fgc.doc_style_gate(root, ["doc-style"]) is None

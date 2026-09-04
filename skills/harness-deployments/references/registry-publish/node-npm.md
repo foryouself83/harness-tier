@@ -8,7 +8,7 @@
 | Method | What's needed | Workflow config |
 |---|---|---|
 | Long-lived token (current default template) | `NPM_TOKEN` (Automation-type token) | `env: NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}`, `registry-url: https://registry.npmjs.org` |
-| **npm Trusted Publishing (OIDC, 2025-07-31 GA)** | None | `permissions: id-token: write`. Requires npm CLI ≥ 11.5.1, Node ≥ 22.14.0. Running just `npm publish` (no separate `--provenance` needed — it is attached automatically on the OIDC path) publishes without a token. |
+| **npm Trusted Publishing (OIDC, 2025-07-31 GA)** | None | `permissions: id-token: write`. Requires npm CLI ≥ 11.5.1, Node ≥ 22.14.0. Running `npm publish` alone (no separate `--provenance` needed — it is attached automatically on the OIDC path) publishes without a token. |
 
 ## Gotchas
 - To use Trusted Publishing, go to npmjs.com package settings → **Trusted Publisher** section, select GitHub Actions, and register org/user, repo, workflow filename, and (optionally) environment — the same pre-registration pattern as PyPI/crates.io.

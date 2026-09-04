@@ -21,9 +21,7 @@ missing field that should have been there.
 So `allowed-tools: Bash, Read, Write, Edit, Glob, Grep` does not say "this skill uses
 these tools". It says **grant this skill every command and every file write, unasked** —
 and `Read`/`Grep`/`Glob`/`AskUserQuestion`/`Agent` never prompt in the first place, so
-those entries grant nothing and only make the line read like a limit. Nine skills here
-shipped exactly that list for months, inherited unexamined from the command→skill
-migration.
+those entries grant nothing and only make the line read like a limit.
 
 Add it when a command the skill runs prompts on every invocation, and scope each rule to
 that command — the space before `*` is a prefix boundary:
@@ -66,10 +64,9 @@ for setup and teardown you want to fire by hand.
 ## A description states when, not what
 
 A description that summarises its own workflow becomes the shortcut the agent takes
-instead of reading the body. `integration`'s used to name `--reporter=json` while leaving
-out the `PLAYWRIGHT_JSON_OUTPUT_NAME` its body requires — an agent following the
-description alone got ENOENT. Write triggers and the stake of skipping; let the body hold
-the procedure.
+instead of reading the body — one that names `--reporter=json` and omits the
+`PLAYWRIGHT_JSON_OUTPUT_NAME` the body requires buys an agent an ENOENT. Write triggers
+and the stake of skipping; let the body hold the procedure.
 
 ## Commands in the body run as written
 

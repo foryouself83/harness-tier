@@ -79,7 +79,7 @@ BLOCK_EXIT_CODE = 2
 #   gate must fail OPEN on anything that is not a real verdict (Invariant #1). Riding main()
 #   also lets the graph's quality warnings reach the user on a passing commit — the module
 #   channel buffers output into a log printed only on failure.
-RUNTIME_GATES = ("precommit", "security-scan", "wiki")
+RUNTIME_GATES = ("precommit", "security-scan", "wiki", "doc-style")
 # Lifecycle branch → tier label. Must byte-match the flow-tiers.yaml tiers: keys for the gate to be
 # enforced (on desync, required_gates returns None → gate silently skipped via FAIL-OPEN).
 STAGING_TIER = "staging"
@@ -111,7 +111,7 @@ def config_path(root: Path) -> Path:
 def host_root() -> Path:
     """Host repo root. CLAUDE_PROJECT_DIR → git toplevel → .claude marker back-derivation → cwd.
 
-    The most robust fallback is made the standard (formerly teams_alert._host_root).
+    The most robust fallback is the standard one.
     CLAUDE_PROJECT_DIR is auto-injected only during hook execution and may be empty for
     pre-push·manual calls, so it falls back to git toplevel, and if git also fails it
     back-derives the parent of `.claude` from the host copy location
@@ -171,7 +171,7 @@ def force_utf8_io() -> None:
 # miss the worktree's staged changes, the branch-bound tier marker mismatches (→ "unclassified"
 # fail-closed), and relative module-lint commands miss the worktree's files.
 #
-# working_root() detects the worktree where the commit actually runs and returns it so the whole
+# working_root() detects the worktree where the commit runs and returns it so the whole
 # gate reads that worktree. Identification key = the *branch* (git enforces one-branch↔one-worktree,
 # a bijection; the tier marker is already branch-bound). Everything is read git-natively (no path or
 # session-id stored in the team-shared config). Any uncertainty → project_dir (= main = current
@@ -577,7 +577,7 @@ def _heredoc_body(command: str, start: int, word: str, dash: bool) -> int:
 
 
 def _matching(command: str, at: int, opener: str, closer: str, depth: int = 1) -> int:
-    """Index just past the `closer` that balances `depth` open `opener`s, starting at `at`.
+    """Index one past the `closer` that balances `depth` open `opener`s, starting at `at`.
 
     The closer is tested first because a backtick is its own closer: counted as another
     opening one the pair never balances, and the scan then swallows the rest of the
@@ -598,7 +598,7 @@ def _matching(command: str, at: int, opener: str, closer: str, depth: int = 1) -
 
 
 def _arith_end(command: str, at: int) -> int:
-    """Index just past the `))` closing the arithmetic whose body starts at `at`.
+    """Index one past the `))` closing the arithmetic whose body starts at `at`.
 
     Arithmetic is scanned rather than masked because it is neither literal text nor a place a
     command can live — but its `<<` is a left shift, and read as a heredoc introducer it masks
@@ -674,7 +674,7 @@ def _expanding(
 
     A double-quoted span and an unquoted heredoc body are the same shape: the runs between
     substitutions are text, and each substitution is the command it is. Masking the span
-    whole loses a commit the shell really runs — `"$(git commit)"` runs one — and scanning it
+    whole loses a commit the shell does run — `"$(git commit)"` runs one — and scanning it
     whole hands the parser a message as syntax. `stop` ends the run at the first unescaped
     occurrence of that character instead of at `b`, which is the only thing a quoted span does
     differently: it closes where the shell closes it, never at a quote inside a substitution
@@ -729,7 +729,7 @@ def _executed_span(command: str, quote_at: int) -> bool:
     however it is quoted. The set is small and named rather than inferred — a gate that tried to
     follow every way a string can become code would be a shell, and a determined bypass has
     unbounded spellings anyway (a terminal commit already skips every layer). What it must not
-    do is be narrower than the substring match it replaced on the spellings agents actually
+    do is be narrower than the substring match it replaced on the spellings agents
     write.
     """
     # Both patterns end at `$`, so only the characters immediately before the span can
@@ -1013,7 +1013,7 @@ def _unquote(command: str, masked: str, a: int, b: int) -> str:
 
     Quote and escape removal, with ONE deliberate departure from the shell: a backslash is
     dropped only when it quotes a blank, a quote or another backslash. The shell drops every one,
-    which would turn a `-C C:\\work\\wt` — the shape this option actually carries on the host the
+    which would turn a `-C C:\\work\\wt` — the shape this option carries on the host the
     gate runs on — into a path that resolves to nothing, and an unresolvable directory sends the
     whole read back to main.
     """
@@ -1120,7 +1120,7 @@ def _common_dir(d: str | Path) -> Path | None:
 def working_root(
     *, project_dir: Path, hook_cwd: str | None = None, command: str | None = None
 ) -> Path:
-    """Resolve the worktree where this commit actually runs (branch-key ladder). FAIL-OPEN.
+    """Resolve the worktree where this commit runs (branch-key ladder). FAIL-OPEN.
 
     Reads the execution location deterministic-first and confirms same-repo via common-dir
     equality (Invariant #1: any uncertainty → ``project_dir`` = main = current behavior):
