@@ -2,6 +2,40 @@
 
 <!-- version list -->
 
+## v0.3.0-rc.1 (2026-09-05)
+
+### Bug Fixes
+
+- **gate**: Find a command where a shell starts one
+  ([`bdbf46b`](https://github.com/foryouself83/harness-tier/commit/bdbf46b4fcd8da9b4ab2bb9bbcdd6ca1f14402d0))
+
+- **gate**: Gate by default, exempt only readers
+  ([`946f62b`](https://github.com/foryouself83/harness-tier/commit/946f62b77d5715572d00836a5e5b51dbdcfc1536))
+
+- **gate**: Read the program at every command
+  ([`2f2fd16`](https://github.com/foryouself83/harness-tier/commit/2f2fd16a1c3aa222b2e1bdb76960de90736f6f00))
+
+- **init**: A half-copied install under-gates
+  ([`da42dea`](https://github.com/foryouself83/harness-tier/commit/da42dea247419f57576d42f270f3def8e6483c79))
+
+- **init**: Install a gate the host can read
+  ([`72ec8c4`](https://github.com/foryouself83/harness-tier/commit/72ec8c4db30344d1d9776dec417521a2d6dba440))
+
+- **init**: Read the matcher the way hooks do
+  ([`c79b678`](https://github.com/foryouself83/harness-tier/commit/c79b6784528aa4223d188c373176b7634934fe07))
+
+- **prose**: No shipped line runs past 300 chars
+  ([`a14c0bd`](https://github.com/foryouself83/harness-tier/commit/a14c0bdc18c84e7fb1eb9ba129b2455d6c24c261))
+
+### Features
+
+- **gate**: An edit voids the review evidence
+  ([`6cddf51`](https://github.com/foryouself83/harness-tier/commit/6cddf512548bd4be5391bcac7aa1dd54b1467489))
+
+- **gate**: Prose discipline, mechanically checked
+  ([`c6ca712`](https://github.com/foryouself83/harness-tier/commit/c6ca712e43e274dabf73476c7229a407ea4c0a5e))
+
+
 ## v0.2.3-rc.5 (2026-09-02)
 
 ### Bug Fixes
