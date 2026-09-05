@@ -83,7 +83,8 @@ violation). If writes are not needed, always restrict.
 
 ## 6. Parallel Fan-out Default
 
-With two or more agents, **parallel dispatch of `Agent` (formerly `Task`, alias) subagents (fan-out/fan-in, generate-verify) is the default**.
+With two or more agents, **parallel dispatch of `Agent` subagents (fan-out/fan-in, generate-verify) is the default**
+(`Task` is an alias for it).
 Only when inter-agent communication improves quality, and only on builds where the Agent Teams experimental feature (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`)
 is enabled, use `SendMessage` cross-talk as an **option** (the deprecated `TeamCreate`/`TaskCreate`, etc. are forbidden).
 Fill in the team communication protocol section only when cross-talk is possible.

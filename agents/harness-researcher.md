@@ -19,24 +19,24 @@ conventions and **free, commercial-OK off-the-shelf solutions** from the web/reg
 4. **Off-the-shelf exploration (reuse-before-build)**: for common needs (DB · cache · queue · auth · validation, etc.), find candidates in registries
    (Docker Hub · PyPI · npm, etc.) and check **cost (free?) · license (commercial-OK?) · maintenance status**.
    **Exclude paid (paid managed · paid license · SaaS subscription)**. If uncertain, "needs confirmation".
-   **Assumed-feature existence check**: verify that the adopted artifact (especially a container image) **actually provides** the extension/plugin/
+   **Assumed-feature existence check**: verify that the adopted artifact (especially a container image) **does provide** the extension/plugin/
    runtime mode the architecture assumes (e.g. does the stock image include a specific extension `.so`, does a specific run mode work without a prior
    build, is an app-specific account auto-created with only the root credential). If it does not, state
-   "**stock boot/use impossible → custom build/provisioning step required**" (do not just assume and move on).
+   "**stock boot/use impossible → custom build/provisioning step required**" (do not assume and move on).
 4-1. **Convention-worthy stack identification (reconcile input)**: among the components surfaced by 4's candidates · autonomous expansion · compatibility matrix,
-   those whose operational conventions (BP · anti-patterns · operational axes) **actually exist** (especially infrastructure: DB · cache · queue · container · CI/CD · IaC) should
+   those whose operational conventions (BP · anti-patterns · operational axes) **exist at all** (especially infrastructure: DB · cache · queue · container · CI/CD · IaC) should
    not end as mere reuse candidates but also be **reported as "convention-needed stacks"** (harness-init Step 2.5 reconcile
    input, harness-rules 9-6·10-1). If no conventions exist, leave it as a reuse candidate only (9-2 evidence-based · no guessing).
 5. **Config method (config) collected per version**: gather the **actual authoring** of build/bundler (tsconfig · vite · webpack · tsc mode) · typecheck ·
    lint/format · test runner · package manager · env/secrets management, with versions.
-   **The package manager is a can't-be-omitted dedicated decision item** (a separate line in the output below) — do not just write the inertial default (npm/pip etc.);
+   **The package manager is a can't-be-omitted dedicated decision item** (a separate line in the output below) — do not write the inertial default (npm/pip etc.);
    per the "inertia boundary" discipline, verify on the web the **current official/community recommendation** and adopt it, and leave the pinning
    means (lockfile + `packageManager`/corepack etc.) and **source** together (if uncertain, compare and note the candidates).
 6. **Toolchain as one set**: look at the mutual coherence of the above tools together (do not look at individual files separately).
    If the config method is uncertain, check and report the **output the detected framework's official scaffolder generates**
    (the authoritative baseline) (tool names are examples only, no assertion — use the detected framework's).
 7. **Autonomous expansion**: judge for yourself and investigate the additional config items the framework's characteristics require (e.g. SSR/routing ·
-   ORM migration · container build). Leave the rationale for what you additionally investigated and why.
+   ORM migration · container build). Leave the rationale for what you investigated beyond this list, and why.
 7-1. **Runtime-compatible set (latest ≠ independently latest, harness-rules 12-2)**: for a stack where multiple components go onto one runtime
    together, do not pick each one's latest separately. **Terminology**: *core (platform)* = the app framework/runtime core that **fixes the
    baseline major** the rest of the components must match (e.g. Spring Boot). *anchor (ceiling)* = the dependency (plugin · starter · engine · ORM · image) with the **lowest
@@ -46,10 +46,10 @@ conventions and **free, commercial-OK off-the-shelf solutions** from the web/reg
    the anchor's upper bound** (ceiling first — do not match the core to a prerelease/not-yet-Maven/registry-published dependency). Leave this set · ceiling
    constraint · source in the output matrix.
 8. **Operational-axis research (9-1~9-4)**: **review all** of the passed `ops_axes` per (layer, stack). For each axis, research the
-   currently recommended **latest standard** with its source · alternatives · **applicability** (does it actually exist for this stack). If undecided,
+   currently recommended **latest standard** with its source · alternatives · **applicability** (does it exist for this stack at all). If undecided,
    adopt the latest standard as the recommended default but leave **the alternatives and source together** (no assertion). Mark uncertain applicability as
-   "needs confirmation" (no fabrication). **However, for axes that become 7-1 anchor candidates, like circuit breaker · retry, adopt the latest only
-   within the 7-1 ceiling constraint (the limit within which the anchor GA-supports the core major)** — do not pick a core-unsupported latest just
+   "needs confirmation" (no fabrication). **For axes that become 7-1 anchor candidates, like circuit breaker · retry, adopt the latest only
+   within the 7-1 ceiling constraint (the limit within which the anchor GA-supports the core major)** — do not pick a core-unsupported latest merely
    because it is an operational axis.
 8-1. **Quality-lens best-practice research (9-7 · 9-8)**: organize best practices **by quality lens** — correctness · UX · a11y · performance ·
    security · maintainability/testability · cross-cutting/integration · i18n. For each (layer, stack), research the applicable lenses' recommended
@@ -57,7 +57,7 @@ conventions and **free, commercial-OK off-the-shelf solutions** from the web/reg
    single process). Keep each lens's *coding* guidance only and **link** the SSOT that owns the rest (perf tools → the Performance SSOT below;
    integration contract/E2E → SDS Integration Points / the Integration SSOT below; security enforcement → the 9-1 ops axis + the scanner) — do not
    duplicate. Uncertain applicability → "needs confirmation" (no fabrication).
-9. **Performance · integration SSOT research**: for each (layer, stack) confirmed by reconcile, additionally research the two dimensions below.
+9. **Performance · integration SSOT research**: for each (layer, stack) confirmed by reconcile, research the two dimensions below as well.
    Leave the source URL · license · cost together, applying the existing discipline (exclude paid · "needs confirmation" if the license is unclear · output in the host's configured language) identically.
    - **Performance SSOT**: N+1 detection tool · profiler · static-complexity tool · DB query-plan tool · API load
      (openapi-to-k6+k6 preferred, oha/autocannon/vegeta fallback if MIT preferred).
@@ -124,7 +124,7 @@ conventions and **free, commercial-OK off-the-shelf solutions** from the web/reg
   license names · versions — in their original form (source URLs as-is).
 - **Current-recommended-tool check (inertia boundary)**: for toolchains like package manager · build · formatter · task runner, verify on the web
   **what is currently officially/community recommended**, not the past standard you learned — ecosystem-standard
-  tools move (do not just write the inertial default). If verification is insufficient, do not assert a single one but compare and note
+  tools move (do not write the inertial default). If verification is insufficient, do not assert a single one but compare and note
   the candidates (no guessing).
 - **Latest ≠ independently latest (ceiling first)**: the "latest check" above does not mean update *each component* separately.
   Components that go onto one runtime together are bundled and picked as the **latest set the anchor (ceiling) dependency GA-supports**.

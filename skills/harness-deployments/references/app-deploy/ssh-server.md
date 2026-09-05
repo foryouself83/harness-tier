@@ -80,7 +80,10 @@ actual tag resolved by release.yml, not resolved by the component itself). `work
 - Port/known_hosts handling (with a fixed IP, populating it in CI every time with `ssh-keyscan` is safer — hardcoding known_hosts as a secret breaks on server key rotation).
 
 ## Zero-downtime deploy notes
-- Take the **release directory + symlink swap** pattern as the default: upload the new version wholesale to `releases/<timestamp>/`, then atomically (`ln -sfn`) swap out the `current` symlink — it switches over instantly with no service interruption, and because the previous release directory remains, rollback is immediately possible with `ln -sfn releases/<prev> current`.
+- Take the **release directory + symlink swap** pattern as the default: upload the new version
+  wholesale to `releases/<timestamp>/`, then atomically (`ln -sfn`) swap out the `current` symlink
+  — it switches over instantly with no service interruption, and because the previous release
+  directory remains, rollback is immediately possible with `ln -sfn releases/<prev> current`.
 - Avoid running `git pull` directly on the service process to overwrite files (files changing mid-request can cause partial failures).
 - With multiple servers (behind a load balancer), consider deploying one at a time sequentially (rolling) + health-checking before proceeding to the next target.
 

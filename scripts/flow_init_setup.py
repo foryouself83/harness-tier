@@ -28,8 +28,14 @@ Each function takes paths as arguments and returns its result, making it unit-te
 from __future__ import annotations
 
 import argparse
+import copy
 import json
+import os
+import re
 import shutil
+import stat
+import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 # Path segments·fallback helpers·encoding defense come from the shared SSOT (_harness_paths)
@@ -68,13 +74,15 @@ UNIT_TEST_DEST = ".github/workflows/unit-test.yml"  # host (GitHub-forced — HA
 
 WIKI_VERIFY_TEMPLATE = "github/wiki-verify.workflow.example.yml"  # SOURCE (plugin-owned)
 WIKI_VERIFY_DEST = ".github/workflows/wiki-verify.yml"  # host (GitHub-forced — HARNESS_DIR exc.)
+DOC_STYLE_TEMPLATE = "github/doc-style.workflow.example.yml"  # SOURCE (plugin-owned)
+DOC_STYLE_DEST = ".github/workflows/doc-style.yml"  # host (GitHub-forced — HARNESS_DIR exc.)
 # per-job wall-clock cap (minutes) when unit_test.timeout_minutes is unset
 UNIT_TEST_DEFAULT_TIMEOUT = 10
 # Languages the unit-test template runs an official setup-* action for (its `if: matrix.language ==`
 # gates, lowercase literals). A value outside this set is a legitimate escape hatch (the job's own
 # `setup` command preps the runtime), but a *case variant* of one of these (e.g. "Python") almost
 # certainly means the setup step will be silently skipped — flagged as a warning at render time.
-# Copied from the template, so test_flow_init_setup.py asserts the two stay equal.
+# Copied from the template, so tests/flow_init/ asserts the two stay equal.
 SUPPORTED_SETUP_LANGUAGES = frozenset({"python", "node", "java", "go", "rust"})
 
 EXAMPLE_CONFIG = "flow-config.example.yaml"  # plugin SOURCE (basis for config-slot diff)
@@ -86,13 +94,14 @@ EXAMPLE_CONFIG = "flow-config.example.yaml"  # plugin SOURCE (basis for config-s
 # Order matters where one file asks another a question. precommit-runner.sh routes on what
 # flow_gate_check.py --classify answers, so the answerer is copied FIRST: mid-sync the host
 # then holds an old runner and a new script, where the old runner's question goes unanswered
-# and ROOT simply stays on main. The other order leaves a new runner asking an old script,
+# and ROOT stays on main. The other order leaves a new runner asking an old script,
 # which answers nothing it recognises — and a runner that reads no verdict gates nothing.
 COPY_FILES = [
     "scripts/_harness_paths.py",
     "scripts/flow_gate_check.py",
     "scripts/precommit-runner.sh",
     "scripts/wiki_graph.py",
+    "scripts/doc_style_check.py",
     "scripts/teams_alert.py",
     "scripts/notify-push.sh",
     "scripts/check-deps.sh",
@@ -100,6 +109,27 @@ COPY_FILES = [
     "scripts/finalize_prerelease.py",
     "scripts/bump_version.py",
 ]
+
+# What the GATE needs on the host, out of everything this installs: the hook names the
+# runner, the runner spawns the check, the check imports the paths module — and it reads
+# the policy, without which nothing classifies and the unclassified-commit deny never
+# fires. Measured: with no flow-tiers.yaml the runner exits 0 on a real commit. They are
+# asked of the host at the end of a setup, because a hook is a line of text naming a
+# file and a copy step that failed leaves it naming nothing.
+# Each as (where it lands, what it is copied FROM), because existence is not the question:
+# a copy that fails after creating or truncating the destination leaves the name behind,
+# and a full volume installs four empty files that `bash` and PyYAML both read without
+# complaint. Measured: the runner exits 0 on a real commit over those.
+GATE_FILES = (
+    (f"{SCRIPTS_DIR}/precommit-runner.sh", "scripts/precommit-runner.sh"),
+    (f"{SCRIPTS_DIR}/flow_gate_check.py", "scripts/flow_gate_check.py"),
+    (f"{SCRIPTS_DIR}/_harness_paths.py", "scripts/_harness_paths.py"),
+    (f"{CONFIG_DIR}/{TIERS_FILENAME}", TIERS_FILENAME),
+)
+
+# The same tuple minus the policy: what the policy may not land without. Derived rather than
+# spelled again, so a file added to GATE_FILES is covered here by default.
+GATE_SCRIPT_SOURCES = tuple(source for _, source in GATE_FILES if source != TIERS_FILENAME)
 
 # Lines to add to .gitignore. The personal webhook is kept as a **bare pattern** (matches at any
 # depth) — narrowing the path would be a security footgun that leaves root-residual files not yet
@@ -118,7 +148,11 @@ OWNED_HOOK_ID = "teams-notify-push"
 
 # The commit gate to register in settings.json (runs the HOST copy via the host path). The `if`
 # field is not included — precommit-runner.sh self-filters via stdin (avoiding per-build diffs).
-GATE_MARKER = "precommit-runner.sh"  # path-independent match
+# What makes a hook command the gate's own. The script name alone is not enough — a host
+# with its own `tools/precommit-runner.sh` hook had it rewritten to this one's path, and
+# moved out of its entry, as if this plugin had written it. Both words together keep the
+# match independent of where under the host the scripts sit.
+GATE_MARKER = ("harness-tier", "precommit-runner.sh")
 GATE_COMMAND = f'bash "${{CLAUDE_PROJECT_DIR:-.}}/{SCRIPTS_DIR}/precommit-runner.sh"'
 GATE_STATUS = "harness-tier: flow 게이트 + 테스트 검사 중…"  # register_gate fixes this up on rename
 GATE_ENTRY = {
@@ -157,41 +191,260 @@ def copy_artifacts(plugin: Path, host: Path) -> list[str]:
     """Copy deployment artifacts (always overwrite — SOURCE is the SSOT). Gate scripts go to
     scripts/, and the plugin policy flow-tiers.yaml goes to config/ (same place as flow-config)."""
     dest_dir = host / SCRIPTS_DIR
-    dest_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        dest_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        # First of the steps, and unguarded it took every later one down with it — the
+        # workflows and the .gitignore are worth having even where this is not.
+        return [f"  [!] {SCRIPTS_DIR} 를 만들지 못했습니다({_why(exc)}) — 수동 확인 필요"]
     report: list[str] = []
+    missed: set[str] = set()
     for rel in COPY_FILES:
         src = plugin / rel
         if not src.is_file():
             report.append(f"  [!] 소스 없음, skip: {rel}")
+            missed.add(rel)
             continue
-        shutil.copyfile(src, dest_dir / Path(rel).name)
+        try:
+            shutil.copyfile(src, dest_dir / Path(rel).name)
+        except OSError as exc:
+            # One file the host holds open or keeps read-only is one file, not the whole run.
+            report.append(f"  [!] 복사 실패({_why(exc)}): {Path(rel).name}")
+            missed.add(rel)
+            continue
         report.append(f"  [+] 복사: {Path(rel).name}")
     # The policy file goes to config/ (a host-owned dir, but this file alone is plugin-owned·SSOT).
-    cfg_dir = host / CONFIG_DIR
-    cfg_dir.mkdir(parents=True, exist_ok=True)
     tiers_src = plugin / TIERS_FILENAME
-    if tiers_src.is_file():
+    try:
+        # The directory is made either way: `/flow-init` puts the host's own flow-config
+        # beside this file, and a missing SOURCE is no reason to withhold the place for it.
+        cfg_dir = host / CONFIG_DIR
+        cfg_dir.mkdir(parents=True, exist_ok=True)
+        # The policy names the gates the scripts beside it must know how to run, so a new
+        # policy over an older module is the one pairing that fails CLOSED: the check asks for
+        # evidence the module cannot produce and every commit in every tier is denied, with a
+        # reason no `/flow` step satisfies (Invariant 1). The reverse pairing only under-gates,
+        # and the next `/flow-init` repairs it.
+        if missed & set(GATE_SCRIPT_SOURCES):
+            report.append(f"  [!] 게이트 스크립트가 빠져 {TIERS_FILENAME} 보류 — 재실행 필요")
+            return report
+        if not tiers_src.is_file():
+            report.append(f"  [!] 소스 없음, skip: {TIERS_FILENAME}")
+            return report
         shutil.copyfile(tiers_src, cfg_dir / TIERS_FILENAME)
-        report.append(f"  [+] 복사: {TIERS_FILENAME} → config/")
-    else:
-        report.append(f"  [!] 소스 없음, skip: {TIERS_FILENAME}")
+    except OSError as exc:
+        report.append(f"  [!] {TIERS_FILENAME} 복사 실패({_why(exc)}) — 수동 확인 필요")
+        return report
+    report.append(f"  [+] 복사: {TIERS_FILENAME} → config/")
     return report
 
 
 def _load_settings(host: Path) -> tuple[Path, dict | None, str | None]:
     """Return the settings.json path·parse result. On parse failure, (path, None, error message)."""
     settings = host / ".claude" / "settings.json"
-    settings.parent.mkdir(parents=True, exist_ok=True)
-    if not settings.is_file():
+    try:
+        settings.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return settings, None, f"  [!] .claude 를 만들지 못했습니다({_why(exc)}) — 수동 확인 필요"
+    try:
+        exists = settings.is_file()
+    except OSError as exc:  # a `.claude` the host closed; `is_file` does not swallow this
+        return (
+            settings,
+            None,
+            f"  [!] settings.json 을 읽지 못했습니다({_why(exc)}) — 수동 확인 필요",
+        )
+    if not exists:
         return settings, {}, None
     try:
-        return settings, json.loads(settings.read_text(encoding="utf-8")) or {}, None
-    except json.JSONDecodeError:
+        data = json.loads(settings.read_text(encoding="utf-8-sig"))
+    except UnicodeDecodeError:
+        return settings, None, "  [!] settings.json 이 UTF-8 이 아닙니다 — 수동 확인 필요"
+    except (json.JSONDecodeError, RecursionError):
         return settings, None, "  [!] settings.json 파싱 실패 — 수동 확인 필요"
+    except OSError as exc:
+        return (
+            settings,
+            None,
+            f"  [!] settings.json 을 읽지 못했습니다({_why(exc)}) — 수동 확인 필요",
+        )
+    # `null` is what a host's own tooling writes for "nothing set yet". Every other value that
+    # happens to be falsy — `0`, `[]`, an empty string — is data, and reading it as an empty
+    # object overwrote it while reporting a clean registration.
+    if data is None:
+        data = {}
+    if not isinstance(data, dict):
+        return settings, None, "  [!] settings.json 이 객체가 아닙니다 — 수동 확인 필요"
+    return settings, data, None
 
 
-def _write_json(path: Path, data: dict) -> None:
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+def _why(exc: BaseException) -> str:
+    """What to put in a report line. An OSError raised without an errno has no `strerror`."""
+    return getattr(exc, "strerror", None) or str(exc) or type(exc).__name__
+
+
+def _installed(host: Path, plugin: Path, rel: str, source: str) -> bool:
+    """Whether the host carries the file this installs, byte for byte.
+
+    Asked as `is_file`, a destination the copy created and could not fill answered yes:
+    an empty `precommit-runner.sh` exits 0, an empty policy parses as nothing, and the
+    gate that reported itself installed denied no commit. A partial write is the same
+    case one step along, which is why this compares rather than measures. A source it
+    cannot read is not a confirmation either, and neither is a host directory this may not
+    enter: `read_bytes` RAISES there where it answers False for a name that is merely not
+    taken, and unanswered it took the run down before its verdict."""
+    try:
+        want = (plugin / source).read_bytes()
+    except OSError:
+        return False
+    try:
+        return (host / rel).read_bytes() == want
+    except OSError:
+        return False
+
+
+_ACCESS_ENTRIES = "system.posix_acl_access"
+
+
+def _access_entries(path: Path) -> bytes | None:
+    """The file's POSIX access entries, where the host has any. Read before the rename,
+    because after it the inode they belong to is gone."""
+    try:
+        return os.getxattr(path, _ACCESS_ENTRIES)
+    except (AttributeError, OSError):
+        return None
+
+
+def _default_mode(tmp: Path) -> None:
+    """What a file this CREATES should be. `mkstemp` makes one only its owner can read,
+    and a rename carries that: on a build machine where the session runs as another uid,
+    a settings.json installed at 0600 is a gate that never loads."""
+    try:
+        mask = os.umask(0)
+        os.umask(mask)
+        os.chmod(tmp, 0o666 & ~mask)
+    except OSError:
+        pass
+
+
+def _carry_over(before: os.stat_result, acl: bytes | None, tmp: Path) -> None:
+    """Put back on `tmp` what a rename does not carry. Best effort: a host whose filesystem
+    holds none of this, or a process not allowed to give a file away, keeps what it had."""
+    try:
+        os.chmod(tmp, stat.S_IMODE(before.st_mode))
+    except OSError:
+        pass
+    if acl is not None:
+        try:
+            os.setxattr(tmp, _ACCESS_ENTRIES, acl)
+        except (AttributeError, OSError):
+            pass
+    try:
+        if before.st_uid != os.getuid() or before.st_gid != os.getgid():
+            os.chown(tmp, before.st_uid, before.st_gid)
+    except (AttributeError, OSError):
+        pass
+
+
+def _write_json(path: Path, data: dict) -> str | None:
+    """Write, or return the line to report instead.
+
+    Through a temporary file and one rename, because opening for writing truncates first: a
+    full disk, a dropped share or a lone surrogate in the host's own data would otherwise
+    leave their settings a fragment that no longer parses — and this runs partway through a
+    setup whose remaining steps are unguarded. Every way the write can fail is caught, not
+    the ones that have been seen: the encode raises ValueError, the rest raise OSError.
+
+    A rename replaces the NAME, so a settings.json a host keeps as a symlink into their
+    dotfiles came back a plain file while their managed copy kept the old content — and the
+    next sync put a gate-less settings back. The rename lands on what the link points AT for
+    that reason. The temporary file is unique because a fixed name beside it was a file of
+    the host's own that this silently consumed.
+
+    What a rename does not carry is the file it replaces. Its mode, its owner and its access
+    entries all come from the temporary file, which is the writer's alone: a `sudo /flow-init`
+    left the host's settings owned by root, and `st_mode` reports the ACL MASK in its group
+    bits, so putting that back as a plain mode gave group write to a file whose owner had
+    granted one named user. All three come across, the entries before the mode would reset
+    their mask. A file the host locked read-only is refused — except to root, whom the write
+    bit does not stop. What a new inode cannot keep is kept by nobody: a second hard link,
+    the timestamps, a `user.*` attribute, and the setuid bit where the owner has to be given
+    back. The link a dotfiles manager makes is a symlink, and that one survives.
+    """
+    target = Path(os.path.realpath(path)) if path.is_symlink() else path
+    if target.is_file() and not os.access(target, os.W_OK):
+        return f"  [!] {path.name} 이 쓰기 금지 상태입니다 — 수동 확인 필요"
+    payload = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    try:
+        before = target.stat() if target.is_file() else None
+    except OSError:  # gone between the question and the answer
+        before = None
+    acl = _access_entries(target) if before is not None else None
+    tmp = None
+    try:
+        fd, name = tempfile.mkstemp(dir=target.parent, prefix=target.name + ".", suffix=".new")
+        tmp = Path(name)  # named before the descriptor closes: the cleanup reads `tmp`
+        os.close(fd)
+        tmp.write_text(payload, encoding="utf-8")
+        if before is not None:
+            _carry_over(before, acl, tmp)
+        else:
+            _default_mode(tmp)
+        os.replace(tmp, target)
+        tmp = None
+    except (OSError, ValueError) as exc:
+        return f"  [!] {path.name} 을 쓰지 못했습니다({_why(exc)}) — 수동 확인 필요"
+    finally:
+        # Not only the two the write raises: an interrupt through here leaves the file
+        # in the host's `.claude/`, which is ground they track.
+        if tmp is not None:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+    return None
+
+
+def _is_gate_hook(hook: object) -> bool:
+    """Whether this is one of the gate's own hooks. A `command` the host wrote as something
+    other than a string is not one, and asking `in` of it raises."""
+    if not isinstance(hook, dict) or not isinstance(hook.get("command"), str):
+        return False
+    return all(word in hook["command"] for word in GATE_MARKER)
+
+
+# The alphabet that keeps a matcher a name rather than a pattern, per the hooks reference.
+# Inside it the two dialects agree — `|` alternates in both and everything else is literal —
+# so the same string can be read both ways and the answers compared.
+_EXACT_MATCHER_RE = re.compile(r"[A-Za-z0-9_\- ,|]*")
+
+
+def _covers_bash(matcher: object) -> bool | None:
+    """Whether a PreToolUse matcher fires on Bash — the only tool a commit arrives through.
+    True, False, or None where this script cannot say.
+
+    Three readings, as the hooks reference defines them: `*`, an empty matcher and an absent
+    one are every tool; a matcher spelled only with the name alphabet is one tool name or a
+    `|`/`,` list of them; anything else is a JavaScript regular expression. Only the first two
+    can be decided here — Python's dialect is not JavaScript's, `(?i)` and `\\Z` being Python's
+    alone — and the comma separator and the whitespace around a name are newer than the oldest
+    host this runs on, where the same text is read as a pattern instead. Both go undecided.
+
+    Undecided is not "does not fire": acted on as one, a `^Bash$` the host anchored on purpose
+    has the gate hook pulled out from under it and the report says the entry never fired, which
+    is false. Undecided keeps the entry and its matcher and adds an entry of the gate's own, so
+    the gate exists either way; a gate hook inside it is still brought to the current path,
+    which is the one thing in that entry this plugin wrote.
+    """
+    if matcher is None or matcher in ("", "*"):
+        return True
+    if not isinstance(matcher, str):
+        return None
+    if not _EXACT_MATCHER_RE.fullmatch(matcher):
+        return None
+    as_list = GATE_ENTRY["matcher"] in [name.strip() for name in re.split(r"[|,]", matcher)]
+    as_pattern = re.search(matcher, GATE_ENTRY["matcher"]) is not None
+    return as_list if as_list == as_pattern else None
 
 
 def register_gate(host: Path) -> str:
@@ -199,35 +452,91 @@ def register_gate(host: Path) -> str:
     command/statusMessage differs from the current value, fix it up (for plugin updates)."""
     settings, data, err = _load_settings(host)
     if data is None:
-        return err or "  [!] settings.json 파싱 실패"
+        return err
+    if not isinstance(data.get("hooks", {}), dict):
+        return "  [!] settings.json hooks 형식 비정상 — 게이트 미등록(수동 확인)"
     pre = data.setdefault("hooks", {}).setdefault("PreToolUse", [])
     if not isinstance(pre, list):
         return "  [!] hooks.PreToolUse 형식 비정상 — 게이트 미등록(수동 확인)"
+    entries = [e for e in pre if isinstance(e, dict)]
+    # The matcher decides whether a hook fires at all, so a gate hook under one that misses Bash
+    # is not the gate — counting it as one leaves the host reporting a gate it does not have.
+    # The entry around it is the HOST's, though: it may carry the host's own hooks, and its
+    # matcher may already name Bash among several tools. So the gate hook moves out of an entry
+    # that does not fire and everything else about that entry stays — its matcher, the keys
+    # beside `hooks`, and the entry itself once emptied. Rewriting or dropping it would take
+    # configuration this plugin never wrote.
+    moved = undecided = 0
+    for entry in entries:
+        hooks = entry.get("hooks")
+        if not isinstance(hooks, list):
+            continue
+        covers = _covers_bash(entry.get("matcher"))
+        if covers is None:
+            undecided += sum(1 for h in hooks if _is_gate_hook(h))
+        elif not covers:
+            kept = [h for h in hooks if not _is_gate_hook(h)]
+            moved += len(hooks) - len(kept)
+            entry["hooks"] = kept
     gate_hooks = [
-        hook
-        for entry in pre
-        for hook in (entry or {}).get("hooks", []) or []
-        if GATE_MARKER in (hook.get("command") or "")
+        h
+        for e in entries
+        if isinstance(e.get("hooks"), list)
+        for h in e["hooks"]
+        if _is_gate_hook(h)
     ]
-    if not gate_hooks:
-        pre.append(GATE_ENTRY)
-        _write_json(settings, data)
-        return "  [+] 커밋 게이트 등록 (settings.json)"
+    # Only a hook under a matcher known to fire is the gate. One under a matcher this script
+    # cannot decide may be doing the job already, which is why it is left alone — and may not
+    # be, which is why it does not count as the gate.
+    firing = [
+        h
+        for e in entries
+        if isinstance(e.get("hooks"), list) and _covers_bash(e.get("matcher"))
+        for h in e["hooks"]
+        if _is_gate_hook(h)
+    ]
+    added = not firing
+    if added:
+        pre.append(copy.deepcopy(GATE_ENTRY))
     # Already registered — a plugin update may have changed command/statusMessage, so fix up
     # **every** entry that diverges from the current value (fixing only the first would leave a
     # duplicate stale entry pointing at a deleted path forever).
-    stale = [
-        h
-        for h in gate_hooks
-        if h.get("command") != GATE_COMMAND or h.get("statusMessage") != GATE_STATUS
-    ]
-    if not stale:
-        return "  [=] 커밋 게이트 이미 등록됨 (skip)"
+    # Anything but the hook this plugin writes is repaired to it. The command and the status
+    # line drift on a plugin update, but the fields that matter are ones the host can add: an
+    # `if` on the gate hook suppresses it per build (Invariant 4), `async` puts it where it
+    # cannot deny, and a `type` other than `command` runs something else — each of them a gate
+    # reported as registered and firing on nothing.
+    stock = GATE_ENTRY["hooks"][0]
+    stale = [h for h in gate_hooks if h != stock]
+    note = ""
+    if data.get("disableAllHooks") is True:
+        note += ", settings.json 의 disableAllHooks 로 훅이 전혀 실행되지 않습니다"
+    if len(firing) > 1:
+        note += f", 발화하는 게이트 훅 {len(firing)}개 — 커밋마다 그만큼 실행됩니다"
+    if undecided:
+        note += (
+            f", 판정할 수 없는 matcher 아래 게이트 훅 {undecided}개"
+            " — 발화한다면 그만큼 더 실행됩니다"
+        )
+    if not added and not stale and not moved:
+        return f"  [=] 커밋 게이트 이미 등록됨 (skip{note})"
     for hook in stale:
-        hook["command"] = GATE_COMMAND
-        hook["statusMessage"] = GATE_STATUS
-    _write_json(settings, data)
-    return f"  [+] 커밋 게이트 보정 (settings.json, {len(stale)}건)"
+        hook.clear()
+        hook.update(copy.deepcopy(stock))
+    failed = _write_json(settings, data)
+    if failed:
+        return failed
+    if added and moved:
+        return (
+            "  [+] 커밋 게이트 등록 (settings.json, Bash 에 발화하지 않는 항목에서 "
+            f"{moved}건 이동{note})"
+        )
+    if added:
+        return f"  [+] 커밋 게이트 등록 (settings.json{note})"
+    return (
+        f"  [+] 커밋 게이트 보정 (settings.json, {len(stale) + moved}건 — 게이트 훅은"
+        f" 플러그인 원형으로 교체{note})"
+    )
 
 
 def register_marketplace(host: Path) -> str:
@@ -236,7 +545,7 @@ def register_marketplace(host: Path) -> str:
     Source is preserved."""
     settings, data, err = _load_settings(host)
     if data is None:
-        return err or "  [!] settings.json 파싱 실패"
+        return err
     mkts = data.setdefault("extraKnownMarketplaces", {})
     if not isinstance(mkts, dict):
         return "  [!] extraKnownMarketplaces 형식 비정상 — 마켓 미등록(수동 확인)"
@@ -249,7 +558,9 @@ def register_marketplace(host: Path) -> str:
     else:
         mkts[MARKETPLACE_NAME] = dict(MARKETPLACE_ENTRY)
         msg = "  [+] harness-tier 마켓 등록 + autoUpdate=true"
-    _write_json(settings, data)
+    failed = _write_json(settings, data)
+    if failed:
+        return failed
     return msg
 
 
@@ -299,6 +610,8 @@ def check_precommit(plugin: Path, host: Path) -> list[str]:
         cur = yaml.safe_load(dest.read_text(encoding="utf-8")) or {}
     except yaml.YAMLError:
         return ["  [!] .pre-commit-config.yaml 파싱 실패 — 수동 확인 필요"]
+    if not isinstance(ex, dict) or not isinstance(cur, dict):
+        return ["  [!] .pre-commit-config.yaml 형식이 예상과 다릅니다 — 수동 확인 필요"]
     by_url = {r.get("repo"): r for r in (cur.get("repos") or []) if isinstance(r, dict)}
     missing: list[str] = []
     for exrepo in ex.get("repos", []):
@@ -335,25 +648,45 @@ def check_precommit(plugin: Path, host: Path) -> list[str]:
 # ── uninstall (cleanup) — the inverse of setup ─────────────────────────────────
 
 
-def _entry_has_gate(entry: dict) -> bool:
-    """True if a hook command in the PreToolUse entry contains the gate marker."""
-    hooks = (entry or {}).get("hooks", []) or []
-    return any(GATE_MARKER in (h.get("command") or "") for h in hooks)
+def _strip_gate_hooks(entry: object) -> int:
+    """Remove the gate's own hooks from one entry; returns how many. The entry stays.
+
+    `register_gate` leaves the gate hook inside a host entry whenever that entry already fires
+    on Bash, so an entry holding the gate may hold the host's hooks beside it — taking the
+    entry would take those with it.
+    """
+    if not isinstance(entry, dict) or not isinstance(entry.get("hooks"), list):
+        return 0
+    hooks = entry["hooks"]
+    entry["hooks"] = [h for h in hooks if not _is_gate_hook(h)]
+    return len(hooks) - len(entry["hooks"])
+
+
+def _is_own_empty_entry(entry: object) -> bool:
+    """An entry this plugin wrote and has emptied — nothing of the host's is in it."""
+    return (
+        isinstance(entry, dict)
+        and set(entry) == set(GATE_ENTRY)
+        and entry.get("matcher") == GATE_ENTRY["matcher"]
+        and entry.get("hooks") == []
+    )
 
 
 def unregister_gate(host: Path) -> str:
-    """Remove the commit gate hook (entry) from settings.json (skip if absent)."""
+    """Remove the commit gate hook from settings.json (skip if absent)."""
     settings, data, err = _load_settings(host)
     if data is None:
-        return err or "  [!] settings.json 파싱 실패"
-    pre = (data.get("hooks") or {}).get("PreToolUse")
+        return err
+    hooks = data.get("hooks") if isinstance(data, dict) else None
+    pre = hooks.get("PreToolUse") if isinstance(hooks, dict) else None
     if not isinstance(pre, list):
         return "  [=] 게이트 훅 없음 (skip)"
-    kept = [e for e in pre if not _entry_has_gate(e)]
-    if len(kept) == len(pre):
+    if not sum(_strip_gate_hooks(entry) for entry in pre):
         return "  [=] 게이트 훅 없음 (skip)"
-    data["hooks"]["PreToolUse"] = kept
-    _write_json(settings, data)
+    hooks["PreToolUse"] = [e for e in pre if not _is_own_empty_entry(e)]
+    failed = _write_json(settings, data)
+    if failed:
+        return failed
     return "  [-] 커밋 게이트 해제 (settings.json)"
 
 
@@ -361,12 +694,14 @@ def unregister_marketplace(host: Path) -> str:
     """Remove the harness-tier marketplace from settings.json (skip if absent)."""
     settings, data, err = _load_settings(host)
     if data is None:
-        return err or "  [!] settings.json 파싱 실패"
+        return err
     mkts = data.get("extraKnownMarketplaces")
     if not isinstance(mkts, dict) or MARKETPLACE_NAME not in mkts:
         return "  [=] harness-tier 마켓 등록 없음 (skip)"
     del mkts[MARKETPLACE_NAME]
-    _write_json(settings, data)
+    failed = _write_json(settings, data)
+    if failed:
+        return failed
     return "  [-] harness-tier 마켓 등록 해제 (settings.json)"
 
 
@@ -488,6 +823,10 @@ def load_contract_config(host: Path) -> dict | None:
     try:
         data = yaml.safe_load(cfg.read_text(encoding="utf-8")) or {}
     except (yaml.YAMLError, OSError):
+        return None
+    if not isinstance(data, dict):
+        # A host file a person edits, so a list or a scalar at the top is a spelling
+        # mistake, not an impossibility — and unread it ended the run before its verdict.
         return None
     ct = data.get("contract_test")
     return ct if isinstance(ct, dict) else None
@@ -678,7 +1017,7 @@ def _deploy_target_wired(t) -> bool:
     """True iff this target contributes a job to deploy.yml — i.e. its component workflow will
     exist. Authored targets (custom / sbt / unknown → no static template; the skill writes the
     file, or config `workflow` points at it) are wired by design. A mapped static template is
-    wired only if it actually renders: maven-central+gradle needs `publish` (no default), else
+    wired only if it renders: maven-central+gradle needs `publish` (no default), else
     it is skipped and would dangle."""
     target = str(t.get("target", "")).strip()
     build_tool = str(t.get("build_tool", "maven")).strip()
@@ -1053,60 +1392,178 @@ def render_wiki_verify_workflow(host: Path, plugin: Path) -> list[str]:
     )
 
 
-def run_setup(host: Path, plugin: Path) -> None:
+def render_doc_style_workflow(host: Path, plugin: Path) -> list[str]:
+    """Copy doc-style.yml as-is — no enable gate, no tokens. Unconditional for the same reason
+    as wiki-verify: without `flow-config.doc_style` the script no-ops green, so rendering here
+    costs a repo that never opted in nothing. Idempotent and non-destructive (existing dest →
+    report only)."""
+    return _render_one(plugin / DOC_STYLE_TEMPLATE, host / DOC_STYLE_DEST, {}, "doc-style 렌더")
+
+
+def _gate_problems(host: Path, plugin: Path) -> list[str]:
+    """Why the commit gate would not run in this host, read back from what the run left.
+
+    Asked of the line `register_gate` printed, the question answers itself: a write that
+    failed in a LATER step, a matcher that does not fire, and hooks turned off wholesale
+    all leave that line saying nothing is wrong — and a registration refused while the
+    gate is already there and firing leaves one saying something is.
+
+    The files it runs are asked of the filesystem, and asked whether they are what this
+    installs rather than whether the name is taken. The hook is a
+    line of text naming one, so a copy step that reported `[!]` and scrolled past leaves
+    a registration this would otherwise call finished: `bash` answers 127 to a script
+    that is not there, the policy's absence turns every classification into an internal
+    error the gate fails open on, and neither is the exit 2 that denies a commit.
+    """
+    problems = []
+    missing = [
+        Path(rel).name for rel, source in GATE_FILES if not _installed(host, plugin, rel, source)
+    ]
+    if missing:
+        problems.append(
+            "커밋 게이트가 쓰는 파일이 호스트에 없거나 손상됐습니다("
+            + ", ".join(missing)
+            + ") — 훅이 등록되어 있어도 아무 커밋도 막지 못합니다."
+            " 위 [!] 를 해결한 뒤 /flow-init 를 다시 실행하세요."
+        )
+    _settings, data, _err = _load_settings(host)
+    if data is None:
+        problems.append(
+            "settings.json 을 읽지 못해 커밋 게이트를 확인할 수 없습니다 — 위 [!] 를"
+            " 해결한 뒤 /flow-init 를 다시 실행하세요."
+        )
+        return problems
+    hooks = data.get("hooks")
+    pre = hooks.get("PreToolUse") if isinstance(hooks, dict) else None
+    # The hook has to be the one this plugin writes, not merely one of its own: the repair
+    # that takes an `if` back off lands only when the write does, and a matcher this
+    # cannot decide is not one that fails to fire — a host who anchored `^Bash$` has a
+    # gate, and saying otherwise sends them to fix what is not broken.
+    firing = any(
+        _covers_bash(entry.get("matcher")) is not False
+        and any(h == GATE_ENTRY["hooks"][0] for h in entry["hooks"])
+        for entry in (pre if isinstance(pre, list) else [])
+        if isinstance(entry, dict) and isinstance(entry.get("hooks"), list)
+    )
+    if not firing:
+        problems.append(
+            "커밋 게이트가 settings.json 에 없습니다 — 위 [!] 를 해결한 뒤 /flow-init 를"
+            " 다시 실행하세요."
+        )
+    if data.get("disableAllHooks") is True:
+        problems.append(
+            "settings.json 의 disableAllHooks 가 켜져 있어 커밋 게이트를 포함한 모든"
+            " 훅이 실행되지 않습니다 — 끄세요."
+        )
+    return problems
+
+
+def _gate_hook_remains(host: Path) -> bool:
+    """Whether a gate hook may still be in the host's settings.json.
+
+    A file this cannot read is one it cannot clear either, and the run has already deleted
+    the scripts the hook names — so unreadable counts as left behind. Answering no there
+    put `정리 완료.` over a hook pointing at nothing, which is the lie this exists to stop.
+    """
+    _settings, data, _err = _load_settings(host)
+    if data is None:
+        return True
+    hooks = data.get("hooks")
+    pre = hooks.get("PreToolUse") if isinstance(hooks, dict) else None
+    return any(
+        _is_gate_hook(h)
+        for entry in (pre if isinstance(pre, list) else [])
+        if isinstance(entry, dict) and isinstance(entry.get("hooks"), list)
+        for h in entry["hooks"]
+    )
+
+
+def _step(title: str, produce: Callable[[], list[str]]) -> bool:
+    """Print one step of the setup, and survive a host that will not let it finish.
+
+    Each step reports its own trouble as a `[!]` line, but only the trouble it went
+    looking for: a `.claude` the host closed raises out of the probe before the report
+    is written, and the verdict at the end — the one line that says whether the gate
+    is on — is then never reached at all. Whether it finished is the caller's to report:
+    a run that ends on the word 완료 over a step that did not is the same lie in small.
+    """
+    print(title)
+    try:
+        for line in produce():
+            print(line)
+    except Exception as exc:  # noqa: BLE001 — the verdict is what this exists to reach
+        # Every exception, not the two a host's filesystem raises: a hand-edited config whose
+        # shape is wrong raises AttributeError deep in a step, and narrowing to OSError lets
+        # that one escape and take the verdict line with it — the single line saying whether
+        # the gate is on. A caller reads the exit code and reports a gate that never failed.
+        print(f"  [!] 이 단계를 끝내지 못했습니다({_why(exc)}) — 수동 확인 필요")
+        return False
+    return True
+
+
+def run_setup(host: Path, plugin: Path) -> bool:
+    """Run every step, and answer whether the commit gate is registered.
+
+    Every settings.json this cannot read or write reports a line and lets the rest of
+    the setup run, which is right — the workflows and the .gitignore are worth having
+    either way. It also means the one step whose absence turns the gate off scrolls
+    past among forty others, so it is said again at the end and in the exit code.
+
+    A step that cannot finish at all is the same case, not a worse one: it reports a
+    line and the run goes on, because the verdict is what the caller came for.
+    """
     print(f"flow-init 기계적 셋업 — host={host}")
-    print("[복사]")
-    for line in copy_artifacts(plugin, host):
-        print(line)
-    print("[커밋 게이트]")
-    print(register_gate(host))
-    print("[마켓 자동 업데이트]")
-    print(register_marketplace(host))
-    print("[pre-commit 점검]")
-    for line in check_precommit(plugin, host):
-        print(line)
-    print("[gitignore]")
-    for line in append_gitignore(host):
-        print(line)
-    print("[계약 테스트 워크플로우]")
-    for line in render_workflow(host, plugin):
-        print(line)
-    print("[버저닝 워크플로우]")
-    for line in render_versioning_workflows(host, plugin):
-        print(line)
-    print("[유닛 테스트 워크플로우]")
-    for line in render_unit_test_workflow(host, plugin):
-        print(line)
-    print("[wiki 검증 워크플로우]")
-    for line in render_wiki_verify_workflow(host, plugin):
-        print(line)
-    print("[배포 워크플로우]")
-    for line in render_deploy_workflows(host, plugin):
-        print(line)
-    print("[config 슬롯 점검]")
-    for line in report_missing_config_slots(host, plugin):
-        print(line)
+    finished = [
+        _step("[복사]", lambda: copy_artifacts(plugin, host)),
+        _step("[커밋 게이트]", lambda: [register_gate(host)]),
+        _step("[마켓 자동 업데이트]", lambda: [register_marketplace(host)]),
+        _step("[pre-commit 점검]", lambda: check_precommit(plugin, host)),
+        _step("[gitignore]", lambda: append_gitignore(host)),
+        _step("[계약 테스트 워크플로우]", lambda: render_workflow(host, plugin)),
+        _step("[버저닝 워크플로우]", lambda: render_versioning_workflows(host, plugin)),
+        _step("[유닛 테스트 워크플로우]", lambda: render_unit_test_workflow(host, plugin)),
+        _step("[wiki 검증 워크플로우]", lambda: render_wiki_verify_workflow(host, plugin)),
+        _step("[문체 검증 워크플로우]", lambda: render_doc_style_workflow(host, plugin)),
+        _step("[배포 워크플로우]", lambda: render_deploy_workflows(host, plugin)),
+        _step("[config 슬롯 점검]", lambda: report_missing_config_slots(host, plugin)),
+    ]
+    problems = _gate_problems(host, plugin)
+    if problems:
+        for line in problems:
+            print(line)
+        return False
+    if not all(finished):
+        # The gate is on, which is what the answer is about — but a step that could not
+        # finish left something else undone, and the word 완료 alone hides it.
+        print("기계적 셋업 완료 — 다만 끝내지 못한 단계가 있습니다(위 [!] 확인).")
+        return True
     print("기계적 셋업 완료.")
+    return True
 
 
-def run_uninstall(host: Path) -> None:
+def run_uninstall(host: Path) -> bool:
+    """Run every step, and answer whether the gate hook is gone.
+
+    A settings.json this cannot write leaves the hook behind while the rest of the
+    run deletes the scripts it names, so every Bash command in that host then runs a
+    file that is not there. Saying `정리 완료.` over that is the same lie the setup
+    side told about a gate it never registered. A step that cannot finish is the same
+    case again: it reports its line and the run goes on, because the verdict is what
+    the caller came for."""
     print(f"harness-tier 정리(uninstall) — host={host}")
-    print("[커밋 게이트 해제]")
-    print(unregister_gate(host))
-    print("[마켓 등록 해제]")
-    print(unregister_marketplace(host))
-    print("[gitignore 정리]")
-    print(remove_gitignore_lines(host))
-    print("[CLAUDE.md teams 블록 제거]")
-    print(remove_claude_md_block(host))
-    print("[harness-tier 디렉터리 삭제]")
-    print(remove_harness_dir(host))
+    finished = [
+        _step("[커밋 게이트 해제]", lambda: [unregister_gate(host)]),
+        _step("[마켓 등록 해제]", lambda: [unregister_marketplace(host)]),
+        _step("[gitignore 정리]", lambda: [remove_gitignore_lines(host)]),
+        _step("[CLAUDE.md teams 블록 제거]", lambda: [remove_claude_md_block(host)]),
+        _step("[harness-tier 디렉터리 삭제]", lambda: [remove_harness_dir(host)]),
+    ]
     print("[남는 항목 — 수동 처리 안내]")
     print("  - .pre-commit-config.yaml 의 teams-notify-push 훅/정적분석 훅은 자동 제거하지")
     print("    않습니다(주석·팀 커스텀 보존). 필요 시 직접 제거하세요.")
     print("  - .github/workflows/api-contract.yml 은 자동 삭제하지 않습니다(팀 커스텀 보존).")
     print("    계약 테스트를 끄려면 직접 제거하세요.")
-    print("  - .github/workflows/wiki-verify.yml 은 방금 삭제된")
+    print("  - .github/workflows/wiki-verify.yml·doc-style.yml 은 방금 삭제된")
     print("    .claude/harness-tier/scripts/ 의 스크립트를 실행합니다. 없는 스크립트를 가드가")
     print("    보고 exit 0 하므로 CI 가 빨개지지는 않지만 더는 아무것도 검증하지 못하니 함께")
     print("    제거하세요. 같은 경로를 쓰는 release 워크플로우는 렌더한 종류에 달렸습니다 —")
@@ -1116,7 +1573,19 @@ def run_uninstall(host: Path) -> None:
     print("      pre-commit uninstall --hook-type pre-commit --hook-type commit-msg \\")
     print("        --hook-type pre-push")
     print("  - .claude/harness-tier/ 의 git 추적 파일 삭제는 커밋해야 반영됩니다.")
+    if _gate_hook_remains(host):
+        print(
+            "커밋 게이트 훅이 settings.json 에 남았습니다 — 방금 삭제된 스크립트를"
+            " 가리키므로 직접 지우세요."
+        )
+        return False
+    if not all(finished):
+        # The hook is gone, which is what the answer is about — but a step that could
+        # not finish left something behind, and the word 완료 alone hides it.
+        print("정리 완료 — 다만 끝내지 못한 단계가 있습니다(위 [!] 확인).")
+        return True
     print("정리 완료.")
+    return True
 
 
 def main() -> None:
@@ -1139,9 +1608,10 @@ def main() -> None:
             print(line)
         return
     if args.uninstall:
-        run_uninstall(host)
-    else:
-        run_setup(host, plugin_root())
+        if not run_uninstall(host):
+            raise SystemExit(1)
+    elif not run_setup(host, plugin_root()):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

@@ -75,7 +75,7 @@ Check every target; track the index by following its links.
 ### Check items
 
 1. **Cross-reference integrity** — does every file/link/rule a doc points to
-   actually exist (including paths/anchors broken by the change)?
+   exist (including paths/anchors broken by the change)?
 2. **Factual consistency (SSOT)** — do two docs record the same value (model
    name, port, path, policy, version) differently? Keep the value in a single
    source of truth and reduce the rest to links.
@@ -92,7 +92,7 @@ Check every target; track the index by following its links.
      dir and no sibling module already has a local `CLAUDE.md` — the same
      signal [`flow-init`](../flow-init/SKILL.md) uses to decide "harness
      installed"), do **not** create one — creating it here would falsely trip
-     that detection for a project that never ran `/harness-init`. Just note the
+     that detection for a project that never ran `/harness-init`. Note the
      gap in the Report and stop.
    - Otherwise, if a module has **no** local `CLAUDE.md`, generate one from
      [`module-claude-md-template.md`](references/module-claude-md-template.md)
@@ -106,7 +106,7 @@ Check every target; track the index by following its links.
 6. **Translation parity** — for each changed `.md`, look for sibling files whose
    name is the same stem plus a language tag (`README.md` → `README.ko.md`,
    `docs/guide.md` → `docs/guide.ja.md`). A repo with none skips this entirely.
-   Where one exists it is a **translation of the file you just changed**, so the
+   Where one exists it is a **translation of the file you changed**, so the
    same change belongs in it: carry it over and note it in the Report. Do not
    create a translation that does not already exist, and do not rewrite one
    wholesale — port the delta.
@@ -157,14 +157,14 @@ python3 .claude/harness-tier/scripts/wiki_graph.py --stale
 
 3. **Update the bodies**, then stamp `sources[path]` with the file's **working-tree blob
    hash** — the `current` value from step 1's JSON (equivalently `git hash-object --
-   <path>`), never a commit sha — **only for nodes whose body you actually changed**. A
+   <path>`), never a commit sha — **only for nodes whose body you changed**. A
    stale node you did not touch stays stale and goes in the Report — do not stamp its
    sha. Stamping without reading the code behind it turns the marker into a lie, and the
    gate now enforces this mechanically: a commit whose only change to a node is its
    `sources` sha is **blocked** by `--verify`, so a bulk refresh does not merely violate
    prose — it fails. Two swaps stay allowed: step 1's `migrated` rewrite, and a stamp
    whose body edit landed in the immediately preceding commit (so stamping the sync you
-   just committed, or amending it in, works — including when that commit also renamed
+   committed, or amending it in, works — including when that commit also renamed
    the document, which the gate follows).
    A stale node you **read and found still accurate** (the code change was cosmetic) is
    deliberately the same case: leave the marker alone and report it as "verified
@@ -218,6 +218,23 @@ python3 .claude/harness-tier/scripts/wiki_graph.py --verify
    goes unnoticed until someone else's next session commit. If a merge left conflict
    markers in `graph.yaml`, never resolve them by hand — take either side and re-run
    `--build` ([wiki-init](../wiki-init/SKILL.md) Step 8).
+
+## 1b. Prove the rewrite lost nothing
+
+Every mode above rewrites prose, which is where substance goes missing. Before the marker,
+check each `.md` you touched against what `HEAD` holds:
+
+```bash
+python3 .claude/harness-tier/scripts/doc_style_check.py --verify-git <changed .md paths>
+```
+
+An error names what disappeared — a heading, a fenced block, a URL, an inline-code span.
+Restore it, or state in the Report why the removal was the point. Warnings (bullet count,
+paths) are advisory. A file `HEAD` never had is skipped; a repo with no
+`doc_style_check.py` yet has nothing to run and this step is skipped whole.
+
+Prose itself follows [`doc-style.md`](../../rules/doc-style.md): no history narration, no
+pointer to a plan record, no filler, and Korean documents take nominal endings.
 
 ## 2. Gate marker (when called by `/flow`)
 

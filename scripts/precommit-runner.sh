@@ -21,7 +21,7 @@
 # ignores permissionDecision JSON + exit 0). JSON is emitted too for forward compatibility.
 # No changes / checks pass: exit 0 → commit allowed. Transitive internal errors are handled
 # as FAIL-OPEN (skip checks, allow commit) so a broken gate does not permanently block commits.
-# However, absence of required tools like python3/PyYAML is FAIL-CLOSED (block) — to prevent
+# Absence of required tools like python3/PyYAML is FAIL-CLOSED (block) — to prevent
 # the gate from being silently disabled on non-Python teams (re-commit after installing).
 #
 # Debug: with HARNESS_PRECOMMIT_DRYRUN=1, only prints the test commands that would run, without executing them.
@@ -46,7 +46,7 @@ deny() {  # $1=reason → block commit (exit 2 is the actual blocking mechanism;
   _deny_json=${_deny_json//$'\n'/\\n}
   _deny_json=${_deny_json//$'\r'/\\r}
   _deny_json=${_deny_json//$'\t'/\\t}
-  # JSON forbids every raw character below U+0020, not just those three. The wiki gate quotes a
+  # JSON forbids every raw character below U+0020, not only those three. The wiki gate quotes a
   # git subject line back into its reason, and a subject is whatever was pasted into it — one
   # stray ESC would malform the payload the same way an unescaped quote does.
   _deny_json=${_deny_json//[[:cntrl:]]/ }
@@ -207,28 +207,28 @@ cd "$ROOT" || exit 0
 status="$(git status --porcelain 2>/dev/null)" || exit 0
 [ -z "$status" ] && exit 0
 
-# 1) flow gate + wiki runtime gate — ONE process. flow_gate_check.py reads the host root from
-#    CLAUDE_PROJECT_DIR and FAIL-OPENs (exit 0) on internal error; after the flow verdict it
-#    runs the wiki gate in the same interpreter (tier resolved once, spawn 2→1 — --wiki-check
-#    survives as a compat alias only). exit 2 + stdout reason → deny, either gate. The wiki
-#    gate stays OUT of the module commands below: that channel reads any nonzero exit as "the
-#    check failed", while a runtime gate must fail OPEN on anything that is not a real verdict
-#    (Invariant #1 — wiki is not one of the three fail-closed exceptions). stdout-only is
-#    load-bearing: `python3 <missing file>` ALSO exits 2, with its complaint on stderr, so
+# 1) flow gate + the runtime gates (wiki, doc-style) — ONE process. flow_gate_check.py reads
+#    the host root from CLAUDE_PROJECT_DIR and FAIL-OPENs (exit 0) on internal error; after
+#    the flow verdict it runs those gates in the same interpreter (tier resolved once, spawn
+#    2→1 — --wiki-check survives as a compat alias only). exit 2 + stdout reason → deny, any
+#    gate. They stay OUT of the module commands below: that channel reads any nonzero exit as
+#    "the check failed", while a runtime gate must fail OPEN on anything that is not a real
+#    verdict (Invariant #1 — neither is one of the three fail-closed exceptions). stdout-only
+#    is load-bearing: `python3 <missing file>` ALSO exits 2, with its complaint on stderr, so
 #    reading stderr here would turn a half-copied install into a repo-wide block. At exit 0 a
-#    non-empty stdout is the wiki gate's systemMessage JSON, held until the commit is allowed
-#    (a hook's stdout and stderr both go to the debug log at exit 0 — systemMessage is the
-#    documented field for a warning the user actually sees). HARNESS_PRECOMMIT_DRYRUN is
-#    consumed inside the script (the wiki stage skips itself).
+#    non-empty stdout is their combined systemMessage JSON — ONE object, held until the commit
+#    is allowed (a hook's stdout and stderr both go to the debug log at exit 0 —
+#    systemMessage is the documented field for a warning the user does see).
+#    HARNESS_PRECOMMIT_DRYRUN is consumed inside the script (the notice stages skip).
 flow_reason="$(CLAUDE_PROJECT_DIR="$ROOT" python3 "$PLUGIN_SCRIPTS/flow_gate_check.py" 2>/dev/null)"
 flow_rc=$?
 if [ "$flow_rc" -eq 2 ] && [ -n "$flow_reason" ]; then
   deny "$flow_reason"
 fi
-[ "$flow_rc" -eq 0 ] && wiki_note="$flow_reason"
+[ "$flow_rc" -eq 0 ] && gate_note="$flow_reason"
 
 allow() {  # emit any held non-blocking notice, then let the commit through
-  [ -n "${wiki_note:-}" ] && printf '%s\n' "$wiki_note"
+  [ -n "${gate_note:-}" ] && printf '%s\n' "$gate_note"
   exit 0
 }
 

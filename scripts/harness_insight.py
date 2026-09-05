@@ -131,7 +131,7 @@ def normalize_cmds(cmd: str) -> list[str]:
 
     Sequential chains (``cd x && git commit``, ``a; b``) are split on
     ``&&``/``||``/``;`` and each segment normalized, so the hotspot reflects
-    every command actually run — not just the first. Pure shell builtins
+    every command run, not only the first. Pure shell builtins
     (``cd``/``export``/…) and empty segments are dropped as navigation noise.
     """
     first = cmd.strip().split("\n", 1)[0]

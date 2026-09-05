@@ -25,7 +25,7 @@ def test_normalize_cmd_skips_leading_env_assignments():
 
 
 def test_normalize_cmd_flag_subtoken_falls_back_to_basename():
-    # When the sub-token is a flag, keep just the tool name.
+    # When the sub-token is a flag, keep the tool name alone.
     assert hi.normalize_cmd("go -h") == "go"
 
 

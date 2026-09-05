@@ -109,6 +109,21 @@ wiki:
   context_lines: 2000         # --neighbors default budget (lines). ~20k tokens
   defect_rule_threshold: 3    # same tag firing N times → Rule promotion warn. 0 = off
 
+# Prose discipline (rules/doc-style.md). Absent or enable:false -> the doc-style gate does nothing.
+# The commit gate only warns, on the files a commit changes; .github/workflows/doc-style.yml holds
+# the verdict, over the paths listed here.
+doc_style:
+  enable: false
+  # Repo-root-relative globs: `*` and `?` stop at `/`, a whole-segment `**` spans any number
+  # of directories (none included), a trailing `**` is the subtree. Name `**/*.py`·`**/*.sh`
+  # too to cover comments and docstrings.
+  paths: ["**/*.md"]
+  # Globs kept out of scope — a subtree is `dir/**`, its direct children `dir/*`.
+  # CHANGELOG.md ships as a default because a release tool regenerates it from commit
+  # subjects: a subject carrying a banned word would make CI red with no edit that could
+  # fix it. Add vendored docs and other generated output here.
+  exclude: ["CHANGELOG.md"]
+
 # REST API contract testing (CI only — GitHub Actions). No REST API → enable:false → not installed.
 # /flow-init reads these values and renders .github/workflows/api-contract.yml.
 contract_test:

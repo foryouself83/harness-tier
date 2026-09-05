@@ -7,7 +7,7 @@ session does anything and must never delay or break session start.
 
 Both versions come from local files (the loaded plugin's own manifest, and the marketplace clone
 Claude Code keeps beside the install cache), so the check costs no network and a stale or absent
-clone simply means no notice. It travels in the same injected context as the rule, under its own
+clone means no notice. It travels in the same injected context as the rule, under its own
 tag: headless runs show that a hook's `systemMessage` reaches no observable channel.
 """
 
@@ -310,7 +310,7 @@ def test_a_manifest_without_a_version_is_silent(tmp_path):
 )
 def test_a_hostile_version_is_dropped_and_the_rule_survives(tmp_path, hostile):
     """A marketplace clone is fetched, not authored here. A raw control byte would make the
-    emitted JSON unparsable — costing the rule injection, not just the notice — and `<`/`>` would
+    emitted JSON unparsable — costing the rule injection, not only the notice — and `<`/`>` would
     let the value close the notice's tag and write into the highest-trust context there is."""
     plugin = _plugins_root(tmp_path, loaded="1.0.0", published="2.0.0")
     (_market(plugin) / "plugin.json").write_bytes(hostile)

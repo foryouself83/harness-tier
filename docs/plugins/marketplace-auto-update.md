@@ -20,7 +20,7 @@ If any one is missing, the background update is silently skipped (no error, no p
 
 `marketplace.json`'s `source.sha` is the effective pin, and consumer auto-update triggers a reinstall only when this sha
 changes (§2). On every main push, `release.yml`'s `pin-marketplace-sha.py`
-automatically updates and commits the sha to the just-released commit.
+automatically updates and commits the sha to the released commit.
 
 - **Prerequisite**: repository Settings → Actions → Workflow permissions = **Read and write** (see [USAGE.md → Release token write permission](../../USAGE.md#release-token-write-permission)).
 - If the Action is off or when updating manually: commit · push the code → confirm the sha with `git rev-parse HEAD` →

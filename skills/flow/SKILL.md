@@ -109,11 +109,13 @@ Record each completed gate as `.claude/harness-tier/.flow/<gate>.done`. `precomm
 checks of all modules) are executed by the commit hook itself — no marker (both are
 ordinary `gates` entries and timing buckets over `flow-config.modules[].checks`, routed
 by each check's `when`; removing one from a tier's list in
-[`flow-tiers.yaml`](../../flow-tiers.yaml) disables it for that tier). **`wiki`** is a
-third runtime gate needing no marker — not a timing bucket, the hook's gate script runs
-`wiki_graph.py --verify` in-process whenever `flow-config.wiki` is enabled (no-op
-otherwise). Do **not** `touch .claude/harness-tier/.flow/wiki.done` and do not go
-looking for a `wiki` gate skill — none exists; the hook runs the check itself.
+[`flow-tiers.yaml`](../../flow-tiers.yaml) disables it for that tier). **`wiki`** and
+**`doc-style`** are two more gates needing no marker — neither is a timing bucket; the
+hook's gate script runs both in-process, `wiki_graph.py --verify` whenever
+`flow-config.wiki` is enabled and the prose lint whenever `flow-config.doc_style` is
+(each a no-op otherwise). `doc-style` only ever warns; `doc-style.yml` in CI holds the
+verdict. Do **not** `touch .claude/harness-tier/.flow/wiki.done` or `doc-style.done`, and
+do not go looking for a skill behind either — none exists; the hook runs the checks.
 
 > **Precondition (Dev / Staging / Release)** — the `superpowers` plugin must
 > be installed. If `superpowers:using-superpowers` is **not** among the available
@@ -159,6 +161,7 @@ looking for a `wiki` gate skill — none exists; the hook runs the check itself.
    - **Selective TDD** — only business logic / core nodes / validators / workflow
      orchestration (see [`risk-tiers.md`](../../rules/risk-tiers.md) Step 3), not
      every change.
+   - **invoke the `doc-sync` skill** (not part of `superpowers`) → `touch .claude/harness-tier/.flow/doc-sync.done`.
    - **Domain review** — an independent **`general-purpose`** review agent
      (separate context; it runs shell commands). `git` is the authority on the
      changed-file list — **every** file is reviewed and the count is reported —
@@ -167,7 +170,13 @@ looking for a `wiki` gate skill — none exists; the hook runs the check itself.
      plus the callers of every changed public symbol. Procedure in
      [`risk-tiers.md`](../../rules/risk-tiers.md) Step 3.
      On pass → `touch .claude/harness-tier/.flow/review.done`.
-   - **invoke the `doc-sync` skill** (not part of `superpowers`) → `touch .claude/harness-tier/.flow/doc-sync.done`.
+     **Every edit after that pass voids it** — the fixes the review itself asked
+     for included. A `PostToolUse` hook deletes `review.done` **and**
+     `doc-sync.done` the moment a file changes, so passing is a fixpoint: both
+     recorded, nothing edited since. A fix therefore re-runs doc-sync and then
+     this review, over a recomputed changed-file list. An edit the hook never
+     saw (a terminal command, another tool) leaves the markers standing —
+     `rm -f .claude/harness-tier/.flow/review.done .claude/harness-tier/.flow/doc-sync.done`.
 4. Commit through the `commit` skill — invoke `Skill: commit` with the tier and what
    changed (rule 4) → merge **applying the risk-tiers Merge strategy** (rule 3 — not a
    plain merge). (The commit hook blocks until `review.done` and `doc-sync.done`.)
@@ -215,7 +224,7 @@ front matter — `--build` cannot resolve those.
      Settings/PAT how-to; exit 20/no tool → skip silently, never block).
   4. `touch .claude/harness-tier/.flow/review.done` ·
      `touch .claude/harness-tier/.flow/bump.done` (two commands, written out — the brace
-     form neither matches the exact allowed-tools rules nor reads as what actually runs).
+     form neither matches the exact allowed-tools rules nor reads as what runs).
   5. Commit on the staging branch through the `commit` skill (`Skill: commit`) —
      **pass the chosen level in the arguments**, the only channel it has: `bump.done`
      is an empty marker and nothing on disk carries the level. It appends the
@@ -229,7 +238,7 @@ front matter — `--build` cannot resolve those.
   ⚠️ The regression `review` here takes **its own** file list —
   `git diff --name-only "origin/<production>..origin/<staging>"`, not the Staging bullet's
   pair. Reusing that pair does not fail loudly: staging is *ahead* of integration by the rc
-  bump CI just pushed, so it returns a plausible handful of release plumbing and hides every
+  bump CI has pushed, so it returns a plausible handful of release plumbing and hides every
   substantive change — full coverage of the wrong set, with no empty result to give it away.
   ⚠️ **Merge the freshly fetched `origin/<staging>`** (post-rc — it carries the
   `X.Y.Z-rc.N` bump), not a stale local staging ref: otherwise the rc-strip finalize
@@ -286,6 +295,11 @@ rm -rf .claude/harness-tier/.flow
    write the tier marker.
 2. **Record gate evidence honestly** — `touch .claude/harness-tier/.flow/<gate>.done` only
    after the gate genuinely passes. A marker is a forcing function, not a stamp.
+   It is branch-bound and outlives the commit that used it, so **a gate whose
+   subject changed after it passed is no longer recorded honestly**. The
+   `PostToolUse` hook enforces that for `review` and `doc-sync` — any edit
+   deletes both — so what is left to you is the edit it cannot see (a terminal
+   command, another tool): delete the marker yourself and earn it again.
 3. **Apply the documented Merge strategy** — direct commit + merge, but
    **do not default to a plain / `--no-ff` merge**. For every merge, look up its
    branch-flow row in [`risk-tiers.md`](../../rules/risk-tiers.md) **Merge strategy**

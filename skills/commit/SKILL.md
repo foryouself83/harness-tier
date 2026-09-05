@@ -23,7 +23,7 @@ applies it to one concrete commit.
 `flow-config.commit_guide` names the host's own commit/versioning document — `/harness-init`
 generates one at `docs/operations/commit-versioning-guide.md`. When that file exists, read it
 and take its **project-specific facts** over this skill's generic ones: the scope vocabulary
-this repo actually uses, its 0.x policy, and whether its release tool reads the
+this repo uses in practice, its 0.x policy, and whether its release tool reads the
 `Release-Level` trailer or derives the bump from the commits itself. Its remaining subject —
 which files carry the version, how the changelog is filtered — belongs to the release CI, not
 to writing a commit.
@@ -96,7 +96,7 @@ commit. Over 50 means rewrite the subject; `risk-tiers.md` admits no exception, 
 character counts as one, which is what Python's `len` already measures. And `-C` keeps the worktree
 inside the command rather than in prose beside it: a bare `git commit` after a separate `cd` can
 leave the gate checking the main repo, since `--classify` reads the `git -C` the command
-actually carries. Write that path **literally** — `.` for the main repo, the worktree's own path
+carries. Write that path **literally** — `.` for the main repo, the worktree's own path
 when the work lives in one. A shell variable in the flag's own place is the
 trap: the hook is handed the command *before* the shell expands it, and
 the gate's invocation grammar needs the token after `git` to start with `-`. A variable that

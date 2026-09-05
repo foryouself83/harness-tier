@@ -75,7 +75,10 @@ gcloud run services update-traffic <service-name> --region <region> --to-revisio
 ```
 
 ## Gotchas
-- The WIF pool/provider/service-account IAM bindings (`roles/run.admin`, `roles/iam.serviceAccountUser`) and the attribute-condition restricting to a specific repo must be **set up once up front** on the GCP side — this skill only authors the workflow and does not create GCP IAM resources (it leaves only a pointer in the operations guide).
+- The WIF pool/provider/service-account IAM bindings (`roles/run.admin`,
+  `roles/iam.serviceAccountUser`) and the attribute-condition restricting to a specific repo must
+  be **set up once up front** on the GCP side — this skill only authors the workflow and does not
+  create GCP IAM resources (it leaves only a pointer in the operations guide).
 - Without `id-token: write`, `google-github-actions/auth`'s OIDC token request fails silently.
 
 ## SSOT

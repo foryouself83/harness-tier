@@ -13,7 +13,7 @@
 ## 2. Nested-Loop / Recursion Detection — lizard (language-agnostic)
 
 > **Why lizard instead of grep**: a hand-rolled grep heuristic for "3+ nested loops" or "recursive function" is
-> fragile and was previously broken in this catalog — it silently no-ops on `**` without `shopt -s globstar`,
+> fragile: it silently no-ops on `**` without `shopt -s globstar`,
 > misdetects depth on non-4-space indentation (tabs, 2-space), and a `\n`-embedded `-P` pattern can never match
 > across two lines without `-z`/`--null-data` (GNU grep matches per-line). lizard parses each language's real
 > token structure and reports nesting/complexity independent of indentation style or line-wrapping, with one

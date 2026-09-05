@@ -88,7 +88,7 @@ aws ecs update-service --cluster <cluster> --service <service> \
 Or re-run `amazon-ecs-deploy-task-definition` passing the previous revision ARN again.
 
 ## Gotchas
-- Do not confuse the task **execution** role (ECR pull and log shipping permissions) with the task **role** (the AWS permissions the application actually uses) — they are different IAM roles.
+- Do not confuse the task **execution** role (ECR pull and log shipping permissions) with the task **role** (the AWS permissions the application uses at runtime) — they are different IAM roles.
 - Omitting `wait-for-service-stability: true` can let the deploy step be treated as successful without waiting for a task start-up failure — always turn it on.
 - The IAM role trust policy's audience must be `sts.amazonaws.com` (otherwise the OIDC token exchange is rejected).
 

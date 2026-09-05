@@ -2,23 +2,23 @@
   "doc-sync": {
     "fired_hits": 3,
     "fired_rate": 1.0,
-    "measured_at": "2026-08-21",
+    "measured_at": "2026-09-04",
     "model": "claude-opus-4-8",
     "outcome_hits": 3,
     "outcome_n": 3,
     "outcome_pass_rate": 1.0,
-    "outcome_sha": "bc88c030e23c",
+    "outcome_sha": "47ac86e450bf",
     "reps": 3
   },
   "wiki-init": {
     "fired_hits": 0,
     "fired_rate": 0.0,
-    "measured_at": "2026-09-02",
+    "measured_at": "2026-09-04",
     "model": "claude-opus-4-8",
     "outcome_hits": 3,
     "outcome_n": 3,
     "outcome_pass_rate": 1.0,
-    "outcome_sha": "39da943d19a7",
+    "outcome_sha": "a13b05278e2d",
     "reps": 3
   }
 }
