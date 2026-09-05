@@ -6,7 +6,7 @@ from scripts.flow_init_setup import _is_gate_hook
 
 PLUGIN = Path(__file__).resolve().parent.parent.parent  # repo root == plugin root
 ACCESS_ENTRIES = "system.posix_acl_access"
-# Same resolution as tests/test_check_merge_ruleset.py: a bare "bash" hits the System32
+# Same resolution as tests/merge_ruleset/: a bare "bash" hits the System32
 # WSL stub first on Windows, which mangles backslash paths.
 BASH = shutil.which("bash") or "bash"
 
