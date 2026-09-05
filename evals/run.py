@@ -88,7 +88,7 @@ def cut_early(obs: stream.Observation) -> bool:
     The branch stays because the rule is what is right, not the arithmetic — drop MAX_TURNS
     below FIRE_BY_TOOL_CALL and it comes alive. `test_a_spent_turn_cap_cannot_be_ambiguous_at_
     this_budget` pins that relationship so the emptiness is a checked fact, not a claim in a
-    comment: the scenario table in test_evals.py exercises this branch with a state the runner
+    comment: the scenario table in tests/evals/ exercises this branch with a state the runner
     cannot currently produce."""
     return not (obs.completed and not obs.turns_exhausted) and obs.tool_calls < FIRE_BY_TOOL_CALL
 

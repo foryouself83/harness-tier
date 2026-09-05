@@ -2,7 +2,7 @@
 """Build throwaway projects that put a skill's judgement under test, and print the
 prompt + pass criteria for each.
 
-`tests/test_skills.py` proves a skill's *commands* work. It cannot prove the agent
+`tests/skills/` proves a skill's *commands* work. It cannot prove the agent
 reading the skill reaches the right conclusion — that needs a model. This script
 supplies the other half: an isolated fixture whose correct answer is known in advance,
 so a fresh agent's behaviour is checkable rather than merely plausible.
@@ -28,8 +28,8 @@ here, and adding hollow scenarios for them would report coverage this file does 
 
 * `/flow`, `/flow-init`, `/flow-uninstall` — their subject is the *host session*: a
   registered commit hook, an installed plugin cache, `${CLAUDE_PLUGIN_ROOT}`. A fixture
-  directory cannot stand any of that up, and `tests/test_flow_gate_check.py` and
-  `tests/test_flow_init_setup.py` already cover the mechanics.
+  directory cannot stand any of that up, and `tests/flow_gate/` and
+  `tests/flow_init/` already cover the mechanics.
 * `/harness-init`, `/harness-authoring`, `/harness-deployments` — each fans out to
   sub-agents and the live web, so a run is neither cheap nor repeatable, and its output is
   prose whose correctness is a judgement rather than an assertion. `harness-critic` is the

@@ -6,7 +6,7 @@ paths:
 # Editing this plugin's own skills
 
 These files *are* the product: a frontmatter line changes what every consumer's agent
-does. `tests/test_skills.py` is the enforced contract — it reads the shipped files and
+does. `tests/skills/` is the enforced contract — it reads the shipped files and
 its assertion messages carry the reasoning, so run it before arguing with it. What
 follows is only the judgement it cannot make: a test catches a wrong value, never a
 missing field that should have been there.

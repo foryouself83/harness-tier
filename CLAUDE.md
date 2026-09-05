@@ -13,7 +13,7 @@ never model knowledge:
 [permissions](https://code.claude.com/docs/en/permissions.md).
 `allowed-tools` pre-approves tools, it does not restrict — enforced at point of use by
 [`.claude/rules/skill-frontmatter.md`](.claude/rules/skill-frontmatter.md) and
-[`tests/test_skills.py`](tests/test_skills.py).
+[`tests/skills/`](tests/skills/).
 
 ## Commands
 
@@ -22,7 +22,7 @@ Gate scripts are Python; run tooling via `uv`.
 ```bash
 uv sync                                                  # install dependencies
 uv run pytest                                            # run all tests
-uv run pytest tests/test_flow_gate_check.py::<name>      # run a single test
+uv run pytest tests/flow_gate/test_merge_check.py::<name>  # run a single test
 uv run ruff check && uv run ruff format --check          # lint + format check
 uv run pre-commit run --all-files                        # full static analysis
 uv run python -m evals.run --dry-run --all               # session count + wall-clock, no model calls
@@ -51,6 +51,11 @@ FAIL-OPEN (see Invariants).
 - **Dogfood new CI** — a workflow-rendering feature also lands in this repo's OWN
   `.github/workflows/`, not only as a `github/*.example.yml` consumer template. Every job carries
   a tight `timeout-minutes`.
+- **A test file past 500 lines becomes a folder** — `tests/<what it covers>/`, every file inside
+  under 500 lines: shared symbols in `_helpers.py`, fixtures in `conftest.py`, and an
+  `__init__.py`. That last one is insurance, not plumbing — basenames are unique today and collect
+  without it — but the day two packages both hold a `test_build.py`, pytest errors on the second
+  and **aborts the session**, so nothing in the repo runs. A file under the cap stays flat.
 - **Mutation-test a fix, and assert the mutation applied** — a no-op edit runs the original code,
   so the suite passes and reads as verified. Read-modify-write in Python with
   `assert old in text`, never `sed -i`; revert with `git checkout --` from an already-clean tree.
@@ -83,13 +88,15 @@ scripts/         gate + setup scripts incl. wiki_graph.py (build/verify the LLM 
                  doc_style_check.py (prose lint + lossless rewrite verify) —
                  authoritative copy list = flow_init_setup.py COPY_FILES (open the dir for the rest)
 github/          *.workflow.example.yml SOURCEs /flow-init renders (CI · release.<tool> · deploy.<target>);
-                 authoring gotchas (timeout-minutes cap · no ${{ }} in a run: block) guarded by test_flow_init_setup.py
+                 authoring gotchas (timeout-minutes cap · no ${{ }} in a run: block) guarded by tests/flow_init/
 .github/         this repo's OWN CI (release · branch-naming · entropy-check · unit-test · doc-style, all
                  timeout-capped) · scripts/pin-marketplace-sha.py
 flow-tiers.yaml            tier→gates + merge_strategy — plugin-owned, immutable
 flow-config.example.yaml   host environment slots (real file → host .claude/harness-tier/config/, team-shared)
-tests/           pytest over scripts/ · test_skills.py (skill FILES: frontmatter/links/refs + the git
-                 commands skills and rules/ issue vs the gate's invocation grammar) · test_evals.py (model-free half of evals/)
+tests/           pytest over scripts/ — a package per oversized module (flow_gate · flow_init · wiki_graph ·
+                 evals · skills · harness_paths · harness_scaffold · merge_ruleset), the smaller ones flat beside
+                 them; skills/ reads the skill FILES (frontmatter/links/refs + the git commands skills and rules/
+                 issue vs the gate's invocation grammar) · evals/ the model-free half of evals/
 evals/           skill measurement: invocation (cases.yaml · run.py · scores.py) + outcome (outcome.py · outcome_scores.json;
                  fixtures/goldens live in scripts/skill_sandbox.py) — NOT shipped → commit as test:/chore:
 ```
@@ -172,7 +179,7 @@ evals/           skill measurement: invocation (cases.yaml · run.py · scores.p
   commit), not lost; `wiki-verify.yml` and `doc-style.yml` close that window. Both render
   unconditionally: each script no-ops green without its config, and each step guards on the script
   being in the checkout at all, which it is not in a repo that gitignores `.claude/`.
-- **Skill invocation is measured, not assumed** — `tests/test_skills.py` checks a skill *file*
+- **Skill invocation is measured, not assumed** — `tests/skills/` checks a skill *file*
   is well-formed; [`evals/`](evals/) checks it is *reached* (half a skill's failure modes live in
   its `description`) and, in the outcome arm, that it *executed* correctly against a golden
   fixture. Gate SSOT = [`evals/scores.py`](evals/scores.py) and
@@ -269,8 +276,8 @@ When modifying the gate scripts (`scripts/*`, `hooks/*.sh`), preserve these:
 
    A missed commit is the one direction this may never fail in, which is also why the pre-filter
    requires no blank before the word — the second reading treats a quote as one.
-   `test_skills.py` pins both to a corpus of real invocations AND of commands that merely say the
+   `tests/skills/` pins both to a corpus of real invocations AND of commands that merely say the
    word; a positive list alone is satisfied by a grammar that matches everything. A skill's
    `git commit`/`git merge` must spell its flags **literally** for the same reason — the hook
    reads the command unexpanded, so a variable standing where a flag belongs is not an invocation
-   (`test_skills.py`).
+   (`tests/skills/`).

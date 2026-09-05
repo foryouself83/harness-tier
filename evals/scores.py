@@ -81,7 +81,7 @@ def parse_frontmatter(path: Path) -> dict:
     """The one frontmatter grammar for this repo's eval/test layers — the same regex was
     copied into four modules and the copies had already drifted on failure behaviour.
     scripts/harness_scaffold.py keeps its own on purpose: it ships to consumer hosts and
-    must run without evals/ on the path. tests/test_skills.py keeps an assert-flavoured
+    must run without evals/ on the path. tests/skills/ keeps an assert-flavoured
     wrapper whose message contract differs; both are documented, everything else calls this.
     """
     text = path.read_text(encoding="utf-8")

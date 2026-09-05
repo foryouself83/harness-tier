@@ -82,7 +82,7 @@ UNIT_TEST_DEFAULT_TIMEOUT = 10
 # gates, lowercase literals). A value outside this set is a legitimate escape hatch (the job's own
 # `setup` command preps the runtime), but a *case variant* of one of these (e.g. "Python") almost
 # certainly means the setup step will be silently skipped — flagged as a warning at render time.
-# Copied from the template, so test_flow_init_setup.py asserts the two stay equal.
+# Copied from the template, so tests/flow_init/ asserts the two stay equal.
 SUPPORTED_SETUP_LANGUAGES = frozenset({"python", "node", "java", "go", "rust"})
 
 EXAMPLE_CONFIG = "flow-config.example.yaml"  # plugin SOURCE (basis for config-slot diff)
