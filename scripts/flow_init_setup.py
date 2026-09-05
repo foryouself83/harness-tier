@@ -127,6 +127,10 @@ GATE_FILES = (
     (f"{CONFIG_DIR}/{TIERS_FILENAME}", TIERS_FILENAME),
 )
 
+# The same tuple minus the policy: what the policy may not land without. Derived rather than
+# spelled again, so a file added to GATE_FILES is covered here by default.
+GATE_SCRIPT_SOURCES = tuple(source for _, source in GATE_FILES if source != TIERS_FILENAME)
+
 # Lines to add to .gitignore. The personal webhook is kept as a **bare pattern** (matches at any
 # depth) — narrowing the path would be a security footgun that leaves root-residual files not yet
 # moved to config/ exposed (add, don't narrow). The evidence directory is anchored (fixed location).
@@ -194,16 +198,19 @@ def copy_artifacts(plugin: Path, host: Path) -> list[str]:
         # workflows and the .gitignore are worth having even where this is not.
         return [f"  [!] {SCRIPTS_DIR} 를 만들지 못했습니다({_why(exc)}) — 수동 확인 필요"]
     report: list[str] = []
+    missed: set[str] = set()
     for rel in COPY_FILES:
         src = plugin / rel
         if not src.is_file():
             report.append(f"  [!] 소스 없음, skip: {rel}")
+            missed.add(rel)
             continue
         try:
             shutil.copyfile(src, dest_dir / Path(rel).name)
         except OSError as exc:
             # One file the host holds open or keeps read-only is one file, not the whole run.
             report.append(f"  [!] 복사 실패({_why(exc)}): {Path(rel).name}")
+            missed.add(rel)
             continue
         report.append(f"  [+] 복사: {Path(rel).name}")
     # The policy file goes to config/ (a host-owned dir, but this file alone is plugin-owned·SSOT).
@@ -213,6 +220,14 @@ def copy_artifacts(plugin: Path, host: Path) -> list[str]:
         # beside this file, and a missing SOURCE is no reason to withhold the place for it.
         cfg_dir = host / CONFIG_DIR
         cfg_dir.mkdir(parents=True, exist_ok=True)
+        # The policy names the gates the scripts beside it must know how to run, so a new
+        # policy over an older module is the one pairing that fails CLOSED: the check asks for
+        # evidence the module cannot produce and every commit in every tier is denied, with a
+        # reason no `/flow` step satisfies (Invariant 1). The reverse pairing only under-gates,
+        # and the next `/flow-init` repairs it.
+        if missed & set(GATE_SCRIPT_SOURCES):
+            report.append(f"  [!] 게이트 스크립트가 빠져 {TIERS_FILENAME} 보류 — 재실행 필요")
+            return report
         if not tiers_src.is_file():
             report.append(f"  [!] 소스 없음, skip: {TIERS_FILENAME}")
             return report
@@ -1476,7 +1491,11 @@ def _step(title: str, produce: Callable[[], list[str]]) -> bool:
     try:
         for line in produce():
             print(line)
-    except (OSError, UnicodeDecodeError) as exc:
+    except Exception as exc:  # noqa: BLE001 — the verdict is what this exists to reach
+        # Every exception, not the two a host's filesystem raises: a hand-edited config whose
+        # shape is wrong raises AttributeError deep in a step, and narrowing to OSError lets
+        # that one escape and take the verdict line with it — the single line saying whether
+        # the gate is on. A caller reads the exit code and reports a gate that never failed.
         print(f"  [!] 이 단계를 끝내지 못했습니다({_why(exc)}) — 수동 확인 필요")
         return False
     return True

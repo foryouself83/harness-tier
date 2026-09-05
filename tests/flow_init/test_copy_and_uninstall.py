@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -229,6 +230,57 @@ def test_copy_artifacts(tmp_path: Path):
     # policy files go to config/, not scripts/.
     assert (vd / "config" / "flow-tiers.yaml").is_file()
     assert not (vd / "scripts" / "flow-tiers.yaml").exists()
+
+
+def test_a_gate_script_that_did_not_copy_withholds_the_policy(tmp_path: Path, monkeypatch):
+    """A new policy over an older module is the one pairing that fails CLOSED: the check asks
+    for evidence the module cannot produce and denies every commit in every tier, with a reason
+    no `/flow` step satisfies. The reverse pairing only under-gates, so the copy that survives
+    a partial run is the module's, never the policy's."""
+    real = shutil.copyfile
+
+    def refuse_the_paths_module(src, dst, *args, **kwargs):
+        if Path(src).name == "_harness_paths.py":
+            raise OSError(13, "held open by the host")
+        return real(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "copyfile", refuse_the_paths_module)
+    report = copy_artifacts(PLUGIN, tmp_path)
+    harness = tmp_path / ".claude" / "harness-tier"
+    assert not (harness / "config" / "flow-tiers.yaml").exists()
+    assert any("보류" in line for line in report)
+    # The directory still gets made — the host's own flow-config lands beside it either way.
+    assert (harness / "config").is_dir()
+
+
+def test_a_non_gate_script_that_did_not_copy_still_lets_the_policy_land(
+    tmp_path: Path, monkeypatch
+):
+    """Only the gate's own three withhold it. Withholding on any failure would turn a missing
+    notifier into the fail-closed state this exists to prevent."""
+    real = shutil.copyfile
+
+    def refuse_the_notifier(src, dst, *args, **kwargs):
+        if Path(src).name == "teams_alert.py":
+            raise OSError(13, "held open by the host")
+        return real(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "copyfile", refuse_the_notifier)
+    copy_artifacts(PLUGIN, tmp_path)
+    assert (tmp_path / ".claude" / "harness-tier" / "config" / "flow-tiers.yaml").is_file()
+
+
+def test_a_step_that_raises_anything_still_reaches_the_verdict():
+    """The verdict line is the only thing saying whether the gate is on, and a caller reads the
+    exit code as that answer. A hand-edited config of the wrong shape raises AttributeError deep
+    in a step, so catching only the filesystem's two errors reports a gate failure that is really
+    a typo — and says nothing about the gate, which registered fine."""
+    from scripts.flow_init_setup import _step
+
+    def raises_off_the_filesystem() -> list[str]:
+        raise AttributeError("'str' object has no attribute 'get'")
+
+    assert _step("[테스트]", raises_off_the_filesystem) is False
 
 
 def test_copy_files_includes_new_scripts():

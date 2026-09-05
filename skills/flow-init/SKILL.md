@@ -178,6 +178,11 @@ The deterministic wiring is done by a script so it is repeatable and tested — 
 python3 "${PLUGIN}/scripts/flow_init_setup.py"
 ```
 
+**A non-zero exit means the gate is not installed** — the script says so in its own verdict
+line, and it exits 1 rather than 0 so a caller that only reads the exit code cannot report a
+setup that did not happen. Relay the verdict and stop; do not continue to Step 3 as if the gate
+were live.
+
 It performs, idempotently, and prints a report to relay:
 - **Copies** the gate scripts into `.claude/harness-tier/scripts/`, and the
   `flow-tiers.yaml` policy into `.claude/harness-tier/config/` (copied — not symlinked —
