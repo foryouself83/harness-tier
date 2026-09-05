@@ -273,8 +273,8 @@ def test_a_non_gate_script_that_did_not_copy_still_lets_the_policy_land(
 def test_a_step_that_raises_anything_still_reaches_the_verdict():
     """The verdict line is the only thing saying whether the gate is on, and a caller reads the
     exit code as that answer. A hand-edited config of the wrong shape raises AttributeError deep
-    in a step, so catching only the filesystem's two errors reports a gate failure that is really
-    a typo — and says nothing about the gate, which registered fine."""
+    in a step, so catching only the filesystem's two errors reports a gate failure that is a typo
+    — and says nothing about the gate, which registered fine."""
     from scripts.flow_init_setup import _step
 
     def raises_off_the_filesystem() -> list[str]:
