@@ -243,3 +243,10 @@ deploy:
     #   workflow: ./.github/workflows/deploy-ecs.yml      # required
     #   permissions: { contents: read, id-token: write }  # required — orchestrator uses verbatim
     #   with: { cluster: prod }     # optional — extra inputs to the component (tag is always passed)
+
+# Gate evidence. The review and doc-sync markers are voided by any edit, so passing is a
+# fixpoint: a fix made after either passed would otherwise commit against evidence earned
+# over code no reviewer saw. false keeps them until the commit - the older order, where a
+# small edit after a review does not cost a re-run.
+gate_evidence:
+  invalidate_on_edit: true

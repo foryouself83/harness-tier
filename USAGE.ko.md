@@ -76,6 +76,9 @@ review_checklist:            # Dev 리뷰 게이트가 변경 파일마다 대�
 commit_guide: docs/operations/commit-versioning-guide.md   # 호스트 자체 커밋·버저닝 문서.
                              # `commit` 스킬이 읽음(파일 없으면 risk-tiers 만 적용)
 
+gate_evidence:               # review·doc-sync 마커는 편집이 일어나면 무효화됨(2.3)
+  invalidate_on_edit: true   # false 면 커밋 때까지 유지
+
 doc_sync:                    # doc-sync 대상
   index: CLAUDE.md
   dirs:
@@ -220,7 +223,10 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
   마커를 남기고, 커밋 훅은 그 마커가 있어야 통과시킴. `review` 와 `doc-sync` 는 워킹트리를
   판정하므로, PostToolUse 훅이 편집이 일어나면 **두 마커를 모두** 지움 — 리뷰가 요구한
   수정도 포함임. 그래서 수정이 생기면 doc-sync 와 리뷰를 다시 밟음. 훅이 보지 못하는 편집
-  (터미널 명령, 다른 도구)은 마커를 그대로 남김. `bump` 은 staging 승격 때 사람이
+  (터미널 명령, 다른 도구)은 마커를 그대로 남김. 예전 순서(통과 뒤의 작은 수정이 재실행을
+  물지 않는 쪽)를 원하는 팀은 `gate_evidence.invalidate_on_edit: false` 로 끔. 이 훅은
+  플러그인이 등록하므로 버전 올라가는 것만으로 무장되고 `/flow-init` 에 동의할 단계가 없음 —
+  비용을 치르는 호스트가 답하는 자리가 이 스위치임. `bump` 은 staging 승격 때 사람이
   고르는 major/minor/patch 선택으로, fail-closed 라 선택하기 전까지 staging 커밋이 계속
   막힘.
 - 위험도 분류의 단일 기준은 룰 `risk-tiers` 이며, 세션마다 자동으로 주입됨.

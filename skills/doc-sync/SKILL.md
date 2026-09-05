@@ -233,6 +233,10 @@ Restore it, or state in the Report why the removal was the point. Warnings (bull
 paths) are advisory. A file `HEAD` never had is skipped; a repo with no
 `doc_style_check.py` yet has nothing to run and this step is skipped whole.
 
+This asks about the rewrite this run made, not about prose style, so it does not read
+`flow-config.doc_style` and a repo that never enabled doc-style still runs it. A file this run
+did not touch says nothing either way — the answer comes from comparing against `HEAD`.
+
 Prose itself follows [`doc-style.md`](../../rules/doc-style.md): no history narration, no
 pointer to a plan record, no filler, and Korean documents take nominal endings.
 

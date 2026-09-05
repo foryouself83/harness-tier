@@ -462,13 +462,23 @@ def _match(rel: str, pattern: str) -> bool:
     return bool(_glob_re(pattern).match(rel))
 
 
+# The `doc_style` block as it looks to a reader, for the one question that has to be answered
+# about a file YAML could not load: did this repo opt in at all. The quotes are optional in
+# YAML and change nothing about the key, so a repo that spelled it `"doc_style":` asked for
+# this as plainly as one that did not — missing it would hand that repo the silence the
+# raise exists to prevent.
+_OPTED_IN_RE = re.compile(r"^[ \t]*['\"]?doc_style['\"]?[ \t]*:", re.M)
+
+
 def scope_rules(root: Path) -> tuple[tuple[str, ...], tuple[str, ...]] | None:
     """(paths, exclude) from flow-config's ``doc_style`` block. None when absent or off.
 
     Absent config is the common case in a repo that never opted in, so it reads as "nothing
-    to lint" rather than an error — CI stays green there without a second guard. A config
-    that is PRESENT and malformed is the opposite case and raises: read as "off", one typo
-    would take layer 3 down with no red job to say so. It is a plain ``ValueError`` and not
+    to lint" rather than an error — CI stays green there without a second guard. A config that
+    is PRESENT, malformed, and holds a ``doc_style`` key is the opposite case and raises: read as
+    "off", one typo would take layer 3 down with no red job to say so. Malformed WITHOUT that key
+    reads as absent — a repo that never enabled this does not get a red build out of a typo
+    elsewhere in a file doc-style does not own. It is a plain ``ValueError`` and not
     a ``SystemExit`` so that the hook's ``except Exception`` still catches it — the CLI is
     where it becomes an exit code, the commit gate has to FAIL OPEN (Invariant #1).
     """
@@ -481,6 +491,13 @@ def scope_rules(root: Path) -> tuple[tuple[str, ...], tuple[str, ...]] | None:
     try:
         data = yaml.safe_load(text) or {}
     except yaml.YAMLError as exc:
+        # Raise only for a repo that asked for this. An unparseable file cannot say whether it
+        # holds a `doc_style` block, so the raw text is asked instead: without one, the repo
+        # never opted in and a feature it never enabled may not turn its build red over a typo
+        # somewhere else in a file doc-style does not own. With one, the original reasoning
+        # stands — silence there would take layer 3 down with no red job to say so.
+        if not _OPTED_IN_RE.search(text):
+            return None
         raise ValueError(f"flow-config.yaml does not parse — doc-style cannot run: {exc}")
     cfg = data.get("doc_style") if isinstance(data, dict) else None
     if not isinstance(cfg, dict) or not cfg.get("enable"):
