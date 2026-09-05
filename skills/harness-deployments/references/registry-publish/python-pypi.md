@@ -11,7 +11,10 @@
 | Long-lived token | `PYPI_API_TOKEN` | `with: password: ${{ secrets.PYPI_API_TOKEN }}` (username defaults to `__token__`) |
 
 ## Gotchas
-- **OIDC only works if the trusted publisher is registered in the PyPI project settings first.** PyPI project page → *Publishing* tab → *Add a new publisher* → select GitHub → enter `owner/repo`, the workflow filename (e.g. `deploy-pypi.yml` — filename only, without a path), and optionally an environment name.
+- **OIDC only works if the trusted publisher is registered in the PyPI project settings first.**
+  PyPI project page → *Publishing* tab → *Add a new publisher* → select GitHub → enter
+  `owner/repo`, the workflow filename (e.g. `deploy-pypi.yml` — filename only, without a path),
+  and optionally an environment name.
 - A new project that has never been published to PyPI can be pre-registered as a "pending publisher" — the first publish converts that registration into an active publisher.
 - OIDC and the token method are not mutually exclusive, but the action prefers the token path when a secret is set, so switching to OIDC requires removing `PYPI_API_TOKEN`.
 - The `id-token: write` permission must be declared at the job level; without it, OIDC token issuance fails silently.

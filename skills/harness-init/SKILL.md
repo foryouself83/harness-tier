@@ -63,7 +63,11 @@ Show the result (state/frameworks/existing) to the user **as a table**. Also rep
 ## Step 2 — Research (sub-agent fan-out, isolated)
 **Standard**: Using `Agent` (`Task` is an alias), **dispatch as parallel sub-agents** `harness-researcher` (web conventions, best practices, anti-patterns, free off-the-shelf solutions) plus, if brownfield,
 `harness-code-analyzer` (the codebase's actual conventions, anti-patterns, hand-rolled code).
-The sub-agents **return** their findings as their final message; the **leader owns the fan-in write** — it assigns each a **unique topic** and persists the returned output to `.harness/research/<agent>_<topic>.md`, then reads them back to synthesize (and for Step 4 authoring). Sub-agents do not write these files themselves, so parallel dispatch cannot collide on a filename and the read-only code-analyzer needs no write access (harness-rules 10).
+The sub-agents **return** their findings as their final message; the **leader owns the fan-in
+write** — it assigns each a **unique topic** and persists the returned output to
+`.harness/research/<agent>_<topic>.md`, then reads them back to synthesize (and for Step 4
+authoring). Sub-agents do not write these files themselves, so parallel dispatch cannot collide on
+a filename and the read-only code-analyzer needs no write access (harness-rules 10).
 - **Scope injection**: for greenfield/SRS, include the **scope summary** from Step 1-0 in the dispatch input so that
   research is confined to the actual requirements (do not expand scope by guessing — investigate while leaving unknown slots as "needs confirmation").
 - **Operational-concern injection**: when dispatching research, pass the harness-rules 9-1 checklist and the **per-layer language/stack map**
@@ -87,22 +91,36 @@ The sub-agents **return** their findings as their final message; the **leader ow
 - **Cross-talk (optional)**: cross-talk via `SendMessage` is only possible on builds where the Agent Teams experimental feature (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`)
   is enabled (code-analyzer "found hand-rolled X" → researcher "research a free replacement"). Without it,
   operate as parallel dispatch → fan-in with no cross-talk (do not use deprecated tools such as `TeamCreate`/`TaskCreate`).
-- **Partial fan-in check**: after fan-in, verify each expected output is present and non-empty; mark any missing/empty area **"needs confirmation"** (distinguish a legitimate code-analyzer "insufficient sample" from a lost dispatch — do not read absence as "no conventions"). FAIL-OPEN below covers total failure; this covers the partial state (harness-rules 10).
+- **Partial fan-in check**: after fan-in, verify each expected output is present and non-empty;
+  mark any missing/empty area **"needs confirmation"** (distinguish a legitimate code-analyzer
+  "insufficient sample" from a lost dispatch — do not read absence as "no conventions"). FAIL-OPEN
+  below covers total failure; this covers the partial state (harness-rules 10).
 - **FAIL-OPEN**: on network/dispatch failure, do not fabricate; warn and offer the choice "proceed with a minimal generic structure / abort".
 
 ## Step 2.5 — Stack inventory reconcile (converge before freezing, harness-rules 10-1)
 Merge the stacks surfaced by research (researcher's autonomous expansion, off-the-shelf candidates, the stack-compatibility matrix — **including infrastructure**)
 into the *provisional* stack_map from Step 1. **Promote** stacks that have real conventions (best practices, anti-patterns, operational axes) to convention targets
 (do not stop at reuse artifacts alone — 9-6). **Because a newly promoted stack was not dispatched as a (layer, stack) in the first fan-out**,
-run **targeted follow-up research** for that stack alone (re-dispatch researcher **with the first pass's frozen stack-compatibility matrix / ceiling included in its input**, covering that stack's full ops_axes and **constraining any version pick to that ceiling** — 12-2) to fill in its conventions. **Repeat until the stack set stabilizes**
-(terminate when there are no new promotions — usually one pass). **Then re-validate the whole merged set against the global ceiling as a single authoritative compatibility matrix before freezing**, and hand that one matrix to the Step 5 critic (so version-compat cross-checks a single matrix, not divergent per-dispatch ones). Do not grow the stack set by guessing (findings only; FAIL-OPEN is "skip + ask"). The promotion/rejection decisions and rationale are
+run **targeted follow-up research** for that stack alone (re-dispatch researcher **with the first
+pass's frozen stack-compatibility matrix / ceiling included in its input**, covering that stack's
+full ops_axes and **constraining any version pick to that ceiling** — 12-2) to fill in its
+conventions. **Repeat until the stack set stabilizes**
+(terminate when there are no new promotions — usually one pass). **Then re-validate the whole
+merged set against the global ceiling as a single authoritative compatibility matrix before
+freezing**, and hand that one matrix to the Step 5 critic (so version-compat cross-checks a single
+matrix, not divergent per-dispatch ones). Do not grow the stack set by guessing (findings only;
+FAIL-OPEN is "skip + ask"). The promotion/rejection decisions and rationale are
 **drafted by authoring (Step 4)**, one line each, in `docs/sds/README.md`, and confirmed by the user in the Step 6 preview along with the other artifacts (draft@4 → confirm@6 → write@7; not a duplicate of rationale).
 
 ## Step 3 — Rationale authoring (rationale)
 Synthesize detect + research + the **scope summary (Step 1-0)** to write `${HARNESS_DIR}/rationale.md`: domain analysis, **the reason for generating each artifact**,
 adopted patterns, a best-practice/anti-pattern summary, **the adopted standard + source + applicability per operational axis (including emit/skip rationale)**,
 a **reuse-before-build recommendation** (free / commercially usable, paid excluded), and sources.
-**Conflict resolution (no cross-talk mode)**: when researcher's recommendation (a best practice) conflicts with code-analyzer's in-code reality (an anti-pattern), record **both**, prefer the best practice with a one-line migration note, and for operational-axis standards apply the 9-4 precedence (brownfield → the in-code standard; greenfield → the recommended latest); if still ambiguous, ask (Karpathy, rule 4).
+**Conflict resolution (no cross-talk mode)**: when researcher's recommendation (a best practice)
+conflicts with code-analyzer's in-code reality (an anti-pattern), record **both**, prefer the best
+practice with a one-line migration note, and for operational-axis standards apply the 9-4
+precedence (brownfield → the in-code standard; greenfield → the recommended latest); if still
+ambiguous, ask (Karpathy, rule 4).
 
 ## Step 4 — Generation (authoring skill + scaffold)
 The convention targets are the **entire stack set finalized by the Step 2.5 reconcile** (including promoted infrastructure) — not the initial stack_map.
@@ -126,7 +144,10 @@ Per the 9-3 split, fill each stack's structure/detailed conventions into both th
    - **Performance/integration SSOT docs**: generate `docs/verification/performance.md` · `docs/verification/integration.md` via authoring only when
      there is a finalized stack. Do not create empty stack sections. Link sources to `docs/research/`.
      (The `/performance` · `/integration` skills consume these docs first and, when absent, fall back to the skills' built-in references.)
-   - **commit-versioning-guide**: generate `docs/operations/commit-versioning-guide.md` (Conventional Commits + SemVer + the release-tool setup for the detected stack; regardless of whether flow is detected — harness-rules 13-1, 13-2). When flow is detected, do not duplicate the release tool's real configuration (CI workflows, etc.).
+   - **commit-versioning-guide**: generate `docs/operations/commit-versioning-guide.md`
+     (Conventional Commits + SemVer + the release-tool setup for the detected stack; regardless of
+     whether flow is detected — harness-rules 13-1, 13-2). When flow is detected, do not duplicate
+     the release tool's real configuration (CI workflows, etc.).
 2. Create a `plan` (files[]) and save it to `${HARNESS_DIR}/plan.json`.
 
 ## Step 5 — Critique/Validation (lightweight, FAIL-OPEN)
