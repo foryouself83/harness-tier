@@ -34,7 +34,7 @@ set -u
 export PYTHONUTF8=1
 
 # Everything every decoder needs, defined ONCE and prepended to each of them. The ref
-# matcher used to be inlined per decoder and drifted incomplete in both copies at the same
+# one matcher, not one per decoder: inlined copies drift incomplete at the same
 # time; a third axis would have repeated the same gap again. Single-quoted, so nothing here
 # is shell-expanded, and it must stay free of single quotes.
 SHARED_PY='import re
@@ -87,7 +87,7 @@ def applies(rs, ref, default_branch):
     rn = (rs.get("conditions") or {}).get("ref_name") or {}
     # exclude is applied LAST by GitHub and wins over include. Ignoring it counted rulesets
     # that govern nothing here, which is how a repo got a clean verdict for a branch no
-    # ruleset actually protected.
+    # ruleset protected.
     if _hit(rn.get("exclude"), ref, default_branch):
         return False
     return _hit(rn.get("include"), ref, default_branch)
@@ -238,7 +238,7 @@ sets="$(
     # CAPTURED, never streamed: `gh api` prints the API's error JSON to STDOUT, so an
     # attempt that writes straight through contributes a body of its own. The array shape
     # depends on emitting exactly one value per id. The "id" test only screens out a body
-    # without that substring; what a body actually IS gets decided by `unreadable` above, on
+    # without that substring; what a body IS gets decided by `unreadable` above, on
     # the parsed object.
     body="$(gh api "repos/$repo/rulesets/$id" 2>/dev/null)" \
       || body="$(gh api "orgs/$owner/rulesets/$id" 2>/dev/null)" \
@@ -257,7 +257,7 @@ check() {  # $1=branch $2=methods-csv → 0 match | 1 differs (guidance printed)
   case "$drc" in
     0) return 0 ;;
     # A response we could not decode is NOT a mismatch. Collapsing it into 10 would report
-    # "your ruleset differs" for a repo whose ruleset was never actually read — the exact
+    # "your ruleset differs" for a repo whose ruleset was never read at all — the exact
     # wrong verdict the 0/10/20 contract at the top of this file exists to prevent.
     20) echo "  [=] $1: ruleset response could not be decoded - undetermined" >&2; return 2 ;;
     *) guide "$1" "$2"; return 1 ;;
@@ -337,9 +337,9 @@ for flow in "$@"; do
     *) echo "  [!] unknown flow: $flow" >&2 ;;
   esac
 done
-# Zero args, or only unrecognized ones, means no ruleset was actually checked — that must
+# Zero args, or only unrecognized ones, means no ruleset was checked — that must
 # never read as "match". Report it as undetermined (20), the same code used for every other
-# "couldn't actually run the check" case above.
+# "could not run the check" case above.
 if [ "$checked" = 0 ]; then
   echo "  [=] no recognized flow given (daily|promotion) — nothing checked" >&2
   exit 20

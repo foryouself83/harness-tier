@@ -168,9 +168,9 @@ def _broken_front_matter(text: str) -> tuple[str, bool] | None:
       warning into noise
     - an opened AND closed block that raises or yields a non-None non-map — the broken
       document. `None` (an empty block, or one holding only comments) is excluded: Jekyll
-      writes `---\n---\n` by convention, and that is not broken, just not a node.
+      writes `---\n---\n` by convention, and that is not broken, only not a node.
 
-    Re-parsing costs one extra parse per broken file, which is rarer than changing
+    Re-parsing costs one extra parse per broken file, rarer than changing
     parse_front_matter's signature is disruptive (three tests call it directly).
     """
     block = _front_matter_block(text)
@@ -185,7 +185,7 @@ def _broken_front_matter(text: str) -> tuple[str, bool] | None:
         reason = " ".join(str(exc).split())
     else:
         # `front is None` covers an EMPTY block (`---\n---`), which Jekyll writes by
-        # convention and which is not broken — it is simply not a node. Reporting it would
+        # convention and which is not broken — it is not a node at all. Reporting it would
         # put the warning back on ordinary documentation, which is what this task avoids.
         if front is None or isinstance(front, dict):
             return None
@@ -382,7 +382,7 @@ def derive_wiki_id(path: str, root: str = "docs") -> str:
     """Derive a wiki node id from a document path — the executable SSOT for the id rule.
 
     Each segment is sanitized BEFORE the segments are joined with ".": sanitizing after
-    joining would fold the just-created "." separators into "-", collapsing
+    joining would fold the new "." separators into "-", collapsing
     docs/a.b.md (a-b) and docs/a/b.md (a.b) onto one id. wiki-init Step 5's example
     table is parity-tested against this function (tests/test_wiki_graph.py).
 
@@ -1162,7 +1162,7 @@ def _covers(a: str, b: str) -> bool:
     Symmetric because either side can be the coarser path: a caller passes the file it is
     about to change, while a node's `sources` may document the directory that holds it.
     One-directional matching left such a node unreachable from the only query the flow
-    actually sends, and the silent empty result reads as "this code is undocumented"."""
+    sends, and the silent empty result reads as "this code is undocumented"."""
     return a == b or a.startswith(b + "/") or b.startswith(a + "/")
 
 
@@ -1464,7 +1464,7 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_nodes_for(root, args.nodes_for)
         # `is not None` — an empty string is still a --neighbors request. Branching on
         # truthiness let `--neighbors ""` fall silently through to cmd_verify: the caller
-        # read an empty lookup result while a graph verification was actually running,
+        # read an empty lookup result while a graph verification was running,
         # returning 1 on drift.
         if args.neighbors is not None:
             return cmd_neighbors(root, args.neighbors, args.budget)

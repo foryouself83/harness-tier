@@ -51,11 +51,11 @@ and reports any remainder as "unresolved".
 - **Stack reconcile coverage (9-6·10-1)**: are **all** the "stacks needing conventions"
   (infrastructure included) reported by the researcher either (a) given conventions (rule +
   `docs/code-style/<stack>.md`) or (b) recorded with a **rejection reason** in the SDS
-  reconcile-decision section — i.e. a convention wasn't wholesale dropped just because it was
+  reconcile-decision section — i.e. a convention wasn't wholesale dropped merely because it was
   discovered outside the initial stack_map? If it was discovered but has neither a convention
   nor a rejection reason, `high` (the very omission this change aims to prevent).
 - **Runtime integration coherence** (only in multi-component topologies): is the
-  inter-component communication the SDS declares **actually wired** in the output — catches
+  inter-component communication the SDS declares **wired** in the output — catches
   "each setting is right but they don't mesh". (a) **Reachability**: do issuer/hostnames
   resolve in the deployment topology (container DNS/`extra_hosts`/routing), and is there a
   path to the component declared behind the reverse proxy? (b) **identity/origin**: do
@@ -118,7 +118,7 @@ Look for "each item is right but booting them together breaks". **Build passing 
   prerelease/unreleased version → violates "latest ≠ independently-latest, ceiling first".
   Cross-check with the researcher's compatibility matrix.)
 - **Off-the-shelf artifact feature reality**: does the recommended stock image/package
-  **actually provide** the feature the architecture assumes? (e.g. loading an extension the
+  **do provide** the feature the architecture assumes? (e.g. loading an extension the
   stock postgres image lacks via `shared_preload_libraries`, so boot fails; assuming an
   `--optimized` run mode without a prior build; assuming an app-specific account when only
   root credentials exist.) If it doesn't provide it, is a custom build/provisioning step
@@ -126,7 +126,7 @@ Look for "each item is right but booting them together breaks". **Build passing 
 
 ## 6. Dry run (judgment)
 
-- Given the generated skill's description, does it seem **likely to trigger** in the actually
+- Given the generated skill's description, does it seem **likely to trigger** in the
   intended situation? Does it not conflict with adjacent skills?
 - Is the generated rule on an actual load path so it **will be reflected in the session**?
 - Does the generated agent have the tool access it needs when invoked (no mismatch like an

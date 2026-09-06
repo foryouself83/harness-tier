@@ -7,7 +7,7 @@ JSON file and a hash. Only the cheap half belongs in `pytest`.
 Cheap is not the same as pure, and this module has been described as pure more than once.
 `check` and `may_write` are: they take dicts and return a Verdict, touching nothing. `load`
 and `description_sha` read from disk — `scores.json` and every `skills/*/SKILL.md`. What the
-split actually guarantees is that nothing here spawns a session or reaches the network, which
+split guarantees is that nothing here spawns a session or reaches the network, which
 is the property `pytest` needs; a test calling `description_sha` still needs the repo on disk.
 """
 
@@ -81,7 +81,7 @@ def parse_frontmatter(path: Path) -> dict:
     """The one frontmatter grammar for this repo's eval/test layers — the same regex was
     copied into four modules and the copies had already drifted on failure behaviour.
     scripts/harness_scaffold.py keeps its own on purpose: it ships to consumer hosts and
-    must run without evals/ on the path. tests/test_skills.py keeps an assert-flavoured
+    must run without evals/ on the path. tests/skills/ keeps an assert-flavoured
     wrapper whose message contract differs; both are documented, everything else calls this.
     """
     text = path.read_text(encoding="utf-8")

@@ -1,6 +1,6 @@
 [project]
 name = "harness-tier"
-version = "0.2.2"
+version = "0.3.0-rc.2"
 license = "Apache-2.0"
 # Environment floor for the plugin's own development/testing (ruff·pytest). The gate
 # scripts deployed to the host require python 3.8+ at runtime (walrus) — unrelated to this line, so don't confuse them.
@@ -8,7 +8,13 @@ requires-python = ">=3.12"
 dependencies = ["pyyaml>=6.0"]
 
 [dependency-groups]
-dev = ["pytest>=8.0", "ruff>=0.6", "pre-commit>=3.5", "python-semantic-release>=10,<11"]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "pre-commit>=3.5",
+    "python-semantic-release>=10,<11",
+    "GitPython!=3.1.60",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

@@ -9,7 +9,7 @@ argument-hint: "period (e.g., 7 days, 2 weeks, 30 days — default 7 days)"
 Aggregates the Claude Code transcript of the target project (the cwd from which this skill was invoked) and **outputs a
 4-section insight report into the conversation** (Step 4), then reviews and **consolidates the accumulated
 project memory** (Step 5). **It does not create a report file (.md).** It creates **only intermediate artifacts for the
-report (two txt files), temporarily**, and deletes them once output is done. However, Step 5, after user approval, writes to
+report (two txt files), temporarily**, and deletes them once output is done. Step 5, after user approval, writes to
 the target project's `rules/`/`docs/` and consolidates memory (this is not a report artifact but an SSOT update/
 consolidation — a different nature). Project-agnostic — it works in any repository (command groups, hotspots,
 memory paths, and document formats are derived from the data / target project).
@@ -48,7 +48,7 @@ notify the user and stop (no guessing).
    `Read ${ROOT}/CLAUDE.md` · `Glob ${ROOT}/{rules,.claude/rules}/**/*.md` ·
    `Glob ${ROOT}/{agents,.claude/agents}/**/*.md` · `Glob ${ROOT}/{skills,.claude/skills}/**/SKILL.md` ·
    `Glob ${ROOT}/.claude/commands/**/*.md`. If none, exclude that component kind from the candidate pin locations.
-   The existence of `rules/`/`.claude/rules/`/`docs/` confirmed here is also used to decide Step 5 promotion targets.
+   The existence of `rules/`/`.claude/rules/`/`docs/` confirmed here also decides Step 5 promotion targets.
 3. For Step 5 (memory consolidation), read the project memory: under the `memory/` subdirectory of the base project
    directory (the path corresponding to the cwd slug among those Step 2 printed as `scanning <dir>`) —
    `Read <project_dir>/memory/MEMORY.md` · `Glob <project_dir>/memory/*.md`, then `Read` each file.

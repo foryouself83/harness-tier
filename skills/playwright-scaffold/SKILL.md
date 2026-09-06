@@ -77,7 +77,7 @@ if [ -d "$TESTDIR" ]; then find "$TESTDIR" -type f 2>/dev/null | grep -E '\.(spe
   counts as a hit.
 - `MISSING:` for a **config-declared** `testDir` is a misconfiguration — report it and
   stop. Generating into a directory the config does not point at leaves a spec Playwright
-  will never run. `MISSING: ./tests` with no `testDir` in the config is just a new project:
+  will never run. `MISSING: ./tests` with no `testDir` in the config is a new project:
   create the directory and generate.
 - Only when absent, write `<testDir>/main.smoke.spec.<ts|js>` based on
   [`examples/main.smoke.spec.ts`](examples/main.smoke.spec.ts). The spec navigates to `'/'`

@@ -53,11 +53,9 @@ MAX_TURNS = 6
 # A hang guard, not a measurement bound. `MAX_TURNS` already ends a session; this only stops
 # one that has stopped making progress from holding a worker forever.
 #
-# It was 30s for a while, chosen from a solo session where a firing landed 0.3-1.0s after the
-# model started responding. That generalised across environments and should not have: under
-# eight-way load the mean session runs 58s, not 45s, and at a 30s cap 75-100% of every miss
-# turned out to be a session stopped before it could decide. The score was measuring this
-# constant. Sessions now run to their natural end.
+# A cap short enough to cut a session off measures the cap, not the skill: under eight-way
+# load the mean session runs 58s, and at 30s three quarters of every miss is a session stopped
+# before it could decide. Sessions run to their natural end.
 SESSION_TIMEOUT = 180
 JOBS = 8
 
@@ -90,7 +88,7 @@ def cut_early(obs: stream.Observation) -> bool:
     The branch stays because the rule is what is right, not the arithmetic — drop MAX_TURNS
     below FIRE_BY_TOOL_CALL and it comes alive. `test_a_spent_turn_cap_cannot_be_ambiguous_at_
     this_budget` pins that relationship so the emptiness is a checked fact, not a claim in a
-    comment: the scenario table in test_evals.py exercises this branch with a state the runner
+    comment: the scenario table in tests/evals/ exercises this branch with a state the runner
     cannot currently produce."""
     return not (obs.completed and not obs.turns_exhausted) and obs.tool_calls < FIRE_BY_TOOL_CALL
 
@@ -103,7 +101,7 @@ def _tail(err: str, lines: int = 5) -> str:
 
 
 def reduce_capture(text: str) -> str:
-    """Strip a transcript down to what `stream.observe` actually reads.
+    """Strip a transcript down to what `stream.observe` reads.
 
     Kept whole, never re-serialised: the fixtures earn their place by being real CLI bytes, and
     dumping the parsed dict back out would normalise key order, spacing and escapes — leaving a
@@ -372,7 +370,7 @@ def _claude_stream(
     command byte-for-byte: run_session passes none of them, so the invocation measurement is
     unchanged. outcome.run_outcome passes `permission_mode="bypassPermissions"`,
     `add_dirs=(REPO,)`, a higher `max_turns`, and a longer `timeout` so the session can
-    actually edit files and run to a natural end."""
+    edit files and run to a natural end."""
     if fixture:
         # build() creates workdir/<scenario> and returns it — run *there*. Staying in the
         # parent would put the agent in a directory holding a single subdirectory, which is
@@ -760,9 +758,9 @@ def _main() -> int:
     if args.dry_run:
         return 0
 
-    # Armed here, past every exit that spawns no session: an unknown `--skill` and a `--dry-run`
-    # both used to end with a capture report about sessions that never existed. Placing it after
-    # the last such return makes that structural rather than a pair of conditions to remember.
+    # Armed here, past every exit that spawns no session, so that an unknown `--skill` or a
+    # `--dry-run` cannot end with a capture report about sessions that never existed. Position
+    # carries the guarantee; a pair of conditions would have to be remembered.
     _reset_capture_state(args.skill if args.capture_fixtures else None)
 
     def save() -> None:
@@ -838,11 +836,10 @@ def _main() -> int:
             if verdict.level == "fail":
                 print(verdict.message, file=sys.stderr)
                 return 1
-            # Only when the number actually went down. `--accept` is permission to write a
-            # lower score, not an assertion that this run produced one: re-running an
-            # accepted skill that then came back level or higher used to stamp `lowered_from`
-            # on the improvement, leaving a permanent record of a regression that never
-            # happened and that no later reader could tell from a real one.
+            # Only when the number went down. `--accept` is permission to write a lower
+            # score, not an assertion that this run produced one — stamping `lowered_from` on
+            # a run that came back level or higher would leave a permanent record of a
+            # regression that never happened, indistinguishable from a real one.
             if args.accept and name in old_skills:
                 if old_skills[name]["invoke_rate"] > result["invoke_rate"]:
                     result["lowered_from"] = old_skills[name]["invoke_rate"]

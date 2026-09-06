@@ -170,7 +170,7 @@ k6 run --out json=/tmp/harness-perf/k6-result.json /tmp/harness-perf/k6-load.ts
 **Generating scenarios for an arbitrary number of endpoints:**
 
 The two-scenario example above is illustrative. For any real spec, generate `k6-load.ts` programmatically:
-find the generated class's name, confirm each spec `operationId` is really implemented as a method (by
+find the generated class's name, confirm each spec `operationId` is implemented as a method (by
 searching for its `operationId: "..."` return-literal — more robust than assuming a naming convention,
 since the method name and the string literal are both derived from the same `operationId` and must agree),
 then emit one scenario + wrapper function per operation:

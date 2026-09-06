@@ -8,6 +8,7 @@ tiers:
     gates:
       - doc-sync
       - wiki
+      - doc-style
 
   dev:
     description: "Changes that include code (precommit = every-commit module checks on changed modules; custom keys allowed via flow-config checks[].when)"
@@ -17,6 +18,7 @@ tiers:
       - review
       - doc-sync
       - wiki
+      - doc-style
 
   staging:
     description: "QA/RC promotion (dev → stage) — security-tool pre-check + human bump-level selection"
@@ -27,6 +29,7 @@ tiers:
       - security-scan
       - bump
       - wiki
+      - doc-style
 
   release:
     description: "Production deployment (stage → main) — security tools + security review"
@@ -37,6 +40,7 @@ tiers:
       - security-scan
       - security
       - wiki
+      - doc-style
 
 # Merge strategy enforcement (branch flow → required/forbidden `git merge` flags).
 # `source`/`target`: a value containing `/` is a branch-prefix glob; otherwise it is a key of

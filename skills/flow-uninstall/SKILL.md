@@ -38,10 +38,11 @@ host); everything flow-init wrote **into** the host repo stays unless removed he
    they're destructive to user-owned files):
    - `.pre-commit-config.yaml`'s `teams-notify-push` / static-analysis hooks are
      left in place (team customizations / comments). Remove by hand if desired.
-   - `.github/workflows/wiki-verify.yml` runs the just-deleted
-     `.claude/harness-tier/scripts/wiki_graph.py`. Its guard sees the missing script and
-     exits 0, so it does not turn the repo red — it simply can never verify anything
-     again — while still spending a runner on every push. Remove it together. Of the
+   - `.github/workflows/wiki-verify.yml` and `doc-style.yml` call the deleted
+     `.claude/harness-tier/scripts/wiki_graph.py` and `doc_style_check.py`. Each guard
+     sees its missing script and exits 0, so neither turns the repo red — neither can
+     ever verify anything again — while still spending a runner on every push. Remove
+     them together. Of the
      release renders on that path, `python-semantic-release` guards its call, while
      `gitversion` and `jreleaser` **do** fail on pushes to the release branches;
      `cargo-release` / `semantic-release` never reference it. Self-contained renders like

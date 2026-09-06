@@ -1,6 +1,5 @@
 """Probe: can flow's classified tier be captured deterministically from a headless
-session, and does it match the golden_tier? Standalone — the scored path never imports it.
-See docs/superpowers/specs/2026-07-24-router-outcome-probe-design.md."""
+session, and does it match the golden_tier? Standalone — the scored path never imports it."""
 
 import argparse
 import json

@@ -66,7 +66,7 @@ Creating one arbitrarily in a project without the harness installed will break t
 Review an existing module CLAUDE.md along the following axes, and fix only the items that fall short (no full rewrites — preserve
 project-specific content):
 
-- **Commands / workflow** — do the build, test, and lint commands actually exist and work?
+- **Commands / workflow** — do the build, test, and lint commands exist and work?
 - **Architecture** — are the key directories, entry points, and inter-module relationships explained?
 - **Gotchas** — are non-obvious patterns, issues, and workarounds recorded?
 - **Conciseness** — does it avoid repeating what the code already says (e.g., "the UserService class handles user processing")?
@@ -79,4 +79,4 @@ project-specific content):
 - Template placeholders (`<...>`) left in without customization
 - The same fact recorded differently (or redundantly) across multiple module CLAUDE.md files or the index — an SSOT violation
 - One-off fix history that will never recur (e.g., "fixed the login bug in commit abc123") — delete it
-- Generic development advice ("be sure to write tests," etc.) — delete unless it is knowledge specific to this project
+- Generic development advice ("write tests," etc.) — delete unless it is knowledge specific to this project

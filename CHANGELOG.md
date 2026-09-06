@@ -2,6 +2,99 @@
 
 <!-- version list -->
 
+## v0.3.0-rc.2 (2026-09-06)
+
+### Features
+
+- **gate**: No command escapes the gate unjudged
+  ([`1b5d89e`](https://github.com/foryouself83/harness-tier/commit/1b5d89e0ca76cb96096214d7d9f085c8594dfb61))
+
+
+## v0.3.0-rc.1 (2026-09-05)
+
+### Bug Fixes
+
+- **gate**: Find a command where a shell starts one
+  ([`bdbf46b`](https://github.com/foryouself83/harness-tier/commit/bdbf46b4fcd8da9b4ab2bb9bbcdd6ca1f14402d0))
+
+- **gate**: Gate by default, exempt only readers
+  ([`946f62b`](https://github.com/foryouself83/harness-tier/commit/946f62b77d5715572d00836a5e5b51dbdcfc1536))
+
+- **gate**: Read the program at every command
+  ([`2f2fd16`](https://github.com/foryouself83/harness-tier/commit/2f2fd16a1c3aa222b2e1bdb76960de90736f6f00))
+
+- **init**: A half-copied install under-gates
+  ([`da42dea`](https://github.com/foryouself83/harness-tier/commit/da42dea247419f57576d42f270f3def8e6483c79))
+
+- **init**: Install a gate the host can read
+  ([`72ec8c4`](https://github.com/foryouself83/harness-tier/commit/72ec8c4db30344d1d9776dec417521a2d6dba440))
+
+- **init**: Read the matcher the way hooks do
+  ([`c79b678`](https://github.com/foryouself83/harness-tier/commit/c79b6784528aa4223d188c373176b7634934fe07))
+
+- **prose**: No shipped line runs past 300 chars
+  ([`a14c0bd`](https://github.com/foryouself83/harness-tier/commit/a14c0bdc18c84e7fb1eb9ba129b2455d6c24c261))
+
+### Features
+
+- **gate**: An edit voids the review evidence
+  ([`6cddf51`](https://github.com/foryouself83/harness-tier/commit/6cddf512548bd4be5391bcac7aa1dd54b1467489))
+
+- **gate**: Prose discipline, mechanically checked
+  ([`c6ca712`](https://github.com/foryouself83/harness-tier/commit/c6ca712e43e274dabf73476c7229a407ea4c0a5e))
+
+
+## v0.2.3-rc.5 (2026-09-02)
+
+### Bug Fixes
+
+- **gate**: Read the commit an interpreter runs
+  ([`0db7e5c`](https://github.com/foryouself83/harness-tier/commit/0db7e5ce1464295bbedbafb7a8ef93c61a89632e))
+
+
+## v0.2.3-rc.4 (2026-09-01)
+
+### Bug Fixes
+
+- **gate**: Read the commands a shell actually runs
+  ([`89fbab7`](https://github.com/foryouself83/harness-tier/commit/89fbab7d31a64d4ee6ca8336e436a3ca3c8f12fe))
+
+
+## v0.2.3-rc.3 (2026-09-01)
+
+### Bug Fixes
+
+- **gate**: One authority for what a command is
+  ([`ec32a56`](https://github.com/foryouself83/harness-tier/commit/ec32a562738fb31233fe2145c66d22ed816526b0))
+
+
+## v0.2.3-rc.2 (2026-09-01)
+
+### Bug Fixes
+
+- **gate**: Agree on what a git invocation is
+  ([`64919b5`](https://github.com/foryouself83/harness-tier/commit/64919b5fed8bcd3cddf0e16cdda1eb15e90a4c40))
+
+
+## v0.2.3-rc.1 (2026-09-01)
+
+### Bug Fixes
+
+- **gate**: One quoting authority for both halves
+  ([`dc15b70`](https://github.com/foryouself83/harness-tier/commit/dc15b7005c1507b7f5cf271f9c15e8fb423c01f0))
+
+- **gate**: Read a command the way a shell would
+  ([`4b920af`](https://github.com/foryouself83/harness-tier/commit/4b920afc7171cef4904e78e7544c3b042a6463cb))
+
+- **release**: Exclude the one broken GitPython
+  ([`d44c555`](https://github.com/foryouself83/harness-tier/commit/d44c555b57c9cd85fa0e6a32dc11e1a0e5e602fe))
+
+### Features
+
+- **hook**: Tell a consumer an update is waiting
+  ([`e8870a3`](https://github.com/foryouself83/harness-tier/commit/e8870a30e3436e80a197f230f79b43cf75838267))
+
+
 ## v0.2.2-rc.1 (2026-08-28)
 
 ### Bug Fixes

@@ -12,7 +12,7 @@ def test_host_root_is_shared_helper():
 
 
 def test_host_root_prefers_env(monkeypatch, tmp_path: Path):
-    # verify the alias actually links to the shared helper and honors env.
+    # verify the alias links to the shared helper and honors env.
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
     assert ta._host_root() == tmp_path.resolve()
 
