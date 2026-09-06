@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.3.0-rc.2 (2026-09-06)
+
+### Features
+
+- **gate**: No command escapes the gate unjudged
+  ([`1b5d89e`](https://github.com/foryouself83/harness-tier/commit/1b5d89e0ca76cb96096214d7d9f085c8594dfb61))
+
+
 ## v0.3.0-rc.1 (2026-09-05)
 
 ### Bug Fixes
