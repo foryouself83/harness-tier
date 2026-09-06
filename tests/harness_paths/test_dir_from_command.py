@@ -227,3 +227,18 @@ def test_parse_worktree_list_blocks_and_detached():
     assert ("/main", "main") in entries
     assert ("/wt-feat", "feature/x") in entries
     assert ("/wt-detached", None) in entries  # detached → no branch
+
+
+def test_commit_tree_unresolved_only_for_a_command_naming_two_trees():
+    """The runner gives up its clean-tree shortcut on a True here, so a False that should have
+    been True skips every gate on a command that commits — and a True that should have been
+    False gates a tree with nothing to commit. Both spellings of "the directory I am already
+    in" are one answer: `.` is what a bare invocation already uses."""
+    assert vp.commit_tree_unresolved("git -C /a commit -m x && git -C /b commit -m y")
+    assert not vp.commit_tree_unresolved("git -C /a commit -m x && git -C /a commit --amend")
+    assert not vp.commit_tree_unresolved("git commit -m x && git commit --amend")
+    assert not vp.commit_tree_unresolved("git -C . commit -m x && git commit --amend")
+    assert not vp.commit_tree_unresolved("git -C ./ commit -m x && git -C . commit --amend")
+    assert not vp.commit_tree_unresolved("git commit -m x")
+    assert not vp.commit_tree_unresolved(None)
+    assert not vp.commit_tree_unresolved("")

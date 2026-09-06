@@ -20,7 +20,7 @@ missing_required=0
 #    self-filter becomes empty and it **silently passes (fail-open)** — a hole the gate cannot catch
 #    itself, so we check it here in advance. (This script running at all is proof bash exists.)
 _missing_utils=""
-for _u in timeout cat grep sed awk; do
+for _u in timeout cat grep sed awk head; do
   command -v "$_u" >/dev/null 2>&1 || _missing_utils="$_missing_utils $_u"
 done
 if [ -n "$_missing_utils" ]; then

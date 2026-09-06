@@ -29,6 +29,7 @@ try:
         RUNTIME_GATES,
         STAGING_TIER,
         TIERS_FILENAME,
+        commit_tree_unresolved,
         config_path,
         dash_c_value,
         flow_dir,
@@ -50,6 +51,7 @@ except ImportError:
         RUNTIME_GATES,
         STAGING_TIER,
         TIERS_FILENAME,
+        commit_tree_unresolved,
         config_path,
         dash_c_value,
         flow_dir,
@@ -193,11 +195,18 @@ _MERGE_FLAGS_WITH_ARG = frozenset(
 _MERGE_SWITCH_RE = git_subcommand_re("(?:switch|checkout)")
 
 
-def _merge_dash_c(command: str) -> str | None:
-    """The `-C <dir>` of the command's own `git … merge`, or None when it names no directory."""
+def _merge_dirs(command: str) -> list[str | None]:
+    """Where each `git … merge` in the command runs, ``None`` for one that names no directory.
+
+    Every merge, and the ``None``s kept: a merge with no `-C` runs wherever the shell stands,
+    which is the root the gate is already judging unless a `cd` moved it — so it is what says
+    the command merges HERE, and the caller reads it that way.
+    Dropping it — or reading only the first merge — lets `git merge feature/x && git -C /tmp
+    merge y` claim the whole command belongs to another worktree, which is one appended token
+    away from turning merge-strategy enforcement off.
+    """
     masked = mask_literals(command)
-    m = _MERGE_RE.search(masked)
-    return dash_c_value(command, masked, m.start(1), m.end(1)) if m else None
+    return [dash_c_value(command, masked, m.start(1), m.end(1)) for m in _MERGE_RE.finditer(masked)]
 
 
 # A leading `cd <dir>` before the merge — the merge path's own separator variant of
@@ -338,14 +347,24 @@ def _points_elsewhere(command: str, root: Path) -> bool:
     before precommit-runner.sh's `cd "$ROOT"`, so the interpreter's cwd is the hook cwd and
     reading `git -C .` there would call root itself foreign and skip the gate.
     """
-    cdir = _merge_dash_c(command)
-    if not cdir:
+    dirs = _merge_dirs(command)
+    if not any(d for d in dirs):
         m = _MERGE_CD_PREFIX_RE.match(command)
         cdir = next((g for g in m.groups() if g is not None), None) if m else None
-    if not cdir:
+        if cdir:
+            dirs = [cdir]
+    if not dirs:
         return False
     try:
-        return Path(root, cdir).resolve() != Path(root).resolve()
+        here = Path(root).resolve()
+        # ALL of them, so one merge that runs here keeps the whole command judged. `any` would
+        # read a command as foreign on the strength of its foreign HALF, and the half that runs
+        # here would merge unjudged — the direction Exception 3 is fail-closed to prevent.
+        # A `None` counts as here even behind a `cd` that moved the shell: the prefix above is
+        # read only when NO merge named a directory, so a mixed chain behind a `cd` is judged
+        # against a root none of it runs in. An over-block, and the side to err on for a rule
+        # that exists to keep a local merge judged.
+        return all(d is not None and Path(root, d).resolve() != here for d in dirs)
     except Exception:
         return True
 
@@ -969,6 +988,8 @@ def classify_output() -> None:
       ``commit=1`` / ``merge=1`` — the command holds that invocation.
       ``worktree=<path>`` — the commit runs in a git worktree other than main, detected by
       branch-key (:func:`working_root`), which re-points ROOT.
+      ``unresolved=1`` — the command commits in a tree this cannot name, so main's cleanliness
+      says nothing about it and the runner must not read a clean main as nothing to gate.
     Any failure prints less, never more: an unreadable command is not an invocation this can
     gate, and an undetectable worktree leaves ROOT on main (Invariant #1 · #6, FAIL-OPEN).
     Invariant #2: force_utf8_io before any print.
@@ -998,6 +1019,12 @@ def classify_output() -> None:
         print("merge=1")
     if not is_commit:  # only the commit path re-designates the worktree (Invariant #6)
         return
+    # Said whether or not a worktree line follows. `working_root` can still reach one from the
+    # hook's own cwd after the command itself gave no answer, and that tree is a guess about
+    # where the commit lands, not a reading of it — so the runner needs this either way: the
+    # tree it ends up on may be clean while the commit runs somewhere else entirely.
+    if commit_tree_unresolved(command):
+        print("unresolved=1")
     root = host_root()
     try:
         w = working_root(

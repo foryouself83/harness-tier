@@ -79,6 +79,9 @@ review_checklist:            # what the Dev review gate judges every changed fil
 commit_guide: docs/operations/commit-versioning-guide.md   # host's own commit/versioning doc,
                              # read by the `commit` skill (missing file → risk-tiers alone)
 
+gate_evidence:               # the review/doc-sync markers are voided by any edit (2.3)
+  invalidate_on_edit: true   # false keeps them until the commit
+
 doc_sync:                    # doc-sync targets
   index: CLAUDE.md
   dirs:
@@ -232,7 +235,10 @@ pass before it can commit**.
   `doc-sync` judge the working tree, so a PostToolUse hook deletes **both** markers on any
   edit — including the fixes the review asked for. A fix therefore re-runs doc-sync and the
   review; an edit the hook never sees — a terminal command, another tool — leaves them
-  standing. `bump` is the human major/minor/patch choice at a staging promotion —
+  standing. A team that wants the older order — a small fix after a pass not costing a re-run
+  — sets `gate_evidence.invalidate_on_edit: false`. The hook is registered by the plugin, so a
+  version bump arms it with no `/flow-init` step to agree to; the switch is how the host that
+  carries the cost answers. `bump` is the human major/minor/patch choice at a staging promotion —
   fail-closed, so the staging commit stays blocked until the choice is made.
 - The single source of truth for risk classification is the `risk-tiers` rule, injected
   automatically every session.

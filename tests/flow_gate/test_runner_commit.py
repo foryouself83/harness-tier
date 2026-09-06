@@ -28,6 +28,49 @@ def test_runner_gates_worktree_commit_via_git_dash_c(tmp_path: Path):
 
 
 @requires_bash_git
+def test_a_commit_naming_two_worktrees_still_reaches_the_gate(tmp_path: Path):
+    """Two worktrees in one command make the directory unresolvable, so `working_root` falls
+    back — to main here, since this runs with no worktree cwd to reach one from. Whichever tree
+    it lands on, that tree's being clean says nothing about whether the commit happens, and
+    reading it as "nothing to commit" skipped every gate in silence. The deny below is the proof
+    one engaged: this tree carries no tier marker, and an unclassified commit is one of the
+    three things that blocks."""
+    main = tmp_path / "main"
+    _init_repo(main)
+    (main / ".claude" / "harness-tier" / "config").mkdir(parents=True)
+    (main / ".claude" / "harness-tier" / "config" / "flow-config.yaml").write_text(
+        "modules: []", encoding="utf-8"
+    )
+    _rg(["add", "-A"], main)
+    _rg(["commit", "-m", "config"], main)
+    a = tmp_path / "wta"
+    b = tmp_path / "wtb"
+    _rg(["worktree", "add", "-b", "feature/a", str(a)], main)
+    _rg(["worktree", "add", "-b", "feature/b", str(b)], main)
+    r = _run_runner(main, f"git -C {a} commit -m x && git -C {b} commit -m y")
+    assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)
+
+
+@requires_bash_git
+def test_one_worktree_named_twice_still_takes_the_shortcut(tmp_path: Path):
+    """The guard keys on invocations that DISAGREE. Commit-then-amend names one directory twice
+    and resolves fine, so a clean tree there is still nothing to gate — widening it to every
+    unresolved-looking command would block the commit-then-amend the commit skill issues."""
+    main = tmp_path / "main"
+    _init_repo(main)
+    (main / ".claude" / "harness-tier" / "config").mkdir(parents=True)
+    (main / ".claude" / "harness-tier" / "config" / "flow-config.yaml").write_text(
+        "modules: []", encoding="utf-8"
+    )
+    _rg(["add", "-A"], main)
+    _rg(["commit", "-m", "config"], main)
+    wt = tmp_path / "wt"
+    _rg(["worktree", "add", "-b", "feature/x", str(wt)], main)
+    r = _run_runner(main, f"git -C {wt} commit -m x && git -C {wt} commit --amend --no-edit")
+    assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
+
+
+@requires_bash_git
 @pytest.mark.parametrize("quote", ['"', "'"])
 def test_runner_gates_a_worktree_commit_whose_path_holds_a_space(tmp_path: Path, quote: str):
     # the same end-to-end path as the test above, with the one difference a Windows host makes

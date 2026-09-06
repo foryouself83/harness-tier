@@ -34,20 +34,54 @@ def test_merge_parsing_ignores_a_git_merge_quoted_inside_an_argument():
     assert fgc.parse_merge_command(QUOTED_MERGE) == ({"--no-ff"}, "origin/stage")
 
 
-def test_merge_dash_c_reads_the_real_invocation_not_a_quoted_one():
+def test_merge_dirs_reads_the_real_invocation_not_a_quoted_one():
     # the directory decides whether the merge is judged against THIS root at all, so taking it
     # from anywhere but the real invocation's own options region switches the gate off for a
-    # merge that is happening right here (`_points_elsewhere` → exit 0).
-    assert fgc._merge_dash_c(QUOTED_MERGE) == "/wt"
-    assert fgc._merge_dash_c("git merge --no-ff dev") is None
+    # merge that is happening right here (`_points_elsewhere` -> exit 0).
+    assert fgc._merge_dirs(QUOTED_MERGE) == ["/wt"]
+    assert fgc._merge_dirs("git merge --no-ff dev") == [None]
 
 
-def test_merge_dash_c_ignores_a_dash_c_inside_a_quoted_option_value():
+def test_merge_dirs_ignores_a_dash_c_inside_a_quoted_option_value():
     # `-C` is a directory only as git's own option. Taking one out of a quoted VALUE makes
     # _points_elsewhere call this root foreign and skip the merge-strategy verdict — one of the
     # three fail-CLOSED exceptions, switched off by a pager setting.
-    assert fgc._merge_dash_c('git -c core.pager="less -C /tmp" merge --no-ff origin/stage') is None
-    assert fgc._merge_dash_c('git -c core.pager="less -C /tmp" -C /wt merge --no-ff x') == "/wt"
+    assert fgc._merge_dirs('git -c core.pager="less -C /tmp" merge --no-ff origin/stage') == [None]
+    assert fgc._merge_dirs('git -c core.pager="less -C /tmp" -C /wt merge --no-ff x') == ["/wt"]
+
+
+def test_every_merge_in_the_chain_says_where_it_runs():
+    """Every merge, and a `None` for the one that named no directory — that `None` is the proof
+    the command merges HERE. Dropped, a chain reads as belonging entirely to the tree its other
+    half named."""
+    assert fgc._merge_dirs("git merge --squash a && git -C /other merge b") == [None, "/other"]
+    assert fgc._merge_dirs("git -C /other merge b && git merge --squash a") == ["/other", None]
+    assert fgc._merge_dirs("git -C /a merge x && git -C /b merge y") == ["/a", "/b"]
+
+
+def test_a_merge_that_runs_here_keeps_the_whole_command_judged(tmp_path: Path):
+    """Fail open needs EVERY merge to be somewhere else. One that runs in root is a merge this
+    gate can judge and must, whatever the rest of the command names — otherwise appending
+    `&& git -C /tmp merge x` turns merge-strategy enforcement off in one token, and moving the
+    foreign half to the front does the same. Both orders are checked for that reason; v0.2.2
+    enforced the first and let the second through."""
+    for command in (
+        "git merge --squash a && git -C /other/repo merge b",
+        "git -C /other/repo merge b && git merge --squash a",
+        "git -C . merge --squash a && git -C /other/repo merge b",
+        "git merge --squash a && git merge --no-ff b",
+    ):
+        assert not fgc._points_elsewhere(command, tmp_path), command
+
+
+def test_a_command_whose_every_merge_is_elsewhere_fails_open(tmp_path: Path):
+    """The other half of the same rule, and the one Invariant 1 Exception 3 names: nothing here
+    is being merged, so there is nothing this root's policy has any claim on."""
+    for command in (
+        "git -C /other/repo merge b",
+        "git -C /other/repo merge b && git -C /third/repo merge c",
+    ):
+        assert fgc._points_elsewhere(command, tmp_path), command
 
 
 def test_points_elsewhere_prefers_dash_c_over_a_leading_cd():

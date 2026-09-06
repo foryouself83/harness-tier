@@ -77,7 +77,8 @@ entry below is folder + purpose; the per-file detail lives in the folder itself.
 .claude-plugin/  plugin.json (minimal manifest) · marketplace.json (self-exposed; source=github + immutable sha pin)
 agents/          harness-researcher · harness-code-analyzer · harness-critic
 hooks/           hooks.json (SessionStart + PostToolUse + Notification) · inject-risk-tiers.sh (rule injection +
-                 stale-build warning) · invalidate-gate-markers.sh (an edit voids the review/doc-sync evidence)
+                 stale-build warning) · invalidate-gate-markers.sh (an edit voids the review/doc-sync
+                 evidence; host switch `gate_evidence.invalidate_on_edit`)
 skills/          /slash = skill — one dir each; open the dir for its SKILL.md
 rules/           risk-tiers.md (SSOT: tier classification + commit discipline) · harness-rules.md (SSOT: harness-gen)
                  · doc-style.md (SSOT: prose discipline) — all SHIP to consumers, unlike .claude/rules/
@@ -94,9 +95,10 @@ github/          *.workflow.example.yml SOURCEs /flow-init renders (CI · releas
 flow-tiers.yaml            tier→gates + merge_strategy — plugin-owned, immutable
 flow-config.example.yaml   host environment slots (real file → host .claude/harness-tier/config/, team-shared)
 tests/           pytest over scripts/ — a package per oversized module (flow_gate · flow_init · wiki_graph ·
-                 evals · skills · harness_paths · harness_scaffold · merge_ruleset), the smaller ones flat beside
-                 them; skills/ reads the skill FILES (frontmatter/links/refs + the git commands skills and rules/
-                 issue vs the gate's invocation grammar) · evals/ the model-free half of evals/
+                 evals · skills · harness_paths · harness_scaffold · merge_ruleset · doc_style ·
+                 invalidate_gate_markers), the smaller ones flat beside them; skills/ reads the skill FILES
+                 (frontmatter/links/refs + the git commands skills and rules/ issue vs the gate's invocation
+                 grammar) · evals/ the model-free half of evals/
 evals/           skill measurement: invocation (cases.yaml · run.py · scores.py) + outcome (outcome.py · outcome_scores.json;
                  fixtures/goldens live in scripts/skill_sandbox.py) — NOT shipped → commit as test:/chore:
 ```
@@ -216,8 +218,18 @@ When modifying the gate scripts (`scripts/*`, `hooks/*.sh`), preserve these:
      **blocked** — a missing `require` flag or a present `forbid` flag, nothing else. It differs
      in kind from the other two: it is decided **from the command string alone** and reads no
      repository state, so no internal error can misfire it. Everything uncertain around it fails
-     open (no policy · no matching rule · an unparseable command · a command naming another
-     worktree · a rebase that only *warns*). A gate that cannot classify still enters this check,
+     open (no policy · no matching rule · an unparseable command · a command whose merges ALL
+     name another worktree · a rebase that only *warns*). **All** of them: a merge carrying no
+     `-C` is read as running here, so one of those keeps the whole command judged however many
+     foreign directories sit beside it — otherwise `&& git -C /tmp merge x` is enforcement off
+     in one appended token, and putting the foreign half first would do the same. 0.2.2 read
+     only the first merge, so it enforced that chain one way round and let it through the
+     other. Read as, not proven to: a `cd` prefix moves the shell's directory, and the prefix
+     is consulted only when NO merge named one at all, so a mixed chain behind a `cd` is
+     judged against a root none of it runs in. Those are the only places this **newly denies**
+     where 0.2.2 passed — the reordered chain and the two `cd`-mixed ones — and all three are
+     the safe side of a rule whose whole purpose is to keep a local merge judged.
+     A gate that cannot classify still enters this check,
      guarded on the script file existing — alone among the stages it reads **stderr** for its
      reason, where a missing file leaves the interpreter's complaint instead. (superpowers cannot
      be detected from the shell → guarded in `/flow`·`/flow-init`.)
@@ -234,8 +246,17 @@ When modifying the gate scripts (`scripts/*`, `hooks/*.sh`), preserve these:
    so `precommit-runner.sh` re-points `ROOT` to the worktree `flow_gate_check.py --classify`
    detects by branch-key (`_harness_paths.working_root`), and status/diff/tier-marker/module-lint
    all read it. Any uncertainty — detached HEAD · `--git-common-dir` mismatch · no worktree ·
-   parse/exception · invocations naming different directories — returns main; **never newly
-   block**. Same-repo identity is `--git-common-dir` equality, never a path prefix (sibling
+   parse/exception · invocations naming different directories — falls back to main; **never
+   newly block**, with one declared exception. The fallback is main only when nothing else
+   answers: once the command itself gives none, the resolver may still reach a worktree from the
+   hook's own cwd, which is the ordinary case in a worktree session. Invocations naming
+   different directories are the exception, because there the answer is a fallback rather than a
+   reading — the command commits in more than one tree, and whichever the resolver returns, its
+   being clean says nothing. So `commit_tree_unresolved` reports it and the runner declines its
+   clean-tree shortcut, gating that tree anyway: a deliberate over-block, taken because the
+   alternative is a clean tree reading as nothing to gate, which skips every gate in silence on
+   a command that does commit.
+   Same-repo identity is `--git-common-dir` equality, never a path prefix (sibling
    `…/kit` vs `…/kit-feature` must not false-match). Keep the uncertain set small: two
    `git -C <same wt> commit` in one command (commit-then-amend) name one directory and must
    resolve to it.

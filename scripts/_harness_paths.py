@@ -1061,10 +1061,7 @@ def _dir_from_command(command: str | None) -> str | None:
     """
     if not command:
         return None
-    masked = mask_literals(command)
-    answers = {
-        dash_c_value(command, masked, m.start(1), m.end(1)) for m in _GIT_COMMIT_RE.finditer(masked)
-    }
+    answers = _commit_dir_answers(command)
     if len(answers) == 1:  # ① one answer, however many invocations gave it
         if (only := answers.pop()) is not None:
             return only
@@ -1072,6 +1069,39 @@ def _dir_from_command(command: str | None) -> str | None:
         return None  # directory disagrees with one that does: they run in different trees.
     m = _CD_PREFIX_RE.match(command)  # ② leading `cd <dir> &&`
     return next(g for g in m.groups() if g is not None) if m else None
+
+
+def _commit_dir_answers(command: str) -> set[str | None]:
+    """The directory each real ``git … commit`` in the command names, ``None`` for one that
+    names none. Text only — no repository is read, so nothing here can misfire on state."""
+    masked = mask_literals(command)
+    return {
+        dash_c_value(command, masked, m.start(1), m.end(1)) for m in _GIT_COMMIT_RE.finditer(masked)
+    }
+
+
+def commit_tree_unresolved(command: str | None) -> bool:
+    """Whether the command commits somewhere this cannot name — its invocations disagree.
+
+    :func:`working_root` still answers something for that case, as Invariant #6 requires — main,
+    or a worktree it reaches from the hook's own cwd once the command itself gives no answer.
+    Neither is a reading of where the commit lands: the command names more than one tree, and an
+    invocation carrying no ``-C`` adds the shell's own directory to them. So whichever tree the
+    resolver returns, its being clean says nothing about whether the command commits, and a
+    caller reading that as "nothing to gate" would skip the gate entirely on a command that
+    does — the one direction this may never fail in. Asking here keeps the guess out of the
+    resolver.
+    """
+    if not command:
+        return False
+    try:
+        # `.` is the directory a bare invocation already runs in, so the two spellings are one
+        # answer. Invariant #6 asks the uncertain set to stay small, and a commit-then-amend
+        # written `git -C . commit && git commit --amend` is not two trees.
+        answers = {None if d in (".", "./") else d for d in _commit_dir_answers(command)}
+        return len(answers) > 1
+    except Exception:
+        return False  # FAIL-OPEN: an unreadable command is not one this can claim anything about
 
 
 def _parse_worktree_list(porcelain: str) -> list[tuple[str, str | None]]:

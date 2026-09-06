@@ -110,6 +110,7 @@ fi
 _is_commit=0
 _is_merge=0
 _answered=0
+_unresolved=0
 _wt=""
 while IFS= read -r _line; do
   # Python's print() emits CRLF on the Windows hook host and the command substitution eats
@@ -121,6 +122,7 @@ while IFS= read -r _line; do
     commit=1) _is_commit=1 ;;
     merge=1) _is_merge=1 ;;
     worktree=?*) _wt="${_line#worktree=}" ;;
+    unresolved=1) _unresolved=1 ;;
   esac
 done <<< "$_verdict"
 # A verdict of neither ends it here — the pre-filter over-matched and there is nothing to
@@ -205,7 +207,14 @@ fi
 cd "$ROOT" || exit 0
 
 status="$(git status --porcelain 2>/dev/null)" || exit 0
-[ -z "$status" ] && exit 0
+# A clean ROOT means nothing to commit - unless the command commits somewhere this could
+# not name. `--classify` says so with `unresolved=1`: the command commits in more than one
+# tree, ROOT is whichever one the resolver fell back to, and its being clean says nothing about
+# whether the commit happens. Reading it as "nothing to gate" skips every gate in silence on a
+# command that does commit, so gating ROOT anyway is the lesser wrong.
+if [ -z "$status" ] && [ "$_unresolved" -eq 0 ]; then
+  exit 0
+fi
 
 # 1) flow gate + the runtime gates (wiki, doc-style) — ONE process. flow_gate_check.py reads
 #    the host root from CLAUDE_PROJECT_DIR and FAIL-OPENs (exit 0) on internal error; after

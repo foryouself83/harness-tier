@@ -379,6 +379,16 @@ work started on. `hotfix/*` off the production branch is the exception
      this review. An edit the hook never saw (a terminal command,
      another tool) leaves the markers standing — delete them by hand:
      `rm -f .claude/harness-tier/.flow/review.done .claude/harness-tier/.flow/doc-sync.done`.
+     A team that wants the older order — a small fix after a pass not
+     costing a re-run — sets `gate_evidence.invalidate_on_edit: false`
+     in `flow-config.yaml`. The hook is registered by the plugin, so a
+     version bump arms it with no `/flow-init` step to agree to; the
+     switch is how the host that carries the cost answers. Armed is the
+     default: the hook reads `false` under a top-level `gate_evidence:`
+     and nothing else, so a YAML-false spelled `no`/`off`/`False`, or
+     the key written under another block, leaves it armed. It reads the
+     file line by line, so a file YAML cannot load still disarms on that
+     one line — and a line the reader cannot make out leaves it armed.
 3. Integration human gate (feature → integration branch; see Merge
    Strategy below) → commit via `/commit` → merge, or open a PR when
    `merge_workflow.pull_request` includes `daily` (see PR workflow).
