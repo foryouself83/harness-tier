@@ -10,10 +10,11 @@
 wiki_id: {{ID}}
 title: <design area>
 tags: [sds]
-# sources is optional — uncomment and list real code paths this design describes; delete
-# these two lines entirely if none apply.
-# sources:
-#   src/path/to/code.py: null
+# sources: the code paths this design describes.
+#   - greenfield `{}` / brownfield the real paths — a guessed path is worse than none.
+#   - `--verify` warns on an absent or valueless key, never on `{}`.
+#   - doc-sync Mode W `--unmapped` lists the empty ones and fills them once code exists.
+sources: {}
 ---
 # {{PROJECT_NAME}} Software Design Specification (SDS)
 

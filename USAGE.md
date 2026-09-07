@@ -199,9 +199,10 @@ pass before it can commit**.
 - **`wiki`** is likewise executed by the commit hook itself (no marker), in-process as
   the flow gate's final stage — never through the module-check channel — but only when
   `flow-config.wiki` is enabled; otherwise nothing runs. Its graph-quality warnings
-  (orphans, over-size documents, `sources` paths that are not on disk, defect→rule
-  promotion, front matter that fails to parse without a `wiki_id:` line, a wiki-only
-  field present without a `wiki_id`) come back
+  (orphans, over-size documents, `sources` paths that are not on disk, an `sds` document
+  whose `sources` key is absent or has no value, defect→rule promotion, front matter that
+  fails to parse without a
+  `wiki_id:` line, a wiki-only field present without a `wiki_id`) come back
   as a `systemMessage` even when the commit passes. A blocked commit's structure-violation
   list is capped at 10 entries plus a count. Read-only: it
   checks `docs/graph/graph.yaml` against the docs' front matter (§3.9), and it also

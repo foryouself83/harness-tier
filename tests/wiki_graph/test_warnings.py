@@ -123,3 +123,77 @@ def test_node_linked_to_but_not_from_is_not_orphan():
     ]
     warns = collect_warnings(_wiki(), nodes, build_graph(nodes))
     assert not any("orphan" in w for w in warns)
+
+
+def _sources_warns(nodes):
+    """Only this warning. Matching on 'sds' alone would also catch the orphan line, which
+    names the same path — every quiet assertion below would then pass on the wrong warning."""
+    warns = collect_warnings(_wiki(), nodes, build_graph(nodes))
+    return [w for w in warns if "sds 문서인데 sources 값이" in w]
+
+
+def test_sds_node_without_sources_warns():
+    nodes = [
+        _mk("index", path="docs/index.md"),
+        _mk("sds.readme", {"tags": ["sds"]}, "docs/sds/README.md"),
+    ]
+    assert any("docs/sds/README.md" in w for w in _sources_warns(nodes))
+
+
+def test_sds_node_with_empty_sources_is_quiet():
+    # `sources: {}` is the author saying "no code to map yet" — the shape a greenfield SDS
+    # ships with. Warning on it would fire on every generated design doc, forever, with the
+    # only remedy the doc-sync step explicitly forbids (inventing a path).
+    node = _mk("sds.readme", {"tags": ["sds"], "sources": {}}, "docs/sds/README.md")
+    assert _sources_warns([node]) == []
+
+
+def test_sds_node_with_null_sources_warns():
+    # `sources:` with nothing after it is YAML null — an edit someone stopped halfway, not
+    # the empty-map statement. `validate_structure` lets None pass too, so reading it as
+    # "declared" leaves the node invisible with nothing said anywhere.
+    node = _mk("sds.readme", {"tags": ["sds"], "sources": None}, "docs/sds/README.md")
+    assert any("docs/sds/README.md" in w for w in _sources_warns([node]))
+
+
+def test_sds_node_with_list_sources_is_quiet():
+    # A list is the wrong shape, but `validate_structure` already blocks it with its own
+    # message, and `--nodes-for` does read a list — so this warning's text would be untrue
+    # and the one mistake would be reported twice.
+    node = _mk("sds.readme", {"tags": ["sds"], "sources": ["src/a.py"]}, "docs/sds/README.md")
+    assert _sources_warns([node]) == []
+
+
+def test_sds_tag_is_read_from_a_bare_string():
+    # `tags: sds` (a scalar, not a list) is valid YAML a human writes. Without _as_list the
+    # membership test runs against the string and "sds" in "sds" is coincidentally true —
+    # but `tags: sdsx` would then match too. Pin the scalar path.
+    node = _mk("sds.readme", {"tags": "sds"}, "docs/sds/README.md")
+    assert any("docs/sds/README.md" in w for w in _sources_warns([node]))
+
+
+def test_a_substring_tag_does_not_count_as_sds():
+    # Scalar, not a list, and deliberately so: `_as_list("sdsx")` is `["sdsx"]`, which does
+    # not contain "sds". Reading the raw value instead makes the membership test a SUBSTRING
+    # test — `"sds" in "sdsx"` is true — and any tag containing the three letters warns.
+    node = _mk("x.readme", {"tags": "sdsx"}, "docs/x/README.md")
+    assert _sources_warns([node]) == []
+
+
+def test_a_non_node_is_never_warned_about():
+    # No wiki_id means not a wiki node. Its front matter is not the author's wiki claim, so
+    # reporting it is the noise the marker suppression elsewhere exists to avoid.
+    node = {"id": "", "path": "docs/sds/README.md", "line_count": 3, "front": {"tags": ["sds"]}}
+    assert _sources_warns([node]) == []
+
+
+def test_sds_node_with_sources_is_quiet():
+    node = _mk("sds.readme", {"tags": ["sds"], "sources": {"src/a.py": None}}, "docs/sds/README.md")
+    assert _sources_warns([node]) == []
+
+
+def test_non_sds_node_without_sources_is_quiet():
+    # The whole point of the tag narrowing: requirements and onboarding pages map to no code
+    # path, and warning on them is the permanent noise that makes the block unread.
+    node = _mk("srs.readme", {"tags": ["srs"]}, "docs/srs/README.md")
+    assert _sources_warns([node]) == []

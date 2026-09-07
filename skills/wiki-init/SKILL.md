@@ -112,6 +112,10 @@ assignment only.
 with the user before finalizing. **Never write** `used_by` · `defects` — they are
 generated fields, and writing them by hand blocks validation.
 
+A design document also carries `tags: [sds]`. That tag is the only mark of one:
+`--verify`'s missing-`sources` warning and `--unmapped` both read it, so without it neither
+ever names the document, however empty its `sources`.
+
 `sources` records the code paths the document describes, as a map. Prefer **file**
 paths: staleness is a content hash of the file (`git hash-object`), so a directory key
 is looked up by `--nodes-for` but never appears in `--stale` and its marker is never
@@ -119,6 +123,11 @@ refreshed — write one when the document is about the directory as a whole and
 you accept that, not as a shorthand for the files inside it. Leave `sha` as
 `null` — [`doc-sync`](../doc-sync/SKILL.md) fills it in. Never write an empty string for
 an unknown sha: `""` compares equal to everything, so the node reports fresh forever.
+An `sds` document must not leave this key out — write `sources: {}` when there is no code
+to map yet, and `--verify` warns until the key carries a value (the empty map counts as one).
+An empty map keeps the node out of `--stale` and `--nodes-for` all the same, so it is a
+statement of "not yet", not a resting place: [`doc-sync`](../doc-sync/SKILL.md) lists the empty
+ones with `--unmapped` and fills them once the code exists.
 
 **Quote every sha, and any `title` that could read as a keyword.** Front matter is YAML
 1.1: unquoted `0123456` is octal and parses as the number 42798, and `title: no` parses
@@ -192,9 +201,11 @@ passes. Two failure classes, two different fixes — the output says which:
 - **graph mismatch** — re-run `--build`.
 
 Everything else it prints is a warning and does not block: orphans, over-size documents,
-`sources` paths that are not on disk, rule-promotion candidates, front matter that fails to
-parse without a `wiki_id:` line, and a wiki-only field (`related`/`depends_on`/`affects`/
-`sources`) present without a `wiki_id`. Each is capped at three entries plus a count.
+`sources` paths that are not on disk, an `sds` document whose `sources` key is absent or
+has no value, rule-promotion candidates, front matter that fails to parse without a
+`wiki_id:` line, and a
+wiki-only field (`related`/`depends_on`/`affects`/`sources`) present without a `wiki_id`.
+Each is capped at three entries plus a count.
 
 If you cannot make `--verify` pass within this session, set Step 7's `enable` back to
 `false` before you finish and report the violations you left behind. `--build` requires

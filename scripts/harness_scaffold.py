@@ -6,7 +6,9 @@ import os
 import re
 import sys
 from collections.abc import Iterator
+from html import unescape
 from pathlib import Path
+from urllib.parse import unquote
 
 try:
     import yaml  # PyYAML (repo dependency)
@@ -681,8 +683,61 @@ _AGENT_PATH_RE = re.compile(r"(?:^|/)\.claude/agents/.+\.md$")
 # Inline markdown links only (exclude images ![..](..) — block '!' right before '[',
 # allow title·whitespace padding).
 _MD_LINK_RE = re.compile(
-    r"(?<!!)\[[^\]]*\]\(\s*([^)\s#]+\.md)(?:#[^)\s]*)?(?:\s+[\"'][^\")]*[\"'])?\s*\)"
+    r"(?<!!)\[[^\]]*\]\(\s*([^)\s#]+\.md)(?:#([^)\s]*))?(?:\s+[\"'][^\")]*[\"'])?\s*\)"
 )
+# `id=` as its own attribute — `[^>]*id=` also matches `data-id=`.
+_EXPLICIT_ANCHOR_RE = re.compile(r"<a\s(?:[^>]*\s)?id=[\"']([^\"']+)[\"']", re.IGNORECASE)
+_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$", re.MULTILINE)
+_SETEXT_RE = re.compile(r"^(?!\s*$)(?!\s{0,3}#)(.+)\n\s{0,3}(?:=+|-+)\s*$", re.MULTILINE)
+_MD_INLINE_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+# A well-formed tag or comment — what a renderer drops. A loose `<[^>]+>` also eats
+# `Map<K,V>` and `2 < 3`, which GitHub keeps.
+_HTML_TAG_RE = re.compile(r"<!--.*?-->|</?[A-Za-z][A-Za-z0-9-]*(?:\s[^>]*)?/?>", re.DOTALL)
+# Complete entities only: `html.unescape` also decodes `&amp`/`&copy`, which CommonMark
+# leaves literal.
+_HTML_ENTITY_RE = re.compile(r"&(?:#\d+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);")
+_SLUG_DROP_RE = re.compile(r"[^\w\s-]", re.UNICODE)
+# GitHub line references, not anchors. A `.md` target carries them (a spec here cites
+# `SKILL.md#L153`).
+_LINE_FRAGMENT_RE = re.compile(r"^L\d+(-L\d+)?$")
+
+
+def _slugify(text: str) -> str:
+    """GitHub's heading slug, per `github-slugger`.
+
+    Three details its rules turn on: `_` survives, each space becomes its own `-` AFTER
+    punctuation is dropped (`## Step 1 — Classify` → `step-1--classify`), and `\\w` under
+    re.UNICODE keeps Hangul.
+    """
+    text = _MD_INLINE_LINK_RE.sub(r"\1", text)
+    # Rendered text is what GitHub slugs. Tags first: decoding earlier turns `&lt;script&gt;`
+    # into a tag shape the strip then eats.
+    text = _HTML_ENTITY_RE.sub(lambda m: unescape(m.group(0)), _HTML_TAG_RE.sub("", text))
+    return _SLUG_DROP_RE.sub("", text.strip().lower()).replace(" ", "-")
+
+
+def _has_anchor(text: str, frag: str) -> bool:
+    """True when `frag` names an explicit <a id> or a heading in `text`.
+
+    Headings are walked in order: GitHub suffixes a repeated slug `-1`, `-2`. Front matter
+    and code fences come off both lookups — neither renders. Inline code spans stay; GitHub
+    slugs the rendered text.
+    """
+    body = _CODE_FENCE_RE.sub("", _strip_frontmatter(text))
+    # A copied GitHub anchor arrives percent-encoded.
+    wanted = {frag.lower(), unquote(frag).lower()}
+    if wanted & {a.lower() for a in _EXPLICIT_ANCHOR_RE.findall(body)}:
+        return True
+    seen: dict[str, int] = {}
+    for heading in _HEADING_RE.findall(body) + _SETEXT_RE.findall(body):
+        base = _slugify(heading)
+        nth = seen.get(base, 0)
+        seen[base] = nth + 1
+        if (base if nth == 0 else f"{base}-{nth}") in wanted:
+            return True
+    return False
+
+
 _CODE_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
 _INLINE_CODE_RE = re.compile(r"`[^`]+`")
 _WIN_ABS_RE = re.compile(r"[a-zA-Z]:[\\/]")
@@ -762,6 +817,14 @@ def validate_plan(root: Path, plan: dict) -> dict:
     files = plan.get("files", [])
     # Paths are always normalized before comparison — normalizing one side only would mismatch.
     plan_paths = {_norm_rel(e.get("path", "")) for e in files}
+    # Whole-file writes only, for the anchor lookup below. Allowlist, not a denylist: a
+    # partial action's `.get("content", "")` is an empty string, which answers "no anchors"
+    # to anything. `create` is the default, matching `apply_plan`.
+    plan_contents = {
+        _norm_rel(e.get("path", "")): e["content"]
+        for e in files
+        if e.get("action", "create") == "create" and "content" in e
+    }
     wiki_root = _wiki_root_hint(root)
 
     existing = scan_components(root / ".claude")
@@ -896,22 +959,46 @@ def validate_plan(root: Path, plan: dict) -> dict:
 
         # Link scanning covers only the body (excludes frontmatter·code·images; paths outside
         # root are out of scope).
-        for link in _MD_LINK_RE.findall(_strip_code(_strip_frontmatter(content))):
+        for link, frag in _MD_LINK_RE.findall(_strip_code(_strip_frontmatter(content))):
             if link.startswith(("http://", "https://", "/")) or _WIN_ABS_RE.match(link):
                 continue
             target = _norm_rel(str(Path(rel).parent / link))
             if target.startswith(".."):
                 continue
-            if target in plan_paths or (root / target).exists():
+            if target not in plan_paths and not (root / target).exists():
+                issues.append(
+                    {
+                        "severity": "warn",
+                        "kind": "dead-link",
+                        "path": rel,
+                        "detail": f"링크 대상 없음: {link}",
+                    }
+                )
                 continue
-            issues.append(
-                {
-                    "severity": "warn",
-                    "kind": "dead-link",
-                    "path": rel,
-                    "detail": f"링크 대상 없음: {link}",
-                }
-            )
+            if not frag or _LINE_FRAGMENT_RE.match(frag):
+                continue
+            # Disk first: `apply_plan`'s `create` does NOT overwrite an existing file (it
+            # records a conflict), so plan content describes only a path not yet there.
+            disk = root / target
+            if disk.exists():
+                try:
+                    # utf-8-sig: a BOM stays glued to the first `#` and is not `\s`.
+                    target_text = disk.read_text(encoding="utf-8-sig", errors="replace")
+                except Exception:
+                    continue  # unreadable — no answer (FAIL-OPEN)
+            else:
+                target_text = plan_contents.get(target)
+                if target_text is None:
+                    continue
+            if not _has_anchor(target_text, frag):
+                issues.append(
+                    {
+                        "severity": "warn",
+                        "kind": "dead-anchor",
+                        "path": rel,
+                        "detail": f"앵커 대상 없음: {link}#{frag}",
+                    }
+                )
 
         for blk in _ops_directive_blocks(content):
             non_empty = [ln for ln in blk if ln.strip()]

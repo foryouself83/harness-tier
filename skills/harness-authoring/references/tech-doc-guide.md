@@ -64,6 +64,14 @@ is wanted even if not measurable ("would be nice if it were convenient" ✗ → 
 
 ## SDS — sds/README.md
 
+**`sources` front matter**: for brownfield, fill it with the real code paths the module overview
+names — the analysis that produced those modules already found them, and leaving the map empty
+drops the document out of `--stale` and `--nodes-for` until `doc-sync` picks it up with
+`--unmapped`. For greenfield, ship it empty
+(`sources: {}`): there is no code yet, and a guessed path is the failure this avoids. The empty
+map is a statement, not an omission — `--verify` warns only when the key is absent, or
+present with nothing after it.
+
 Stack/versions + folder structure + **Mermaid structure diagram (required, at least 1)** + module overview.
 Turn only confirmed facts into nodes (no speculative nodes). Add a data-flow diagram where possible.
 **Module overview**: step each node of the structure diagram down one level into an implementation unit and record `implementation requirements·responsibility (single)·provided interfaces·
