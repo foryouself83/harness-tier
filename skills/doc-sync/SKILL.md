@@ -177,7 +177,7 @@ python3 .claude/harness-tier/scripts/wiki_graph.py --stale
    docs/auth/session.md`; each stdout line is `path<TAB>id`, a failure names its path
    on stderr and the call exits nonzero, though every path that succeeded still prints
    its line — fix that path and re-run; rationale in
-   [wiki-init](../wiki-init/SKILL.md) Step 5). No `--root` here, unlike Step 5: this mode
+   [wiki-init](../wiki-init/SKILL.md) Step 5). No `--root` here, unlike wiki-init's: this mode
    runs only with the wiki enabled, so the call reads the configured root itself, and a
    hardcoded one would be wrong for every root that is not `docs`. A defect document is
    the exception: its
@@ -197,6 +197,10 @@ python3 .claude/harness-tier/scripts/wiki_graph.py --stale
 ```bash
 python3 .claude/harness-tier/scripts/wiki_graph.py --unmapped
 ```
+
+   An `unrecognized arguments` exit 2 here means the host copy of the script predates this
+   flag: say so, tell the user to re-run `/flow-init`, and skip this step — the rest of the
+   mode is unaffected.
 
    Every `sds` node with no code mapped — the absent key, the valueless key, and the
    `sources: {}` a greenfield design shipped before its code existed. `--verify` warns on the
