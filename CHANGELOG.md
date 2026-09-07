@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.3.1-rc.2 (2026-09-07)
+
+### Bug Fixes
+
+- **authoring**: The anchor checker cannot stall
+  ([`e025aec`](https://github.com/foryouself83/harness-tier/commit/e025aec9bbd6d37c22545e746015a3b9341c5ef0))
+
+
 ## v0.3.1-rc.1 (2026-09-07)
 
 ### Bug Fixes
