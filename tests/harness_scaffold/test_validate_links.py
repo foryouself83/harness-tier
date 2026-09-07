@@ -1,3 +1,5 @@
+import pytest
+
 import scripts.harness_scaffold as hs
 from tests.harness_scaffold._helpers import _baseline_entry
 
@@ -450,3 +452,65 @@ def test_slugify_drops_an_html_comment():
 def test_percent_encoded_fragment_resolves_an_explicit_anchor(tmp_path):
     link = "../srs/README.md#%EC%9A%94%EA%B5%AC"
     assert _anchor_issues(tmp_path, '<a id="요구"></a>\n', link) == []
+
+
+def test_a_long_whitespace_run_in_a_heading_stays_linear():
+    # `\s*#*\s*$` split one whitespace run two ways while the lazy `(.+?)` regrew over it:
+    # cubic, 18s on this input. A wall-clock assertion would be flaky, so pin the shape —
+    # the capture runs to end of line and Python strips the closing hashes.
+    import time
+
+    start = time.perf_counter()
+    assert hs._HEADING_RE.findall("## H" + " " * 4000 + ".") == ["H" + " " * 4000 + "."]
+    assert time.perf_counter() - start < 1.0
+
+
+def test_a_closing_hash_run_still_comes_off(tmp_path):
+    assert _anchor_issues(tmp_path, "## Title ##\n", "../srs/README.md#title") == []
+
+
+def test_a_backslash_absolute_link_is_never_read(tmp_path):
+    # Drive-root-anchored on Windows: `Path(rel).parent / link` drops the left side, so the
+    # target normalizes to `/Users/...` — outside root, yet it does not start with `..`.
+    outside = tmp_path / "outside.md"
+    outside.write_text("# Secret Heading\n", encoding="utf-8")
+    # The drive letter comes off, not the path: `\Users\…\outside.md` re-anchors at the
+    # drive root and reaches the real file. A bare basename would not, and the test would
+    # then pass with the guard removed.
+    if ":" not in str(outside):
+        pytest.skip("drive-anchored paths are a Windows shape")
+    link = "\\" + str(outside).split(":", 1)[-1].lstrip("\\/")
+    entry = {
+        "path": ".claude/rules/x-conventions.md",
+        "action": "create",
+        # A fragment the outside file does NOT carry. Asking for one it does have passes
+        # either way: skipped by the guard, or found by reading the file the guard exists
+        # to keep shut.
+        "content": f"[x]({link}#not-in-that-file)\n",
+    }
+    rep = hs.validate_plan(tmp_path / "root", {"files": [_baseline_entry(), entry]})
+    assert not [i for i in rep["issues"] if i["kind"] in ("dead-link", "dead-anchor")]
+
+
+def test_one_target_is_read_once_however_many_links_point_at_it(tmp_path):
+    (tmp_path / "docs" / "srs").mkdir(parents=True)
+    (tmp_path / "docs" / "srs" / "README.md").write_text("# FR 001\n", encoding="utf-8")
+    reads = []
+    original = hs.Path.read_text
+
+    def counting(self, *a, **kw):
+        reads.append(str(self))
+        return original(self, *a, **kw)
+
+    hs.Path.read_text = counting
+    try:
+        body = "".join(f"[a{i}](../../docs/srs/README.md#fr-001)\n" for i in range(5))
+        hs.validate_plan(tmp_path, {"files": [_baseline_entry(), _conv_entry(body)]})
+    finally:
+        hs.Path.read_text = original
+    assert len([r for r in reads if r.endswith("README.md")]) == 1
+
+
+def test_a_data_id_attribute_is_still_not_an_anchor(tmp_path):
+    hits = _anchor_issues(tmp_path, '<a data-id="ghost"></a>\n', "../srs/README.md#ghost")
+    assert len(hits) == 1
