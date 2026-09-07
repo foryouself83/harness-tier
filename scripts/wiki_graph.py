@@ -373,6 +373,13 @@ def graph_path(root: Path, wiki: dict) -> Path:
 # Defect-node discriminator — identified by an id prefix alone, with no separate flag field.
 DEFECT_PREFIX = "defect."
 DEFECT_FIELDS = ("affects", "commit", "regression_test", "promoted_to_rule")
+# The one doc kind whose subject is code: with no `sources` value it is absent from both
+# --stale and --nodes-for. Read by the --verify warning and by --unmapped, so a design
+# document without this tag is invisible to both. Not generalized — an onboarding
+# page or an SRS maps to no path legitimately. --verify is silent on `sources: {}` — a
+# greenfield design writes it to say "no code yet", and warning there would never clear.
+# --unmapped lists it, which is the point.
+CODE_BEARING_TAG = "sds"
 _SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 
 WIKI_ID_RE = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)*$")
@@ -957,6 +964,21 @@ def collect_warnings(
         ],
         "wiki_id 중복 선언",
     )
+    _capped(
+        warns,
+        [
+            f"{node['path']}: sds 문서인데 sources 값이 없습니다 — 이 설계가 기술하는 코드 "
+            f"경로를 적으세요. 없는 동안 --stale 도 --nodes-for 도 이 노드를 보지 못합니다. "
+            f"아직 매핑할 코드가 없으면 빈 맵(sources: {{}})으로 그 사실을 적으세요"
+            for node in nodes
+            if node["id"]
+            and CODE_BEARING_TAG in _as_list(node["front"].get("tags"))
+            # None covers both the absent key and `sources:` with nothing after it, which
+            # `validate_structure` also lets pass.
+            and node["front"].get("sources") is None
+        ],
+        "sources 없는 sds 문서",
+    )
     if root is not None:
         # A sources path that is not on disk. NOT a block: a doc legitimately documents a
         # generated or gitignored file (a built API client), or a file that exists only on
@@ -1399,6 +1421,30 @@ def cmd_stale(root: Path) -> int:
     return 0
 
 
+def cmd_unmapped(root: Path) -> int:
+    """`sds` nodes carrying no code mapping, as JSON. Always 0.
+
+    Enumeration, not a warning. `--verify` stays silent on `sources: {}` so a greenfield
+    design does not warn forever, which leaves nothing to name the nodes once the code
+    lands — `--stale` builds its list from recorded paths, so an empty map yields none.
+    """
+    wiki = load_wiki_config(root)
+    if wiki is None:
+        print(json.dumps([], ensure_ascii=False))
+        return 0
+    out = [
+        {"id": node["id"], "path": node["path"]}
+        for node in collect_nodes(root, wiki)
+        if node["id"]
+        and CODE_BEARING_TAG in _as_list(node["front"].get("tags"))
+        # Falsy covers the absent key, `sources:` with nothing after it, and the empty map.
+        # A list is truthy and `--nodes-for` does read one, so the node is not unmapped.
+        and not node["front"].get("sources")
+    ]
+    print(json.dumps(out, ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_derive_id(paths: list[str], root_arg: str | None) -> int:
     """--derive-id: one `path<TAB>id` stdout line per success.
 
@@ -1438,6 +1484,7 @@ def main(argv: list[str] | None = None) -> int:
     group.add_argument("--build", action="store_true", help="graph.yaml 생성 (doc-sync 전용)")
     group.add_argument("--verify", action="store_true", help="읽기 전용 검증 (flow gate 전용)")
     group.add_argument("--stale", action="store_true", help="코드 stale 목록 (JSON)")
+    group.add_argument("--unmapped", action="store_true", help="코드 미매핑 sds 노드 (JSON)")
     group.add_argument("--neighbors", metavar="ID", help="예산 내 이웃 문서 경로")
     group.add_argument(
         "--nodes-for", nargs="+", metavar="PATH", help="경로를 문서화한 노드 조회 (경로<TAB>id)"
@@ -1460,6 +1507,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_build(root)
         if args.stale:
             return cmd_stale(root)
+        if args.unmapped:
+            return cmd_unmapped(root)
         if args.nodes_for:
             return cmd_nodes_for(root, args.nodes_for)
         # `is not None` — an empty string is still a --neighbors request. Branching on

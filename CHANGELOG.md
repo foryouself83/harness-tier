@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.3.1-rc.1 (2026-09-07)
+
+### Bug Fixes
+
+- **wiki**: Doc-sync survives an old host copy
+  ([`d8b9bc9`](https://github.com/foryouself83/harness-tier/commit/d8b9bc9e8e42051ab5945e41fdf59d52e8bbb9a6))
+
+### Features
+
+- **wiki**: A design document maps to its code
+  ([`9ab5142`](https://github.com/foryouself83/harness-tier/commit/9ab51422aa72daa3e906a0d5837077c709b4156d))
+
+
 ## v0.3.0-rc.2 (2026-09-06)
 
 ### Features

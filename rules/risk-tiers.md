@@ -69,7 +69,8 @@ Two kinds:
     (Invariant #1) — including a git that cannot list its own index, where the node set falls
     back to the filesystem and would otherwise count the very files git hides. Its
     non-blocking quality warnings — orphans, over-size documents, `sources` paths that are
-    not on disk, defect→rule promotion, front matter that fails to parse without a
+    not on disk, an `sds` document whose `sources` key is absent or has no value,
+    defect→rule promotion, front matter that fails to parse without a
     `wiki_id:` line, a wiki-only field (`related`/`depends_on`/`affects`/`sources`) present
     without a `wiki_id` — come back as a `systemMessage` on a passing commit, each kind
     capped at three entries plus a count. A defect node's `regression_test` /

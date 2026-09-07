@@ -150,6 +150,11 @@ do not go looking for a skill behind either — none exists; the hook runs the c
    `python3 .claude/harness-tier/scripts/wiki_graph.py --neighbors <id>` and **read
    the documents it lists** before planning. An empty result is a normal answer (the
    code is undocumented) — proceed without it.
+   When that produces nothing — no wiki, or no node owns the paths — read
+   `docs/sds/README.md` and `docs/srs/README.md` directly if they exist
+   ([`harness-rules.md`](../../rules/harness-rules.md) 8 fixes those locations). Neither
+   existing is normal — proceed. **Docs tier skips this**: reading a design document to
+   change a paragraph is the process-to-risk mismatch the tiers exist to prevent.
 2. **Enter `superpowers:using-superpowers`** — it drives the pipeline automatically
    (brainstorm → plan → implement → verify → review; each skill self-triggers).
    Feed the resolved request from Phase 0 in as the task.

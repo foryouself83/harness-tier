@@ -193,8 +193,9 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
   게이트의 **같은 프로세스 마지막 단계**로 돌고 `flow-config.wiki` 가 켜져 있을 때만
   동작함 — 아니면 아무것도
   실행되지 않음. 그래프 품질 경고(orphan, 크기 초과 문서, 디스크에 없는 `sources`
-  경로, defect→rule 승격, `wiki_id:` 줄 없이 파싱에 실패한 front matter, `wiki_id` 없이
-  wiki 전용 필드만 있는 문서)는 커밋이 통과해도 `systemMessage` 로 돌아옴. 커밋이
+  경로, `sources` 키가 없거나 값이 아예 없는 `sds` 문서, defect→rule 승격, `wiki_id:` 줄 없이 파싱에
+  실패한 front matter, `wiki_id` 없이 wiki 전용 필드만 있는 문서)는 커밋이 통과해도
+  `systemMessage` 로 돌아옴. 커밋이
   막힌 경우 구조 위반 목록은 10건 + 건수로 잘림. 읽기 전용으로, `docs/graph/graph.yaml`
   을 문서들의 front matter 와 대조하고(§3.9), 노드의 변경이 `sources` sha 교체뿐이고 본문
   편집이 없는 커밋도 차단함(도장 규율 — 허용되는 교체는 둘임: doc-sync 의 구형
