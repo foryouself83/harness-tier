@@ -8,7 +8,7 @@ description: "Use when a change may have left the documentation drifted or incon
 # `*` is a prefix match — `… --neighbors x && <anything>` would be pre-approved too. The
 # per-node prompt is the cost of not granting that.
 # `--derive-id <paths>` is absent for the same reason — path arguments force a trailing `*`.
-allowed-tools: Bash(mkdir -p .claude/harness-tier/.flow) Bash(touch .claude/harness-tier/.flow/doc-sync.done) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --build) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --verify) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --stale)
+allowed-tools: Bash(mkdir -p .claude/harness-tier/.flow) Bash(touch .claude/harness-tier/.flow/doc-sync.done) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --build) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --verify) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --stale) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --unmapped)
 ---
 
 # doc-sync
@@ -183,8 +183,8 @@ python3 .claude/harness-tier/scripts/wiki_graph.py --stale
    the exception: its
    `wiki_id` follows the `defect.<slug>` convention in
    [`defect-template.md`](../wiki-init/references/defect-template.md), not this
-   derivation. Then `title`, and the `sources` it
-   documents. Never write `used_by` or
+   derivation. Then `title`, the `sources` it documents, and `tags: [sds]` on a design
+   document — that tag is what step 5 and `--verify` read to find it. Never write `used_by` or
    `defects`; they are generated. **Wire the new node to the nodes it belongs with**
    (`related`/`depends_on` on either side) so it is reachable from the index through
    real edges; add it to the index's `related:` only when it genuinely is a top-level
@@ -192,14 +192,30 @@ python3 .claude/harness-tier/scripts/wiki_graph.py --stale
    front-matter edges only, never markdown links, so a node wired to nothing reports
    as an orphan forever even if some body links it in prose.
 
-5. **Split any node over `max_lines`**. `--verify` (below) warns on this but nothing acts
+5. **Backfill the `sources` a node never got**:
+
+```bash
+python3 .claude/harness-tier/scripts/wiki_graph.py --unmapped
+```
+
+   Every `sds` node with no code mapped — the absent key, the valueless key, and the
+   `sources: {}` a greenfield design shipped before its code existed. `--verify` warns on the
+   first two but is silent on the third, so this is the only list that holds all three. Read
+   each one's Module Overview and record the real code paths, `sha` left `null` — step 3
+   stamps it on the next body sync. Nothing else fills them: step 1 builds its list from
+   recorded paths, step 4 only touches documents this change created, and `/wiki-init`
+   never revisits a document that already carries a `wiki_id`. Where the code still does
+   not exist, leave `sources: {}` and say so in the Report — an invented path is what this
+   prevents.
+
+6. **Split any node over `max_lines`**. `--verify` (below) warns on this but nothing acts
    on the warning — `/wiki-init` refuses to re-offer a document that already carries a
    `wiki_id`, so the migration wizard never revisits it either. Split it exactly as
    [`wiki-init`](../wiki-init/SKILL.md) Steps 4-5 direct, including their zero- and
    one-H2 branches — do not assume an H2 split always applies. Record the outcome in the
    Report.
 
-6. **Stage new documents, then rebuild and verify**. A document joins the wiki by being in
+7. **Stage new documents, then rebuild and verify**. A document joins the wiki by being in
    git — the graph is built from the index, not the filesystem, so an unstaged new `.md` is
    not yet a node and a rebuild would omit it. `git add` the new documents first, then:
 
