@@ -685,10 +685,17 @@ _AGENT_PATH_RE = re.compile(r"(?:^|/)\.claude/agents/.+\.md$")
 _MD_LINK_RE = re.compile(
     r"(?<!!)\[[^\]]*\]\(\s*([^)\s#]+\.md)(?:#([^)\s]*))?(?:\s+[\"'][^\")]*[\"'])?\s*\)"
 )
-# `id=` as its own attribute — `[^>]*id=` also matches `data-id=`.
-_EXPLICIT_ANCHOR_RE = re.compile(r"<a\s(?:[^>]*\s)?id=[\"']([^\"']+)[\"']", re.IGNORECASE)
-_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$", re.MULTILINE)
-_SETEXT_RE = re.compile(r"^(?!\s*$)(?!\s{0,3}#)(.+)\n\s{0,3}(?:=+|-+)\s*$", re.MULTILINE)
+# Two stages, not one pattern: `<a\s(?:[^>]*\s)?id=` overlaps `[^>]*` with `\s` and goes
+# quadratic on a long tag. The `(?:^|\s)` boundary is what keeps `data-id=` out.
+_A_TAG_RE = re.compile(r"<a\s[^>]*>", re.IGNORECASE)
+_ID_ATTR_RE = re.compile(r"(?:^|\s)id\s*=\s*[\"']([^\"']+)[\"']", re.IGNORECASE)
+# The closing `#` run comes off in Python. As `\s*#*\s*$` it split one whitespace run two
+# ways while the lazy `(.+?)` regrew over it — cubic, 18s on a 2.4KB heading line. `[ \t]`
+# also stops `\s` from crossing a newline.
+_HEADING_RE = re.compile(r"^[ \t]{0,3}#{1,6}[ \t]+(.+)$", re.MULTILINE)
+_SETEXT_RE = re.compile(
+    r"^(?![ \t]*$)(?![ \t]{0,3}#)(.+)\n[ \t]{0,3}(?:=+|-+)[ \t]*$", re.MULTILINE
+)
 _MD_INLINE_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 # A well-formed tag or comment — what a renderer drops. A loose `<[^>]+>` also eats
 # `Map<K,V>` and `2 < 3`, which GitHub keeps.
@@ -726,11 +733,13 @@ def _has_anchor(text: str, frag: str) -> bool:
     body = _CODE_FENCE_RE.sub("", _strip_frontmatter(text))
     # A copied GitHub anchor arrives percent-encoded.
     wanted = {frag.lower(), unquote(frag).lower()}
-    if wanted & {a.lower() for a in _EXPLICIT_ANCHOR_RE.findall(body)}:
+    explicit = (a for tag in _A_TAG_RE.findall(body) for a in _ID_ATTR_RE.findall(tag))
+    if wanted & {a.lower() for a in explicit}:
         return True
     seen: dict[str, int] = {}
     for heading in _HEADING_RE.findall(body) + _SETEXT_RE.findall(body):
-        base = _slugify(heading)
+        # The ATX closing run, which the pattern no longer eats.
+        base = _slugify(heading.rstrip().rstrip("#").rstrip())
         nth = seen.get(base, 0)
         seen[base] = nth + 1
         if (base if nth == 0 else f"{base}-{nth}") in wanted:
@@ -817,6 +826,7 @@ def validate_plan(root: Path, plan: dict) -> dict:
     files = plan.get("files", [])
     # Paths are always normalized before comparison — normalizing one side only would mismatch.
     plan_paths = {_norm_rel(e.get("path", "")) for e in files}
+    disk_texts: dict[str, str | None] = {}  # anchor-lookup read cache; None = unreadable
     # Whole-file writes only, for the anchor lookup below. Allowlist, not a denylist: a
     # partial action's `.get("content", "")` is an empty string, which answers "no anchors"
     # to anything. `create` is the default, matching `apply_plan`.
@@ -960,10 +970,14 @@ def validate_plan(root: Path, plan: dict) -> dict:
         # Link scanning covers only the body (excludes frontmatter·code·images; paths outside
         # root are out of scope).
         for link, frag in _MD_LINK_RE.findall(_strip_code(_strip_frontmatter(content))):
-            if link.startswith(("http://", "https://", "/")) or _WIN_ABS_RE.match(link):
+            if link.startswith(("http://", "https://", "/", "\\")) or _WIN_ABS_RE.match(link):
                 continue
             target = _norm_rel(str(Path(rel).parent / link))
-            if target.startswith(".."):
+            # `/` as well as `..`: a link written `\Users\x.md` is drive-root-anchored on
+            # Windows, so `Path(rel).parent / link` drops the left side and `_norm_rel`
+            # yields `/Users/x.md` — outside root, yet not starting with `..`. The read
+            # below would then open it.
+            if target.startswith(("..", "/")) or _WIN_ABS_RE.match(target):
                 continue
             if target not in plan_paths and not (root / target).exists():
                 issues.append(
@@ -981,11 +995,16 @@ def validate_plan(root: Path, plan: dict) -> dict:
             # records a conflict), so plan content describes only a path not yet there.
             disk = root / target
             if disk.exists():
-                try:
-                    # utf-8-sig: a BOM stays glued to the first `#` and is not `\s`.
-                    target_text = disk.read_text(encoding="utf-8-sig", errors="replace")
-                except Exception:
-                    continue  # unreadable — no answer (FAIL-OPEN)
+                # Memoized: N links to one target read it once, not N times.
+                if target not in disk_texts:
+                    try:
+                        # utf-8-sig: a BOM stays glued to the first `#` and is not `\s`.
+                        disk_texts[target] = disk.read_text(encoding="utf-8-sig", errors="replace")
+                    except Exception:
+                        disk_texts[target] = None  # unreadable — no answer (FAIL-OPEN)
+                target_text = disk_texts[target]
+                if target_text is None:
+                    continue
             else:
                 target_text = plan_contents.get(target)
                 if target_text is None:
