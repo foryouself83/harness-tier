@@ -47,6 +47,9 @@ host); everything flow-init wrote **into** the host repo stays unless removed he
      `gitversion` and `jreleaser` **do** fail on pushes to the release branches;
      `cargo-release` / `semantic-release` never reference it. Self-contained renders like
      `api-contract.yml` / `unit-test.yml` merely stay active.
+   - `.github/workflows/e2e.yml`, if it was rendered, references nothing this uninstall
+     deletes — it calls Playwright, not a harness script. It keeps running and keeps
+     costing runner minutes. Remove it by hand if the suite is going too.
    - Disable the installed git hooks:
      `pre-commit uninstall --hook-type pre-commit --hook-type commit-msg --hook-type pre-push`.
    - Commit the deletions (the removed `.claude/harness-tier/` files were git-tracked).

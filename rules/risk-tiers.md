@@ -685,6 +685,11 @@ three-step gated flow. The integration-test confirmation is a
    which do not satisfy this gate). Merge ONLY if the user explicitly
    confirms they tested. If unconfirmed, do not merge.
 
+   A green `e2e.yml` in CI does not satisfy this gate. That workflow is a layer-3 safety net
+   on the promotion branches — it reports after a merge, never before one, and it blocks
+   nothing. This gate is a human confirmation at a different point in a different flow;
+   removing it because a signal appeared downstream is a net loss of coverage.
+
 3. **Squash, then merge** — or, when `merge_workflow.pull_request` includes
    `daily`, open a PR instead of this step's `git merge --squash` and say it
    must be merged with **"Squash and merge"** (the integration ruleset allows

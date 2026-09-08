@@ -125,6 +125,12 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
   `/flow-init` 이 경고함 — 그대로 두면 setup action 이 조용히 스킵되고 러너에 이미 깔린
   런타임으로 테스트가 돎. `modules[]` 와 별개로 선언함(로컬 게이트와 CI 는
   실행 맥락이 다름).
+- **`e2e`** — 엔드투엔드 CI 안전망, Playwright 스위트 전용(브라우저 프런트엔드가 없으면
+  렌더할 것이 없음). `enable: true` 면 `/flow-init` 이 `.github/workflows/e2e.yml` 을 그대로
+  복사함 — 플러그인이 계속 맞춰주는 템플릿이 아니라 직접 소유하고 편집하는 출발점임. 이
+  플래그는 **렌더 스위치이지 실행 스위치가 아님**: 다시 `false` 로 돌려도 이미 렌더된
+  워크플로는 계속 돎 — 멈추려면 파일을 지움. 범위·EDIT 마커 넷·승격 차단 대안은 §3.7 의
+  E2E 블록에 있음.
 - **`versioning`** — python-semantic-release 등 릴리스 자동화. `enable: true` 이면
   release / branch-naming / entropy-check 워크플로우를 렌더링함. **GitHub Release
   본문**은 `CHANGELOG.md` 의 최신 섹션(semantic-release 산출물 — type별 그룹핑, 배관
@@ -411,6 +417,60 @@ Commits type 을 고르고, 50/72 규칙을 검사한 뒤 `git commit` 을 발�
   baseURL 을 설정/코드베이스에서 찾아 확인받고 `goto('/')`+응답 OK+비어있지 않은 title 을
   생성. 보통 `/integration` 이 케이스 0개일 때 호출함.
 
+#### E2E 안전망(CI) — `/integration` 의 CI 짝
+
+`e2e.yml` 은 다섯 번째 CI 안전망으로, `api-contract.yml` · `unit-test.yml` ·
+`wiki-verify.yml` · `doc-style.yml` 과 나란히 놓임. `/integration` 의 CI 버전임 — layer
+2(§2.3)는 Claude 세션 커밋만 보므로, 승격 브랜치에 터미널·직접·CI 커밋으로 들어온 통합
+회귀는 그대로 묻힘. `e2e.yml` 은 승격 브랜치 push 에서 Playwright 스위트를 돌려 그 회귀를
+**보이게 함 — 차단은 하지 않음.**
+
+`flow-config.e2e.enable: true` 로 켠 뒤 `/flow-init`(§2.1)을 실행하면
+`.github/workflows/e2e.yml` 을 그대로 복사함. 저장소 루트나 최대 두 단계 아래에
+`playwright.config.*` 가 없으면 `/flow-init` 이 `/playwright-scaffold` 포인터를 덧붙임 —
+그 설정이 생기기 전까지는 워크플로 자체의 detect 스텝이 실패 대신 이후 스텝을 전부
+건너뜀.
+
+**범위**는 Linux 러너에서 도는 Playwright 스위트임. Windows 데스크톱 UI(WPF · WinForms ·
+MAUI)는 범위 밖임 — 브라우저 드라이버가 닿을 수 없음. 비웹 소비자는 E2E 안전망을 받지
+못하지만 아무것도 못 받는 것은 아님: `unit-test.yml` 은 그대로 돌고(`matrix.test` 가 호스트
+설정이라 `dotnet test` · `pytest` 등 스택 자신의 테스트를 부름), REST API 가 있으면
+`api-contract.yml` 도 돎.
+
+`github/e2e.workflow.example.yml` 에는 채워야 할 `EDIT` 마커가 넷임:
+
+1. **트리거 브랜치** — `on: push: branches:`; 기본값 `[stage, main]`.
+2. **런타임** — `actions/setup-node` 스텝; 언어에 맞는 setup action 으로 교체.
+3. **스택 기동/대기/정리** — compose up 스텝, API 헬스체크 대기 스텝, Teardown; Playwright
+   설정이 `webServer` 로 필요한 것을 스스로 띄우면 셋 다 삭제.
+4. **테스트 패키지 디렉터리** — `working-directory`, 두 스텝(의존성 설치와 테스트 실행)에
+   있고 서로 어긋나면 안 됨.
+
+**required status check** 로 승격하려면 템플릿 하단 체크리스트 네 항목이 전부 필요함,
+아니면 하나도 켜지 않음:
+
+1. `pull_request:` 트리거를 추가함 — 결과를 절대 보고하지 않는 체크는 PR 을 "Waiting for
+   status to be reported" 에 묶고, 직접 push 에 필수로 걸면 교착함 — 그 체크를 만들 push
+   자체가 거부되는 push 이기 때문.
+2. `workflow_dispatch:` 를 유지함 — 장애 중 빈 커밋 없이 누락된 체크를 만드는 통로임.
+3. 룰셋에 bypass actor 를 두거나, 변경과 무관한 이유로 스위트가 깨졌을 때 누가 룰셋을
+   고칠지 문서로 합의함.
+4. fork PR 은 시크릿을 받지 못해, 시크릿이 필요한 스위트는 외부 기여를 전부 레드로
+   만든다는 것을 앎.
+
+플러그인은 이것을 배선하지 않으며, 하라고도 말라고도 하지 않음.
+
+**승격을 실제로 차단하려면** 자기 `flow-config.yaml` 의 `flow-config.modules[].checks` 에
+`when: promotion`(§2.1) 체크를 추가함 — 그 타이밍은 Staging·Release 에 이미 필수인
+`security-scan` 버킷(§2.3)으로 들어가고, 모듈 체크는 nonzero exit 이 곧 판정이므로 승격
+커밋이 막힘. 이것은 호스트 설정에 담긴 호스트 자신의 어휘이지 플러그인이 배송하는
+게이트가 아님 — `flow-tiers.yaml` 이나 `rules/risk-tiers.md` 어디에도 `e2e` 라는 게이트
+이름은 없음. 대가는 넷이고 마지막이 결정적임: PreToolUse 훅 안에서 동기 실행되어 스위트가
+걸리는 시간만큼 커밋이 멈춤, 모듈 채널은 출력을 버퍼링해 실패했을 때만 보여주므로 도는
+동안 아무 신호가 없음, `security-scan` 은 전 모듈 버킷이라 바뀐 것과 무관하게 매 승격이
+스위트 전체를 돎, 그리고 모듈 체크 명령에는 **타임아웃이 전혀 없어** 멈춘 브라우저
+스위트가 곧 무한정 멈춘 커밋이 됨.
+
 ### 3.8 `/harness-deployments` — 배포 계층
 
 ```text
@@ -686,8 +746,8 @@ Windows 는 Git Bash 가 있는지 확인하세요.
    못하면서 그 말을 하려고 push 마다 러너를 씀. release 렌더 중 `gitversion`·`jreleaser` 는
    경로를 가드 없이 호출해 **릴리스 브랜치 push 에서** 실패하고, `python-semantic-release`
    는 호출을 가드하며, `cargo-release`·`semantic-release` 는 그 경로를 참조하지 않음.
-   (`api-contract.yml`·`unit-test.yml` 은 우리 경로를 참조하지 않아 그대로 살아 있을
-   뿐임.)
+   (`api-contract.yml`·`unit-test.yml`·`e2e.yml` 은 우리 경로를 참조하지 않아 그대로
+   살아 있을 뿐임 — `e2e.yml` 은 Playwright 를 부르므로 계속 돌며 러너 분을 계속 씀.)
 6. (선택) `pre-commit uninstall --hook-type pre-commit --hook-type commit-msg --hook-type pre-push`.
 
 ---

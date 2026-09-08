@@ -1,0 +1,143 @@
+# harness-tier E2E CI - rendered as-is by /flow-init when flow-config.e2e.enable is true
+# (no config tokens). Layer-3 safety net: the layer-2 gates see only Claude-session commits,
+# so an integration regression arriving via a terminal/direct/CI commit surfaces here.
+#
+# This workflow BLOCKS NOTHING. It is the fifth net beside unit-test.yml, api-contract.yml,
+# wiki-verify.yml and doc-style.yml. Making it a required status check is a separate decision
+# with preconditions - read the checklist at the bottom before touching a branch ruleset.
+#
+# SCOPE: a Playwright suite on a Linux runner. A non-web project (Windows desktop UI, a CLI,
+# a REST-only backend) gets nothing from this file - leave flow-config.e2e.enable at false and
+# see api-contract.yml / unit-test.yml instead.
+#
+# This is a STARTING POINT YOU OWN. /flow-init never overwrites it, so a later fix to the
+# plugin's template does not reach this file. Edit the four EDIT markers below.
+#
+# Cost: one run is roughly (deps + browsers) + (stack up) + (suite) + teardown. For a
+# three-app monorepo expect 35-50 minutes - the top of that range can exceed this file's
+# own `timeout-minutes: 45` below. A monorepo that large is exactly the consumer who owns
+# and edits this file, so raise that cap rather than reading a cancellation as a failure.
+# Private-repo minutes are shared across every workflow in the account; public
+# repositories run standard runners free.
+name: e2e
+
+on:
+  push:
+    branches: [stage, main]     # EDIT 1 - promotion branches. Adding your integration branch
+                                # roughly doubles the monthly minutes.
+  workflow_dispatch:            # produces a missing check without an empty commit
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: false     # a cancelled run reports `cancelled`, which is not a success
+                                # and is never re-run automatically. GitHub still cancels a
+                                # PENDING run when a newer one queues; that is not configurable.
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false   # otherwise GITHUB_TOKEN sits in .git/config for every
+                                       # later step, including dependency postinstall scripts
+
+      # The other half of the enable boolean: that boolean is a RENDER switch, so a repo that
+      # turned it on before writing a suite would go permanently red without this. Searching
+      # below the root on purpose - a monorepo keeps its config in the app directory, and a
+      # root-only check would report "nothing to run" while a suite sat two levels down.
+      - name: Detect a Playwright suite
+        id: detect
+        run: |
+          if find . -maxdepth 3 -name 'playwright.config.*' -not -path '*/node_modules/*' \
+               | grep -q .; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "no playwright.config.* in this checkout - nothing to run"
+          fi
+
+      - uses: actions/setup-node@v6    # EDIT 2 - your runtime(s)
+        if: steps.detect.outputs.found == 'true'
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Start the stack          # EDIT 3 - delete this step, "Wait for the API" below,
+        if: steps.detect.outputs.found == 'true'   # and Teardown together if your Playwright
+        env:                                       # config starts what it needs via `webServer`
+          COMPOSE_FILE: docker-compose.yml
+        run: docker compose -f "$COMPOSE_FILE" up -d
+
+      - name: Wait for the API         # part of EDIT 3 above - delete along with Start the
+        if: steps.detect.outputs.found == 'true'   # stack and Teardown, never on its own
+        env:
+          URL: http://localhost:8000/health
+          TIMEOUT: "120"
+        run: |
+          case "$TIMEOUT" in ''|*[!0-9]*) echo "TIMEOUT must be digits" >&2; exit 1 ;; esac
+          i=0
+          until curl -sf -- "$URL" >/dev/null; do
+            i=$((i+2))
+            [ "$i" -lt "$TIMEOUT" ] || { echo "health timeout: $URL" >&2; exit 1; }
+            sleep 2
+          done
+        # Do NOT wait here on a URL your Playwright `webServer` starts: delete this step
+        # (EDIT 3) instead of pointing it elsewhere - a webServer URL is not up when this
+        # step would run, and looping on it for 120s only delays the red you'd get anyway.
+        # Do NOT write this as `for u in <list>` or wrap it in `sh -c`: both re-parse the
+        # value as shell. Keep every URL in `env:` and read it as "$URL".
+
+      - name: Install dependencies and browsers
+        if: steps.detect.outputs.found == 'true'
+        working-directory: .           # EDIT 4 - your test package, e.g. e2e/ or apps/web/.
+        run: npm ci && npx playwright install --with-deps chromium   # Keep it the SAME in the
+                                                                     # E2E step below.
+
+      - name: E2E
+        if: steps.detect.outputs.found == 'true'
+        env:
+          BASE_URL: http://localhost:3000
+        working-directory: .           # EDIT 4 (second half) - keep in step with the above.
+        run: npx playwright test
+        # One `projects[]` entry per app in playwright.config keeps every app in this one run:
+        # they execute in parallel, every failure is collected, and one report covers them all.
+        # A second suite step here would stop at the first failure and hide the rest.
+        # `/playwright-scaffold` writes that config, including the trace policy the commented
+        # upload step below depends on.
+
+      # Reports embed request and response bodies, screenshots and session tokens. On a public
+      # repository every artifact is world-readable for its retention period, with no token.
+      # Uncomment only after confirming `trace`/`video` policy in playwright.config.
+      # - name: Upload report
+      #   if: always() && steps.detect.outputs.found == 'true'
+      #   uses: actions/upload-artifact@v6
+      #   with:
+      #     name: e2e-report
+      #     path: playwright-report
+      #     retention-days: 1
+
+      - name: Teardown                 # part of EDIT 3 above
+        if: always() && steps.detect.outputs.found == 'true'
+        env:
+          COMPOSE_FILE: docker-compose.yml
+        run: docker compose -f "$COMPOSE_FILE" down
+        # `down`, not `down -v`: on an ephemeral runner the flag buys nothing, and it destroys
+        # named volumes the day someone moves this job to a machine of their own.
+
+# Making this a required status check
+# ----------------------------------
+# Only with all four of these, or not at all:
+#   1. add a `pull_request:` trigger - a check that never reports leaves a PR blocked on
+#      "Waiting for status to be reported", and a check required on direct pushes deadlocks,
+#      because the push that would produce it is the push being refused;
+#   2. keep `workflow_dispatch:` - it is how you produce a missing check during an incident;
+#   3. give the ruleset a bypass actor, or agree in writing who edits the ruleset when E2E
+#      breaks for a reason unrelated to the change;
+#   4. know that fork PRs get no secrets, so a credentialed suite red-lights every outside
+#      contribution.
+# The plugin does not set this up. It blocks nothing on its own.
