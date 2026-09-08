@@ -3,7 +3,7 @@
 python-semantic-release/semantic-release read Conventional Commits and pick patch/minor/major
 on their own. JReleaser/GitVersion/cargo-release/sbt-release do not (verified via each tool's
 docs — see docs/operations/commit-versioning-guide.md), so their release workflows fall back to
-the same explicit-level mechanism the `/flow` staging-bump step already uses: a
+the same explicit-level mechanism the `/release-commit` staging-bump step already uses: a
 `Release-Level: major|minor|patch` commit trailer. This script does the arithmetic those smart
 tools would otherwise do internally, and optionally rewrites a version file in place (mirrors
 finalize_prerelease.py's approach, generalized to an arbitrary regex capture group).

@@ -154,9 +154,11 @@ branch flow it belongs to (branch names resolve from your `flow-config.branches`
 | `fix/*` → integration | `--no-ff` refused |
 
 Scope is deliberately narrow. Only rows where the strategy is a single choice can be
-checked — the back-merge (`production` → integration, after a release) allows fast-forward
-*or* `--no-ff`, so there is nothing to enforce there. Rebasing before a `feature/*` merge is
-**warned about, not blocked** (a stale `origin` ref would otherwise produce false alarms).
+checked — the `production` → integration back-merge allows fast-forward *or* `--no-ff`, so
+there is nothing to enforce there, and the `production` → staging one names a single flag but
+wants a **skip** when the fast-forward is refused, which no `require` rule expresses. Rebasing
+before a `feature/*` merge is **warned about, not blocked** (a stale `origin` ref would
+otherwise produce false alarms).
 And like every layer-2 gate this only sees **merges made inside a Claude session** —
 merging from your own terminal bypasses it entirely.
 
@@ -174,8 +176,9 @@ merge commit into integration", and picking the right one of the two stays disci
 which method the PR must use when you hand it over. The same destination-wide reach pulls in
 flows you did not select: "require a pull request" on integration also blocks the
 post-release back-merge push, and on production it also catches `hotfix/*`. Both need
-handling — a bypass actor, or routing that flow through a PR as well. `rules/risk-tiers.md`'s
-**PR workflow** section spells out each case.
+handling — a bypass actor, or routing that flow through a PR as well. The same rule on staging
+blocks the staging back-merge push, which needs neither: a refused push is that step's
+documented end. `rules/risk-tiers.md`'s **PR workflow** section spells out each case.
 
 Anything the gate cannot decide lets the merge through: no matching rule, a command it
 cannot parse, or a command naming another worktree. To turn the check off, delete the
@@ -192,7 +195,7 @@ pass before it can commit**.
 | `docs` | no-code change (docs/comments/config values) | ✗ | `doc-sync` · `wiki` · `doc-style` |
 | `dev` | change with code (feature/fix) | ✓ | `precommit` (changed-module every-commit checks) · `review` (domain review) · `doc-sync` · `wiki` · `doc-style` |
 | `staging` | QA/RC promotion (integration→staging) | ✓ | `precommit` · `review` · `security-scan` (all-module promotion checks) · `bump` (human release-level choice) · `wiki` · `doc-style` |
-| `release` | production deploy (staging→production) | ✓ | `precommit` · `review` · `security-scan` · `security` (security review) · `wiki` · `doc-style` |
+| `release` | production deploy (staging→production) | ✓ | `precommit` · `security-scan` · `security` (security review) · `wiki` · `doc-style` — no `review`: Dev and Staging already read this diff |
 
 - **`precommit` · `security-scan`** are executed by the commit hook itself (no marker).
   Removing one from a tier's `gates` list disables that check alone.
@@ -231,8 +234,9 @@ pass before it can commit**.
   `doc_style_check.py --verify-git` is the other half: it proves a rewrite kept every heading,
   fenced block, URL and inline-code span, and for `.py`/`.sh` that the code is byte-identical
   once comments and docstrings are stripped. `doc-sync` runs it after every rewrite.
-- **`review` · `doc-sync` · `security` · `bump`** leave an evidence marker after `/flow`
-  passes the gate; the commit hook passes only when the marker exists. `review` and
+- **`review` · `doc-sync` · `security` · `bump`** leave an evidence marker once the gate
+  passes — `/flow` records the Docs/Dev ones, `/release-commit` the promotion ones; the
+  commit hook passes only when the marker exists. `review` and
   `doc-sync` judge the working tree, so a PostToolUse hook deletes **both** markers on any
   edit — including the fixes the review asked for. A fix therefore re-runs doc-sync and the
   review; an edit the hook never sees — a terminal command, another tool — leaves them
@@ -274,8 +278,9 @@ The **mandatory first step for all code changes**. Sequence:
      commit via `/commit` — the review runs last because an edit voids it
 
 > **Promotion (Staging/Release)**: integration→staging and staging→production merges are
-> driven by the **target branch** (no separate marker needed). Each tier's mandatory gates
-> (§2.3) must pass before it can commit.
+> driven by the **target branch** (no separate marker needed). The procedure belongs to
+> `/release-commit` (§3.10), not to `/flow`. Each tier's mandatory gates (§2.3) must pass
+> before it can commit.
 
 > **`/flow` cannot be skipped.** If you commit without going through it, there's no tier
 > marker and the gate blocks the commit as **unclassified**. If a repo doesn't need
@@ -516,6 +521,35 @@ every commit. The graph is also the development read path: `/flow`'s Dev track s
 mapping the files about to change to their documenting nodes
 (`wiki_graph.py --nodes-for <paths…>`) and loading their neighbourhood
 (`--neighbors <id>`) as working context.
+
+### 3.10 `/release-commit` — promotion driver (staging / release)
+
+```text
+/release-commit [staging | release]
+```
+
+One promotion end to end. `/flow` points here for both promotions, and a bare "cut the
+release" reaches it directly.
+
+1. **Read the host's release model** — `grep -c Release-Level .github/workflows/release.yml`
+   answers whether the bump level can be forced. Node `semantic-release` derives the level
+   from the commit types and reads no trailer; the other rendered templates read one. No
+   template here takes a level from a `workflow_dispatch`, so triggering one forces nothing
+   and the promotion produces no release candidate.
+2. **Record the marker gates** — `review` and `bump` at Staging, `security` alone at Release.
+   Release runs no code review: this diff was read per task at Dev and as a batch at Staging.
+   `precommit` · `security-scan` · `wiki` · `doc-style` are runtime gates the commit hook runs
+   itself (§2.3), with no marker to write.
+3. **Merge, then commit** — `git merge --no-ff --no-commit origin/<source>`, then `commit`
+   writes that pending merge with the `Release-Level:` trailer. CI reads `git log -1` alone, so
+   a trailer committed before the merge sits one commit back and the run auto-derives the bump
+   with nothing to say it did.
+4. **Close the cycle** — after a release, back-merge production → integration (not optional:
+   the released tag is otherwise unreachable from integration and the next version comes out
+   wrong) and production → staging (fast-forward only — a refused fast-forward is skipped, not
+   forced with `--no-ff`). Either promotion then deletes its own evidence markers, which the
+   next one would read as its own pass — a run that stopped at the rc included, since nothing
+   else removes `bump.done` and the `bump` gate is fail-closed on that file alone.
 
 ---
 

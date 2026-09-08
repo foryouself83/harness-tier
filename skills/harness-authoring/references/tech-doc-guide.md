@@ -225,10 +225,10 @@ break after cleanup.
    - Python and Node read Conventional Commits themselves, so patch/minor/major is derived.
    - JReleaser, GitVersion and cargo-release do not (verified against each tool's docs — do
      not assume otherwise for a new stack without the same verification). Their templates read
-     the `Release-Level: major|minor|patch` commit trailer the `/flow` staging-bump step
-     already writes, defaulting to `patch` when absent. JReleaser and GitVersion compute the
-     next version with the shared `scripts/bump_version.py` helper; cargo-release takes the
-     level as a native CLI argument.
+     the `Release-Level: major|minor|patch` commit trailer the `/release-commit`
+     staging-bump step already writes, defaulting to `patch` when absent. JReleaser and
+     GitVersion compute the next version with the shared `scripts/bump_version.py` helper;
+     cargo-release takes the level as a native CLI argument.
    - GitVersion and cargo-release create only a git tag, so their templates add a
      `gh release create` step, as the Python template already does.
 

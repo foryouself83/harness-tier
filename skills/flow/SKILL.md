@@ -1,13 +1,13 @@
 ---
 name: flow
-description: MANDATORY first step for ALL development work — invoke BEFORE starting any code change, feature, fix, or free-text dev request, and before any commit. Skipping it leaves the commit unclassified and the commit gate blocks it. Also applies when promoting integration→staging or staging→production.
+description: MANDATORY first step for ALL development work — invoke BEFORE starting any code change, feature, fix, or free-text dev request, and before any commit. Skipping it leaves the commit unclassified and the commit gate blocks it.
 argument-hint: "[free-text request]"
 # Pre-approves only the gate-evidence writes — the one thing this skill does several
 # times per run. Exact marker paths, no trailing glob: a glob's `*` crosses path
 # separators including `..`, so `.flow/*` pre-approved touch of any path on disk.
 # `git commit` and `rm -rf` are deliberately absent: the commit prompt is the mechanical
 # backstop behind the gate, and the Phase 4 cleanup should stay deliberate.
-allowed-tools: Bash(mkdir -p .claude/harness-tier/.flow) Bash(touch .claude/harness-tier/.flow/doc-sync.done) Bash(touch .claude/harness-tier/.flow/review.done) Bash(touch .claude/harness-tier/.flow/bump.done) Bash(touch .claude/harness-tier/.flow/security.done)
+allowed-tools: Bash(mkdir -p .claude/harness-tier/.flow) Bash(touch .claude/harness-tier/.flow/doc-sync.done) Bash(touch .claude/harness-tier/.flow/review.done)
 ---
 
 # Flow — Risk-Tiered Workflow Router
@@ -40,6 +40,11 @@ Four tiers, two axes:
 
 ## Phase 1 — Classify the task (Docs or Dev)
 
+**A promotion is not a day-to-day task.** A request to promote a branch, cut a release
+candidate, or release — integration → staging, staging → production — has no tier to
+classify: the target branch decides it. Hand it to `Skill: release-commit` and stop here.
+The rubric below is the wrong instrument for that ask.
+
 The line is simple: **code, or no code.** Inspect the real change, do not guess:
 
 ```bash
@@ -59,7 +64,7 @@ Output the verdict — tier, reason, gates (from [`flow-tiers.yaml`](../../flow-
 ## Tier Classification
 - Tier: DEV
 - Reason: changes src/*.py (source code)
-- Gates: precommit, review, doc-sync, wiki
+- Gates: precommit, review, doc-sync, wiki, doc-style
 ```
 
 ## Phase 2 — Confirm the tier & switch to a work branch (human gate)
@@ -117,7 +122,7 @@ hook's gate script runs both in-process, `wiki_graph.py --verify` whenever
 verdict. Do **not** `touch .claude/harness-tier/.flow/wiki.done` or `doc-style.done`, and
 do not go looking for a skill behind either — none exists; the hook runs the checks.
 
-> **Precondition (Dev / Staging / Release)** — the `superpowers` plugin must
+> **Precondition (Dev)** — the `superpowers` plugin must
 > be installed. If `superpowers:using-superpowers` is **not** among the available
 > skills, **STOP**: tell the user to install it
 > (`superpowers@claude-plugins-official`, e.g. via `/plugin`) and re-run `/flow`.
@@ -194,101 +199,25 @@ do not go looking for a skill behind either — none exists; the hook runs the c
 
 ## Promotion — Staging (integration → staging) / Release (staging → production)
 
-Promotions are gated at the **commit on the target branch** (no tier marker
-needed — the branch drives it). Record each gate before committing the promotion.
-`precommit`, `security-scan`, and `wiki` need no marker at all — they are runtime
-gates the commit hook runs directly on both the staging and the production commit
-(per [`flow-tiers.yaml`](../../flow-tiers.yaml)); the bullets below cover only the
-gates that **do** need a recorded marker.
-
-`wiki` is the one runtime gate with no skill behind it in a promotion. `doc-sync` — the
-only thing that rebuilds `graph.yaml` — is not a promotion gate, so a graph drift that
-arrived on the integration branch via a terminal commit (layer 2 never saw it) surfaces
-here as a blocked promotion commit. Resolve it in place: run
-`python3 .claude/harness-tier/scripts/wiki_graph.py --build` and stage the rebuilt
-`graph.yaml` into the promotion commit. If instead the failure names a structure
-violation (`wiki_id` format/duplicate · missing `title` · dangling `depends_on` · cycle ·
-front matter that does not parse while carrying a `wiki_id`), the fix is the document's
-front matter — `--build` cannot resolve those.
-
-- **Staging** (integration → staging): regression `review` (independent
-  `general-purpose` agent; the tree is clean at promotion, so `git fetch origin` and list
-  the files with the pair **for this promotion** —
-  `git diff --name-only "origin/<staging>..origin/<integration>"`; the Release bullet below
-  has its own pair, do not reuse this one there. Always the fetched `origin/` refs, since a
-  stale local ref shrinks the reviewed set; see
-  [`risk-tiers.md`](../../rules/risk-tiers.md) Step 3) **and bump-level selection**:
-  1. Compute the commit-derived level as the default: `semantic-release version --print`
-     (best-effort) — compare to the current version to suggest major/minor/patch.
-  2. `AskUserQuestion`: **major / minor / patch** (default = the derived level).
-     **If the choice is `major` while the current version is `0.x`, warn that it jumps
-     to `1.0.0`** (explicit `--major` overrides `major_on_zero=false`).
-  3. Before committing the staging promotion, **best-effort** warn if the release token
-     lacks write: if `gh`/a token is available, run
-     `.claude/harness-tier/scripts/check-token-write.sh` (exit 10 → warn with the
-     Settings/PAT how-to; exit 20/no tool → skip silently, never block).
-  4. `touch .claude/harness-tier/.flow/review.done` ·
-     `touch .claude/harness-tier/.flow/bump.done` (two commands, written out — the brace
-     form neither matches the exact allowed-tools rules nor reads as what runs).
-  5. Commit on the staging branch through the `commit` skill (`Skill: commit`) —
-     **pass the chosen level in the arguments**, the only channel it has: `bump.done`
-     is an empty marker and nothing on disk carries the level. It appends the
-     **trailer** `Release-Level: <level>`, which CI reads to force
-     `semantic-release version --<level> --as-prerelease`. main needs no level — it
-     finalizes the rc deterministically.
-- **Release** (staging → production): Staging gates **plus** `/code-review` at
-  `ultra` effort (extra independent layer) and `/security-review` →
-  `touch .claude/harness-tier/.flow/security.done`, then commit on the production branch
-  through the `commit` skill (`Skill: commit`) — no level here; finalize is deterministic.
-  ⚠️ The regression `review` here takes **its own** file list —
-  `git diff --name-only "origin/<production>..origin/<staging>"`, not the Staging bullet's
-  pair. Reusing that pair does not fail loudly: staging is *ahead* of integration by the rc
-  bump CI has pushed, so it returns a plausible handful of release plumbing and hides every
-  substantive change — full coverage of the wrong set, with no empty result to give it away.
-  ⚠️ **Merge the freshly fetched `origin/<staging>`** (post-rc — it carries the
-  `X.Y.Z-rc.N` bump), not a stale local staging ref: otherwise the rc-strip finalize
-  has no prerelease to strip, falls back to plain compute, and the bump-level override
-  is lost (e.g. `0.2.0` instead of `0.1.2`). Always `git fetch origin` first.
-  Deploy (project-specific / offline) — not gated; the production-branch commit
-  is the gate.
-- **PR-mode promotion** (`merge_workflow.pull_request` includes `promotion`) — gate
-  recording is unchanged; instead of committing on the target branch, open a PR. It **must**
-  be merged as a merge commit (a rebase stops the release, a squash destroys the history —
-  [`risk-tiers.md`](../../rules/risk-tiers.md) PR workflow). A **`hotfix/*` → production**
-  landing takes the same path under this mode: the production ruleset governs every merge
-  into that branch, and its "require a pull request" rule rejects the local
-  squash-and-push — so open a PR for the hotfix too and merge it as a merge commit. With a
-  forced bump level, pin the trailer in the merge command (`PR` is a literal number, not a
-  `<n>` placeholder — bash would read `<n` as a redirection and eat the next word):
-
-  ```bash
-  PR=123
-  gh pr merge "$PR" --merge --subject "Merge <staging>: release X.Y.Z" --body "Release-Level: <level>"
-  ```
-- **Back-merge after the production release (not optional)** — once the finalize
-  CI has pushed its `chore(release)` version-bump + marketplace-sha-pin commits to
-  production, back-merge **production → integration** so the released tag returns
-  to the day-to-day branch: `git fetch origin`, then
-  `git switch <integration> && git merge --ff-only origin/<production>`, and push
-  (FF when strictly behind, else `--no-ff`). Skipping it leaves the released tag
-  unreachable from integration → semantic-release miscomputes the next version.
-  **staging needs no leg** — the next `integration → staging` promotion carries
-  the release commits forward on its own, which is why that row is now a
-  gate-enforced `--no-ff` merge. Rationale/steps:
-  [`risk-tiers.md`](../../rules/risk-tiers.md) "Back-merge after release".
-
-The commit hook ([`flow_gate_check.py`](../../scripts/flow_gate_check.py)) blocks
-the staging/production commit until those markers exist.
+Promotions are gated at the **commit on the target branch**, so they need no tier marker —
+the branch drives it. The procedure itself lives in
+[`release-commit`](../release-commit/SKILL.md): which bump-level mechanism the host's release
+CI is on, the gates and their markers, the merge shape each promotion takes, and the end state
+the three branches settle into. Invoke `Skill: release-commit` rather than restating any of it
+here — one fact, one place.
 
 ## Phase 4 — Finalize
 
-After the commit/merge completes — and, for a **production release**, after the
-back-merge in the Release step above (production → integration, not
-optional) — clear the flow state.
+After the commit/merge completes, clear the flow state. The command below removes the
+evidence directory whole — every marker in it, never a selected subset. Phase 4 is the
+day-to-day task's finalize step, and a promotion never reaches it: those markers are
+`release-commit`'s to clear at its own end state, where the post-release back-merges also
+happen — production → integration (not optional) and production → staging (fast-forward
+only, skipped when refused).
 
-**Under PR mode, clear only after the PR is merged.** Markers are branch-bound, so a
-review-feedback commit on the same branch needs its marker alive to pass the gate. Clearing
-at PR-creation time leaves the follow-up commit unclassified and blocked.
+**Under PR mode, clear only after the PR is merged.** A review-feedback commit pushed to the
+PR branch is gated like any other, and the gate reads whether the tier marker and each gate's
+evidence file exists. Clearing at PR-creation time leaves that commit unclassified and blocked.
 
 ```bash
 rm -rf .claude/harness-tier/.flow
@@ -300,7 +229,7 @@ rm -rf .claude/harness-tier/.flow
    write the tier marker.
 2. **Record gate evidence honestly** — `touch .claude/harness-tier/.flow/<gate>.done` only
    after the gate genuinely passes. A marker is a forcing function, not a stamp.
-   It is branch-bound and outlives the commit that used it, so **a gate whose
+   It is a plain file that outlives the commit that used it, so **a gate whose
    subject changed after it passed is no longer recorded honestly**. The
    `PostToolUse` hook enforces that for `review` and `doc-sync` — any edit
    deletes both — so what is left to you is the edit it cannot see (a terminal

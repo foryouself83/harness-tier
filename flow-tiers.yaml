@@ -32,11 +32,10 @@ tiers:
       - doc-style
 
   release:
-    description: "Production deployment (stage → main) — security tools + security review"
+    description: "Production deployment (stage → main) — security tools + security review, no code review"
     superpowers: true
     gates:
       - precommit
-      - review
       - security-scan
       - security
       - wiki

@@ -148,9 +148,11 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
 | `fix/*` → integration | `--no-ff` 금지 |
 
 범위는 의도적으로 좁음. 전략이 하나로 정해진 행만 검사할 수 있음 —
-백머지(`production` → integration, 릴리스 후)는 fast-forward 든 `--no-ff` 든 되므로
-거기엔 강제할 것이 없음. `feature/*` 머지 전 rebase 는 **경고만 하고 차단하지
-않음**(로컬 `origin` ref 가 낡았을 때 헛경고가 나기 때문). 그리고 다른 layer-2
+`production` → integration 백머지는 fast-forward 든 `--no-ff` 든 되므로 강제할 것이 없고,
+`production` → staging 백머지는 플래그가 하나뿐이지만 fast-forward 가 거부됐을 때 원하는
+동작이 **건너뛰기**라서 `require` 규칙으로 표현되지 않음. `feature/*` 머지 전 rebase 는
+**경고만 하고 차단하지 않음**(로컬 `origin` ref 가 낡았을 때 헛경고가 나기 때문).
+그리고 다른 layer-2
 게이트와 마찬가지로 **Claude 세션 안의 머지만** 봄 — 터미널에서 직접 머지하면
 걸리지 않음.
 
@@ -167,8 +169,9 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
 여전히 규율로 남음 — PR 을 넘길 때 어느 머지 방식을 써야 하는지 함께 말해 주세요.
 같은 이유로 룰셋은 선택하지 않은 흐름까지 끌어들임: integration 의 "PR 필수"는 릴리스
 후 백머지 push 도 막고, production 의 그것은 `hotfix/*` 까지 잡음. 둘 다 처리가
-필요함 — bypass actor 를 두거나, 그 흐름도 PR 로 돌리거나. 각 경우의 상세는
-`rules/risk-tiers.md` 의 **PR workflow** 절에 있음.
+필요함 — bypass actor 를 두거나, 그 흐름도 PR 로 돌리거나. staging 의 같은 규칙은 staging
+백머지 push 를 막는데, 이쪽은 처리가 필요 없음 — 거부된 push 가 그 단계의 정상 종료임.
+각 경우의 상세는 `rules/risk-tiers.md` 의 **PR workflow** 절에 있음.
 
 판단할 수 없는 것은 전부 통과시킴: 매칭되는 규칙이 없거나, 명령을 파싱할 수 없거나,
 명령이 다른 워크트리를 지목하는 경우. 검사를 끄려면 플러그인 SOURCE 에서 `merge_strategy`
@@ -185,7 +188,7 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
 | `docs` | 코드 없는 변경(문서·주석·설정값) | ✗ | `doc-sync` · `wiki` · `doc-style` |
 | `dev` | 코드 포함 변경(feature/fix) | ✓ | `precommit`(변경 모듈 every-commit 검사) · `review`(도메인 리뷰) · `doc-sync` · `wiki` · `doc-style` |
 | `staging` | QA/RC 승격(integration→staging) | ✓ | `precommit` · `review` · `security-scan`(전체 모듈 promotion 검사) · `bump`(사람이 고르는 릴리스 레벨) · `wiki` · `doc-style` |
-| `release` | 프로덕션 배포(staging→production) | ✓ | `precommit` · `review` · `security-scan` · `security`(보안 리뷰) · `wiki` · `doc-style` |
+| `release` | 프로덕션 배포(staging→production) | ✓ | `precommit` · `security-scan` · `security`(보안 리뷰) · `wiki` · `doc-style` — `review` 없음: 이 diff 는 Dev 와 Staging 에서 이미 읽힘 |
 
 - **`precommit` · `security-scan`** 은 커밋 훅이 직접 실행함(별도 마커 없음). 해당
   등급의 `gates` 목록에서 빼면 그 검사만 꺼짐.
@@ -220,8 +223,9 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
   절반은 `doc_style_check.py --verify-git` 로, 재작성이 heading · 코드 블록 · URL · 인라인
   코드를 하나도 잃지 않았음을, `.py`/`.sh` 는 주석과 docstring 을 걷어낸 코드가 바이트
   단위로 같음을 증명함. `doc-sync` 가 재작성 뒤 실행함.
-- **`review` · `doc-sync` · `security` · `bump`** 은 `/flow` 가 게이트를 통과시킨 뒤 증거
-  마커를 남기고, 커밋 훅은 그 마커가 있어야 통과시킴. `review` 와 `doc-sync` 는 워킹트리를
+- **`review` · `doc-sync` · `security` · `bump`** 은 게이트를 통과한 뒤 증거 마커를 남김 —
+  Docs/Dev 쪽은 `/flow` 가, 승격 쪽은 `/release-commit` 이 기록하고, 커밋 훅은 그 마커가
+  있어야 통과시킴. `review` 와 `doc-sync` 는 워킹트리를
   판정하므로, PostToolUse 훅이 편집이 일어나면 **두 마커를 모두** 지움 — 리뷰가 요구한
   수정도 포함임. 그래서 수정이 생기면 doc-sync 와 리뷰를 다시 밟음. 훅이 보지 못하는 편집
   (터미널 명령, 다른 도구)은 마커를 그대로 남김. 예전 순서(통과 뒤의 작은 수정이 재실행을
@@ -262,8 +266,8 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
      무효화하므로 리뷰가 마지막임
 
 > **승격(Staging/Release)**: integration→staging, staging→production 머지는 **타깃
-> 브랜치**가 등급을 결정함(별도 표시 불필요). 각 등급의 필수 게이트(§2.3)를 통과해야
-> 커밋됨.
+> 브랜치**가 등급을 결정함(별도 표시 불필요). 절차 자체는 `/flow` 가 아니라
+> `/release-commit` 의 것임(§3.10). 각 등급의 필수 게이트(§2.3)를 통과해야 커밋됨.
 
 > **`/flow` 는 건너뛸 수 없음.** 거치지 않고 커밋하면 등급 마커가 없어 **미분류
 > 커밋**으로 게이트가 막음. 강제가 불필요한 저장소라면 `/flow-uninstall` 로 게이트를
@@ -483,6 +487,35 @@ Commits type 을 고르고, 50/72 규칙을 검사한 뒤 `git commit` 을 발�
 검증함. 그래프는 개발의 읽기 경로이기도 함: `/flow` Dev 트랙은 변경할 파일을
 문서화한 노드를 찾고(`wiki_graph.py --nodes-for <경로…>`) 그 이웃을
 로드해(`--neighbors <id>`) 작업 컨텍스트로 삼는 것으로 시작함.
+
+### 3.10 `/release-commit` — 승격 드라이버(staging / release)
+
+```text
+/release-commit [staging | release]
+```
+
+승격 하나를 처음부터 끝까지 수행함. `/flow` 는 두 승격 모두 이쪽을 가리키고, "릴리즈 해"
+같은 요청은 곧바로 이 스킬에 닿음.
+
+1. **호스트의 릴리스 모델 확인** — `grep -c Release-Level .github/workflows/release.yml` 이
+   범프 레벨을 강제할 수 있는지 답함. Node `semantic-release` 는 커밋 타입에서 레벨을
+   도출하고 트레일러를 읽지 않으며, 나머지 렌더 템플릿은 읽음. 여기 템플릿 중
+   `workflow_dispatch` 로 레벨을 받는 것은 없어, 그것을 띄워도 강제되는 값은 없고 승격이
+   릴리스 후보를 만들지 못함.
+2. **마커가 필요한 게이트 기록** — Staging 은 `review` 와 `bump`, Release 는 `security` 하나.
+   Release 는 코드 리뷰를 돌리지 않음 — 이 diff 는 Dev 에서 태스크 단위로, Staging 에서
+   배치로 이미 읽혔음.
+   `precommit` · `security-scan` · `wiki` · `doc-style` 은 커밋 훅이 직접
+   실행하는 런타임 게이트(§2.3)라 남길 마커가 없음.
+3. **머지 먼저, 커밋 나중** — `git merge --no-ff --no-commit origin/<source>` 뒤에 `commit`
+   이 그 대기 중인 머지를 `Release-Level:` 트레일러와 함께 씀. CI 는 `git log -1` 만 읽으므로
+   머지보다 먼저 쓴 트레일러는 한 커밋 뒤에 남고, 런은 아무 말 없이 범프를 자동 도출함.
+4. **사이클 닫기** — 릴리스 후에는 production → integration 백머지(선택 아님 — 빠뜨리면
+   릴리스된 태그가 integration 에서 도달 불가가 되어 다음 버전이 잘못 계산됨)와
+   production → staging 백머지(fast-forward 전용 — 거부되면 `--no-ff` 로 강행하지 않고
+   건너뜀). 그리고 두 승격 모두 자기 증거 마커를 지움 — rc 만 끊고 멈춘 런도 포함.
+   남겨두면 다음 승격이 그것을 자기 통과 증거로 읽고, `bump.done` 은 다른 무엇도 지우지
+   않으며 `bump` 게이트는 그 파일 하나에 fail-closed 임.
 
 ---
 

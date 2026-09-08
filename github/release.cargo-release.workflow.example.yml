@@ -2,7 +2,7 @@
 # cargo-release natively bumps Cargo.toml, commits, tags, and pushes — but (verified against
 # crate-ci/cargo-release docs) it does not derive patch/minor/major from Conventional Commits;
 # the level is a required argument. So the level comes from the same `Release-Level:
-# major|minor|patch` commit trailer the `/flow` staging-bump step writes (default: patch).
+# major|minor|patch` commit trailer the `/release-commit` staging-bump step writes (default: patch).
 # `rc`/`release` are real cargo-release levels (not fabricated here): `rc` bumps/continues a
 # `-rc.N` prerelease train, `release` strips an existing prerelease suffix back to stable.
 # `--no-publish` is intentional: publishing to crates.io is a bigger, separate decision than
