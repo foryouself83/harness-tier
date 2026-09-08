@@ -50,7 +50,9 @@ FAIL-OPEN (see Invariants).
   ([`rules/harness-rules.md`](rules/harness-rules.md) 5-2).
 - **Dogfood new CI** — a workflow-rendering feature also lands in this repo's OWN
   `.github/workflows/`, not only as a `github/*.example.yml` consumer template. Every job carries
-  a tight `timeout-minutes`.
+  a tight `timeout-minutes`. Exempt: a template whose subject does not exist here, so
+  a local instance could only ever be a stub — `api-contract` (no REST service), `e2e` (no
+  browser front end), the `deploy.<target>` set (no deployment target).
 - **A test file past 500 lines becomes a folder** — `tests/<what it covers>/`, every file inside
   under 500 lines: shared symbols in `_helpers.py`, fixtures in `conftest.py`, and an
   `__init__.py`. That last one is insurance, not plumbing — basenames are unique today and collect
@@ -80,8 +82,10 @@ hooks/           hooks.json (SessionStart + PostToolUse + Notification) · injec
                  stale-build warning) · invalidate-gate-markers.sh (an edit voids the review/doc-sync
                  evidence; host switch `gate_evidence.invalidate_on_edit`)
 skills/          /slash = skill — one dir each; open the dir for its SKILL.md
-rules/           risk-tiers.md (SSOT: tier classification + commit discipline) · harness-rules.md (SSOT: harness-gen)
-                 · doc-style.md (SSOT: prose discipline) — all SHIP to consumers, unlike .claude/rules/
+rules/           risk-tiers.md (SSOT: tier classification + commit discipline) · promotion.md
+                 (its promotion half, read at a promotion, injected by nothing) · harness-rules.md
+                 (SSOT: harness-gen) · doc-style.md (SSOT: prose discipline) — all SHIP to
+                 consumers, unlike .claude/rules/
 .claude/rules/   dev-only, never ships: skill-frontmatter.md (fires on a skills/**/*.md) ·
                  claude-md-authoring.md (fires on this file)
 scripts/         gate + setup scripts incl. wiki_graph.py (build/verify the LLM Wiki graph;
@@ -111,7 +115,9 @@ evals/           skill measurement: invocation (cases.yaml · run.py · scores.p
 - **Host writes group under `${CLAUDE_PROJECT_DIR}/.claude/harness-tier/`**: `scripts/` (copied
   gate scripts, git-tracked) · `config/` (flow-config.yaml + flow-tiers.yaml) · `.flow/` (gate
   evidence, gitignored). The only exceptions are files whose location external tools force:
-  `.gitignore` · `.pre-commit-config.yaml` · `.claude/settings.json` · `.github/workflows/`.
+  `.gitignore` · `.pre-commit-config.yaml` · `.claude/settings.json` · `.github/workflows/` ·
+  `playwright.config.*` (Playwright resolves it from the repo root — `playwright-scaffold`
+  writes it there).
 - **The commit gate is registered in the host's `settings.json`** (not the plugin's hooks.json) —
   for deny-enforcement reliability, and because `${CLAUDE_PLUGIN_ROOT}` is not resolved there.
   `/flow-init` **copies** the gate scripts + `flow-tiers.yaml` policy into the host.
@@ -145,11 +151,11 @@ evals/           skill measurement: invocation (cases.yaml · run.py · scores.p
      `gates`; `git merge` takes a separate path judged against `merge_strategy`. Gate internals &
      the FAIL-OPEN rules → **Invariants** below.
   3. **CI (GitHub Actions)** — `/flow-init` renders `api-contract.yml` + `unit-test.yml` +
-     `wiki-verify.yml` + `doc-style.yml`, closing layer 2's blind spot (it never sees
-     direct/terminal/CI commits). Every job is timeout-capped.
+     `wiki-verify.yml` + `doc-style.yml` + `e2e.yml`, closing layer 2's blind spot (it
+     never sees direct/terminal/CI commits). Every job is timeout-capped.
 
   **PR mode** (`flow-config.merge_workflow.pull_request`;
-  [`rules/risk-tiers.md`](rules/risk-tiers.md) PR workflow) takes a flow's merge out of the
+  [`rules/promotion.md`](rules/promotion.md) PR workflow) takes a flow's merge out of the
   hook's sight, so `merge_strategy` stops applying to it and a GitHub branch ruleset
   enforces the method instead — `scripts/check-merge-ruleset.sh` reports that ruleset's state at
   `/flow-init` Step 2.7, read-only, never writing to GitHub. The substitution is exact only for
@@ -188,11 +194,15 @@ evals/           skill measurement: invocation (cases.yaml · run.py · scores.p
   [`evals/outcome.py`](evals/outcome.py), which own the scoring and the `outcome_sha`
   fingerprint. A skill enters the outcome arm by a
   [`scripts/skill_sandbox.py`](scripts/skill_sandbox.py) scenario declaring `outcome=`.
-  Two things nothing else says: the fingerprint is a **denylist**
+  Three things nothing else says: the fingerprint is a **denylist**
   (`outcome.SHA_EXEMPT`), so a field added to `Scenario` is covered by default and any byte
-  change to a `copy_from_repo` source costs a live re-measure; and the outcome arm, unlike the
+  change to a `copy_from_repo` source costs a live re-measure; the outcome arm, unlike the
   invocation one, **does cover `disable-model-invocation` skills**, which is how `/wiki-init` is
-  measured.
+  measured; and a skill declaring `hook_assisted` in `cases.yaml` has the **injected rule folded
+  into its `description_sha`**, so editing [`rules/risk-tiers.md`](rules/risk-tiers.md) or the
+  hook that injects it costs those four skills a live re-measure. That is not caution: `/flow`
+  measured 0.82 and 0.55 on a byte-identical description, the difference being two lines added
+  beside its mandate.
 - **Deployment is not a verification layer** — a release-decoupled opt-in:
   `/harness-deployments` writes `flow-config.deploy` and renders per-target `deploy-<name>.yml`
   components + a generated `deploy.yml` orchestrator; `release.yml` calls it via `workflow_call`

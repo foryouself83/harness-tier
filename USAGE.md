@@ -100,7 +100,7 @@ ruleset — exactly so for `promotion`, only partly for `daily` (§2.2 below). `
 Step 2.7 reads the repo's current ruleset state and reports the gap (branches · allowed
 merge methods · a bypass actor), but never edits it for you. Full detail — including why a promotion ruleset needs a bypass actor
 and how the back-merge interacts with a `daily` ruleset — lives in
-[`rules/risk-tiers.md`](rules/risk-tiers.md)'s **PR workflow** section.
+[`rules/promotion.md`](rules/promotion.md)'s **PR workflow** section.
 
 **When each `checks` key runs** (module pre-checks):
 
@@ -130,6 +130,12 @@ asks and renders them):
   case-sensitive, so `/flow-init` warns on a capitalised variant like `Python` — it would skip
   the setup action silently and test against whatever runtime the runner already has. Declared
   independently of `modules[]` (local gate and CI run in different contexts).
+- **`e2e`** — end-to-end CI safety net, Playwright suites only (no browser front end → nothing
+  to render). With `enable: true`, `/flow-init` copies `.github/workflows/e2e.yml` as-is — a
+  starting point you own and edit, not a template the plugin keeps in sync. The flag is a
+  **render switch, not a run switch**: setting it back to `false` leaves an already-rendered
+  workflow running; delete the file to stop it. Scope, the four EDIT markers, and the
+  promotion-blocking alternative are in §3.7's E2E block.
 - **`versioning`** — release automation such as python-semantic-release. With `enable: true`
   it renders the release / branch-naming / entropy-check workflows. The **GitHub Release
   body** is the latest grouped `CHANGELOG.md` section (semantic-release output — grouped by
@@ -154,15 +160,17 @@ branch flow it belongs to (branch names resolve from your `flow-config.branches`
 | `fix/*` → integration | `--no-ff` refused |
 
 Scope is deliberately narrow. Only rows where the strategy is a single choice can be
-checked — the back-merge (`production` → integration, after a release) allows fast-forward
-*or* `--no-ff`, so there is nothing to enforce there. Rebasing before a `feature/*` merge is
-**warned about, not blocked** (a stale `origin` ref would otherwise produce false alarms).
+checked — the `production` → integration back-merge allows fast-forward *or* `--no-ff`, so
+there is nothing to enforce there, and the `production` → staging one names a single flag but
+wants a **skip** when the fast-forward is refused, which no `require` rule expresses. Rebasing
+before a `feature/*` merge is **warned about, not blocked** (a stale `origin` ref would
+otherwise produce false alarms).
 And like every layer-2 gate this only sees **merges made inside a Claude session** —
 merging from your own terminal bypasses it entirely.
 
 This local-hook enforcement applies only while the flow's merge stays a direct `git merge`.
 When `flow-config.merge_workflow.pull_request` routes a flow through a PR instead (see
-`rules/risk-tiers.md`'s **PR workflow** section), the hook never sees a `git merge`
+`rules/promotion.md`'s **PR workflow** section), the hook never sees a `git merge`
 command, so the corresponding row above stops firing — enforcement moves server-side to a
 GitHub branch ruleset (allowed merge methods), which `/flow-init` Step 2.7 checks but never
 changes for you.
@@ -174,8 +182,9 @@ merge commit into integration", and picking the right one of the two stays disci
 which method the PR must use when you hand it over. The same destination-wide reach pulls in
 flows you did not select: "require a pull request" on integration also blocks the
 post-release back-merge push, and on production it also catches `hotfix/*`. Both need
-handling — a bypass actor, or routing that flow through a PR as well. `rules/risk-tiers.md`'s
-**PR workflow** section spells out each case.
+handling — a bypass actor, or routing that flow through a PR as well. The same rule on staging
+blocks the staging back-merge push, which needs neither: a refused push is that step's
+documented end. `rules/promotion.md`'s **PR workflow** section spells out each case.
 
 Anything the gate cannot decide lets the merge through: no matching rule, a command it
 cannot parse, or a command naming another worktree. To turn the check off, delete the
@@ -192,7 +201,7 @@ pass before it can commit**.
 | `docs` | no-code change (docs/comments/config values) | ✗ | `doc-sync` · `wiki` · `doc-style` |
 | `dev` | change with code (feature/fix) | ✓ | `precommit` (changed-module every-commit checks) · `review` (domain review) · `doc-sync` · `wiki` · `doc-style` |
 | `staging` | QA/RC promotion (integration→staging) | ✓ | `precommit` · `review` · `security-scan` (all-module promotion checks) · `bump` (human release-level choice) · `wiki` · `doc-style` |
-| `release` | production deploy (staging→production) | ✓ | `precommit` · `review` · `security-scan` · `security` (security review) · `wiki` · `doc-style` |
+| `release` | production deploy (staging→production) | ✓ | `precommit` · `security-scan` · `security` (security review) · `wiki` · `doc-style` — no `review`: Dev and Staging already read this diff |
 
 - **`precommit` · `security-scan`** are executed by the commit hook itself (no marker).
   Removing one from a tier's `gates` list disables that check alone.
@@ -231,8 +240,9 @@ pass before it can commit**.
   `doc_style_check.py --verify-git` is the other half: it proves a rewrite kept every heading,
   fenced block, URL and inline-code span, and for `.py`/`.sh` that the code is byte-identical
   once comments and docstrings are stripped. `doc-sync` runs it after every rewrite.
-- **`review` · `doc-sync` · `security` · `bump`** leave an evidence marker after `/flow`
-  passes the gate; the commit hook passes only when the marker exists. `review` and
+- **`review` · `doc-sync` · `security` · `bump`** leave an evidence marker once the gate
+  passes — `/flow` records the Docs/Dev ones, `/release-commit` the promotion ones; the
+  commit hook passes only when the marker exists. `review` and
   `doc-sync` judge the working tree, so a PostToolUse hook deletes **both** markers on any
   edit — including the fixes the review asked for. A fix therefore re-runs doc-sync and the
   review; an edit the hook never sees — a terminal command, another tool — leaves them
@@ -274,8 +284,9 @@ The **mandatory first step for all code changes**. Sequence:
      commit via `/commit` — the review runs last because an edit voids it
 
 > **Promotion (Staging/Release)**: integration→staging and staging→production merges are
-> driven by the **target branch** (no separate marker needed). Each tier's mandatory gates
-> (§2.3) must pass before it can commit.
+> driven by the **target branch** (no separate marker needed). The procedure belongs to
+> `/release-commit` (§3.10), not to `/flow`. Each tier's mandatory gates (§2.3) must pass
+> before it can commit.
 
 > **`/flow` cannot be skipped.** If you commit without going through it, there's no tier
 > marker and the gate blocks the commit as **unclassified**. If a repo doesn't need
@@ -437,6 +448,64 @@ promotion).
   `goto('/')` + response OK + non-empty title. Usually invoked by `/integration` when there
   are zero cases.
 
+#### E2E safety net (CI) — the counterpart of `/integration`
+
+`e2e.yml` is the fifth CI safety net, next to `api-contract.yml` · `unit-test.yml` ·
+`wiki-verify.yml` · `doc-style.yml`. It is the CI counterpart of `/integration`: layer 2
+(§2.3) sees only Claude-session commits, so an integration regression arriving via a
+terminal, direct, or CI commit on a promotion branch would otherwise go unseen. `e2e.yml`
+runs a Playwright suite on push to the promotion branches and makes that regression
+**visible — it blocks nothing.**
+
+Turn it on with `flow-config.e2e.enable: true`, then run `/flow-init` (§2.1); it copies
+`.github/workflows/e2e.yml` verbatim. If no `playwright.config.*` exists at the repo root
+or up to two levels down, `/flow-init` appends a pointer to `/playwright-scaffold` — until
+that config exists, the workflow's own detect step skips every later step rather than
+failing.
+
+**Scope** is a Playwright suite on a Linux runner. Windows desktop UI (WPF, WinForms, MAUI)
+is out of scope — no browser driver can reach it. A non-web consumer gets no E2E net, but
+not nothing: `unit-test.yml` still runs (`matrix.test` is host-configured, so `dotnet test`,
+`pytest`, whatever the stack calls its own tests), and so does `api-contract.yml` when a
+REST API exists.
+
+`github/e2e.workflow.example.yml` carries four `EDIT` markers to fill in:
+
+1. **Trigger branches** — `on: push: branches:`; ships `[stage, main]`.
+2. **Runtime** — the `actions/setup-node` step; swap for your language's setup action.
+3. **Stack start/wait/teardown** — the compose-up step, the API-wait step, and Teardown;
+   delete all three if your Playwright config starts what it needs itself, via `webServer`.
+4. **Test package directory** — `working-directory`, set in TWO steps (dependency install
+   and the test run) that must stay in step with each other.
+
+Promoting it to a **required status check** needs all four of the template footer's
+preconditions, or none:
+
+1. add a `pull_request:` trigger — a check that never reports leaves a PR stuck on
+   "Waiting for status to be reported", and requiring it on direct pushes deadlocks, since
+   the push that would produce the check is the push being refused;
+2. keep `workflow_dispatch:` — it produces a missing check during an incident, with no
+   empty commit needed;
+3. give the branch ruleset a bypass actor, or agree in writing who edits the ruleset when
+   the suite breaks for a reason unrelated to the change;
+4. know that fork PRs get no secrets, so a credentialed suite red-lights every outside
+   contribution.
+
+The plugin does not wire this up, and takes no position on whether you should.
+
+**To block a promotion in practice**, add a check under
+`flow-config.modules[].checks` with `when: promotion` (§2.1) in your own `flow-config.yaml`
+— that timing routes into the `security-scan` bucket, already mandatory at Staging and
+Release (§2.3), and a module check's nonzero exit is the verdict, so the promotion commit
+is blocked. This is host-owned config in the host's own vocabulary, not a gate the plugin
+ships — no `e2e` gate name exists in `flow-tiers.yaml` or `rules/risk-tiers.md`. Four costs
+come with it, the last one decisive: it runs synchronously inside the PreToolUse hook, so
+the commit stalls for as long as the suite takes; the module channel buffers output and
+prints it only on failure, so nothing is visible while it runs; `security-scan` is an
+all-modules bucket, so every promotion runs the whole suite regardless of what changed; and
+a module check command carries **no timeout at all**, so a hung browser suite is an
+indefinitely hung commit.
+
 ### 3.8 `/harness-deployments` — deployment layer
 
 ```text
@@ -516,6 +585,35 @@ every commit. The graph is also the development read path: `/flow`'s Dev track s
 mapping the files about to change to their documenting nodes
 (`wiki_graph.py --nodes-for <paths…>`) and loading their neighbourhood
 (`--neighbors <id>`) as working context.
+
+### 3.10 `/release-commit` — promotion driver (staging / release)
+
+```text
+/release-commit [staging | release]
+```
+
+One promotion end to end. `/flow` points here for both promotions, and a bare "cut the
+release" reaches it directly.
+
+1. **Read the host's release model** — `grep -c Release-Level .github/workflows/release.yml`
+   answers whether the bump level can be forced. Node `semantic-release` derives the level
+   from the commit types and reads no trailer; the other rendered templates read one. No
+   template here takes a level from a `workflow_dispatch`, so triggering one forces nothing
+   and the promotion produces no release candidate.
+2. **Record the marker gates** — `review` and `bump` at Staging, `security` alone at Release.
+   Release runs no code review: this diff was read per task at Dev and as a batch at Staging.
+   `precommit` · `security-scan` · `wiki` · `doc-style` are runtime gates the commit hook runs
+   itself (§2.3), with no marker to write.
+3. **Merge, then commit** — `git merge --no-ff --no-commit origin/<source>`, then `commit`
+   writes that pending merge with the `Release-Level:` trailer. CI reads `git log -1` alone, so
+   a trailer committed before the merge sits one commit back and the run auto-derives the bump
+   with nothing to say it did.
+4. **Close the cycle** — after a release, back-merge production → integration (not optional:
+   the released tag is otherwise unreachable from integration and the next version comes out
+   wrong) and production → staging (fast-forward only — a refused fast-forward is skipped, not
+   forced with `--no-ff`). Either promotion then deletes its own evidence markers, which the
+   next one would read as its own pass — a run that stopped at the rc included, since nothing
+   else removes `bump.done` and the `bump` gate is fail-closed on that file alone.
 
 ---
 
@@ -695,8 +793,9 @@ If `/flow-uninstall` is no longer available, remove things by hand:
    still spend a runner on every push to say so. Among the release renders, `gitversion` and `jreleaser`
    call the path unguarded and fail on pushes to your release branches;
    `python-semantic-release` guards its call, and `cargo-release` / `semantic-release` never
-   reference the path. (`api-contract.yml` / `unit-test.yml` reference nothing of ours and
-   stay active.)
+   reference the path. (`api-contract.yml` / `unit-test.yml` / `e2e.yml` reference nothing of
+   ours and stay active — `e2e.yml` calls Playwright, so it keeps running and keeps costing
+   runner minutes.)
 6. (Optional) `pre-commit uninstall --hook-type pre-commit --hook-type commit-msg --hook-type pre-push`.
 
 ---

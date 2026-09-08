@@ -143,7 +143,8 @@ Then start day-to-day work with **`/flow <task description>`**.
 | Skill | `/flow-uninstall` | Remove harness-tier's host-side wiring |
 | Skill | `/harness-init` | Framework detection + research/verification to generate a harness (`.md` by default, no overwrite) |
 | Skill | `/wiki-init` | Build docs into a knowledge graph, no embeddings — front-matter-driven, setup wizard |
-| Skill | `commit` | Author and issue one commit — type choice, 50/72, staging; `/flow` calls it at every commit step |
+| Skill | `commit` | Author and issue one commit — type choice, 50/72, staging; `/flow` and `/release-commit` call it at every commit step |
+| Skill | `/release-commit` | Run one promotion end to end — integration→staging→production: the gates, the bump level, the merge shape the release CI needs, the back-merge |
 | Skill | `doc-sync` | Code ↔ doc synchronization + doc-set consistency + lossless-rewrite verification |
 | Skill | `harness-insight` | Aggregate Claude Code activity over a period + insight report |
 | Skill | `/harness-deployments` | Layer deployment (registry publish / container image / app deploy) on the release workflow — detect → ask → render deploy CI (opt-in, after `/flow-init`) |

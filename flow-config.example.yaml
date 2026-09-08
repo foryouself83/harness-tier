@@ -144,6 +144,15 @@ contract_test:
     health_url: "http://localhost:8000/health"
     health_timeout: 60                    # seconds
 
+# End-to-end CI safety net (CI only — GitHub Actions). Playwright suites only; no browser
+# front end → enable:false → not installed. /flow-init copies .github/workflows/e2e.yml as-is
+# (no tokens): it is a starting point you own and edit, and a later plugin fix does not reach
+# a file you already have. It blocks nothing — see USAGE "E2E safety net" before making it a
+# required status check. NOTE: this flag is a RENDER switch. Setting it back to false leaves
+# an already-rendered e2e.yml running; delete that file to stop it.
+e2e:
+  enable: false
+
 # Semantic versioning/release (downstream = a regular package). /flow-init uses these values to
 # render .github/workflows/ (same pattern as api-contract). If unused, enable:false → not installed.
 # release_tool is filled in by harness-init research to match the stack.

@@ -227,6 +227,12 @@ It performs, idempotently, and prints a report to relay:
   `flow-config.doc_style` block, and holds the verdict the layer-2 prose gate declines to
   give. A `flow-config.yaml` that is present but does not parse fails the job instead —
   read as "off", one typo would take the whole layer down with nothing red to say so.
+- **Renders** `.github/workflows/e2e.yml` from `flow-config.e2e` when `enable: true` —
+  copied as-is, no tokens, same create-if-absent / never-overwrite rules. Unlike wiki-verify
+  it IS gated, because its no-op lives in the template (a detect step that finds no
+  `playwright.config.*` skips the run) rather than in a script the plugin ships. Report the
+  `/playwright-scaffold` pointer the step prints when no config exists: the flag renders the
+  file, a suite is what makes it mean anything. It blocks nothing.
 
 Then remind the user to run `pre-commit install --hook-type pre-commit --hook-type commit-msg
 --hook-type pre-push` (activates gitlint, the push notifier, and the file-hygiene hooks) and

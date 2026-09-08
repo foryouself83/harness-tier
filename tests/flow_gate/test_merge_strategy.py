@@ -137,8 +137,9 @@ BRANCHES = {
 # Mirrors the shipped flow-tiers.yaml `merge_strategy`, row for row and in order. It is a
 # fixture, not the contract (test_shipped_policy_* owns that) — but a fixture that drifts from
 # the policy silently tests a shape nobody ships, and a missing row reads as a row that may be
-# deleted. The one flow deliberately absent here is absent there too: the back-merge
-# (production → integration) states a choice, so there is nothing to enforce.
+# deleted. The two flows deliberately absent here are absent there too, both back-merges:
+# production → integration states a choice, and production → staging wants a skip on a refused
+# fast-forward — neither is something a require/forbid rule can express.
 RULES = [
     {
         "source": "feature/*",
@@ -380,16 +381,19 @@ def test_match_rule_fix_to_integration():
 def test_match_rule_integration_to_staging():
     # The promotion is a MERGE, not a rebase: the release commits must reach staging under
     # their original SHAs or the stable tag drops out of its ancestry (risk-tiers.md
-    # "Back-merge after release"). This row is why staging needs no back-merge leg.
+    # "Back-merge after release"). This row is why a refused staging back-merge is skipped
+    # rather than forced: the promotion carries the release commits forward on its own.
     rule = match_merge_rule(RULES, "dev", "stage", BRANCHES)
     assert rule is not None
     assert rule["require"] == "--no-ff"
 
 
 def test_match_rule_no_match_returns_none():
-    # The back-merge (production → integration) is the one flow with no rule: the policy
-    # states a choice there ("FF / --no-ff Merge"), so there is nothing to enforce.
+    # Neither back-merge carries a rule. production → integration states a choice
+    # ("FF / --no-ff Merge"), so there is nothing to enforce; production → staging names one
+    # flag but wants a SKIP when the fast-forward is refused, which `require` cannot express.
     assert match_merge_rule(RULES, "main", "dev", BRANCHES) is None
+    assert match_merge_rule(RULES, "main", "stage", BRANCHES) is None
 
 
 def test_match_rule_empty_rules_returns_none():

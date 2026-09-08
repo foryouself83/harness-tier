@@ -46,5 +46,7 @@ def test_read_marker_tier_none_when_absent(tmp_path):
 def test_golden_cases_are_the_labelled_flow_prompts():
     cases = golden_cases()
     tiers = sorted(g for _, g in cases)
-    assert tiers == ["dev", "dev", "dev", "staging"]  # 4 labelled, unlabelled dropped
+    # 4 labelled, the unlabelled one dropped. Every labelled flow prompt is `dev`: the
+    # promotion prompt sits in flow's negative set, and a negative carries no golden_tier.
+    assert tiers == ["dev", "dev", "dev", "dev"]
     assert all(isinstance(p, str) and p for p, _ in cases)
