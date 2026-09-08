@@ -2,6 +2,36 @@
 
 <!-- version list -->
 
+## v0.3.2-rc.1 (2026-09-08)
+
+### Bug Fixes
+
+- **authoring**: Setext headings survive CRLF
+  ([`73ea98d`](https://github.com/foryouself83/harness-tier/commit/73ea98d7403dc151a59f20fc04b6c200c044e9be))
+
+- **flow**: Keep promotion detail out of the mandate
+  ([`3a66097`](https://github.com/foryouself83/harness-tier/commit/3a6609783972c972f28d5b0eb8f3cbb577b158e8))
+
+### Documentation
+
+- **claude-md**: Name promotion.md in rules/
+  ([`013a3d4`](https://github.com/foryouself83/harness-tier/commit/013a3d47cdb7823a85bf8a42b4a5cee0f40cce2f))
+
+- **specs**: E2E CI safety net design and plan
+  ([`6ab5222`](https://github.com/foryouself83/harness-tier/commit/6ab5222a89d116b15d9c4865176033f58c34dc17))
+
+- **specs**: Promotion skill design and plan
+  ([`e80a4f6`](https://github.com/foryouself83/harness-tier/commit/e80a4f6ffabcbf4e6b947f3ba60baed50d776713))
+
+### Features
+
+- **e2e**: Render a token-free Playwright workflow
+  ([`e6c3d2d`](https://github.com/foryouself83/harness-tier/commit/e6c3d2df7c2232191724fd909ced2cfef1842daa))
+
+- **flow**: Give promotion its own skill
+  ([`fd179d9`](https://github.com/foryouself83/harness-tier/commit/fd179d98417361aeec4e3c48b7d775b95b1882f0))
+
+
 ## v0.3.1-rc.1 (2026-09-07)
 
 ### Bug Fixes
