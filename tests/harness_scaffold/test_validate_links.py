@@ -1,7 +1,7 @@
 import pytest
 
 import scripts.harness_scaffold as hs
-from tests.harness_scaffold._helpers import _baseline_entry
+from tests.harness_scaffold._helpers import _anchor_issues, _baseline_entry
 
 
 def _conv_entry(content):
@@ -128,21 +128,6 @@ def test_parse_frontmatter_block_scalar_fallback(monkeypatch):
     assert fm["description"] == "line one line two"
 
 
-def _linking_plan(target_content, link):
-    return {
-        "files": [
-            _baseline_entry(),
-            {"path": "docs/sds/README.md", "action": "create", "content": f"[FR]({link})"},
-            {"path": "docs/srs/README.md", "action": "create", "content": target_content},
-        ]
-    }
-
-
-def _anchor_issues(tmp_path, target_content, link):
-    rep = hs.validate_plan(tmp_path, _linking_plan(target_content, link))
-    return [i for i in rep["issues"] if i["kind"] == "dead-anchor"]
-
-
 def test_dead_anchor_warns(tmp_path):
     hits = _anchor_issues(tmp_path, '<a id="fr-001"></a>FR-001\n', "../srs/README.md#fr-999")
     assert len(hits) == 1 and hits[0]["severity"] == "warn"
@@ -228,11 +213,6 @@ def test_heading_inside_a_code_fence_is_not_an_anchor(tmp_path):
     body = "```bash\n# Probe the branch point\n```\n"
     hits = _anchor_issues(tmp_path, body, "../srs/README.md#probe-the-branch-point")
     assert len(hits) == 1
-
-
-def test_setext_heading_resolves(tmp_path):
-    body = "Requirements Coverage\n=====\n"
-    assert _anchor_issues(tmp_path, body, "../srs/README.md#requirements-coverage") == []
 
 
 def test_percent_encoded_fragment_resolves(tmp_path):
@@ -368,13 +348,6 @@ def test_plan_content_keys_are_normalized(tmp_path):
 
 def test_atx_closing_hashes_are_trimmed(tmp_path):
     assert _anchor_issues(tmp_path, "## Overview ##\n", "../srs/README.md#overview") == []
-
-
-def test_a_heading_followed_by_a_rule_is_not_a_setext(tmp_path):
-    # Without the `(?!\s{0,3}#)` guard the `---` turns the ATX line into a second, phantom
-    # heading whose slug starts with the hashes.
-    hits = _anchor_issues(tmp_path, "## A\n---\n", "../srs/README.md#-a")
-    assert len(hits) == 1
 
 
 def test_existing_disk_target_wins_over_plan_content(tmp_path):

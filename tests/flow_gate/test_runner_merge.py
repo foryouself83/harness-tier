@@ -239,11 +239,24 @@ def test_shipped_policy_staging_has_bump():
     assert "bump" not in data["tiers"]["release"]["gates"]  # asked at staging only
 
 
+def test_shipped_policy_release_has_no_review():
+    # Release deliberately carries no code review: the diff it promotes was read per task at
+    # Dev and as a batch at Staging, and a finding at that point costs a release to act on.
+    # An absence is what a re-added line would silently undo, so it is asserted, not assumed.
+
+    root = Path(__file__).resolve().parent.parent.parent
+    data = yaml.safe_load((root / "flow-tiers.yaml").read_text(encoding="utf-8"))
+    assert "review" in data["tiers"]["staging"]["gates"]
+    assert "review" not in data["tiers"]["release"]["gates"]
+    assert "security" in data["tiers"]["release"]["gates"]  # the review layer it does keep
+
+
 def test_shipped_policy_integration_to_staging_requires_no_ff():
     # the shipped policy is the SSOT the gate reads. integration → staging must be a merge
-    # commit: the rc self-heal (main → dev back-merge only) relies on the release commits
-    # reaching staging through a descendant merge. A rebase promotion replays them under new
-    # SHAs, so the stable tag leaves staging's ancestry and semantic-release miscomputes.
+    # commit: the rc self-heal relies on the release commits reaching staging through a
+    # descendant merge — the leg that always runs, since the production → staging back-merge
+    # is fast-forward-or-skip. A rebase promotion replays them under new SHAs, so the stable
+    # tag leaves staging's ancestry and semantic-release miscomputes.
 
     root = Path(__file__).resolve().parent.parent.parent
     data = yaml.safe_load((root / "flow-tiers.yaml").read_text(encoding="utf-8"))

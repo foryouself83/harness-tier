@@ -9,8 +9,9 @@ in decides **which skills run** (notably whether the heavy `superpowers`
 pipeline engages) and **which gates are mandatory and enforced**.
 
 This file is the single source of truth for tier classification and
-the per-tier workflow. [`/flow`](../skills/flow/SKILL.md) and
-[`flow-tiers.yaml`](../flow-tiers.yaml) both defer to it, and
+the per-tier workflow. [`/flow`](../skills/flow/SKILL.md),
+[`/release-commit`](../skills/release-commit/SKILL.md), and
+[`flow-tiers.yaml`](../flow-tiers.yaml) all defer to it, and
 [`inject-risk-tiers.sh`](../hooks/inject-risk-tiers.sh) is what injects it.
 
 There are four tiers across two axes:
@@ -46,9 +47,11 @@ fail-open/closed — see Hard gates.)
 Two kinds:
 
 - **Runtime gates** — executed directly by the commit hook
-  (`precommit-runner.sh`, layer 2), no `.done` marker. They are **timing buckets**
-  over the `flow-config.modules[].checks`; each check routes to a bucket by its
-  `when` (`every-commit` | `promotion`):
+  (`precommit-runner.sh`, layer 2), no `.done` marker. Four of them, in two shapes.
+  `precommit` and `security-scan` are **timing buckets** over the
+  `flow-config.modules[].checks`, each check routing to a bucket by its `when`
+  (`every-commit` | `promotion`); `wiki` and `doc-style` are neither buckets nor module
+  checks, and the gate script runs them in its own process:
   - **`precommit`** — the **every-commit** bucket: the every-commit checks of the
     **changed modules** (lint/static/import_lint/test + any custom
     `when: every-commit`), on every commit.
@@ -105,7 +108,8 @@ Two kinds:
   **Timing is bound to that bucket's gate existing in the tier**: the `docs` tier has
   neither *bucket* gate, so host custom checks never run on a docs commit — the module
   pre-check short-circuits there. (`wiki`·`doc-style` still run on a docs commit; neither is
-  a module check and neither enters that path.) Both gates are ordinary entries in each tier's `flow-tiers.yaml`
+  a module check and neither enters that path.) `precommit` and `security-scan` are ordinary
+  entries in each tier's `flow-tiers.yaml`
   `gates` list, so **removing one disables that whole bucket** for that tier (the
   gates list is the single on/off switch, not a hardcoded branch). Like all
   layer-2 checks these run **only on Claude-session commits** — terminal/CI commits
@@ -114,9 +118,9 @@ Two kinds:
   passes (a marker is an audit trail + forcing function, not proof of quality):
   - **`review`** — an independent `general-purpose` agent (separate context)
     reviewing **every** changed file — git's list, count reported — against the
-    checklist: regression, cross-service contract, DB/migration & transactions,
-    async task idempotency & queue routing, API error conventions, plus the
-    callers of every changed public symbol. Step 3.
+    checklist, plus the callers of every changed public symbol. Step 3 carries
+    both the checklist and the procedure. **Dev and Staging only**
+    — Release drops it; that tier's step says why.
   - **`doc-sync`** — `/doc-sync` harmonizes the doc set (root CLAUDE.md,
     per-service docs, rules) and reconciles code↔doc drift.
     Where the project has an LLM Wiki, it also refreshes each node's front matter
@@ -125,7 +129,8 @@ Two kinds:
     gate then verifies that rebuild.
   - **`bump`** (Staging) — the human major/minor/patch choice; fail-closed
     (the staging commit is blocked until `bump.done` exists). Detail in Step 1b.
-  - **`security`** (Release) — `/security-review`.
+  - **`security`** (Release) — `/security-review`. A dangerous Dev-tier
+    change runs it too, unenforced — Step 1b Release says why.
 
 ## Step 1 — Classify the task (Docs or Dev)
 
@@ -164,15 +169,18 @@ comment/docstring-only tweaks.
 ## Step 1b — Promotion events (Staging / Release)
 
 These are **not** per-task classifications — they are git-flow
-promotion gates run once over the accumulated work.
+promotion gates run once over the accumulated work. They sit on their
+own axis: the Docs → Dev escalation ladder in Principle is the
+day-to-day one, and each promotion's gate set is chosen for that
+promotion rather than stacked on Dev's.
 
 ### Staging — integration → staging branch (QA / rc cut)
 
-The release candidate enters QA/staging. Gates: `precommit`, `review`,
-`security-scan`, `bump`, `wiki`, `doc-style` (see Gate glossary). Performance and integration are
-independent skills; the `/security-review` LLM review is added at Release.
+The release candidate enters QA/staging; its gates are in the git-flow mapping
+table below. Performance and integration are independent skills; the
+`/security-review` LLM review is added at Release.
 
-Staging also **forces a human bump-level choice**: `/flow` asks major/minor/patch
+Staging also **forces a human bump-level choice**: `/release-commit` asks major/minor/patch
 (default = commit-derived) and records a `bump` gate marker; the commit gate blocks
 the staging commit until `bump.done` exists (fail-closed). The choice rides the
 staging commit as a `Release-Level:` trailer and CI forces
@@ -189,18 +197,25 @@ re-promote **without** the trailer — the auto-derive path continues the series
 
 ### Release — staging → production branch
 
-Two entry points:
+One entry point: the staging → production promotion (official release),
+or a production deploy (e.g., an air-gapped offline deploy). Gates in the
+git-flow mapping table below.
 
-- **Lifecycle (primary)** — the staging → production promotion
-  (official release), or a production deploy (e.g., an air-gapped
-  offline deploy). Gates: Staging + `security`.
-- **Content (escalation)** — a single change that hits an
-  irreversible/large data migration, a **performance-critical path**
-  (search/embedding/GPU/inference config), or a security surface
-  (auth/authz, secrets, gateway rate-limiting). Escalate that task to
-  Release even on a feature branch.
+**A dangerous change does not escalate into this tier.** A single change
+that hits an irreversible/large data migration, a **performance-critical
+path** (search/embedding/GPU/inference config), or a security surface
+(auth/authz, secrets, gateway rate-limiting) stays at **Dev** and adds
+`/security-review` before the merge. Release carries no `review`, so
+escalating into it would buy a security pass by giving up the domain
+review — the wrong trade for the one change that needs both. Nothing
+stops it mechanically: the gate reads the tier marker's label and checks
+only that its branch matches, so a hand-written `release:feature/x` does
+select this set. That security pass is therefore discipline, not a gate.
 
 ### Tie-breakers
+
+Within the day-to-day **Docs → Dev** axis only — the promotion tiers are
+branch-driven and are never picked this way.
 
 1. **When in doubt, escalate one tier.**
 2. Criteria spanning multiple tiers → the **highest** tier wins.
@@ -218,31 +233,31 @@ production→main). No branch is literally named `integration`.
 |--------|------|-------|
 | Work on `feature/*` / `fix/*` → integration branch | **Docs** (no code) / **Dev** (any code) | Docs: doc-sync, wiki, doc-style · Dev: precommit, review, doc-sync, wiki, doc-style |
 | integration → staging (QA / rc cut) | **Staging** | precommit, review, security-scan, bump, wiki, doc-style |
-| staging → production, or prod deploy | **Release** | + security |
-| A feature-branch change that is irreversible / prod-critical / security | escalate to **Release** | — |
-
-Staging and Release are **promotion/deploy gates**, not per-commit
-tiers you pick during feature development.
+| staging → production, or prod deploy | **Release** | precommit, security-scan, security, wiki, doc-style |
+| A feature-branch change that is irreversible / prod-critical / security | **Dev** | Dev's set, plus `/security-review` as an unenforced step |
 
 ## Step 2 — Skill gate (the tier decides which skills run)
 
-| Tier | `superpowers` pipeline | Validation skills | Suppressed |
-|------|------------------------|-------------------|------------|
-| **Docs** | OFF — no code | `/doc-sync` (harmonize docs), `wiki` (verify graph), `doc-style` | brainstorming, writing-plans, TDD |
-| **Dev** | ON | selective TDD, verification, `/doc-sync`, domain review, `wiki`, `doc-style` | — |
-| **Staging** | (promotion gate) | precommit, review, security-scan, `wiki`, `doc-style` | — |
-| **Release** | (promotion gate) | + security | — |
+| Tier | `superpowers` pipeline | Suppressed |
+|------|------------------------|------------|
+| **Docs** | OFF — no code | brainstorming, writing-plans, TDD |
+| **Dev** | ON | — |
+| **Staging** | (promotion gate) | — |
+| **Release** | (promotion gate) | — |
+
+Each tier's gates are in the git-flow mapping table above. `precommit`,
+`security-scan`, `wiki` and `doc-style` have no skill behind them — the commit hook
+runs them (Gate glossary). Dev's `review` carries the selective-TDD and verification
+overlays named below.
 
 **Docs = `superpowers` OFF** (no-code edit, made directly).
-**Dev = `superpowers` ON**: enter via `using-superpowers` — it
-auto-runs the pipeline (brainstorm → plan → implement → verify →
-review). Overlays on top: selective TDD scope, `/doc-sync`, and
-the domain review last (see Step 3).
+**Dev = `superpowers` ON**, entered via `using-superpowers`; the pipeline it
+runs and the project overlays on top of it are Step 3's.
 **Staging / Release** are validation checklists over already-built
 work, not new implementation.
 
-**Precondition** — Dev/Staging/Release require the `superpowers`
-plugin (`superpowers@claude-plugins-official`). If it is not installed,
+**Precondition** — Dev requires the `superpowers` plugin
+(`superpowers@claude-plugins-official`). If it is not installed,
 `/flow` **stops** and asks the user to install it — no manual fallback.
 
 ## Step 2b — Ensure a work branch
@@ -272,12 +287,11 @@ work started on. `hotfix/*` off the production branch is the exception
 ### Docs (no code)
 
 1. Make the edit directly (`superpowers` OFF).
-2. Run `/doc-sync` to harmonize the doc set (root CLAUDE.md,
-   per-service docs, rules; also reconciles code↔doc drift)
-   → record `doc-sync`.
+2. Run `/doc-sync` (Gate glossary) → record `doc-sync`.
 3. Commit via `/commit` (it applies Commit Discipline below)
    → merge per **Merge strategy**, or open a PR when
-   `merge_workflow.pull_request` includes `daily` (see PR workflow).
+   `merge_workflow.pull_request` includes `daily` (PR workflow in
+   [`promotion.md`](promotion.md)).
 
 ### Dev (any code)
 
@@ -341,19 +355,20 @@ work started on. `hotfix/*` off the production branch is the exception
      form is commit-to-commit from the branch point, so on its own it
      reports **zero** files for the ordinary case — review runs
      *before* the commit. `HEAD` on its own misses everything already
-     committed on the branch, and since the `review` marker is
-     branch-bound and survives across commits, those files would
-     never appear in *any* review's list. `ls-files --others`
+     committed on the branch, and since the `review` marker
+     survives across commits, those files would never appear in
+     *any* review's list. `ls-files --others`
      recovers untracked files only, never modified tracked ones.
 
      At a promotion the working tree is clean and both ends are
-     branches, so use the two adjacent `flow-config.branches` refs
-     for the promotion in hand — **destination first**, so the diff
-     is what the promotion would add:
-     `git diff --name-only "origin/<staging>..origin/<integration>"`
-     for Staging, and
-     `git diff --name-only "origin/<production>..origin/<staging>"`
-     for Release. Always the **freshly fetched `origin/` refs**,
+     branches, so use the two adjacent `flow-config.branches` refs —
+     **destination first**:
+     `git diff --name-only "origin/<staging>..origin/<integration>"`.
+     Two dots, not three: `git diff` reads that as a **two-endpoint**
+     diff, so it also surfaces what sits on the destination alone —
+     inverted, as a deletion the merge will not make. That is the safe
+     direction for a coverage gate; the three-dot form drops those
+     files outright. Always the **freshly fetched `origin/` refs**,
      never a bare local ref: a stale local ref silently *shrinks* the
      reviewed set, which is the one direction a coverage gate must
      never fail in.
@@ -370,7 +385,7 @@ work started on. `hotfix/*` off the production branch is the exception
      the checklist's cross-service row.
      ④ Report High + Medium, discard Low, and state the reviewed-file
      count against ①'s list → record `review`.
-     ⑤ The marker is branch-bound and outlives the commit that used
+     ⑤ The marker is a plain file that outlives the commit that used
      it, so an edit after the pass would commit against evidence
      earned over code no reviewer saw. A `PostToolUse` hook deletes
      the `review` **and** `doc-sync` markers the moment a file
@@ -392,7 +407,8 @@ work started on. `hotfix/*` off the production branch is the exception
      one line — and a line the reader cannot make out leaves it armed.
 3. Integration human gate (feature → integration branch; see Merge
    Strategy below) → commit via `/commit` → merge, or open a PR when
-   `merge_workflow.pull_request` includes `daily` (see PR workflow).
+   `merge_workflow.pull_request` includes `daily` (PR workflow in
+   [`promotion.md`](promotion.md)).
 
 ### Staging (integration → staging)
 
@@ -403,31 +419,33 @@ work started on. `hotfix/*` off the production branch is the exception
    `precommit` and `security-scan` run automatically on
    promotion commits (runtime gates — no marker; see Gate glossary).
 2. Promote integration → staging (rc), or open a PR when
-   `merge_workflow.pull_request` includes `promotion` (see PR workflow).
+   `merge_workflow.pull_request` includes `promotion` (PR workflow in
+   [`promotion.md`](promotion.md)).
 
 ### Release (staging → production)
 
-Staging gates **plus** — but the regression `review` re-runs against
-**this** promotion's pair, `git fetch origin` then
-`git diff --name-only "origin/<production>..origin/<staging>"`.
-Inheriting Staging's pair is the trap here, and it does not announce
-itself: staging is not empty relative to integration, it is *ahead* by
-the rc bump CI has pushed, so the wrong pair returns a plausible
-handful of release plumbing (`plugin.json`, `CHANGELOG.md`,
-`pyproject.toml`, `uv.lock`) while hiding every substantive change in
-the release. The highest-risk gate then reports full coverage of the
-wrong set, with no empty result to give it away.
+Gates: Staging's set with `security` added and both `bump` and `review`
+dropped, the finalize taking no level.
 
-1. Extra independent review — `/code-review` at `ultra` effort
-   (high-risk layer).
-2. Security review — `/security-review` → record `security`.
-3. Release note — Conventional Commits + semantic-release; the grouped, plumbing-filtered
+**Code review does not run here.** Everything this promotion carries was
+read twice already — per task at Dev, as a batch at Staging — and what
+staging holds beyond that is CI's `chore(release)` bump. A third pass buys
+a second opinion on the same diff at the one moment where acting on a
+finding means unwinding a release. Two paths it does leave unread, both
+worth knowing: a `hotfix/*` → production landing never passes through
+staging, so its Dev-tier `review` at commit time is the whole of its
+review; and a commit made onto staging from a terminal is read by no gate
+at all — Staging's pair surfaces it only inverted, as a deletion the merge
+will not make, never as the change that was written, and this was the only
+layer that read it the right way round.
+
+1. Security review — `/security-review` → record `security`.
+2. Release note — Conventional Commits + semantic-release; the grouped, plumbing-filtered
    CHANGELOG section becomes the GitHub Release body (auto-notes fallback).
-4. Promote staging → production and/or deploy, or open a PR for the
+3. Promote staging → production and/or deploy, or open a PR for the
    promotion when `merge_workflow.pull_request` includes `promotion`
-   (see PR workflow). A `hotfix/*` → production landing takes the same
-   conditional — under `promotion` it is a PR too, never a local squash
-   and push.
+   (PR workflow in [`promotion.md`](promotion.md), which covers `hotfix/*` →
+   production under the same value).
 
 ## Commit Discipline
 
@@ -510,11 +528,15 @@ Branch names refer to `flow-config.branches` keys.
 | staging → production | **`--no-ff` Merge** | ✅ enforced |
 | `hotfix/*` → production | **Squash** — under `promotion` PR mode a **PR** (merge commit) | ✅ enforced |
 | production → integration (after release) | **FF / `--no-ff` Merge** (back-merge) | — |
+| production → staging (after release) | **FF only** (back-merge; refused → skip) | — |
 
 > The **Gate** column reflects `flow-tiers.yaml`'s `merge_strategy` policy, checked by the
 > PreToolUse hook on `git merge`. Every ✅ row blocks (exit 2) a merge whose flags violate the
 > strategy — whether the rule *requires* a flag ("enforced") or *forbids* one ("blocked");
-> `—` rows state a choice ("or"), so there is nothing to enforce. A ✅ cell that names a
+> `—` rows carry no `merge_strategy` entry at all. Row 6 states a choice ("or"), so there is
+> nothing to enforce; row 7 names a single flag and still carries none, because what it needs
+> on a refused fast-forward is a **skip**, and a `require: --ff-only` rule would block the
+> `--no-ff` attempt rather than end the step. A ✅ cell that names a
 > narrower pattern than its row (row 2) is enforced for **that pattern only** — the rest of the
 > row is discipline the gate does not check. Enforcement covers
 > **Claude-session merges only** — a terminal merge bypasses it, same as every layer-2 gate.
@@ -527,8 +549,7 @@ Branch names refer to `flow-config.branches` keys.
 > workflow fire — FF would land staging's `[skip ci]` rc commit as the
 > head and skip the release. (A direct `hotfix/*` → production merge stays
 > Squash — a single `fix:` commit is still a valid, non-`[skip ci]` release
-> input. Under `promotion` PR mode that flow becomes a PR merge commit
-> instead; see PR workflow.)
+> input.)
 
 > ⚠️ **Merge the *post-rc* `origin/<staging>`, never a stale local ref.**
 > The `staging → production` merge must take the **freshly fetched
@@ -540,99 +561,6 @@ Branch names refer to `flow-config.branches` keys.
 > the forced bump-level override** (e.g. releasing `0.2.0` instead of the
 > intended `0.1.2`). Always `git fetch origin` first and merge
 > `origin/<staging>`.
-
-### PR workflow (`flow-config.merge_workflow`)
-
-Flows listed in `merge_workflow.pull_request` go through a **pull request** instead of a
-local merge. An empty list (the default) means every flow is a direct merge and this
-section does not apply.
-
-| Value | Flows |
-|---|---|
-| `daily` | `feature/*` · `fix/*` → integration |
-| `promotion` | integration → staging, staging → production — **and `hotfix/*` → production**, because the production ruleset governs every merge into that branch (see below) |
-
-**Commit discipline does not change.** Commits are still made locally under PR mode, so
-gitlint (50/72 · Conventional Commits) and the tier gate (markers, unclassified block)
-fire exactly as before. What moves is the **merge**, and only the merge.
-
-The `require`/`forbid` cells in the Merge strategy table are enforced by a hook watching
-`git merge`, so they **do not fire** for a flow that goes through a PR. A GitHub Ruleset
-carries what it can of that enforcement instead, as allowed merge methods per branch —
-exactly for the promotion rows, partially for integration (caveat under the table):
-
-| Target branch | Allowed merge methods | Source rows |
-|---|---|---|
-| integration | `squash` + `rebase` (no merge commit) | row 1 `feature/*`=Squash, row 2 `fix/*`=Rebase |
-| staging · production | `merge` only | rows 3·4 = `--no-ff` Merge |
-
-> ⚠️ **On integration this is a relaxation, not a translation.** A branch ruleset targets the
-> **destination** ref, so it cannot tell a `feature/*` PR from a `fix/*` one. All it
-> guarantees is **"no merge commit into integration"**. Row 1's `--squash` and row 2's Rebase
-> become **discipline the ruleset cannot separate**: a `feature/*` PR merged with "Rebase and
-> merge" lands N replayed commits where row 1 wants one squashed commit, and nothing objects
-> (the local gate never sees a `git merge`, and the ruleset permits rebase). Name the method
-> when you hand over the PR — **"Squash and merge" for `feature/*`, "Rebase and merge" for
-> `fix/*`** — the way the promotion PR names "Create a merge commit". On staging · production
-> the single allowed method makes the ruleset an exact translation; only integration carries
-> this gap.
-
-> **A branch ruleset covers every merge into that branch, not only the flow named above.**
-> The `daily` ruleset's "require a PR" + `rebase,squash` on integration also governs the
-> **back-merge** (table row 6, `production → integration`): it blocks the documented
-> `git push origin <integration>` step outright, and routing the back-merge through a PR
-> instead is worse — rebase and squash both rewrite SHAs, so the released tag never
-> becomes an ancestor of integration, which is exactly the failure the Back-merge section
-> calls **not optional**. An integration ruleset therefore also needs a bypass actor, for
-> whoever performs the back-merge (the maintainer or the release automation) — the same
-> requirement `daily` alone does not otherwise carry.
->
-> The `promotion` ruleset's `merge`-only rule on production also governs `hotfix/* →
-> production` (table row 5, Squash) — and allowed merge methods hang off **"Require a pull
-> request before merging"** (see the bypass warning below), which **rejects a direct push to
-> production**. So the documented local path — `git switch <production>` ·
-> `git merge --squash hotfix/x` · `git commit` · `git push origin <production>` — is
-> rejected *during the incident*, and the release-automation bypass actor does not rescue it
-> (that identity is the `github-actions` app or the `RELEASE_TOKEN` owner, not the maintainer
-> running the hotfix). **Under `promotion` PR mode a hotfix therefore goes through a PR too**,
-> merged with "Create a merge commit". The merge commit is harmless — its title is not
-> `[skip ci]`, so the release workflow still fires, no rc is pending to strip, and
-> semantic-release computes the release from the `fix:` commit inside it. (A team that would
-> rather keep the local squash must instead add a **maintainer** bypass actor to the
-> production ruleset — and then nothing enforces the merge method on that path at all.)
-
-`/flow-init` Step 2.7 reads the current state and reports the gap; it does not change repo
-settings.
-
-> ⚠️ **Merge a promotion PR with "Create a merge commit" only.** The release workflow reads
-> a single pushed **head commit** — it gates execution on `[skip ci]` and reads the
-> `Release-Level:` trailer from that same message. A rebase-merge replays staging's commits
-> and leaves `chore(release): … [skip ci]` as the head, so **the release never runs**; a
-> squash destroys the individual release-commit history.
-
-> ⚠️ **A promotion ruleset MUST carry a release-automation bypass actor.** Allowed merge
-> methods hang off the "require a pull request before merging" rule, so applying it without
-> a bypass blocks semantic-release's direct `chore(release)` version-bump push and **halts
-> the release pipeline**.
->
-> The actor's **`bypass_mode` must be `always`, not `pull_request`** — here and for the
-> integration back-merge actor above. A `pull_request` actor may merge a PR that fails the
-> rule but **may not push directly**, and a direct push is the whole point in both cases. An
-> actor in the wrong mode is present-but-useless: it reads as configured and still stops the
-> release. `check-merge-ruleset.sh` treats it as a gap for that reason.
-
-With a forced bump level, pin the trailer in the merge command rather than typing it into
-the web UI:
-
-```bash
-PR=123    # the promotion PR's number — a literal, never a `<n>` placeholder: bash reads
-          # `<n` as "stdin from a file named n" and silently eats the next word as its target
-gh pr merge "$PR" --merge \
-  --subject "Merge <staging>: release X.Y.Z" \
-  --body "Release-Level: patch"
-```
-
-An automatic (commit-derived) level needs no trailer at all.
 
 ### Merging `feature/*` → integration (integration-test gate)
 
@@ -654,10 +582,16 @@ three-step gated flow. The integration-test confirmation is a
    which do not satisfy this gate). Merge ONLY if the user explicitly
    confirms they tested. If unconfirmed, do not merge.
 
+   A green `e2e.yml` in CI does not satisfy this gate. That workflow is a layer-3 safety net
+   on the promotion branches — it reports after a merge, never before one, and it blocks
+   nothing. This gate is a human confirmation at a different point in a different flow;
+   removing it because a signal appeared downstream is a net loss of coverage.
+
 3. **Squash, then merge** — or, when `merge_workflow.pull_request` includes
    `daily`, open a PR instead of this step's `git merge --squash` and say it
    must be merged with **"Squash and merge"** (the integration ruleset allows
-   rebase too and cannot tell the two flows apart — see PR workflow above).
+   rebase too and cannot tell the two flows apart — PR workflow in
+   [`promotion.md`](promotion.md)).
    For a direct merge, choose squash granularity by change size:
    - **Small change** → collapse to **1 commit**.
    - **Larger change** → keep **one commit per category** (e.g. a
@@ -671,75 +605,9 @@ three-step gated flow. The integration-test confirmation is a
    git merge --squash feature/<name>
    ```
 
-### Merge commit messages (integration → staging)
-
-integration → staging makes a `--no-ff` merge commit. Its **title
-MUST start with a capital `Merge`** — gitlint recognizes a commit as
-a merge only when the title begins with capital `Merge`, and only then
-exempts it from the type/50-char checks.
-
-- `Merge <integration>: <headline>` — put the merge summary in the
-  **body**, not the title.
-- Never use lowercase `merge ...` — full-checked as a normal commit.
-- Never use `chore(release): ...` — that prefix is the auto-release
-  bot's namespace.
-
-Do not attach a Conventional type to a merge commit. The version is
-decided by semantic-release parsing the **individual merged commits**.
-
-Under `promotion` PR mode the same merge commit is created by GitHub's
-"Create a merge commit"; pin its title with `gh pr merge --subject`
-(see PR workflow) so this rule still holds.
-
-### Back-merge after release (production → integration)
-
-semantic-release writes the version bump (`plugin.json` / `pyproject`)
-and the marketplace sha pin **only on `production`** (as `[skip ci]`
-`chore(release)` commits). They never reach integration on their own,
-so integration's `plugin.json` drifts to a stale version.
-
-After every production release, **back-merge production → integration**
-— one merge, nothing else:
-
-```bash
-git fetch origin
-git switch <integration> && git merge --ff-only origin/<production>
-git push origin <integration>
-```
-
-Fast-forward when the branch is strictly behind; else `--no-ff` Merge.
-Under `daily` PR mode the integration ruleset **rejects this push** unless it
-carries a bypass actor for whoever back-merges — routing the back-merge
-through a PR instead does not work (see PR workflow).
-This one is **not optional**: without it the released tag is unreachable
-from integration and semantic-release miscomputes the next version. It is
-needed because Explicit-version gating forces the version into a
-**committed file** (not a tag-only release, which would never drift).
-
-**staging needs no back-merge** — the next `integration → staging`
-promotion carries the release commits forward on its own. The chain is
-`integration → staging → production`, and it closes: staging's rc bump
-reaches production through the promotion merge, and production's release
-commits reach integration through the back-merge above. staging therefore
-stays an **ancestor of integration**, so the next promotion is a
-descendant merge and the version file cannot conflict.
-
-Measured 2026-07-27 (0.1.12): the 0.1.11 back-merge to staging was
-skipped, so `v0.1.11` was **unreachable** from staging (nearest reachable
-tag: `v0.1.11-rc.1`). The `integration → staging` merge pulled it into
-ancestry and the rc came out correct — `0.1.12-rc.1`.
-
-This holds **only because the promotion is a merge.** A rebase promotion
-would replay the release commits under new SHAs, dropping the stable tag
-out of staging's ancestry — which is why the Merge strategy table above
-enforces `--no-ff` on that row.
-
 ### Feature branch base
 
-`/flow` cuts this branch in Step 2b. A **clean** tree branches from
-freshly fetched `origin/<integration>`; with **uncommitted changes** it
-branches off the current `HEAD` (carrying them) and rebases onto
-`origin/<integration>` at merge:
+Step 2b owns the rule. What it does not carry is the command:
 
 ```bash
 git fetch origin
@@ -755,10 +623,11 @@ Don't trust your earlier write.
 
 ## Repo conventions baked in
 
-- **Pre-commit hard gate is inherited by every tier** — the
-  `git commit` hook (configured in the project's `settings.json`)
-  runs the project's linter / test / formatter chain. Never bypass
-  with `--no-verify`.
+- **Never bypass the layer-1 hook with `--no-verify`** — the host's
+  `.pre-commit-config.yaml` chain is git-native and runs on every commit,
+  tier or no tier. The tier-driven check is a different thing: the
+  `precommit` runtime gate (Gate glossary), carried by every tier except
+  `docs`.
 - **Worker / service-process safety** — Dev+ changes touching
   long-running worker processes: inspect for in-flight tasks and
   require explicit user approval before restarting.
@@ -768,7 +637,8 @@ Don't trust your earlier write.
 
 Gates are enforced at chokepoints, driven by
 [`flow-tiers.yaml`](../flow-tiers.yaml) and the evidence markers
-`/flow` records under `.claude/harness-tier/.flow/` (gitignored):
+`/flow` and `/release-commit` record under
+`.claude/harness-tier/.flow/` (gitignored):
 `tier` (`<tier>:<branch>`) plus `<gate>.done` per completed gate.
 
 1. **Commit gate (Docs/Dev)** — the `git commit` hook (via the project's
@@ -776,41 +646,44 @@ Gates are enforced at chokepoints, driven by
    required marker gate has no `.done` marker, and also **blocks an
    unclassified commit** (policy intact but no `tier` marker — `/flow` was
    skipped). Branch-bound; fail-closed (see Properties).
-2. **Promotion gates (Staging / Release)** — enforced purely at
-   `git commit` by branch: a commit on the staging branch enforces
-   the `staging` gates; a commit on the production branch enforces
-   the `release` gates (same commit hook). **Deploy commands are not
-   gated** — tiers are separated by commit branch only.
+2. **Promotion gates (Staging / Release)** — enforced at `git commit`.
+   The branch decides first: a commit on the staging branch enforces the
+   `staging` gates, one on the production branch the `release` gates (same
+   commit hook). With no lifecycle branch the `tier` marker's own label
+   selects the set instead, which is the path a hand-written
+   `release:feature/x` takes (see Release). **Deploy commands are not
+   gated.**
 
 Properties:
 
 - **Fail-open on errors** — missing/unparseable policy or config, or
   any internal error → the action is allowed (a broken gate never bricks
   commits or deploys). The test is "the gate works reliably", not "a
-  file exists". **Exception — an unclassified commit is fail-CLOSED**:
-  when the policy parses and config is intact but no `tier` marker
-  exists, the commit is **blocked** so skipping `/flow` cannot silently
-  disable the gate. Promotion gates are likewise fail-*closed* on
-  missing evidence, but still fail-open on internal errors.
+  file exists". The unclassified-commit block above is the exception —
+  it is what stops a skipped `/flow` from silently disabling the gate —
+  and promotion gates are likewise fail-*closed* on missing evidence.
+  Both still fail open on an internal error.
 - **Branch-bound** — markers carry the branch, so stale state cannot
   block an unrelated task on another branch.
-- `precommit` / `security-scan` are runtime gates executed by the hook
-  (`precommit-runner.sh`, layer 2 — not the layer-1 pre-commit), not markers;
-  a tier's `flow-tiers.yaml` `gates` list is the single on/off switch for them
-  (see Gate glossary).
+- The four runtime gates — `precommit`, `security-scan`, `wiki`, `doc-style` — are run
+  by the hook rather than recorded as markers; layer 2, not the layer-1 pre-commit
+  (Gate glossary).
 - Judgment gates (review quality, human integration test) can only be
-  *recorded*, not verified — a marker is an audit trail + forcing
-  function, not proof.
+  *recorded*, not verified.
 - **Air-gapped limit** — an offline production machine runs on a
   separate host a local hook cannot reach; the staging → production
   commit is the local release-authorization gate.
 
-Clear state with `rm -rf .claude/harness-tier/.flow` (also done by `/flow`
-after a successful commit/merge).
+Clear state with `rm -rf .claude/harness-tier/.flow`, which is what
+`/flow` does after a successful commit/merge. `/release-commit`
+deletes its three promotion markers by name at its end state
+instead, so a `doc-sync.done` earned by day-to-day work survives
+the promotion.
 
 ---
 
 *Pilot: Docs & Dev enforced at commit; Staging at integration →
-staging, Release at staging → production / offline deploy. Full
-one-shot `/flow` automation of the Dev/Staging/Release pipelines
-is a follow-up.*
+staging, Release at staging → production / offline deploy.
+`/release-commit` runs the Staging and Release pipelines end to
+end; one-shot `/flow` automation of the Dev pipeline is a
+follow-up.*

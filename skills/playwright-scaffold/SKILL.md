@@ -1,6 +1,9 @@
 ---
 name: playwright-scaffold
-description: Use when a web project needs its first Playwright integration case — no test cases exist yet, or the integration skill found zero cases. Not for adding scenarios to a project that already has a suite.
+description: Use when a web project needs its first Playwright integration case — no test
+  cases exist yet, or the integration skill found zero cases. Also reports the multi-app
+  projects[] shape when a config already exists. Not for adding scenarios to a project that
+  already has a suite.
 ---
 
 # playwright-scaffold
@@ -94,8 +97,8 @@ is handled:
 
 | State | Action |
 |---|---|
-| `playwright.config.*` exists **with** a `use.baseURL` | nothing to do config-wise — but if `@playwright/test` itself is missing, still guide the install below |
-| `playwright.config.*` exists, **no** `use.baseURL` | add `use: { baseURL: '<the value confirmed in Step 1>' }` to the existing config — edit it, do not replace it |
+| `playwright.config.*` exists **with** a `use.baseURL` | nothing to do config-wise — but if `@playwright/test` itself is missing, still guide the install below. Report the `projects[]` shape a monorepo needs (Step 5) |
+| `playwright.config.*` exists, **no** `use.baseURL` | add `use: { baseURL: process.env.BASE_URL ?? '<the value confirmed in Step 1>' }` to the existing config — edit it, do not replace it |
 | `playwright.config.*` absent | scaffold the minimal config below |
 
 - If `playwright.config.*` is absent, scaffold the minimal config below. If
@@ -105,11 +108,21 @@ is handled:
   npm install -D @playwright/test && npx playwright install chromium
   ```
   ```javascript
-  // playwright.config.ts (minimal — inject the baseURL finalized in Step 1)
+  // playwright.config.ts (minimal — BASE_URL overrides the value confirmed in Step 1)
   import { defineConfig } from '@playwright/test';
   export default defineConfig({
     testDir: './tests',
-    use: { baseURL: 'http://localhost:3000' }, // ← the baseURL finalized in Step 1
+    use: {
+      baseURL: process.env.BASE_URL ?? 'http://localhost:3000', // ← Step 1's value
+      trace: 'retain-on-failure',  // a trace carries request/response bodies and session
+      video: 'off',                // tokens — this pair decides whether uploading the
+    },                             // report in CI is safe. Do not widen it casually.
+    // One entry per app in a monorepo. They run in parallel, every failure is collected,
+    // and one report covers all of them:
+    //   projects: [
+    //     { name: 'web',   use: { baseURL: process.env.WEB_URL   ?? 'http://localhost:3000' } },
+    //     { name: 'admin', use: { baseURL: process.env.ADMIN_URL ?? 'http://localhost:3001' } },
+    //   ],
   });
   ```
 
@@ -120,6 +133,10 @@ is handled:
 - Report the generated file path and the injected baseURL.
 - **State that this is a starter smoke**: "This is only a 'does the app come up?' check. Add real scenarios
   (login, checkout, etc.) yourself, or record them with `npx playwright codegen <baseURL>` and save them under `tests/`."
+- **When the config already exists**: do not rewrite it. Report the `projects[]` shape a
+  monorepo needs (one entry per app, each with its own `baseURL`), the `trace`/`video` pair,
+  and that `.github/workflows/e2e.yml` runs `npx playwright test` from one `working-directory`
+  — so every app must be reachable from that one config.
 
 ---
 

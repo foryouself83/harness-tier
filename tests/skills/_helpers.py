@@ -10,12 +10,14 @@ SKILL_IDS = [p.parent.name for p in SKILLS]
 # rules/ ships to consumers and the SessionStart hook injects it, so its commands run too.
 SHIPPED_RULES = sorted(REPO.glob("rules/*.md"))
 # Korean is allowed only where it is *data* rather than prose: a verbatim quote of a
-# script's real stdout, and the input tokens harness-insight parses. Translating either
-# would desync the doc from the code or drop Korean input support.
+# script's real stdout, the input tokens harness-insight parses, and the user phrasings a
+# description lists as triggers. Translating any of them would desync the doc from the code
+# or drop Korean input support.
 KOREAN = re.compile(r"[가-힣]")
 KOREAN_DATA_LITERAL_ALLOWLIST = {
     "skills/flow-init/SKILL.md": ["config 슬롯 점검"],
     "skills/harness-insight/SKILL.md": ["N일", "N주", "N개월", "오늘"],
+    "skills/release-commit/SKILL.md": ["stage로 올려줘", "릴리즈 해", "main 승격"],
 }
 
 

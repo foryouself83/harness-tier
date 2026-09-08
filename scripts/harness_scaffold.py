@@ -693,8 +693,14 @@ _ID_ATTR_RE = re.compile(r"(?:^|\s)id\s*=\s*[\"']([^\"']+)[\"']", re.IGNORECASE)
 # ways while the lazy `(.+?)` regrew over it — cubic, 18s on a 2.4KB heading line. `[ \t]`
 # also stops `\s` from crossing a newline.
 _HEADING_RE = re.compile(r"^[ \t]{0,3}#{1,6}[ \t]+(.+)$", re.MULTILINE)
+# Both `\r?` are load-bearing, on different input: plan `content` arrives with its newlines
+# unnormalized (a disk read translates them, a JSON string does not), and `$` sits after the
+# `\r`. Without the tail one a CRLF setext heading matches nothing and every link into it
+# reads dead; without the lookahead one a CRLF blank line is content, so it becomes a
+# heading with an empty slug, shifting every later empty-slug setext suffix by one.
+# Neither revives the split above — `\r` is outside `[ \t]`, leaving one way to match it.
 _SETEXT_RE = re.compile(
-    r"^(?![ \t]*$)(?![ \t]{0,3}#)(.+)\n[ \t]{0,3}(?:=+|-+)[ \t]*$", re.MULTILINE
+    r"^(?![ \t]*\r?$)(?![ \t]{0,3}#)(.+)\n[ \t]{0,3}(?:=+|-+)[ \t]*\r?$", re.MULTILINE
 )
 _MD_INLINE_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 # A well-formed tag or comment — what a renderer drops. A loose `<[^>]+>` also eats

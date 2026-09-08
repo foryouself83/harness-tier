@@ -14,9 +14,9 @@ applies it to one concrete commit.
 ## Input
 
 - **$ARGUMENTS** — the tier, a hint at what changed, and on a staging promotion the bump
-  level (`major`/`minor`/`patch`) that `/flow` asked the user for. The level arrives here or
-  not at all: nothing on disk carries it, `.flow/bump.done` being an empty marker. Everything
-  else is derivable — with no arguments, read `git status` and the diff.
+  level (`major`/`minor`/`patch`) that `/release-commit` asked the user for. The level
+  arrives here or not at all: nothing on disk carries it, `.flow/bump.done` being an empty
+  marker. Everything else is derivable — with no arguments, read `git status` and the diff.
 
 ## Host commit guide (optional, and it wins on stack facts)
 
@@ -50,6 +50,10 @@ Stage the affected paths by name. Never `git add -A` or `git add .` — one unre
 in makes the subject a lie about the diff, and the gate reads the same staged set you do.
 `.claude/harness-tier/.flow/` is gitignored evidence; it never belongs in a commit.
 
+A commit finishing an **open merge** has nothing to select here: `git merge --no-ff --no-commit`
+already staged the whole merged set, `git add` only adds to that, and git refuses a
+`git commit <pathspec>` mid-merge. Add only what a gate demanded on top — a rebuilt `graph.yaml`.
+
 ## Step 2 — Pick the type
 
 The type-to-version table in `risk-tiers.md` decides. Two traps it calls out that cost a
@@ -82,8 +86,10 @@ EOF
 )
 python3 -c 'import sys
 t = sys.argv[1].splitlines()
-bad = ["the heredoc is still the template"] if not t or "<" in t[0] else []
-bad += [f"subject is {len(t[0])} chars > 50"] if t and len(t[0]) > 50 else []
+sub = t[0] if t else ""
+merge = sub.startswith("Merge")
+bad = ["the heredoc is still the template"] if not t or "<" in sub else []
+bad += [f"subject is {len(sub)} chars > 50"] if len(sub) > 50 and not merge else []
 bad += [f"line {n} is {len(x)} chars > 72" for n, x in enumerate(t[1:], 2) if len(x) > 72]
 if bad:
     sys.exit("REWRITE — " + "; ".join(bad))' "$msg"   && printf '%s
@@ -92,8 +98,12 @@ if bad:
 
 Three things block here, all in the one block on purpose. A template subject still carrying
 `<` aborts — left runnable it would pass the length check, satisfy gitlint, and land as a real
-commit. Over 50 means rewrite the subject; `risk-tiers.md` admits no exception, and a non-ASCII
-character counts as one, which is what Python's `len` already measures. And `-C` keeps the worktree
+commit. Over 50 means rewrite the subject, and a non-ASCII character counts as one, which is what
+Python's `len` already measures. One subject is exempt: a title beginning with capital `Merge`,
+the only form gitlint reads as a merge and the only one it drops the type and 50-char checks
+for ([`promotion.md`](../../rules/promotion.md) Merge commit messages) — a promotion merge
+title carrying its source branch runs past 50 routinely. The template `<` check and the 72-char
+body limit still bind it. And `-C` keeps the worktree
 inside the command rather than in prose beside it: a bare `git commit` after a separate `cd` can
 leave the gate checking the main repo, since `--classify` reads the `git -C` the command
 carries. Write that path **literally** — `.` for the main repo, the worktree's own path
@@ -124,5 +134,7 @@ level; the finalize step is deterministic.
 1. **Never `--no-verify`.** A blocked commit is the gate working. Read its reason and satisfy
    it; bypassing it is what the gate exists to prevent.
 2. **One commit, one subject.** If the staged set needs two subjects, it is two commits.
-3. **The merge is not this skill's job.** `/flow` applies the Merge strategy afterwards, and
-   several of its rows are hook-enforced.
+3. **This skill never issues the merge.** The Merge strategy belongs to `/flow` for the
+   day-to-day rows and to `/release-commit` for a promotion, several of them hook-enforced. A
+   promotion reaches Step 4 with its merge already open (`--no-ff --no-commit`), so the commit
+   issued there is what writes that merge commit — do not abort it to write a plain one.

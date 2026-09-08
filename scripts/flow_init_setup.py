@@ -76,6 +76,8 @@ WIKI_VERIFY_TEMPLATE = "github/wiki-verify.workflow.example.yml"  # SOURCE (plug
 WIKI_VERIFY_DEST = ".github/workflows/wiki-verify.yml"  # host (GitHub-forced — HARNESS_DIR exc.)
 DOC_STYLE_TEMPLATE = "github/doc-style.workflow.example.yml"  # SOURCE (plugin-owned)
 DOC_STYLE_DEST = ".github/workflows/doc-style.yml"  # host (GitHub-forced — HARNESS_DIR exc.)
+E2E_TEMPLATE = "github/e2e.workflow.example.yml"  # SOURCE (plugin-owned)
+E2E_DEST = ".github/workflows/e2e.yml"  # host (GitHub-forced — HARNESS_DIR exception)
 # per-job wall-clock cap (minutes) when unit_test.timeout_minutes is unset
 UNIT_TEST_DEFAULT_TIMEOUT = 10
 # Languages the unit-test template runs an official setup-* action for (its `if: matrix.language ==`
@@ -1289,6 +1291,12 @@ def load_unit_test_config(host: Path) -> dict | None:
     return ut if isinstance(ut, dict) else None
 
 
+def load_e2e_config(host: Path) -> dict | None:
+    """Return the e2e dict from flow-config.yaml (None if absent/unparseable — FAIL-OPEN)."""
+    e2e = _load_yaml_safe(config_path(host)).get("e2e")
+    return e2e if isinstance(e2e, dict) else None
+
+
 def _unit_test_matrix_include(jobs: list) -> str:
     """Build the strategy.matrix.include body from unit_test.jobs[].
 
@@ -1398,6 +1406,39 @@ def render_doc_style_workflow(host: Path, plugin: Path) -> list[str]:
     costs a repo that never opted in nothing. Idempotent and non-destructive (existing dest →
     report only)."""
     return _render_one(plugin / DOC_STYLE_TEMPLATE, host / DOC_STYLE_DEST, {}, "doc-style 렌더")
+
+
+def render_e2e_workflow(host: Path, plugin: Path) -> list[str]:
+    """Copy e2e.yml as-is — no tokens, gated by one boolean.
+
+    Gated where wiki-verify and doc-style are not: those two no-op green because their own
+    script exits 0 without its config, and a repo that never opted in pays nothing. E2E has
+    no such script — its no-op is a step inside the template — so a consumer with no browser
+    front end would still spend a runner on every push to a promotion branch.
+
+    The boolean is a RENDER switch, not a run switch. Setting it back to false leaves an
+    already-rendered file running; deleting .github/workflows/e2e.yml is what stops it. That
+    asymmetry is why the report below names the scaffold rather than the flag.
+
+    Idempotent·non-destructive (existing dest → report only), like every render here.
+    """
+    cfg = load_e2e_config(host)
+    if cfg is None:
+        return ["  [=] e2e 미설정 — 워크플로 skip"]
+    if not cfg.get("enable"):
+        return ["  [=] e2e.enable=false — 워크플로 미설치"]
+    out = _render_one(plugin / E2E_TEMPLATE, host / E2E_DEST, {}, "e2e 렌더")
+    # Delivery is a human trigger (D8 = the scaffold owns playwright.config.*), so the one
+    # state the boolean cannot prevent is "workflow rendered, no suite anywhere". The
+    # template's detect step keeps that green; this line is how it stops being permanent.
+    # Root plus two levels down, matching the workflow's own `find -maxdepth 3`
+    # (github/e2e.workflow.example.yml) — a config the workflow would find but this glob
+    # missed prints a stale pointer at the exact monorepo path EDIT 4's own example gives
+    # (apps/web/playwright.config.ts).
+    config_globs = ("playwright.config.*", "*/playwright.config.*", "*/*/playwright.config.*")
+    if not any(any(host.glob(pattern)) for pattern in config_globs):
+        out.append("  [i] playwright.config.* 없음 — /playwright-scaffold 로 먼저 만드세요.")
+    return out
 
 
 def _gate_problems(host: Path, plugin: Path) -> list[str]:
@@ -1524,6 +1565,7 @@ def run_setup(host: Path, plugin: Path) -> bool:
         _step("[유닛 테스트 워크플로우]", lambda: render_unit_test_workflow(host, plugin)),
         _step("[wiki 검증 워크플로우]", lambda: render_wiki_verify_workflow(host, plugin)),
         _step("[문체 검증 워크플로우]", lambda: render_doc_style_workflow(host, plugin)),
+        _step("[E2E 워크플로우]", lambda: render_e2e_workflow(host, plugin)),
         _step("[배포 워크플로우]", lambda: render_deploy_workflows(host, plugin)),
         _step("[config 슬롯 점검]", lambda: report_missing_config_slots(host, plugin)),
     ]

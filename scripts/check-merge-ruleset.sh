@@ -330,7 +330,7 @@ for flow in "$@"; do
           "and every release stops. The actor is whoever pushes: the RELEASE_TOKEN" \
           "owner/app if that secret is set, else the github-actions app." \
           "Under this mode hotfix/* -> $production goes through a PR too (the ruleset" \
-          "governs every merge into $production) — see risk-tiers.md PR workflow."
+          "governs every merge into $production) — see promotion.md PR workflow."
         rc=10
       fi
       ;;

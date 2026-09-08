@@ -3,7 +3,7 @@
 # semantic-release/python-semantic-release — it does NOT derive patch/minor/major from
 # Conventional Commits (verified against jreleaser.org docs; version is always external input).
 # So the bump level comes from the same `Release-Level: major|minor|patch` commit trailer the
-# `/flow` staging-bump step already writes (default: patch when absent).
+# `/release-commit` staging-bump step already writes (default: patch when absent).
 # Assumes a `jreleaser.yml` already exists in the repo (owner/repo, changelog, and
 # `release.github.prerelease.pattern` config) — harness-init proposes one during research;
 # see docs/operations/commit-versioning-guide.md.

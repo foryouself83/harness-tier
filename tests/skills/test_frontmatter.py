@@ -61,7 +61,7 @@ def test_description_fits_the_listing_cap(skill: Path):
 
 
 # A skill that outgrows this stops being read and starts being skimmed — including by the
-# agent running it. 500 is the practical ceiling; the longest here is flow-init at 349.
+# agent running it. 500 is the practical ceiling; the longest here is flow-init at 492.
 SKILL_LINE_CAP = 500
 
 

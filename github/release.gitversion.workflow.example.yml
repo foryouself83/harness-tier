@@ -4,7 +4,7 @@
 # Commits preset out of the box. It runs here purely to surface the branch-computed SemVer for
 # visibility (e.g. to cross-check against GitVersion.MsBuild's build-time value); it does NOT
 # drive the release. The actual release version comes from the same `Release-Level:
-# major|minor|patch` commit trailer the `/flow` staging-bump step writes (default: patch), the
+# major|minor|patch` commit trailer the `/release-commit` staging-bump step writes (default: patch), the
 # same mechanism the other non-Conventional-Commits stacks (Java/Rust/Scala) use.
 # Version is tag-based (no .csproj rewrite) — GitVersion.MsBuild is the idiomatic way to inject
 # the version at build time; that is a separate, opt-in addition (not part of this workflow).
