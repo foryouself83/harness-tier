@@ -96,7 +96,7 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
 옮겨감(아래 §2.2). `/flow-init` Step 2.7 이 저장소의 현재 룰셋 상태를 읽어
 간극(브랜치 · 허용 머지 방식 · bypass actor)을 보고하지만, 대신 바꿔주지는 않음. 왜 promotion 룰셋에 bypass actor 가 필요한지,
 백머지가 `daily` 룰셋과 어떻게 맞물리는지를 포함한 전체 상세는
-[`rules/risk-tiers.md`](rules/risk-tiers.md) 의 **PR workflow** 절에 있음.
+[`rules/promotion.md`](rules/promotion.md) 의 **PR workflow** 절에 있음.
 
 **`checks` 키의 실행 시점** (모듈 사전검사):
 
@@ -177,7 +177,7 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
 후 백머지 push 도 막고, production 의 그것은 `hotfix/*` 까지 잡음. 둘 다 처리가
 필요함 — bypass actor 를 두거나, 그 흐름도 PR 로 돌리거나. staging 의 같은 규칙은 staging
 백머지 push 를 막는데, 이쪽은 처리가 필요 없음 — 거부된 push 가 그 단계의 정상 종료임.
-각 경우의 상세는 `rules/risk-tiers.md` 의 **PR workflow** 절에 있음.
+각 경우의 상세는 `rules/promotion.md` 의 **PR workflow** 절에 있음.
 
 판단할 수 없는 것은 전부 통과시킴: 매칭되는 규칙이 없거나, 명령을 파싱할 수 없거나,
 명령이 다른 워크트리를 지목하는 경우. 검사를 끄려면 플러그인 SOURCE 에서 `merge_strategy`

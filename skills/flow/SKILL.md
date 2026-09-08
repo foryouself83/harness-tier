@@ -20,7 +20,9 @@ enforces the tier's required gates.
 gate, per-tier steps) and [`flow-tiers.yaml`](../../flow-tiers.yaml) (tier→gates the
 commit hook enforces). `risk-tiers.md` is already in context — the SessionStart hook
 injects it — but **read `flow-tiers.yaml`**, which is not injected and carries the
-gate list you must report in Phase 1.
+gate list you must report in Phase 1. On a promotion also read
+[`promotion.md`](../../rules/promotion.md), the promotion-only half of the rule,
+which nothing injects either.
 
 Branch names referenced below come from `flow-config.branches`
 (`integration` / `staging` / `production`). Domain-review items come from
@@ -200,7 +202,8 @@ do not go looking for a skill behind either — none exists; the hook runs the c
 ## Promotion — Staging (integration → staging) / Release (staging → production)
 
 Promotions are gated at the **commit on the target branch**, so they need no tier marker —
-the branch drives it. The procedure itself lives in
+the branch drives it. Read [`promotion.md`](../../rules/promotion.md) first — nothing
+injects it. The procedure itself lives in
 [`release-commit`](../release-commit/SKILL.md): which bump-level mechanism the host's release
 CI is on, the gates and their markers, the merge shape each promotion takes, and the end state
 the three branches settle into. Invoke `Skill: release-commit` rather than restating any of it

@@ -153,7 +153,7 @@ evals/           skill measurement: invocation (cases.yaml · run.py · scores.p
      never sees direct/terminal/CI commits). Every job is timeout-capped.
 
   **PR mode** (`flow-config.merge_workflow.pull_request`;
-  [`rules/risk-tiers.md`](rules/risk-tiers.md) PR workflow) takes a flow's merge out of the
+  [`rules/promotion.md`](rules/promotion.md) PR workflow) takes a flow's merge out of the
   hook's sight, so `merge_strategy` stops applying to it and a GitHub branch ruleset
   enforces the method instead — `scripts/check-merge-ruleset.sh` reports that ruleset's state at
   `/flow-init` Step 2.7, read-only, never writing to GitHub. The substitution is exact only for
@@ -192,11 +192,15 @@ evals/           skill measurement: invocation (cases.yaml · run.py · scores.p
   [`evals/outcome.py`](evals/outcome.py), which own the scoring and the `outcome_sha`
   fingerprint. A skill enters the outcome arm by a
   [`scripts/skill_sandbox.py`](scripts/skill_sandbox.py) scenario declaring `outcome=`.
-  Two things nothing else says: the fingerprint is a **denylist**
+  Three things nothing else says: the fingerprint is a **denylist**
   (`outcome.SHA_EXEMPT`), so a field added to `Scenario` is covered by default and any byte
-  change to a `copy_from_repo` source costs a live re-measure; and the outcome arm, unlike the
+  change to a `copy_from_repo` source costs a live re-measure; the outcome arm, unlike the
   invocation one, **does cover `disable-model-invocation` skills**, which is how `/wiki-init` is
-  measured.
+  measured; and a skill declaring `hook_assisted` in `cases.yaml` has the **injected rule folded
+  into its `description_sha`**, so editing [`rules/risk-tiers.md`](rules/risk-tiers.md) or the
+  hook that injects it costs those four skills a live re-measure. That is not caution: `/flow`
+  measured 0.82 and 0.55 on a byte-identical description, the difference being two lines added
+  beside its mandate.
 - **Deployment is not a verification layer** — a release-decoupled opt-in:
   `/harness-deployments` writes `flow-config.deploy` and renders per-target `deploy-<name>.yml`
   components + a generated `deploy.yml` orchestrator; `release.yml` calls it via `workflow_call`

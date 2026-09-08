@@ -1,7 +1,9 @@
 import json
 import re
+from unittest import mock
 
-from tests.evals._helpers import CASES, REPO
+import evals.scores as scores
+from tests.evals._helpers import CASES, REPO, SKILLS
 
 
 def _injected_session_text() -> str:
@@ -90,4 +92,39 @@ def test_every_skill_the_injected_rule_names_declares_hook_assisted():
                 f"{name}: declares hook_assisted but nothing the SessionStart hook injects "
                 f"names /{name} any more — the help is gone, so the caveat is stale and the "
                 f"rate is now comparable to the unassisted skills."
+            )
+
+
+def test_a_hook_assisted_skill_refingerprints_when_the_injected_text_changes(tmp_path):
+    """An edit to the injected rule must invalidate a `hook_assisted` skill's recorded score.
+
+    Measured 2026-09-08: `/flow` scored 0.82 (n=55) and 0.55 (n=65) on a byte-identical
+    description, the whole difference being two lines added to `rules/risk-tiers.md`
+    immediately before its "FIRST action" mandate. `description_sha` hashed the description
+    alone, so the drop landed with no signal and survived four commits — the entry in
+    `cases.yaml` had said to read a flow regression as description *and* hook, and nothing
+    mechanical held anyone to it.
+
+    The injected text is monkeypatched rather than edited in place: this suite has to stay
+    runnable on a dirty tree, and a test that rewrites a shipped rule file to assert a hash
+    is one interrupted run away from leaving it rewritten."""
+    before = {n: scores.description_sha(n) for n in SKILLS}
+
+    edited = tmp_path / "risk-tiers.md"
+    edited.write_text("# not the shipped rule\n", encoding="utf-8")
+    with mock.patch.object(scores, "INJECTED", (edited,)):
+        after = {n: scores.description_sha(n) for n in SKILLS}
+
+    assisted = [n for n in SKILLS if CASES["skills"][n].get("hook_assisted")]
+    assert assisted, "cases.yaml declares no hook_assisted skill — this test proves nothing"
+    for name in assisted:
+        assert before[name] != after[name], (
+            f"{name}: declares hook_assisted, but its fingerprint ignored a changed injected "
+            f"rule — an edit to rules/risk-tiers.md would keep a stale score passing the gate."
+        )
+    for name in SKILLS:
+        if name not in assisted:
+            assert before[name] == after[name], (
+                f"{name}: does not declare hook_assisted, yet the injected rule moved its "
+                f"fingerprint — every edit to that file would force a needless re-measure."
             )

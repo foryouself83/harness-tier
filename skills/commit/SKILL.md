@@ -101,7 +101,7 @@ Three things block here, all in the one block on purpose. A template subject sti
 commit. Over 50 means rewrite the subject, and a non-ASCII character counts as one, which is what
 Python's `len` already measures. One subject is exempt: a title beginning with capital `Merge`,
 the only form gitlint reads as a merge and the only one it drops the type and 50-char checks
-for ([`risk-tiers.md`](../../rules/risk-tiers.md) Merge commit messages) — a promotion merge
+for ([`promotion.md`](../../rules/promotion.md) Merge commit messages) — a promotion merge
 title carrying its source branch runs past 50 routinely. The template `<` check and the 72-char
 body limit still bind it. And `-C` keeps the worktree
 inside the command rather than in prose beside it: a bare `git commit` after a separate `cd` can

@@ -100,7 +100,7 @@ ruleset — exactly so for `promotion`, only partly for `daily` (§2.2 below). `
 Step 2.7 reads the repo's current ruleset state and reports the gap (branches · allowed
 merge methods · a bypass actor), but never edits it for you. Full detail — including why a promotion ruleset needs a bypass actor
 and how the back-merge interacts with a `daily` ruleset — lives in
-[`rules/risk-tiers.md`](rules/risk-tiers.md)'s **PR workflow** section.
+[`rules/promotion.md`](rules/promotion.md)'s **PR workflow** section.
 
 **When each `checks` key runs** (module pre-checks):
 
@@ -170,7 +170,7 @@ merging from your own terminal bypasses it entirely.
 
 This local-hook enforcement applies only while the flow's merge stays a direct `git merge`.
 When `flow-config.merge_workflow.pull_request` routes a flow through a PR instead (see
-`rules/risk-tiers.md`'s **PR workflow** section), the hook never sees a `git merge`
+`rules/promotion.md`'s **PR workflow** section), the hook never sees a `git merge`
 command, so the corresponding row above stops firing — enforcement moves server-side to a
 GitHub branch ruleset (allowed merge methods), which `/flow-init` Step 2.7 checks but never
 changes for you.
@@ -184,7 +184,7 @@ flows you did not select: "require a pull request" on integration also blocks th
 post-release back-merge push, and on production it also catches `hotfix/*`. Both need
 handling — a bypass actor, or routing that flow through a PR as well. The same rule on staging
 blocks the staging back-merge push, which needs neither: a refused push is that step's
-documented end. `rules/risk-tiers.md`'s **PR workflow** section spells out each case.
+documented end. `rules/promotion.md`'s **PR workflow** section spells out each case.
 
 Anything the gate cannot decide lets the merge through: no matching rule, a command it
 cannot parse, or a command naming another worktree. To turn the check off, delete the

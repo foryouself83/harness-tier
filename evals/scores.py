@@ -22,6 +22,12 @@ import yaml
 
 REPO = Path(__file__).resolve().parent.parent
 SCORES = REPO / "evals/scores.json"
+CASES = REPO / "evals/cases.yaml"
+
+# What the SessionStart hook puts in front of every session: the rule file, plus the preamble
+# `inject-risk-tiers.sh` wraps it in. Together they are the second input to a `hook_assisted`
+# skill's invocation, and until now nothing fingerprinted them.
+INJECTED = (REPO / "hooks/inject-risk-tiers.sh", REPO / "rules/risk-tiers.md")
 
 # This one stays live and data-independent. Whatever the right firing rate turns out to be, a
 # skill that grabs more than a fifth of the prompts meant for its neighbours is wrong at any
@@ -93,12 +99,34 @@ def parse_frontmatter(path: Path) -> dict:
     return yaml.safe_load(m.group(1))
 
 
+def _hook_assisted(name: str) -> bool:
+    """Whether cases.yaml declares this skill's rate to depend on the injected rule."""
+    skills = (yaml.safe_load(CASES.read_text(encoding="utf-8")) or {}).get("skills") or {}
+    return bool((skills.get(name) or {}).get("hook_assisted"))
+
+
 def description_sha(name: str) -> str:
-    """Hash the description *only*. Invocation is decided by the description, so demanding
-    a re-measurement after every body edit would make the freshness check pure noise — and
-    a noisy gate is one people learn to skip."""
+    """Hash everything that decides whether this skill gets invoked.
+
+    For most skills that is the description *only*. The body is excluded on purpose:
+    demanding a re-measurement after every body edit would make the freshness check pure
+    noise, and a noisy gate is one people learn to skip.
+
+    A `hook_assisted` skill has a second input — the text the SessionStart hook injects —
+    and it is the stronger one: `/flow` measured 0.82 (n=55) and 0.55 (n=65) on the SAME
+    description, the difference being two lines added to `rules/risk-tiers.md` next to the
+    mandate (2026-09-08). Hashing only the description let that land with no signal at all,
+    while `cases.yaml` was already telling readers to "read a flow regression as description
+    *and* hook". So the injected text goes in the fingerprint for those skills, and an edit
+    to it costs a live re-measure exactly as a description edit does. The key keeps the name
+    `description_sha`: renaming it would rewrite every recorded entry and every test helper
+    to say what this docstring already says."""
     front = parse_frontmatter(REPO / f"skills/{name}/SKILL.md")
-    return hashlib.sha256(front["description"].encode("utf-8")).hexdigest()[:12]
+    h = hashlib.sha256(front["description"].encode("utf-8"))
+    if _hook_assisted(name):
+        for path in INJECTED:
+            h.update(path.read_bytes())
+    return h.hexdigest()[:12]
 
 
 def load(path: Path | None = None) -> dict:

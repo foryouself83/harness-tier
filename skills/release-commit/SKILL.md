@@ -21,11 +21,13 @@ allowed-tools: Bash(grep -c Release-Level .github/workflows/release.yml) Bash(gi
 One promotion end to end: the gates it records, the commit that carries the bump level, the
 merge the release CI needs, and the back-merge that closes the cycle.
 
-**Source of truth**: [`risk-tiers.md`](../../rules/risk-tiers.md) owns the policy — Merge
-strategy, Commit Discipline, the gate glossary, PR workflow, and Back-merge after release. The
-SessionStart hook injects it, so it is already in context; this skill is the procedure that
-applies it and does not restate it. Where the two disagree, follow `risk-tiers.md` and tell the
-user this skill has drifted. [`flow-tiers.yaml`](../../flow-tiers.yaml) carries the per-tier
+**Source of truth**: [`risk-tiers.md`](../../rules/risk-tiers.md) owns Merge strategy, Commit
+Discipline and the gate glossary, and the SessionStart hook injects it, so that half is already
+in context. PR workflow, Merge commit messages and Back-merge after release sit in
+[`promotion.md`](../../rules/promotion.md), which **nothing injects — read it before running a
+promotion**. This skill is the procedure that applies both and does not restate them. Where a
+rule file and this skill disagree, follow the rule file and tell the user this skill has
+drifted. [`flow-tiers.yaml`](../../flow-tiers.yaml) carries the per-tier
 gate list the commit hook enforces — read it, nothing injects it.
 
 Branch names come from `flow-config.branches` (`integration` / `staging` / `production`).
@@ -143,7 +145,7 @@ empty marker and nothing on disk carries the level. The commit skill appends the
 `Release-Level: <level>`, which CI reads to force
 `semantic-release version --<level> --as-prerelease`, and gives the commit the subject a
 promotion merge takes — `Merge <integration>: <headline>`, capital `Merge`, no Conventional
-type ([`risk-tiers.md`](../../rules/risk-tiers.md) Merge commit messages).
+type ([`promotion.md`](../../rules/promotion.md) Merge commit messages).
 
 On a **count 0** host pass no level, and the commit takes no trailer: nothing reads one, and a
 trailer written where nothing reads it is a promise the release does not keep. Same subject
@@ -259,7 +261,7 @@ git push origin <staging>
 so in the run's own output; the next integration → staging promotion carries the release
 commits forward on its own. Under PR mode the ruleset rejects the **push** instead, once the
 merge has already moved local `<staging>`: that is a finish too — leave the ref where it stands
-and `git switch -`. Rationale in [`risk-tiers.md`](../../rules/risk-tiers.md) Back-merge after
+and `git switch -`. Rationale in [`promotion.md`](../../rules/promotion.md) Back-merge after
 release.
 
 **Clear the promotion's evidence markers**, whichever this run recorded — `rm -f` is silent on

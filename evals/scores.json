@@ -1,15 +1,15 @@
 {
   "skills": {
     "commit": {
-      "description_sha": "d657456565b2",
+      "description_sha": "476ff428810a",
       "false_fire": 0.0,
       "false_hits": 0,
       "false_n": 15,
-      "invoke_hits": 6,
+      "invoke_hits": 5,
       "invoke_n": 15,
-      "invoke_rate": 0.4,
+      "invoke_rate": 0.33,
       "lost_to": {},
-      "measured_at": "2026-08-28",
+      "measured_at": "2026-09-08",
       "model": "claude-opus-4-8",
       "reps": 3,
       "restricted": 0.4,
@@ -17,29 +17,31 @@
       "truncated_quiet": 0.0
     },
     "doc-sync": {
-      "description_sha": "4098d0d2854c",
+      "description_sha": "f99e6d90afd6",
       "false_fire": 0.0,
       "false_hits": 0,
       "false_n": 15,
-      "invoke_hits": 10,
+      "invoke_hits": 7,
       "invoke_n": 15,
-      "invoke_rate": 0.67,
-      "lost_to": {},
-      "measured_at": "2026-07-19",
+      "invoke_rate": 0.47,
+      "lost_to": {
+        "flow": 4
+      },
+      "measured_at": "2026-09-08",
       "model": "claude-opus-4-8",
       "reps": 3,
-      "restricted": 0.6,
+      "restricted": 0.4,
       "truncated": 0.0,
       "truncated_quiet": 0.0
     },
     "flow": {
-      "description_sha": "5a996612c26f",
-      "false_fire": 0.0,
-      "false_hits": 0,
+      "description_sha": "a592a828c4ac",
+      "false_fire": 0.04,
+      "false_hits": 1,
       "false_n": 25,
-      "invoke_hits": 15,
+      "invoke_hits": 20,
       "invoke_n": 25,
-      "invoke_rate": 0.6,
+      "invoke_rate": 0.8,
       "lost_to": {},
       "measured_at": "2026-09-08",
       "model": "claude-opus-4-8",
@@ -133,14 +135,16 @@
       "truncated_quiet": 0.0
     },
     "release-commit": {
-      "description_sha": "75e1bdf4690f",
+      "description_sha": "1622b5fa6643",
       "false_fire": 0.0,
       "false_hits": 0,
       "false_n": 15,
-      "invoke_hits": 12,
+      "invoke_hits": 10,
       "invoke_n": 15,
-      "invoke_rate": 0.8,
-      "lost_to": {},
+      "invoke_rate": 0.67,
+      "lost_to": {
+        "flow": 1
+      },
       "measured_at": "2026-09-08",
       "model": "claude-opus-4-8",
       "reps": 3,
