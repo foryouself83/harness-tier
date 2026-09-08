@@ -15,6 +15,11 @@ never model knowledge:
 [`.claude/rules/skill-frontmatter.md`](.claude/rules/skill-frontmatter.md) and
 [`tests/skills/`](tests/skills/).
 
+`vway-kit` is its internal sister repo — not a consumer install and not an older name: the same
+disciplines and gate scripts, maintained separately, propagating in neither direction. A session
+in THIS repo runs the **installed vway-kit**, so a discipline fixed here does not govern the work
+that fixed it, and reflecting a fix there is its own task.
+
 ## Commands
 
 Gate scripts are Python; run tooling via `uv`.
@@ -32,8 +37,13 @@ uv run python -m evals.outcome                           # measure the outcome a
 uv run python -m evals.outcome --skill wiki-init         # …one skill only (others keep their baseline)
 ```
 
+A drop is not one run: `run.py` re-measures that skill in full to confirm it, so the advertised
+session count doubles exactly when a number falls and you are investigating why.
+`--accept --reason '…'` measures once — for a diagnostic run whose write does not matter.
+
 Verify every `*.sh` change with ShellCheck — the hook runtime is Windows, so a bug hides as
-FAIL-OPEN (see Invariants).
+FAIL-OPEN (see Invariants). Run it in **WSL**: the worktree is CRLF, which ShellCheck reports as
+hundreds of CR errors before it reads a line of shell (see Conventions).
 
 ## Conventions
 
@@ -58,6 +68,15 @@ FAIL-OPEN (see Invariants).
   `__init__.py`. That last one is insurance, not plumbing — basenames are unique today and collect
   without it — but the day two packages both hold a `test_build.py`, pytest errors on the second
   and **aborts the session**, so nothing in the repo runs. A file under the cap stays flat.
+- **The dev host is Windows, CI is ubuntu** — `core.autocrlf=true` with no `.gitattributes`, so
+  every tracked text file is CRLF in the worktree and LF in the blob. **Never digest the raw
+  bytes of a tracked file**: the digest then fingerprints the checkout instead of the content,
+  and the split is silent — local `pytest` green, CI red. It has bitten twice (`outcome_sha`,
+  then `description_sha` after this rule was already written), so normalize CRLF at every NEW
+  digest rather than trusting the rule to be remembered. Shell, PATH, shebangs, file modes and
+  path separators are checked in **WSL** before a push; a green local `pytest` says nothing
+  about them. `flow_init_setup.py` copies gate scripts byte-for-byte, so consumers receive
+  CRLF `.sh` until the checkout is renormalized.
 - **Mutation-test a fix, and assert the mutation applied** — a no-op edit runs the original code,
   so the suite passes and reads as verified. Read-modify-write in Python with
   `assert old in text`, never `sed -i`; revert with `git checkout --` from an already-clean tree.
@@ -67,7 +86,11 @@ FAIL-OPEN (see Invariants).
   checked in **WSL**, since on the dev host its test skips or the OS enforces the same thing and
   the mutation survives into a green suite. A battery that carries rows forward SAYS which it
   dropped for an anchor that moved: the edit under review is what moves them, and the run still
-  reports a clean sweep over what is left.
+  reports a clean sweep over what is left. After any mechanical edit to test files, `comm` the
+  collected node ids before and after — a folder split once made 37 tests skip in silence. And
+  a claim that a gate over- or under-blocks is A/B'd against the released tag over a command
+  matrix before it is acted on: one taken at face value produced a fix in the opposite
+  direction.
 
 ## Folder structure
 
@@ -165,7 +188,9 @@ evals/           skill measurement: invocation (cases.yaml · run.py · scores.p
 
   **Marker lifetime** (risk-tiers Step 3): `hooks/invalidate-gate-markers.sh` (PostToolUse)
   deletes the `review` and `doc-sync` markers on any edit, so passing is a fixpoint and Dev runs
-  doc-sync first, the review last. WHICH tree's evidence goes is resolved in the hook itself
+  doc-sync first, the review last. Ask the review agent for a literal `VERDICT: PASS` /
+  `VERDICT: FAIL` line: an ambiguous report reads as a pass, and the marker then records one
+  that never happened. WHICH tree's evidence goes is resolved in the hook itself
   (the edited file's repo root, plus `CLAUDE_PROJECT_DIR` unless the two are provably
   different repos — Invariant 6). Every undecidable case deletes; the hook's own failure keeps
   them (FAIL-OPEN).
@@ -202,7 +227,9 @@ evals/           skill measurement: invocation (cases.yaml · run.py · scores.p
   into its `description_sha`**, so editing [`rules/risk-tiers.md`](rules/risk-tiers.md) or the
   hook that injects it costs those four skills a live re-measure. That is not caution: `/flow`
   measured 0.82 and 0.55 on a byte-identical description, the difference being two lines added
-  beside its mandate.
+  beside its mandate. Position, not size, is the lever and it is not even monotone: a 226-line
+  split behind pointer stubs measured *worse* (0.33) than the bloat it removed. Leave
+  `## Principle` and its mandate alone; move whole promotion-only sections or nothing.
 - **Deployment is not a verification layer** — a release-decoupled opt-in:
   `/harness-deployments` writes `flow-config.deploy` and renders per-target `deploy-<name>.yml`
   components + a generated `deploy.yml` orchestrator; `release.yml` calls it via `workflow_call`
