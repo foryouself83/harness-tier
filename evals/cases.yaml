@@ -158,18 +158,25 @@ skills:
         golden_tier: dev
       # tier depends on the (unspecified) staged diff — no deterministic golden, left unlabelled
       - Commit these changes.
-      - prompt: Promote dev to stage.
-        golden_tier: staging
+      # An ordinary day-to-day dev request, the case release-commit's departure leaves flow to
+      # cover alone. Picked for no overlap with any other skill's own vocabulary (not a test/e2e
+      # ask, not a docs ask, not commit-message authoring, not a promotion).
+      - prompt: Add a retry-with-backoff wrapper around the HTTP client.
+        golden_tier: dev
       - prompt: Refactor the parser into its own module.
         golden_tier: dev
     negative:
+      # release-commit's happy case. flow taking it is now the failure mode: the promotion
+      # procedure — which merge shape, which bump mechanism, which end state — lives there. The
+      # single best negative here — it sits directly on the boundary this change draws, unlike
+      # a generic read-only question.
+      - Promote dev to stage.
       # flow's description claims ALL development work, so its negatives are the read-only
       # questions that sit closest to that claim without being a change.
       - What does the error ENOTEMPTY mean?
       - Explain the difference between rebase and merge.
       - Which Python version is this project on?
       - Summarize what this repository does.
-      - List the files in src/.
 
   harness-insight:
     fixture: null
@@ -265,3 +272,37 @@ skills:
       - Revert the last commit.
       - Show me the blame for this line.
       - Explain what a Conventional Commit is.
+
+  release-commit:
+    # Reached two ways. flow's Promotion pointer invokes it (reached_programmatically), and a
+    # user saying "릴리즈 해" reaches it directly — that autonomous arm is why the skill exists
+    # at all, so unlike `commit` this one carries a specialist's expect_invoke rather than a
+    # liveness check.
+    #
+    # hook_assisted because rules/risk-tiers.md, injected into every session, names
+    # /release-commit as the promotion procedure. Its rate is therefore not comparable to the
+    # unassisted skills, and the hook can hold it up while the description rots — read a
+    # regression as description *and* hook.
+    hook_assisted: true
+    reached_programmatically: true
+    invoked_by: flow/SKILL.md
+    fixture: null
+    expect_invoke: 0.70
+    expect_why: >-
+      the promotion procedure has exactly one right shape per host and the wrong one cuts no
+      release at all; a skill that misses one promotion ask in three is not owning it.
+    happy:
+      - Promote dev to stage.
+      - Merge stage into main and cut the release.
+      - The promotion merged but no release candidate was created — why?
+      - I need to re-promote stage to fold in one more fix. Does the trailer go on again?
+      - Does this repo force the bump level with a commit trailer or a workflow dispatch?
+    negative:
+      # flow's happy case — routing a day-to-day change is not a promotion.
+      - Commit these changes.
+      # commit's happy case: authoring one message, not running a promotion.
+      - What Conventional Commits type should this change get?
+      # flow-init renders the release workflow; this skill only reads it.
+      - Set up the release workflow for this project.
+      - Show me the changelog for the last release.
+      - Explain what a release candidate is.

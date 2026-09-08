@@ -55,6 +55,14 @@ MUST_STILL_PROMPT = {
     "doc-sync": ["rm -rf .claude/harness-tier/.flow"],
     "performance": ["pip install lizard", "npx @grafana/openapi-to-k6 --version"],
     "integration": ["npx playwright install chromium", "npm install -D @playwright/test"],
+    # This skill's whole subject is which merge shape the release CI needs, so a rule
+    # pre-approving any one of its merges is the most expensive hole it could carry. Its two
+    # back-merges spell the same command, so three strings cover all four.
+    "release-commit": [
+        "git merge --no-ff --no-commit origin/<integration>",
+        "git merge --no-ff --no-commit origin/<staging>",
+        "git merge --ff-only origin/<production>",
+    ],
 }
 
 

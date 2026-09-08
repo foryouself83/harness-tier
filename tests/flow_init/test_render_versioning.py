@@ -1,6 +1,35 @@
 from pathlib import Path
 
+import pytest
+import yaml
+
 from tests.flow_init._helpers import PLUGIN
+
+
+def _release_tools():
+    from scripts.flow_init_setup import _RELEASE_TEMPLATES
+
+    return sorted(_RELEASE_TEMPLATES)
+
+
+# The one release template whose tool cannot be handed a level: Node semantic-release derives
+# the bump from commit types and reads no trailer. Listed rather than detected — a new
+# auto-only template has to be a decision, and an unlisted one fails the test below.
+_AUTO_ONLY_TOOLS = {"semantic-release"}
+
+
+def _reads_the_trailer(body: str) -> bool:
+    """The mechanism, not the mention: a run step that pulls the level out of the commit
+    message with a `sed -nE` anchored on `^Release-Level:`. Every trailer-reading template also
+    NAMES the trailer in a header comment, so a bare `"Release-Level" in body` is satisfied by
+    that comment alone and stays green when the extraction line itself is deleted."""
+    return any(
+        not line.lstrip().startswith("#")
+        and "git log" in line
+        and "sed" in line
+        and "^Release-Level:" in line
+        for line in body.splitlines()
+    )
 
 
 def test_render_versioning_python(tmp_path):
@@ -104,3 +133,52 @@ def test_render_versioning_unknown_tool_skips(tmp_path):
     out = m.render_versioning_workflows(host, plugin)
     assert not (host / ".github" / "workflows" / "release.yml").exists()
     assert any("알 수 없는 release_tool" in line for line in out)
+
+
+@pytest.mark.parametrize("tool", _release_tools())
+def test_a_release_template_either_reads_the_trailer_or_is_declared_auto_only(tool: str):
+    """0.3.1 shipped no release candidate because the promotion followed a sister plugin's
+    `workflow_dispatch` level model while this repo's workflow reads a `Release-Level:` commit
+    trailer. The two agree on `auto`, so six releases passed before a forced level broke it.
+
+    `release-commit` greps the rendered workflow for the trailer and treats a miss as "the
+    level cannot be forced". That reading is only safe while every template is one of the two
+    known kinds, which is what this pins."""
+    from scripts.flow_init_setup import _RELEASE_TEMPLATES
+
+    body = (PLUGIN / _RELEASE_TEMPLATES[tool]).read_text(encoding="utf-8")
+    if tool in _AUTO_ONLY_TOOLS:
+        # The skill greps the whole file, comments included, so an auto-only template may not
+        # name the trailer anywhere: a mention alone already answers "the level can be forced".
+        assert "Release-Level" not in body, (
+            f"{tool}: declared auto-only but the template now names the Release-Level trailer "
+            f"— release-commit greps this file and would tell users the level can be forced "
+            f"here. Drop it from _AUTO_ONLY_TOOLS if the tool now reads the trailer for real."
+        )
+    else:
+        assert _reads_the_trailer(body), (
+            f"{tool}: no run step extracts the Release-Level trailer (a header comment naming "
+            f"it is not one) and the tool is not in _AUTO_ONLY_TOOLS. release-commit's grep "
+            f"would still report the level as forcible while nothing reads it. Restore the "
+            f"`git log -1 --pretty=%B | sed -nE 's/^Release-Level:...'` line, or list the tool "
+            f"as auto-only."
+        )
+
+
+@pytest.mark.parametrize("tool", _release_tools())
+def test_no_release_template_takes_the_bump_level_from_a_workflow_dispatch(tool: str):
+    """The sister plugin vway-kit forces the level through `workflow_dispatch: inputs: level`.
+    No template here does, and `release-commit` says so outright — a template that grew one
+    would make that statement false while every existing test stayed green."""
+    from scripts.flow_init_setup import _RELEASE_TEMPLATES
+
+    body = (PLUGIN / _RELEASE_TEMPLATES[tool]).read_text(encoding="utf-8")
+    # YAML 1.1 reads a bare `on` key as the boolean True, so ask for both spellings.
+    doc = yaml.safe_load(body) or {}
+    on = doc.get("on", doc.get(True)) or {}
+    dispatch = (on.get("workflow_dispatch") or {}) if isinstance(on, dict) else {}
+    inputs = (dispatch.get("inputs") or {}) if isinstance(dispatch, dict) else {}
+    assert "level" not in inputs, (
+        f"{tool}: takes a bump level from workflow_dispatch. release-commit states that no "
+        f"template here does and never triggers one — update the skill before adding this."
+    )

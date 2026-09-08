@@ -33,18 +33,18 @@
       "truncated_quiet": 0.0
     },
     "flow": {
-      "description_sha": "5d3a0516714e",
-      "false_fire": 0.0,
-      "false_hits": 0,
+      "description_sha": "5a996612c26f",
+      "false_fire": 0.07,
+      "false_hits": 1,
       "false_n": 15,
-      "invoke_hits": 13,
+      "invoke_hits": 12,
       "invoke_n": 15,
-      "invoke_rate": 0.87,
+      "invoke_rate": 0.8,
       "lost_to": {},
-      "measured_at": "2026-08-28",
+      "measured_at": "2026-09-08",
       "model": "claude-opus-4-8",
       "reps": 3,
-      "restricted": 0.6,
+      "restricted": 1.0,
       "truncated": 0.0,
       "truncated_quiet": 0.0
     },
@@ -129,6 +129,22 @@
       "model": "claude-opus-4-8",
       "reps": 3,
       "restricted": 0.2,
+      "truncated": 0.0,
+      "truncated_quiet": 0.0
+    },
+    "release-commit": {
+      "description_sha": "75e1bdf4690f",
+      "false_fire": 0.0,
+      "false_hits": 0,
+      "false_n": 15,
+      "invoke_hits": 12,
+      "invoke_n": 15,
+      "invoke_rate": 0.8,
+      "lost_to": {},
+      "measured_at": "2026-09-08",
+      "model": "claude-opus-4-8",
+      "reps": 3,
+      "restricted": 0.8,
       "truncated": 0.0,
       "truncated_quiet": 0.0
     }
