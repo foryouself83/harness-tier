@@ -120,12 +120,18 @@ def description_sha(name: str) -> str:
     *and* hook". So the injected text goes in the fingerprint for those skills, and an edit
     to it costs a live re-measure exactly as a description edit does. The key keeps the name
     `description_sha`: renaming it would rewrite every recorded entry and every test helper
-    to say what this docstring already says."""
+    to say what this docstring already says.
+
+    The injected bytes are newline-normalized first. The description arrives through
+    `read_text`, which already normalizes, but this checkout is CRLF on Windows and LF on the
+    ubuntu runner — over raw bytes the digest fingerprints the checkout rather than the
+    content, and whichever platform measures, the other reads the committed baseline as stale.
+    `outcome.py`'s `_copied_file_sha` normalizes for the same reason."""
     front = parse_frontmatter(REPO / f"skills/{name}/SKILL.md")
     h = hashlib.sha256(front["description"].encode("utf-8"))
     if _hook_assisted(name):
         for path in INJECTED:
-            h.update(path.read_bytes())
+            h.update(path.read_bytes().replace(b"\r\n", b"\n"))
     return h.hexdigest()[:12]
 
 

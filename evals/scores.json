@@ -1,7 +1,7 @@
 {
   "skills": {
     "commit": {
-      "description_sha": "476ff428810a",
+      "description_sha": "c39d95412233",
       "false_fire": 0.0,
       "false_hits": 0,
       "false_n": 15,
@@ -17,7 +17,7 @@
       "truncated_quiet": 0.0
     },
     "doc-sync": {
-      "description_sha": "f99e6d90afd6",
+      "description_sha": "4ac962f41b3d",
       "false_fire": 0.0,
       "false_hits": 0,
       "false_n": 15,
@@ -35,7 +35,7 @@
       "truncated_quiet": 0.0
     },
     "flow": {
-      "description_sha": "a592a828c4ac",
+      "description_sha": "58cd7f6474c2",
       "false_fire": 0.04,
       "false_hits": 1,
       "false_n": 25,
@@ -135,7 +135,7 @@
       "truncated_quiet": 0.0
     },
     "release-commit": {
-      "description_sha": "1622b5fa6643",
+      "description_sha": "3d7969c4896e",
       "false_fire": 0.0,
       "false_hits": 0,
       "false_n": 15,

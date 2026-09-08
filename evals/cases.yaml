@@ -75,9 +75,7 @@ skills:
     # "enter FIRST", so the help is weaker — a difference of degree, not of kind.
     #
     # Same two consequences: the rate is not comparable to the unassisted skills, and a
-    # regression here has to be read as description *and* hook. Note the hook text sits in no
-    # fingerprint — description_sha covers only the description, so editing risk-tiers.md can
-    # move this number without anything marking the score stale.
+    # regression here has to be read as description *and* hook.
     hook_assisted: true
     fixture: doc-sync-drift
     expect_invoke: 0.70

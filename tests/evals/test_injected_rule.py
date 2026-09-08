@@ -128,3 +128,26 @@ def test_a_hook_assisted_skill_refingerprints_when_the_injected_text_changes(tmp
                 f"{name}: does not declare hook_assisted, yet the injected rule moved its "
                 f"fingerprint — every edit to that file would force a needless re-measure."
             )
+
+
+def test_a_hook_assisted_fingerprint_does_not_depend_on_line_endings(tmp_path):
+    """Same injected text, two checkouts, one fingerprint.
+
+    `INJECTED` is hashed as bytes while every other input reaches the digest through
+    `read_text`, which normalizes. This repo checks out CRLF on Windows and LF on the ubuntu
+    runner, so the raw-byte digest fingerprinted the checkout instead of the content: a score
+    measured on Windows read as stale in CI (`commit: description changed since the score`),
+    and re-measuring in CI would have broken it the other way round. `_copied_file_sha` in
+    `outcome.py` had already met this and normalizes; this is the sibling that had not.
+
+    Monkeypatched rather than rewritten in place, for the reason the test above gives."""
+    assisted = [n for n in SKILLS if CASES["skills"][n].get("hook_assisted")]
+    assert assisted, "cases.yaml declares no hook_assisted skill — this test proves nothing"
+    stand_in = tmp_path / "risk-tiers.md"
+
+    def _fingerprints(newline: str) -> dict[str, str]:
+        stand_in.write_bytes(f"# rule{newline}mandate{newline}".encode())
+        with mock.patch.object(scores, "INJECTED", (stand_in,)):
+            return {n: scores.description_sha(n) for n in assisted}
+
+    assert _fingerprints("\n") == _fingerprints("\r\n")

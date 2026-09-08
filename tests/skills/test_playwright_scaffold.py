@@ -27,7 +27,7 @@ def test_scaffold_reports_projects_when_a_config_already_exists():
     # D7 delegates multi-app fan-out to Playwright's own projects[]; D8 = C makes this skill
     # the delivery path, which means it must say something in the case it does not write.
     # A bare "projects" in text is satisfied by unrelated pre-existing prose ("empty
-    # projects", Step 3) even without this change, so both loci this edit actually added
+    # projects", Step 3) even without this change, so both loci this edit added
     # are pinned: the projects[] shape in the scaffolded config, and the Step 5 report
     # bullet's own wording — either one reverted fails this test.
     text = SKILL.read_text(encoding="utf-8")
