@@ -82,8 +82,10 @@ hooks/           hooks.json (SessionStart + PostToolUse + Notification) · injec
                  stale-build warning) · invalidate-gate-markers.sh (an edit voids the review/doc-sync
                  evidence; host switch `gate_evidence.invalidate_on_edit`)
 skills/          /slash = skill — one dir each; open the dir for its SKILL.md
-rules/           risk-tiers.md (SSOT: tier classification + commit discipline) · harness-rules.md (SSOT: harness-gen)
-                 · doc-style.md (SSOT: prose discipline) — all SHIP to consumers, unlike .claude/rules/
+rules/           risk-tiers.md (SSOT: tier classification + commit discipline) · promotion.md
+                 (its promotion half, read at a promotion, injected by nothing) · harness-rules.md
+                 (SSOT: harness-gen) · doc-style.md (SSOT: prose discipline) — all SHIP to
+                 consumers, unlike .claude/rules/
 .claude/rules/   dev-only, never ships: skill-frontmatter.md (fires on a skills/**/*.md) ·
                  claude-md-authoring.md (fires on this file)
 scripts/         gate + setup scripts incl. wiki_graph.py (build/verify the LLM Wiki graph;
