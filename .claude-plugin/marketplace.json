@@ -9,7 +9,7 @@
       "description": "harness-tier risk-tiered workflow + Teams notification harness",
       "author": { "name": "foryouself83" },
       "category": "workflow",
-      "source": { "source": "github", "repo": "foryouself83/harness-tier", "sha": "e25eabf01a1dc96d62d48a8acdebeb5f1099e0fe" }
+      "source": { "source": "github", "repo": "foryouself83/harness-tier", "sha": "ca367cb6d3808de718dceccd5a43b8ebf9c07368" }
     }
   ]
 }
