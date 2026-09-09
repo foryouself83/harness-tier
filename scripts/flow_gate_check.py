@@ -182,7 +182,7 @@ _MERGE_FLAGS_WITH_ARG = frozenset(
 )
 
 # A `git switch` / `git checkout` INVOCATION that precedes the merge in the SAME command.
-# risk-tiers' "Merging feature/* → integration" prescribes a three-step block
+# merge-strategy's "Merging feature/* → integration" prescribes a three-step block
 # (`git switch <integration>` → `git pull --ff-only` → `git merge --squash feature/<name>`) that
 # Claude Code sends as ONE Bash call, so at hook time HEAD is still the SOURCE branch and no rule
 # would match — the very idiom the policy documents would bypass the gate.
@@ -466,7 +466,7 @@ def merge_check_output() -> None:
             print(
                 f"머지 전략 위반 — '{rule.get('source')}' → '{target}' 는 "
                 f"{required} 가 필요합니다. "
-                f"절차는 risk-tiers 규칙의 Merge strategy 절을 따르세요.",
+                f"절차는 harness-tier rules/merge-strategy.md 를 따르세요.",
                 file=sys.stderr,
             )
             sys.exit(BLOCK_EXIT_CODE)
@@ -476,7 +476,7 @@ def merge_check_output() -> None:
             print(
                 f"머지 전략 위반 — '{rule.get('source')}' → '{target}' 에는 "
                 f"{forbidden} 를 쓰지 않습니다. "
-                f"절차는 risk-tiers 규칙의 Merge strategy 절을 따르세요.",
+                f"절차는 harness-tier rules/merge-strategy.md 를 따르세요.",
                 file=sys.stderr,
             )
             sys.exit(BLOCK_EXIT_CODE)

@@ -1,8 +1,8 @@
 # harness-tier doc-style CI — copied as-is by /flow-init (no config tokens).
 # Layer-3 verdict for prose discipline (rules/doc-style.md). The layer-2 gate only warns, and
 # only on Claude-session commits; here a violation fails the push/PR.
-# Rendered unconditionally: with flow-config.doc_style absent or enable: false the script exits
-# 0 silently, so the job is green in a repo that never opted in. The step's own guard covers the
+# Rendered only when flow-config.doc_style.enable is true — the same flag the script reads, so
+# turning it back off silences this file rather than needing a delete. The step's own guard covers the
 # other case — a repo that gitignores .claude/ has no script in the checkout at all.
 name: doc-style
 

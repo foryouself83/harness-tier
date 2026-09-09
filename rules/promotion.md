@@ -19,7 +19,7 @@ section does not apply.
 gitlint (50/72 · Conventional Commits) and the tier gate (markers, unclassified block)
 fire exactly as before. What moves is the **merge**, and only the merge.
 
-The `require`/`forbid` cells in [`risk-tiers.md`](risk-tiers.md)'s Merge strategy table are
+The `require`/`forbid` cells in [`merge-strategy.md`](merge-strategy.md)'s table are
 enforced by a hook watching
 `git merge`, so they **do not fire** for a flow that goes through a PR. A GitHub Ruleset
 carries what it can of that enforcement instead, as allowed merge methods per branch —
@@ -190,5 +190,89 @@ ancestry and the rc came out correct — `0.1.12-rc.1`.
 
 This holds **only because the promotion is a merge.** A rebase promotion
 would replay the release commits under new SHAs, dropping the stable tag
-out of staging's ancestry — which is why [`risk-tiers.md`](risk-tiers.md)'s Merge strategy table
+out of staging's ancestry — which is why [`merge-strategy.md`](merge-strategy.md)'s table
 enforces `--no-ff` on that row.
+
+## Promotion events (Staging / Release)
+
+These are **not** per-task classifications — they are git-flow
+promotion gates run once over the accumulated work. They sit on their
+own axis: the Docs → Dev escalation ladder in Principle is the
+day-to-day one, and each promotion's gate set is chosen for that
+promotion rather than stacked on Dev's.
+
+### Staging — integration → staging branch (QA / rc cut)
+
+The release candidate enters QA/staging; its gates are in the git-flow mapping
+table in [`risk-tiers.md`](risk-tiers.md). Performance and integration are independent skills; the
+`/security-review` LLM review is added at Release.
+
+Staging also **forces a human bump-level choice**: `/release-commit` asks major/minor/patch
+(default = commit-derived) and records a `bump` gate marker; the commit gate blocks
+the staging commit until `bump.done` exists (fail-closed). The choice rides the
+staging commit as a `Release-Level:` trailer and CI forces
+`semantic-release version --<level> --as-prerelease`. main finalizes the rc by
+dropping the token deterministically (an overridden level would otherwise be lost —
+python-semantic-release recomputes on the stable branch). `major` on a 0.x project
+jumps to `1.0.0`.
+
+The trailer is for the **first** forced promotion only. `version --<level>` bumps the
+**base** version every time it is applied, so re-promoting with the trailer to fold in
+a follow-up takes `X.Y.Z-rc.1` → `X.Y.(Z+1)-rc.1`, skipping `X.Y.Z` as a stable
+release rather than continuing to `rc.2`. To iterate an rc on the same target version,
+re-promote **without** the trailer — the auto-derive path continues the series.
+
+### Release — staging → production branch
+
+One entry point: the staging → production promotion (official release),
+or a production deploy (e.g., an air-gapped offline deploy). Gates in the
+git-flow mapping table in [`risk-tiers.md`](risk-tiers.md).
+
+**A dangerous change does not escalate into this tier.** A single change
+that hits an irreversible/large data migration, a **performance-critical
+path** (search/embedding/GPU/inference config), or a security surface
+(auth/authz, secrets, gateway rate-limiting) stays at **Dev** and adds
+`/security-review` before the merge. Release carries no `review`, so
+escalating into it would buy a security pass by giving up the domain
+review — the wrong trade for the one change that needs both. Nothing
+stops it mechanically: the gate reads the tier marker's label and checks
+only that its branch matches, so a hand-written `release:feature/x` does
+select this set. That security pass is therefore discipline, not a gate.
+
+## Promotion steps
+
+### Staging (integration → staging)
+
+1. Regression review — Dev Step 3's procedure with ①'s promotion form
+   for **this** pair (`git fetch origin`, then
+   `git diff --name-only "origin/<staging>..origin/<integration>"`;
+   the workspace form would list nothing here) → record `review`.
+   `precommit` and `security-scan` run automatically on
+   promotion commits (runtime gates — no marker; see Gate glossary).
+2. Promote integration → staging (rc), or open a PR when
+   `merge_workflow.pull_request` includes `promotion` (the PR workflow above).
+
+### Release (staging → production)
+
+Gates: Staging's set with `security` added and both `bump` and `review`
+dropped, the finalize taking no level.
+
+**Code review does not run here.** Everything this promotion carries was
+read twice already — per task at Dev, as a batch at Staging — and what
+staging holds beyond that is CI's `chore(release)` bump. A third pass buys
+a second opinion on the same diff at the one moment where acting on a
+finding means unwinding a release. Two paths it does leave unread, both
+worth knowing: a `hotfix/*` → production landing never passes through
+staging, so its Dev-tier `review` at commit time is the whole of its
+review; and a commit made onto staging from a terminal is read by no gate
+at all — Staging's pair surfaces it only inverted, as a deletion the merge
+will not make, never as the change that was written, and this was the only
+layer that read it the right way round.
+
+1. Security review — `/security-review` → record `security`.
+2. Release note — Conventional Commits + semantic-release; the grouped, plumbing-filtered
+   CHANGELOG section becomes the GitHub Release body (auto-notes fallback).
+3. Promote staging → production and/or deploy, or open a PR for the
+   promotion when `merge_workflow.pull_request` includes `promotion`
+   (the PR workflow above, which covers `hotfix/*` →
+   production under the same value).

@@ -51,7 +51,7 @@
 | **한 파일로 끝내는 품질 게이트** | lint · 정적 분석 · import 린팅 · 테스트 · 보안 스캔 · API 계약 테스트를 모듈별로 하나의 `flow-config.yaml` 에 선언 — **모듈·브랜치·CI 잡을 자유롭게 확장**. **언어 무관**으로 설정한 명령을 실행할 뿐이며, 새 저장소는 `/flow-init` 한 번으로 전체 구성을 물려받고 활성 등급에 필요한 것만 실행. |
 | **파일을 빠뜨릴 수 없는 리뷰** | `review` 게이트는 변경 파일 목록을 **`git` 에서 직접** 가져와 전부 리뷰하고 그 개수를 보고서에 명시하므로, 큰 변경분에서 일부만 보고 나머지를 넘기는 일이 없음. 여기에 **변경된 public 심볼의 호출자**까지 language server(없으면 `grep`)로 확인 — 회귀가 실제로 터지는 자리이고 diff 만으로는 드러나지 않음. 판정은 독립 리뷰 에이전트가 팀의 `review_checklist` 기준으로 수행. |
 | **살아 있는 문서 SSOT** | `doc-sync` 가 코드와 문서를 함께 diff — 코드 변경은 관련 마크다운으로 전파되고 문서 변경은 문서 집합 전체에서 조율되며, `doc_style_check.py` 가 그 재작성이 heading·코드 블록·URL·인라인 코드를 하나도 잃지 않았음을 증명. |
-| **스스로 작성되는 CI** | `/flow-init` 이 설정으로부터 GitHub Actions 를 렌더링 — 유닛 테스트 안전망, API 계약 테스트, Conventional Commits 로 버전을 올리고 태깅하는 시맨틱 릴리스, wiki·문체 검증, 브랜치명·entropy 검사, 모든 잡에 timeout 상한. |
+| **스스로 작성되는 CI** | `/flow-init` 이 설정으로부터 GitHub Actions 를 렌더링 — 유닛 테스트 안전망, API 계약 테스트, Conventional Commits 로 버전을 올리고 태깅하는 시맨틱 릴리스, 옵트인 문체 검증, 브랜치명·entropy 검사(wiki 검증은 위키가 생긴 뒤 `/wiki-init` 이 더함), 모든 잡에 timeout 상한. |
 | **릴리스 위에 얹는 배포** | `/harness-deployments` 가 산출물 없는 릴리스에 발행을 더함 — 스택 감지 → 무엇을 어디에 배포할지 질문 → CI 렌더. `release.yml` 이 **같은 런**에서 호출하는 오케스트레이터(크로스-워크플로우 트리거·PAT 불필요)가 타깃별 컴포넌트(PyPI · npm · Maven Central/Gradle · NuGet · crates.io · GHCR · Docker Hub, 그리고 저작된 앱 배포)로 분기하며 타깃별 최소권한을 적용. |
 | **당신에게서 배우는 하네스** | `harness-insight` 가 Claude Code 활동을 집계해 반복해서 내리는 지시를 **하네스 후보**로 드러내고, 낡은 메모리를 정리. |
 | **팀 알림 내장** | 워크플로가 입력을 기다릴 때, 또는 원하는 체크포인트에서 Microsoft Teams 채널로 알림. |

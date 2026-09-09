@@ -126,7 +126,7 @@ Re-promoting to iterate the **same** rc series takes **no trailer**: `version --
 the base version every time it is applied, so a second trailer turns `X.Y.Z-rc.1` into
 `X.Y.(Z+1)-rc.1` and skips `X.Y.Z` as a stable release instead of continuing to `rc.2` — the
 auto-derive path is what continues the series
-([`risk-tiers.md`](../../rules/risk-tiers.md) Staging). A **production** commit never takes a
+([`promotion.md`](../../rules/promotion.md) Staging). A **production** commit never takes a
 level; the finalize step is deterministic.
 
 ## Guardrails

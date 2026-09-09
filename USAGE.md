@@ -223,9 +223,10 @@ pass before it can commit**.
   **working tree** — the hook fires before `git commit` stages anything, so there is no
   commit to inspect yet. Stage `graph.yaml` together with the documents it was built
   from; a rebuilt-but-unstaged graph satisfies the gate while the commit records the
-  stale one. `/flow-init` also renders a `wiki-verify.yml` CI workflow that runs the
-  same verification read-only on push/PR, catching drift from terminal and merge
-  commits the hook never sees.
+  stale one. `/wiki-init` offers a `wiki-verify.yml` CI workflow that runs the same
+  verification read-only on push/PR, catching drift from terminal and merge commits the
+  hook never sees — it asks once the graph verifies, and declining leaves that drift
+  unchecked until somebody's next session commit.
 - **`doc-style`** is the other in-process stage, and the only gate that **never blocks**. When
   `flow-config.doc_style` is enabled it lints the files a commit changes that its `paths` and
   `exclude` globs put in scope, against the `doc-style` rule — history narration, plan-record
@@ -236,7 +237,9 @@ pass before it can commit**.
   that scope through one function, so an `exclude` cannot hold in only one of them. A
   `flow-config.yaml` that does not parse fails the CI job rather than reading as "off". The
   verdict belongs to the `doc-style.yml` CI workflow, which sees the whole tree; a commit-time
-  block would deny commits on a rule tightening nobody could predict.
+  block would deny commits on a rule tightening nobody could predict. `/flow-init` renders that
+  workflow only when `doc_style.enable` is true, and asks — so `enable: false` is not a lighter
+  check but none at all, in both layers at once.
   `doc_style_check.py --verify-git` is the other half: it proves a rewrite kept every heading,
   fenced block, URL and inline-code span, and for `.py`/`.sh` that the code is byte-identical
   once comments and docstrings are stripped. `doc-sync` runs it after every rewrite.

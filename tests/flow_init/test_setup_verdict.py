@@ -223,10 +223,35 @@ def test_doc_style_check_is_copied_to_the_host():
     assert "scripts/doc_style_check.py" in COPY_FILES
 
 
-def test_run_setup_renders_doc_style(tmp_path: Path, capsys):
+def _write_doc_style_config(host: Path, doc_style) -> None:
+    import yaml as _yaml
+
+    cfg_dir = host / ".claude" / "harness-tier" / "config"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    (cfg_dir / "flow-config.yaml").write_text(
+        _yaml.safe_dump({"doc_style": doc_style}, allow_unicode=True), encoding="utf-8"
+    )
+
+
+def test_run_setup_renders_doc_style_when_enabled(tmp_path: Path, capsys):
+    _write_doc_style_config(tmp_path, {"enable": True, "paths": ["**/*.md"]})
     run_setup(tmp_path, PLUGIN)
     dest = tmp_path / ".github" / "workflows" / "doc-style.yml"
     assert dest.is_file()
     assert "doc-style" in capsys.readouterr().out
     # The guard the membership test above protects, read back from what was rendered.
     assert "doc_style_check.py" in dest.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "doc_style",
+    [None, {"enable": False, "paths": ["**/*.md"]}],
+    ids=["section-absent", "enable-false"],
+)
+def test_run_setup_skips_doc_style_unless_opted_in(tmp_path: Path, doc_style):
+    # The workflow holds the only verdict the prose layer ever gives, so it is offered
+    # rather than assumed — a host that never answered the question gets no file.
+    if doc_style is not None:
+        _write_doc_style_config(tmp_path, doc_style)
+    run_setup(tmp_path, PLUGIN)
+    assert not (tmp_path / ".github" / "workflows" / "doc-style.yml").exists()

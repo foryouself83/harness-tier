@@ -549,7 +549,7 @@ _BLANKED = frozenset({"continuation", "delimiter"})
 # and its path must not be the answer.
 _DASH_C_RE = re.compile(r"(?:^|\s)-C\s+")
 # Where one simple command in a chain ends and the next begins. A NEWLINE separates two
-# commands exactly as `&&` does, and the block risk-tiers documents for a squash merge is
+# commands exactly as `&&` does, and the block merge-strategy documents for a squash merge is
 # three newline-separated lines, so omitting it lets the shape the policy prescribes read as
 # one command. CR covers CRLF.
 _SEPARATOR_RE = re.compile(r"[;&|)\n\r]")

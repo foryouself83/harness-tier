@@ -105,10 +105,12 @@ hooks/           hooks.json (SessionStart + PostToolUse + Notification) · injec
                  stale-build warning) · invalidate-gate-markers.sh (an edit voids the review/doc-sync
                  evidence; host switch `gate_evidence.invalidate_on_edit`)
 skills/          /slash = skill — one dir each; open the dir for its SKILL.md
-rules/           risk-tiers.md (SSOT: tier classification + commit discipline) · promotion.md
-                 (its promotion half, read at a promotion, injected by nothing) · harness-rules.md
-                 (SSOT: harness-gen) · doc-style.md (SSOT: prose discipline) — all SHIP to
-                 consumers, unlike .claude/rules/
+rules/           risk-tiers.md (SSOT: tier classification + commit discipline) — the ONLY one injected,
+                 so its bytes are an eval input and a split of it costs 4 skills a live re-measure;
+                 promotion.md · merge-strategy.md · gate-mechanics.md are its halves, read at a promotion /
+                 at a merge / when a gate blocked, injected by nothing · harness-rules.md (SSOT:
+                 harness-gen) · doc-style.md (SSOT: prose discipline) — all SHIP to consumers,
+                 unlike .claude/rules/
 .claude/rules/   dev-only, never ships: skill-frontmatter.md (fires on a skills/**/*.md) ·
                  claude-md-authoring.md (fires on this file)
 scripts/         gate + setup scripts incl. wiki_graph.py (build/verify the LLM Wiki graph;
@@ -174,8 +176,8 @@ evals/           skill measurement: invocation (cases.yaml · run.py · scores.p
      `gates`; `git merge` takes a separate path judged against `merge_strategy`. Gate internals &
      the FAIL-OPEN rules → **Invariants** below.
   3. **CI (GitHub Actions)** — `/flow-init` renders `api-contract.yml` + `unit-test.yml` +
-     `wiki-verify.yml` + `doc-style.yml` + `e2e.yml`, closing layer 2's blind spot (it
-     never sees direct/terminal/CI commits). Every job is timeout-capped.
+     `doc-style.yml` + `e2e.yml`, and `/wiki-init` renders `wiki-verify.yml`, closing layer 2's
+     blind spot (it never sees direct/terminal/CI commits). Every job is timeout-capped.
 
   **PR mode** (`flow-config.merge_workflow.pull_request`;
   [`rules/promotion.md`](rules/promotion.md) PR workflow) takes a flow's merge out of the
@@ -209,9 +211,14 @@ evals/           skill measurement: invocation (cases.yaml · run.py · scores.p
   - `doc-style` never blocks — `doc-style.yml` holds the verdict, where the whole tree is in view.
 
   Terminal commits bypass every layer-2 gate, so drift is caught late (at the next session
-  commit), not lost; `wiki-verify.yml` and `doc-style.yml` close that window. Both render
-  unconditionally: each script no-ops green without its config, and each step guards on the script
-  being in the checkout at all, which it is not in a repo that gitignores `.claude/`.
+  commit), not lost; `wiki-verify.yml` and `doc-style.yml` close that window. **Both are opt-in,
+  and each is offered where its subject exists** — `doc-style.yml` at `/flow-init` on
+  `doc_style.enable`, `wiki-verify.yml` at `/wiki-init` once `--verify` passes, since at
+  `/flow-init` time there is no graph to point a workflow at. Neither absence is visible later,
+  so both asks state what declining leaves unchecked. Each step still guards on its script being
+  in the checkout at all, which it is not in a repo that gitignores `.claude/`. Only
+  `doc_style.enable` also stops an already-rendered workflow (the check script reads it);
+  a `wiki-verify.yml` is stopped by deleting it.
 - **Skill invocation is measured, not assumed** — `tests/skills/` checks a skill *file*
   is well-formed; [`evals/`](evals/) checks it is *reached* (half a skill's failure modes live in
   its `description`) and, in the outcome arm, that it *executed* correctly against a golden
@@ -228,8 +235,14 @@ evals/           skill measurement: invocation (cases.yaml · run.py · scores.p
   hook that injects it costs those four skills a live re-measure. That is not caution: `/flow`
   measured 0.82 and 0.55 on a byte-identical description, the difference being two lines added
   beside its mandate. Position, not size, is the lever and it is not even monotone: a 226-line
-  split behind pointer stubs measured *worse* (0.33) than the bloat it removed. Leave
-  `## Principle` and its mandate alone; move whole promotion-only sections or nothing.
+  split behind pointer stubs measured *worse* (0.33) than the bloat it removed, while a
+  255-line one leaving NO stubs held the rate (0.80 to 0.76, n=25 both). So: leave
+  `## Principle` and its mandate alone, move WHOLE sections, and never leave a "moved to X"
+  heading behind — a section that is only a pointer costs more than the text it replaced.
+  **Match the baseline's `--reps` before reading a number against it**: the same split
+  measured 0.87 with `false_fire` 0.20 at reps 3 (n=15) and 0.76 with 0.12 at reps 5 (n=25),
+  so a default-reps run against a reps-5 baseline invents both a record high and a
+  cap-grazing false-fire that neither survive the larger sample.
 - **Deployment is not a verification layer** — a release-decoupled opt-in:
   `/harness-deployments` writes `flow-config.deploy` and renders per-target `deploy-<name>.yml`
   components + a generated `deploy.yml` orchestrator; `release.yml` calls it via `workflow_call`

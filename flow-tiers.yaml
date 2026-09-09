@@ -22,7 +22,8 @@ tiers:
 
   staging:
     description: "QA/RC promotion (dev → stage) — security-tool pre-check + human bump-level selection"
-    superpowers: true
+    # A promotion validates already-built work; risk-tiers Step 2 is the SSOT for this field.
+    superpowers: false
     gates:
       - precommit
       - review
@@ -33,7 +34,7 @@ tiers:
 
   release:
     description: "Production deployment (stage → main) — security tools + security review, no code review"
-    superpowers: true
+    superpowers: false
     gates:
       - precommit
       - security-scan

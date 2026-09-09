@@ -21,7 +21,8 @@ allowed-tools: Bash(grep -c Release-Level .github/workflows/release.yml) Bash(gi
 One promotion end to end: the gates it records, the commit that carries the bump level, the
 merge the release CI needs, and the back-merge that closes the cycle.
 
-**Source of truth**: [`risk-tiers.md`](../../rules/risk-tiers.md) owns Merge strategy, Commit
+**Source of truth**: [`merge-strategy.md`](../../rules/merge-strategy.md) owns Merge
+strategy; [`risk-tiers.md`](../../rules/risk-tiers.md) owns Commit
 Discipline and the gate glossary, and the SessionStart hook injects it, so that half is already
 in context. PR workflow, Merge commit messages and Back-merge after release sit in
 [`promotion.md`](../../rules/promotion.md), which **nothing injects — read it before running a

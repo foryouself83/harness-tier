@@ -1,33 +1,35 @@
 {
   "skills": {
     "commit": {
-      "description_sha": "c39d95412233",
+      "description_sha": "9d718de87630",
       "false_fire": 0.0,
       "false_hits": 0,
       "false_n": 15,
-      "invoke_hits": 5,
+      "invoke_hits": 4,
       "invoke_n": 15,
-      "invoke_rate": 0.33,
-      "lost_to": {},
-      "measured_at": "2026-09-08",
+      "invoke_rate": 0.27,
+      "lost_to": {
+        "flow": 1
+      },
+      "measured_at": "2026-09-09",
       "model": "claude-opus-4-8",
       "reps": 3,
-      "restricted": 0.4,
+      "restricted": 0.2,
       "truncated": 0.0,
       "truncated_quiet": 0.0
     },
     "doc-sync": {
-      "description_sha": "4ac962f41b3d",
+      "description_sha": "65e17b840170",
       "false_fire": 0.0,
       "false_hits": 0,
       "false_n": 15,
-      "invoke_hits": 7,
+      "invoke_hits": 8,
       "invoke_n": 15,
-      "invoke_rate": 0.47,
+      "invoke_rate": 0.53,
       "lost_to": {
-        "flow": 4
+        "flow": 2
       },
-      "measured_at": "2026-09-08",
+      "measured_at": "2026-09-09",
       "model": "claude-opus-4-8",
       "reps": 3,
       "restricted": 0.4,
@@ -35,15 +37,15 @@
       "truncated_quiet": 0.0
     },
     "flow": {
-      "description_sha": "58cd7f6474c2",
-      "false_fire": 0.04,
-      "false_hits": 1,
+      "description_sha": "d8bb36841bcc",
+      "false_fire": 0.12,
+      "false_hits": 3,
       "false_n": 25,
-      "invoke_hits": 20,
+      "invoke_hits": 19,
       "invoke_n": 25,
-      "invoke_rate": 0.8,
+      "invoke_rate": 0.76,
       "lost_to": {},
-      "measured_at": "2026-09-08",
+      "measured_at": "2026-09-09",
       "model": "claude-opus-4-8",
       "reps": 5,
       "restricted": 0.8,
@@ -135,7 +137,7 @@
       "truncated_quiet": 0.0
     },
     "release-commit": {
-      "description_sha": "3d7969c4896e",
+      "description_sha": "b83f457d8ff1",
       "false_fire": 0.0,
       "false_hits": 0,
       "false_n": 15,
@@ -143,9 +145,10 @@
       "invoke_n": 15,
       "invoke_rate": 0.67,
       "lost_to": {
+        "commit": 1,
         "flow": 1
       },
-      "measured_at": "2026-09-08",
+      "measured_at": "2026-09-09",
       "model": "claude-opus-4-8",
       "reps": 3,
       "restricted": 0.8,

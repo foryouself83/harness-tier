@@ -70,6 +70,13 @@ config already exists (`${ROOT}/.claude/harness-tier/config/flow-config.yaml`):
      - Teams webhook URL → Step 3's webhook prompts
      - CLAUDE.md teams block → Step 3's managed-block step
      If the user selects nothing, stop after re-sync + backfill.
+  4. **Re-render (only if Reconfigure above changed a render flag):**
+     `doc_style.enable`, `unit_test.enable`, `contract_test.enable` and
+     `e2e.enable` decide whether a workflow is written, and the re-sync in
+     item 1 ran before those questions were asked. Run
+     `flow_init_setup.py` once more when one of them changed — otherwise the
+     host carries `enable: true` with no workflow, which for `doc_style` means
+     the rule is enforced in neither layer while the user believes it is on.
 
   Re-run never re-gathers everything and never overwrites host-owned config
   without the user selecting that section.
@@ -163,6 +170,16 @@ consent; never mutate machine-wide state.
          means the `setup` command prepares the runtime. Not derived from `modules[]`
          — the local gate and CI run in different execution contexts, so the CI job set
          is declared independently (self-contained `jobs[]`).
+       - **doc_style** (prose discipline — `rules/doc-style.md`): ask via `AskUserQuestion`
+         "Enforce the prose discipline?". **State the cost of "no" in the options
+         themselves**: the commit-time stage only ever *warns*, so
+         `.github/workflows/doc-style.yml` is the single place this rule is ever enforced —
+         declining does not leave a lighter check, it leaves none. **Yes** → `enable: true`,
+         then `paths` and `exclude` (offer the example's `["**/*.md"]` / `["CHANGELOG.md"]`
+         as defaults, and mention `**/*.py`·`**/*.sh` cover comments and docstrings).
+         **No** → `enable: false`; Step 2 then renders no workflow. The flag also drives the
+         commit-time stage, so it is one answer for both layers, and flipping it later
+         silences an already-rendered workflow without deleting it.
        - **modules** (per-module monorepo pre-checks — host-owned, lives under config):
          do not collect values on the first run. In Step 2.6, draft them by consulting
          the harness SSOT or by taking user input.
@@ -183,56 +200,11 @@ line, and it exits 1 rather than 0 so a caller that only reads the exit code can
 setup that did not happen. Relay the verdict and stop; do not continue to Step 3 as if the gate
 were live.
 
-It performs, idempotently, and prints a report to relay:
-- **Copies** the gate scripts into `.claude/harness-tier/scripts/`, and the
-  `flow-tiers.yaml` policy into `.claude/harness-tier/config/` (copied — not symlinked —
-  so a host `settings.json` hook can run the scripts by `${CLAUDE_PROJECT_DIR}` path; the
-  gate resolves `flow-tiers.yaml` from its sibling `config/` directory). The script's
-  printed report is the single source of truth for which files it copied — relay it verbatim.
-- **Registers** the commit gate in `.claude/settings.json` `hooks.PreToolUse` (skips
-  if already present; no `if` field — `precommit-runner.sh` self-filters on stdin).
-- **Registers** the `harness-tier` marketplace in `.claude/settings.json`
-  `extraKnownMarketplaces` with `autoUpdate: true` (adds if absent, repairs the flag
-  if present). Third-party marketplaces default to *no* auto-update and the author
-  cannot force it via `marketplace.json` (supply-chain boundary) — so the host opts in
-  here. Committed → the whole team auto-updates the plugin at startup.
-- **Checks** the static-analysis hooks: **creates** `.pre-commit-config.yaml` from the
-  example if absent (the `local` hooks are Python defaults to swap); if it **already
-  exists, does NOT auto-merge** (a PyYAML round-trip would strip the team's
-  comments/formatting) — instead **detects missing repos/hooks by `id` and reports
-  them** for the user to add manually.
-- **Appends** missing `.gitignore` lines (the gate-evidence `.flow/` directory and
-  the personal webhook file), skipping any already present.
-- **Renders** `.github/workflows/api-contract.yml` from `flow-config.contract_test`
-  when `enable: true` (creates if absent; if it already exists, **does NOT overwrite** —
-  reports for manual review). `.github/workflows/` is GitHub's enforced location — a
-  documented exception to the `.claude/harness-tier/` rule. Skips entirely when
-  `enable: false` or the section is absent.
-- **Renders** `.github/workflows/unit-test.yml` from `flow-config.unit_test` when
-  `enable: true` (same create-if-absent / never-overwrite / GitHub-forced-location
-  rules as api-contract). The variable-length `unit_test.jobs[]` is rendered into a
-  GitHub Actions `strategy.matrix.include` (one job per line), so each language/module
-  runs in parallel with its own `timeout-minutes`. Skips when `enable: false` or the
-  section is absent.
-- **Renders** `.github/workflows/wiki-verify.yml` (same create-if-absent /
-  never-overwrite rules) — **unconditionally**, no config gate: without a wiki the
-  script exits 0 silently, so the job stays green and the render carries no ordering
-  dependency on `/wiki-init`. The step guards on the script being present too, since a
-  repo that gitignores `.claude/` has none in the checkout and would otherwise go red on
-  every push. It runs `wiki_graph.py --verify` read-only in CI, closing the wiki gate's
-  terminal/merge-commit blind spot.
-- **Renders** `.github/workflows/doc-style.yml` on the same terms — unconditional, no
-  config gate, guarded on the script being in the checkout. It runs
-  `doc_style_check.py --lint-config`, which exits 0 silently without a
-  `flow-config.doc_style` block, and holds the verdict the layer-2 prose gate declines to
-  give. A `flow-config.yaml` that is present but does not parse fails the job instead —
-  read as "off", one typo would take the whole layer down with nothing red to say so.
-- **Renders** `.github/workflows/e2e.yml` from `flow-config.e2e` when `enable: true` —
-  copied as-is, no tokens, same create-if-absent / never-overwrite rules. Unlike wiki-verify
-  it IS gated, because its no-op lives in the template (a detect step that finds no
-  `playwright.config.*` skips the run) rather than in a script the plugin ships. Report the
-  `/playwright-scaffold` pointer the step prints when no config exists: the flag renders the
-  file, a suite is what makes it mean anything. It blocks nothing.
+It performs the steps listed in
+[`references/setup-script-actions.md`](references/setup-script-actions.md) — copies,
+hook/marketplace registration, `.gitignore`, and the CI workflow renders — and prints a
+report. **Relay that report; it is the authority on what was written**, not this skill's
+description of it.
 
 Then remind the user to run `pre-commit install --hook-type pre-commit --hook-type commit-msg
 --hook-type pre-push` (activates gitlint, the push notifier, and the file-hygiene hooks) and
@@ -294,111 +266,12 @@ later. If the user chooses to skip, write `modules:` as an empty array (`[]`) an
 
 Applies only when `flow-config.merge_workflow.pull_request` is non-empty. Under PR mode the
 local `git merge` disappears, so `flow-tiers.yaml`'s `merge_strategy` gate never fires — a
-GitHub Ruleset has to carry that enforcement instead. **The block below detects the
-not-applicable case itself**: on the shipped `[]` default (or a config that predates the
-slot) it prints a skip line and exits 0, so running it is always safe and never reads as a
-config defect.
+GitHub Ruleset has to carry that enforcement instead.
 
-Derive the repo, the branch names, and the selected flow(s) from the config you wrote
-in this same command — never type a branch name or flow list by hand. A typed branch name
-that doesn't match the config queries a ref that doesn't exist and silently reports a false
-mismatch; typing more flows than were selected reports a real gap against a branch the user
-never opted into securing. `flows()` below validates its own output before printing
-anything — an empty/absent `merge_workflow.pull_request` is the "skip" exit 3, while a
-non-list or any value outside `daily`/`promotion` is exit 1 with a stated reason, instead of
-silently handing the ruleset check zero (or garbled) arguments. Either way the block stops
-here rather than letting the check proceed and report a false "match". Run as written
-(`${ROOT}` is the host repo root from Path conventions above):
-
-```bash
-CFG="${ROOT}/.claude/harness-tier/config/flow-config.yaml"
-br() {
-  python3 - "$CFG" "$1" <<'PY'
-import sys, yaml
-try:
-    with open(sys.argv[1], encoding="utf-8") as f:
-        cfg = yaml.safe_load(f) or {}
-except Exception as e:
-    print(f"cannot read {sys.argv[1]}: {e}", file=sys.stderr)
-    sys.exit(1)
-key = sys.argv[2]
-val = (cfg.get("branches") or {}).get(key)
-if not isinstance(val, str) or not val:
-    print(f"branches.{key} must be a non-empty string, got: {val!r}", file=sys.stderr)
-    sys.exit(1)
-print(val)
-PY
-}
-flows() {
-  python3 - "$CFG" <<'PY'
-import sys, yaml
-try:
-    with open(sys.argv[1], encoding="utf-8") as f:
-        cfg = yaml.safe_load(f) or {}
-except Exception as e:
-    print(f"cannot read {sys.argv[1]}: {e}", file=sys.stderr)
-    sys.exit(1)
-pr = (cfg.get("merge_workflow") or {}).get("pull_request")
-valid = {"daily", "promotion"}
-if pr is None or (isinstance(pr, list) and not pr):
-    sys.exit(3)          # PR mode off (the shipped default) — not applicable, not an error
-if not isinstance(pr, list) or not set(pr) <= valid:
-    print(f"merge_workflow.pull_request must be a list of daily/promotion, "
-          f"got: {pr!r}", file=sys.stderr)
-    sys.exit(1)
-print(" ".join(pr))
-PY
-}
-FLOWS="$(flows)"; frc=$?
-if [ "$frc" = 3 ]; then
-  echo "  [=] merge_workflow.pull_request is empty — PR mode off, not applicable; skipping"
-  exit 0
-fi
-[ "$frc" = 0 ] || exit 1
-BR_INTEGRATION="$(br integration)" || exit 1
-BR_STAGING="$(br staging)" || exit 1
-BR_PRODUCTION="$(br production)" || exit 1
-if ! command -v gh >/dev/null 2>&1; then
-  echo "  [=] gh not installed — skipping the ruleset check (install gh to enable it)"
-  exit 0
-fi
-REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)" || REPO=""
-if [ -z "$REPO" ]; then
-  echo "  [=] no GitHub repo resolved (no remote, or gh not authenticated) — skipping"
-  exit 0
-fi
-HARNESS_REPO="$REPO" \
-HARNESS_BRANCH_INTEGRATION="$BR_INTEGRATION" \
-HARNESS_BRANCH_STAGING="$BR_STAGING" \
-HARNESS_BRANCH_PRODUCTION="$BR_PRODUCTION" \
-  bash "${PLUGIN}/scripts/check-merge-ruleset.sh" $FLOWS
-```
-
-(`$FLOWS` is deliberately unquoted — it word-splits the space-joined flow list into
-positional arguments, the same idiom `check-merge-ruleset.sh` itself uses for its own
-`for id in $ids` loop. `check-merge-ruleset.sh` independently refuses to report "match"
-for a zero-arg or all-unrecognized-arg call — belt and braces, since `flows()`/`br()`
-above are what should catch a bad config before the script ever runs. Each `br` call — and
-the `gh repo view` — is captured into its own variable and checked **before** the invocation
-line, not left inline inside it, because only a real assignment statement gives `||`
-something to fire on; a broken `branches` subtree (missing key, typo'd name, deleted
-value) must stop the block here, never reach the script as a silently empty env var that
-`${VAR:-dev}` would absorb into a check against the wrong branch. `REPO` is captured the
-same way and non-empty-tested for a related reason: inline, an empty `HARNESS_REPO` falls
-through to `${GITHUB_REPOSITORY:-}`, and if *that* happens to be set the script would
-cheerfully report "merge rulesets match" for a repo this block never derived. But `REPO`
-**skips rather than stops** — a broken `branches` subtree is a config error the user must
-fix, whereas an absent or unauthenticated `gh`, or a repo with no GitHub remote, only means
-this check is not applicable. The script itself already degrades that case to exit 20, so a
-caller that hard-errors on it is stricter than the thing it calls, and would stop
-`/flow-init` over a missing CLI.)
-
-The script is **read-only** — it never changes repo settings. It reports the gap between the
-current state and what is required, plus how to apply it (the same posture as
-`check_precommit`, which reports missing hooks instead of merging them). Relay its output
-**verbatim** and continue `/flow-init` on exit 10 (mismatch) and 20 (undetermined — no
-`python3`, or a ruleset whose body could not be read) alike.
-On a re-run this step doubles as a drift check.
+Follow [`references/merge-ruleset-check.md`](references/merge-ruleset-check.md) — it holds
+the block to run and why each guard is written the way it is. Run it unconditionally: the
+block detects the not-applicable case itself (the shipped `[]` default prints a skip line
+and exits 0), so reading the config here to decide would only duplicate that.
 
 ### Step 3 — Teams webhook URLs + CLAUDE.md block (interactive — Claude, skippable)
 
@@ -457,8 +330,8 @@ On a re-run this step doubles as a drift check.
 
 Print a summary: the **Step 0** dependency status (python3 ≥3.8 / PyYAML required —
 gate fails closed if missing; pre-commit / superpowers guidance), the **Step 2**
-script report (copied / registered / pre-commit checked / **contract-test &
-unit-test workflows rendered-or-skipped** / skipped, + any missing
+script report (copied / registered / pre-commit checked / **contract-test, unit-test,
+doc-style and e2e workflows rendered-or-skipped** / skipped, + any missing
 pre-commit hooks to add manually),
 the **Step 2.6** modules draft result (whether a harness was detected / number of modules
 written / list of unconfirmed items / whether skipped), whether the
@@ -468,6 +341,11 @@ the Teams block was inserted and the host `CLAUDE.md` already had a hand-written
 Teams-alert rule (pre-harness-tier), advise removing it — the managed block supersedes it
 (never delete the user's content automatically).** Then tell the user they can run
 `/flow`.
+
+Two absences are worth naming rather than leaving to the report's silence, because in both
+the layer is off and nothing says so later: a `doc_style.enable: false` means the prose rule
+is written down and enforced nowhere, and `wiki-verify.yml` is not rendered here at all —
+[`/wiki-init`](../wiki-init/SKILL.md) offers it once a wiki exists.
 
 ## Critical rules
 

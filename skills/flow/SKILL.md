@@ -139,7 +139,8 @@ do not go looking for a skill behind either — none exists; the hook runs the c
    → `touch .claude/harness-tier/.flow/doc-sync.done`.
 3. Commit through the `commit` skill — invoke `Skill: commit` with the tier and what
    changed; it stages, picks the type, and applies the 50/72 rule (rule 4). Then merge
-   **applying the risk-tiers Merge strategy** (rule 3 — not a plain merge). (The commit
+   **applying [`merge-strategy.md`](../../rules/merge-strategy.md)** (rule 3 — not a
+   plain merge). (The commit
    hook blocks until `doc-sync.done` exists.)
    When `flow-config.merge_workflow.pull_request` includes `daily`, open a **PR** instead
    of merging: rebase → integration-test human gate (unchanged) → push → `gh pr create` →
@@ -173,7 +174,8 @@ do not go looking for a skill behind either — none exists; the hook runs the c
    - **Selective TDD** — only business logic / core nodes / validators / workflow
      orchestration (see [`risk-tiers.md`](../../rules/risk-tiers.md) Step 3), not
      every change.
-   - **invoke the `doc-sync` skill** (not part of `superpowers`) → `touch .claude/harness-tier/.flow/doc-sync.done`.
+   - **invoke the `doc-sync` skill** (not part of `superpowers`) →
+     `touch .claude/harness-tier/.flow/doc-sync.done`.
    - **Domain review** — an independent **`general-purpose`** review agent
      (separate context; it runs shell commands). `git` is the authority on the
      changed-file list — **every** file is reviewed and the count is reported —
@@ -190,7 +192,8 @@ do not go looking for a skill behind either — none exists; the hook runs the c
      saw (a terminal command, another tool) leaves the markers standing —
      `rm -f .claude/harness-tier/.flow/review.done .claude/harness-tier/.flow/doc-sync.done`.
 4. Commit through the `commit` skill — invoke `Skill: commit` with the tier and what
-   changed (rule 4) → merge **applying the risk-tiers Merge strategy** (rule 3 — not a
+   changed (rule 4) → merge **applying
+   [`merge-strategy.md`](../../rules/merge-strategy.md)** (rule 3 — not a
    plain merge). (The commit hook blocks until `review.done` and `doc-sync.done`.)
    When `flow-config.merge_workflow.pull_request` includes `daily`, open a **PR** instead
    of merging: rebase → integration-test human gate (unchanged) → push → `gh pr create` →
@@ -239,10 +242,11 @@ rm -rf .claude/harness-tier/.flow
    command, another tool): delete the marker yourself and earn it again.
 3. **Apply the documented Merge strategy** — direct commit + merge, but
    **do not default to a plain / `--no-ff` merge**. For every merge, look up its
-   branch-flow row in [`risk-tiers.md`](../../rules/risk-tiers.md) **Merge strategy**
+   branch-flow row in [`merge-strategy.md`](../../rules/merge-strategy.md)
    and follow it exactly — the required strategy varies by flow (rebase / squash /
-   `--no-ff` merge). Commit types & the 50/72 rule live in the same file's Commit
-   Discipline. Several of those rows are **enforced by the hook**: a merge whose flags
+   `--no-ff` merge). Commit types & the 50/72 rule live in
+   [`risk-tiers.md`](../../rules/risk-tiers.md) Commit Discipline. Several of those rows
+   are **enforced by the hook**: a merge whose flags
    violate its row is blocked (exit 2) naming the flag it wants. The table's **Gate**
    column says which rows fire — the rest still depend on you following them.
 4. **Every commit goes through the `commit` skill** — invoke `Skill: commit`, which
