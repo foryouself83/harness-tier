@@ -9,6 +9,16 @@ description: "Use when a change may have left the documentation drifted or incon
 # per-node prompt is the cost of not granting that.
 # `--derive-id <paths>` is absent for the same reason — path arguments force a trailing `*`.
 allowed-tools: Bash(mkdir -p .claude/harness-tier/.flow) Bash(touch .claude/harness-tier/.flow/doc-sync.done) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --build) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --verify) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --stale) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --unmapped)
+argument-hint: "[preview | what changed and why]"
+# This skill reads a whole doc set to change a few lines of it, so the reading is the cost,
+# and it lands on whoever called the skill rather than on the work. Forking moves it. What
+# these four fields mean and what each buys is `.claude/rules/skill-frontmatter.md`; only
+# the part specific to this skill is here — a fork gets no conversation history, so Step 0
+# below is the ONLY way the caller's intent reaches the body, and `preview` lives there.
+context: fork
+agent: general-purpose
+model: sonnet
+background: false
 ---
 
 # doc-sync
@@ -22,6 +32,26 @@ harmonize the whole doc set for consistency.
   gate** (after superpowers completes) → on pass, record
   `.claude/harness-tier/.flow/doc-sync.done`.
 - Whenever you need to verify documentation consistency after a code/doc change.
+
+## 0. Read the caller's note
+
+`$ARGUMENTS` is everything the caller said. This skill runs in a forked subagent with no
+conversation history, so nothing else carries their intent in — an empty value is normal
+and means the change itself is the whole brief.
+
+Two things it can carry, and they are exclusive. A value that is **exactly** `preview`
+means plan only. Anything else — including a sentence with the word *preview* somewhere in
+it — is context for Mode A: what changed and why, which the diff shows the *what* of but
+never the *why*, so a caller who names the intent narrows the keyword extraction step 1 of
+Mode A would otherwise derive from the diff alone. Match the whole value, never a substring:
+"I reworked the preview pane, check the docs" is a request to sync, and reading it as the
+mode would answer a sync with a plan and leave no marker, which is this skill declining to
+run without saying so.
+
+Plan only means the tree is left as found. No Edit, and none of the writes that are not
+Edits either: no `git add`, and no `wiki_graph.py --build`, which overwrites `graph.yaml`
+and is pre-approved above so nothing will stop you. Skip §2's marker, and say in the Report
+that you skipped it.
 
 ## 1. Determine the change scope
 
@@ -79,6 +109,12 @@ Check every target; track the index by following its links.
 2. **Factual consistency (SSOT)** — do two docs record the same value (model
    name, port, path, policy, version) differently? Keep the value in a single
    source of truth and reduce the rest to links.
+   **Which one is the source is not a vote.** The artifact the system reads at
+   runtime wins over every document describing it — the code, then the
+   config it loads (`.env.example`, a settings file), then the index, then the
+   per-service doc. Two docs agreeing against the code are two stale docs, not a
+   majority. And correcting the code to match the docs is never the fix here:
+   this skill's subject is the documentation.
 3. **Index sync** — does the index's rule/service tables match the actual file
    set (the rule dir, the service dirs)?
 4. **Hierarchy consistency** — do the per-service docs contradict the index's
@@ -93,7 +129,8 @@ Check every target; track the index by following its links.
      signal [`flow-init`](../flow-init/SKILL.md) uses to decide "harness
      installed"), do **not** create one — creating it here would falsely trip
      that detection for a project that never ran `/harness-init`. Note the
-     gap in the Report and stop.
+     gap in the Report and move to the next check item — this branch ends
+     check 5, not the skill; §1b and the marker still run.
    - Otherwise, if a module has **no** local `CLAUDE.md`, generate one from
      [`module-claude-md-template.md`](references/module-claude-md-template.md)
      by reading the module's actual code (entry points, build/test/lint
@@ -273,9 +310,11 @@ did not touch says nothing either way — the answer comes from comparing agains
 Prose itself follows [`doc-style.md`](../../rules/doc-style.md): no history narration, no
 pointer to a plan record, no filler, and Korean documents take nominal endings.
 
-## 2. Gate marker (when called by `/flow`)
+## 2. Gate marker
 
-After checking/updating, leave the gate evidence (the commit is blocked without it):
+Unless step 0 asked for a preview, leave the gate evidence — the commit is blocked without
+it, and "was I called by `/flow`?" is not a question a fork can answer, so it is not asked:
+the marker records that doc-sync passed on this tree, which is true whoever called it.
 
 ```bash
 mkdir -p .claude/harness-tier/.flow && touch .claude/harness-tier/.flow/doc-sync.done
@@ -304,8 +343,8 @@ doc-sync result:
   stable.
 - Keep the same fact only in its SSOT (e.g. `.env.example`, a service's local
   doc) and link from other docs — this prevents Mode B mismatches at the root.
-- To preview the plan only, request "doc-sync preview" (planning without actual
-  Edits).
+- To preview the plan only, pass `preview` as the argument (step 0) — the word has to
+  reach `$ARGUMENTS`, since a fork never sees the sentence it was asked in.
 - The module template ([`module-claude-md-template.md`](references/module-claude-md-template.md))
   covers only a single module's usage info (commands/architecture/gotchas). It
   is a different artifact from the harness root
