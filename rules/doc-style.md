@@ -4,7 +4,9 @@ Applies to every `.md` a project ships and every comment and docstring in its co
 `.claude/harness-tier/scripts/doc_style_check.py --lint` enforces the mechanical half;
 the judgement below is the half it cannot make. Which files it reads comes from
 `flow-config.doc_style.paths` — `**/*.md` alone by default, so a project that wants its
-comments checked names `**/*.py` · `**/*.sh` there too.
+comments checked names `**/*.py` · `**/*.sh` there too. `exclude` carves back out what no
+edit could pass: a regenerated `CHANGELOG.md`, and the `docs/superpowers/` · `.superpowers/`
+trees, whose records are checklist lines and pointers to themselves by construction.
 
 ## The rule
 

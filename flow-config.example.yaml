@@ -126,8 +126,10 @@ doc_style:
   # Globs kept out of scope — a subtree is `dir/**`, its direct children `dir/*`.
   # CHANGELOG.md ships as a default because a release tool regenerates it from commit
   # subjects: a subject carrying a banned word would make CI red with no edit that could
-  # fix it. Add vendored docs and other generated output here.
-  exclude: ["CHANGELOG.md"]
+  # fix it. The superpowers trees ship for the same reason from the other side: a plan is
+  # checklist lines and pointers into its own path, which is what the PLAN rule bans, so no
+  # edit to the document clears it. Add vendored docs and other generated output here.
+  exclude: ["CHANGELOG.md", "docs/superpowers/**", ".superpowers/**"]
 
 # REST API contract testing (CI only — GitHub Actions). No REST API → enable:false → not installed.
 # /flow-init reads these values and renders .github/workflows/api-contract.yml.
