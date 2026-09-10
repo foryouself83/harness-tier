@@ -115,12 +115,16 @@ rules/           risk-tiers.md (SSOT: tier classification + commit discipline) �
                  claude-md-authoring.md (fires on this file)
 scripts/         gate + setup scripts incl. wiki_graph.py (build/verify the LLM Wiki graph;
                  owns `derive_wiki_id`/`--derive-id`, the executable SSOT for the `wiki_id` rule) ·
-                 doc_style_check.py (prose lint + lossless rewrite verify) —
+                 doc_style_check.py (prose lint + lossless rewrite verify) · srs_check.py
+                 (`--areas`/`--next-id`/`--verify` over docs/srs) · _md_anchors.py (GitHub's anchor
+                 rules; its own module because COPY_FILES lands flat siblings and harness_scaffold,
+                 which also holds them, is never copied — ship one without the other and the host
+                 ImportErrors inside a FAIL-OPEN step) —
                  authoritative copy list = flow_init_setup.py COPY_FILES (open the dir for the rest)
 github/          *.workflow.example.yml SOURCEs /flow-init renders (CI · release.<tool> · deploy.<target>);
                  authoring gotchas (timeout-minutes cap · no ${{ }} in a run: block) guarded by tests/flow_init/
-.github/         this repo's OWN CI (release · branch-naming · entropy-check · unit-test · doc-style, all
-                 timeout-capped) · scripts/pin-marketplace-sha.py
+.github/         this repo's OWN CI (release · branch-naming · entropy-check · unit-test · doc-style ·
+                 wiki-verify · srs-verify, all timeout-capped) · scripts/pin-marketplace-sha.py
 flow-tiers.yaml            tier→gates + merge_strategy — plugin-owned, immutable
 flow-config.example.yaml   host environment slots (real file → host .claude/harness-tier/config/, team-shared)
 tests/           pytest over scripts/ — a package per oversized module (flow_gate · flow_init · wiki_graph ·
@@ -176,8 +180,9 @@ evals/           skill measurement: invocation (cases.yaml · run.py · scores.p
      `gates`; `git merge` takes a separate path judged against `merge_strategy`. Gate internals &
      the FAIL-OPEN rules → **Invariants** below.
   3. **CI (GitHub Actions)** — `/flow-init` renders `api-contract.yml` + `unit-test.yml` +
-     `doc-style.yml` + `e2e.yml`, and `/wiki-init` renders `wiki-verify.yml`, closing layer 2's
-     blind spot (it never sees direct/terminal/CI commits). Every job is timeout-capped.
+     `doc-style.yml` + `e2e.yml` + `srs-verify.yml`, and `/wiki-init` renders `wiki-verify.yml`,
+     closing layer 2's blind spot (it never sees direct/terminal/CI commits). Every job is
+     timeout-capped.
 
   **PR mode** (`flow-config.merge_workflow.pull_request`;
   [`rules/promotion.md`](rules/promotion.md) PR workflow) takes a flow's merge out of the
@@ -205,20 +210,26 @@ evals/           skill measurement: invocation (cases.yaml · run.py · scores.p
   - `wiki` (`--wiki-check` remains a compat alias; enabled by `flow-config.wiki`) reads the
     working tree, because the hook fires
     before staging — so `graph.yaml` must be staged with the documents it was built from. The
-    graph is built by `doc-sync` or `/wiki-init` from **git's index**, never by the hook or CI,
-    and no promotion gate rebuilds it: a blocked promotion is resolved by running `--build` into
-    that commit.
+    graph is built by `doc-sync`, `/wiki-init`, or `/flow`'s Dev step 1b (a new SRS area
+    file) from **git's index**, never by the hook or CI, and no promotion gate rebuilds it:
+    a blocked promotion is resolved by running `--build` into that commit.
   - `doc-style` never blocks — `doc-style.yml` holds the verdict, where the whole tree is in view.
 
   Terminal commits bypass every layer-2 gate, so drift is caught late (at the next session
-  commit), not lost; `wiki-verify.yml` and `doc-style.yml` close that window. **Both are opt-in,
-  and each is offered where its subject exists** — `doc-style.yml` at `/flow-init` on
-  `doc_style.enable`, `wiki-verify.yml` at `/wiki-init` once `--verify` passes, since at
-  `/flow-init` time there is no graph to point a workflow at. Neither absence is visible later,
-  so both asks state what declining leaves unchecked. Each step still guards on its script being
+  commit), not lost; `wiki-verify.yml`, `doc-style.yml` and `srs-verify.yml` close that window.
+  **All three are opt-in, and each is offered where its subject exists** — `doc-style.yml` at
+  `/flow-init` on `doc_style.enable`, `srs-verify.yml` at `/flow-init` guarded on `docs/srs/`
+  being in the checkout, `wiki-verify.yml` at `/wiki-init` once `--verify` passes, since at
+  `/flow-init` time there is no graph to point a workflow at. No absence is visible later,
+  so every ask states what declining leaves unchecked. Each step still guards on its script being
   in the checkout at all, which it is not in a repo that gitignores `.claude/`. Only
   `doc_style.enable` also stops an already-rendered workflow (the check script reads it);
-  a `wiki-verify.yml` is stopped by deleting it.
+  a `wiki-verify.yml` or `srs-verify.yml` is stopped by deleting it.
+
+  The SRS layer is deliberately asymmetric: the flow gate never reads an SRS at all, and
+  `/flow`'s increment steps only warn, so `srs-verify.yml` is the single place a dead anchor or
+  a number two branches both took is ever caught. A `/harness-init` run that created `docs/srs/`
+  says so and points at a `/flow-init` re-run, because nothing else would.
 - **Skill invocation is measured, not assumed** — `tests/skills/` checks a skill *file*
   is well-formed; [`evals/`](evals/) checks it is *reached* (half a skill's failure modes live in
   its `description`) and, in the outcome arm, that it *executed* correctly against a golden

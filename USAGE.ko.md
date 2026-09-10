@@ -218,6 +218,10 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
   워크플로를 제안함 — 훅이 못 보는 터미널·머지 커밋의 drift 를 여기서 잡음. 그래프가
   `--verify` 를 통과한 뒤 물으며, 거절하면 그 drift 는 누군가의 다음 세션 커밋까지
   아무도 보지 않음.
+- **`srs`** 는 아예 게이트가 아님. flow 게이트는 SRS 를 읽지 않고 `/flow` 의 Dev 증분
+  단계도 경고만 하므로, `docs/srs/` 가 생긴 뒤 `/flow-init` 이 제안하는 `srs-verify.yml`
+  이 죽은 요구 앵커나 두 브랜치가 같이 뽑은 번호를 잡는 유일한 자리임. 거절하면 가벼운
+  검사가 남는 것이 아니라 아무 검사도 안 남음.
 - **`doc-style`** 도 훅이 인프로세스로 실행하는 스테이지이며, **차단하지 않는 유일한
   게이트**임. `flow-config.doc_style` 이 켜져 있으면 커밋이 바꾼 파일 중 `paths`·`exclude`
   글롭이 범위에 넣은 것을 `doc-style` 룰에 비추어 린트하고(이력 서술 · 구현계획 기록
@@ -338,6 +342,8 @@ Commits type 을 고르고, 50/72 규칙을 검사한 뒤 `git commit` 을 발�
    무료 기성 솔루션을 웹 조사하고, 기존 코드가 있으면 `harness-code-analyzer` 로 실제
    컨벤션도 분석. 버전은 *각각의 최신*이 아니라 **함께 기동되는 호환 집합**으로 고름.
 3. **생성** — `CLAUDE.md`·규칙·기술 문서(SRS·SDS·코드 스타일·온보딩 등)를 분류별 폴더로.
+   SRS 는 greenfield 뿐 아니라 brownfield 에도 씀 — brownfield 는 슬롯을 미수집으로 표기한
+   골격이고, 코드에서 요구를 역산하지 않으며, 사람이 말할 때 `/flow` 가 증분으로 채움.
    기본은 **`.md` 파일만** 만들고 실제 설정 파일은 건드리지 않음.
 4. **비판·검증** — `harness-critic` 이 생성물의 품질·일관성·버전 호환성(설정 정합 +
    런타임 조합 호환)을 점검하고 다듬음.
@@ -423,8 +429,8 @@ Commits type 을 고르고, 50/72 규칙을 검사한 뒤 `git commit` 을 발�
 
 #### E2E 안전망(CI) — `/integration` 의 CI 짝
 
-`e2e.yml` 은 다섯 번째 CI 안전망으로, `api-contract.yml` · `unit-test.yml` ·
-`wiki-verify.yml` · `doc-style.yml` 과 나란히 놓임. `/integration` 의 CI 버전임 — layer
+`e2e.yml` 은 CI 안전망 중 하나로, `api-contract.yml` · `unit-test.yml` ·
+`wiki-verify.yml` · `doc-style.yml` · `srs-verify.yml` 과 나란히 놓임. `/integration` 의 CI 버전임 — layer
 2(§2.3)는 Claude 세션 커밋만 보므로, 승격 브랜치에 터미널·직접·CI 커밋으로 들어온 통합
 회귀는 그대로 묻힘. `e2e.yml` 은 승격 브랜치 push 에서 Playwright 스위트를 돌려 그 회귀를
 **보이게 함 — 차단은 하지 않음.**
@@ -744,9 +750,9 @@ Windows 는 Git Bash 가 있는지 확인하세요.
    (`extraKnownMarketplaces.harness-tier`) 제거.
 3. `.gitignore` 에서 harness-tier 라인 제거.
 4. `CLAUDE.md` 의 `harness-tier:teams` 관리 블록 제거.
-5. `.github/workflows/wiki-verify.yml`·`doc-style.yml`, 그리고
+5. `.github/workflows/wiki-verify.yml`·`doc-style.yml`·`srs-verify.yml`, 그리고
    `.claude/harness-tier/scripts/` 를 호출하는 release 워크플로우 삭제 — 1번을 끝낸 시점에
-   없는 스크립트를 실행함. 둘 다 그것을 가드해 green 을 유지함 — 아무것도 검증하지
+   없는 스크립트를 실행함. 셋 다 그것을 가드해 green 을 유지함 — 아무것도 검증하지
    못하면서 그 말을 하려고 push 마다 러너를 씀. release 렌더 중 `gitversion`·`jreleaser` 는
    경로를 가드 없이 호출해 **릴리스 브랜치 push 에서** 실패하고, `python-semantic-release`
    는 호출을 가드하며, `cargo-release`·`semantic-release` 는 그 경로를 참조하지 않음.

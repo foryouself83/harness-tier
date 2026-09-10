@@ -1,0 +1,35 @@
+# harness-tier srs-verify CI — copied as-is by /flow-init (no config tokens).
+# Requirement-text integrity over docs/srs: the commit gate never reads an SRS, so a dead
+# anchor or a duplicate id introduced on one branch would otherwise surface only when
+# another branch collides with it — here it fails the push/PR instead.
+# Opt-in: /flow-init offers it once docs/srs exists — before that there is nothing to
+# point it at. With no docs/srs, srs_check.py --verify exits 0 silently, so the job stays
+# green. The same holds when the script is not in the checkout (a repo that gitignores
+# .claude/), which the step's own guard covers.
+name: srs-verify
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  srs-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Verify SRS anchors and links
+        # The guard holds whatever renders this file: a repo that gitignores
+        # .claude/ has no script in the checkout at all, and python3 would exit 2 on the
+        # missing file — red on every push, for a repo that never opted into an SRS.
+        run: |
+          if [ ! -f .claude/harness-tier/scripts/srs_check.py ]; then
+            echo "no srs_check.py in the checkout - nothing to verify"
+            exit 0
+          fi
+          python3 .claude/harness-tier/scripts/srs_check.py --verify

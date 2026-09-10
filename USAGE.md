@@ -227,6 +227,10 @@ pass before it can commit**.
   verification read-only on push/PR, catching drift from terminal and merge commits the
   hook never sees — it asks once the graph verifies, and declining leaves that drift
   unchecked until somebody's next session commit.
+- **`srs`** is not a gate at all. The flow gate never reads an SRS, and `/flow`'s Dev
+  increment steps only warn, so `srs-verify.yml` — offered at `/flow-init` once `docs/srs/`
+  exists — is the single place a dead requirement anchor or a number two branches both took
+  is ever caught. Declining it leaves no lighter check; it leaves none.
 - **`doc-style`** is the other in-process stage, and the only gate that **never blocks**. When
   `flow-config.doc_style` is enabled it lints the files a commit changes that its `paths` and
   `exclude` globs put in scope, against the `doc-style` rule — history narration, plan-record
@@ -353,7 +357,9 @@ Generates a `CLAUDE.md`, rules, and technical docs tailored to your project. It 
    its real conventions with `harness-code-analyzer`. Versions are chosen not as *each
    one's latest* but as a **compatible set that boots together**.
 3. **Generation** — produce `CLAUDE.md`, rules, and technical docs (SRS, SDS, code style,
-   onboarding, etc.) into classified folders. By default it creates **only `.md` files** and
+   onboarding, etc.) into classified folders. The SRS is written for brownfield as well as
+   greenfield — a brownfield one is a skeleton with its slots marked not yet gathered, never
+   requirements read back out of the code, and `/flow` fills it as people state them. By default it creates **only `.md` files** and
    does not touch actual config files.
 4. **Critique & verification** — `harness-critic` checks the output's quality, consistency,
    and version compatibility (config coherence + runtime-combination compatibility) and
@@ -453,8 +459,9 @@ promotion).
 
 #### E2E safety net (CI) — the counterpart of `/integration`
 
-`e2e.yml` is the fifth CI safety net, next to `api-contract.yml` · `unit-test.yml` ·
-`wiki-verify.yml` · `doc-style.yml`. It is the CI counterpart of `/integration`: layer 2
+`e2e.yml` is one of the CI safety nets, next to `api-contract.yml` · `unit-test.yml` ·
+`wiki-verify.yml` · `doc-style.yml` · `srs-verify.yml`. It is the CI counterpart of
+`/integration`: layer 2
 (§2.3) sees only Claude-session commits, so an integration regression arriving via a
 terminal, direct, or CI commit on a promotion branch would otherwise go unseen. `e2e.yml`
 runs a Playwright suite on push to the promotion branches and makes that regression
@@ -790,9 +797,10 @@ If `/flow-uninstall` is no longer available, remove things by hand:
    marketplace registration (`extraKnownMarketplaces.harness-tier`).
 3. Remove the harness-tier lines from `.gitignore`.
 4. Remove the `harness-tier:teams` managed block from `CLAUDE.md`.
-5. Delete `.github/workflows/wiki-verify.yml` and `.github/workflows/doc-style.yml`, and
+5. Delete `.github/workflows/wiki-verify.yml`, `.github/workflows/doc-style.yml` and
+   `.github/workflows/srs-verify.yml`, and
    any release workflow that calls `.claude/harness-tier/scripts/` — with step 1 done they
-   run a script that is gone. Both guard on that and stay green — they verify nothing, and
+   run a script that is gone. All three guard on that and stay green — they verify nothing, and
    still spend a runner on every push to say so. Among the release renders, `gitversion` and `jreleaser`
    call the path unguarded and fail on pushes to your release branches;
    `python-semantic-release` guards its call, and `cargo-release` / `semantic-release` never

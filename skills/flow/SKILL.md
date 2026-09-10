@@ -163,6 +163,24 @@ do not go looking for a skill behind either — none exists; the hook runs the c
    ([`harness-rules.md`](../../rules/harness-rules.md) 8 fixes those locations). Neither
    existing is normal — proceed. **Docs tier skips this**: reading a design document to
    change a paragraph is the process-to-risk mismatch the tiers exist to prevent.
+1b. **Record a new requirement in the SRS first** — skip silently when `docs/srs/` is
+   absent (the command prints nothing and exits 0). This runs only for a **new
+   customer requirement**; implementing an existing one, a bug, or a refactor skips it.
+   Route with `python3 .claude/harness-tier/scripts/srs_check.py --areas`, then take the
+   number from `--next-id docs/srs/<area>.md --kind FR` and add the FR to that file, plus
+   a `C-NNN` in `docs/srs/README.md` (`--next-id docs/srs/README.md --kind C`) when the
+   request names a customer need the SRS does not yet carry. **You judge two things
+   only** — whether this is a new requirement, and which area it belongs to; the number
+   comes from `--next-id`, the integrity from `--verify`. FAIL-OPEN: a failure here warns
+   and does not block the commit — the `srs-verify` workflow holds the verdict.
+
+   A **new** area file is the one part of this that is fail-CLOSED — it is a wiki node.
+   Where the host has a wiki, give it front matter: `wiki_id` from
+   `python3 .claude/harness-tier/scripts/wiki_graph.py --derive-id docs/srs/<area>.md`, a
+   `title`, and a `related` edge to `srs.readme`; then rebuild with
+   `python3 .claude/harness-tier/scripts/wiki_graph.py --build` and stage `graph.yaml`
+   alongside it. Without that the commit gate's `--verify` blocks, and its reason names
+   the graph rather than this step that wrote the file.
 2. **Enter `superpowers:using-superpowers`** — it drives the pipeline automatically
    (brainstorm → plan → implement → verify → review; each skill self-triggers).
    Feed the resolved request from Phase 0 in as the task.
@@ -171,6 +189,13 @@ do not go looking for a skill behind either — none exists; the hook runs the c
      climb the reuse-before-build ladder (YAGNI → codebase → stdlib → native →
      dependency → one line → minimum code) and stop at the earliest rung. Detail
      and non-negotiable floor in [`risk-tiers.md`](../../rules/risk-tiers.md) Step 3.
+   - **Record the design before the code** — right after the plan, alongside the reuse
+     ladder: a new module, an integration-point contract, or a structural change goes
+     into `docs/sds/` now, with its `Implemented requirements` linking the FR anchors it
+     satisfies. This is the structure half; `doc-sync` reconciles the rest (sources ·
+     stale · orphans) after the code. Placed after `doc-sync` instead, the
+     `PostToolUse` hook would delete `doc-sync.done` and `review.done` on that edit, so
+     both would have to run again — a loop.
    - **Selective TDD** — only business logic / core nodes / validators / workflow
      orchestration (see [`risk-tiers.md`](../../rules/risk-tiers.md) Step 3), not
      every change.

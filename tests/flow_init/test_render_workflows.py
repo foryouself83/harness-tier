@@ -7,6 +7,7 @@ import yaml as _yaml
 
 from scripts.flow_init_setup import (
     load_contract_config,
+    render_srs_verify_workflow,
     render_wiki_verify_workflow,
     render_workflow,
     run_setup,
@@ -205,3 +206,21 @@ def test_render_workflow_idempotent_reports_only(tmp_path: Path):
     out = render_workflow(tmp_path, PLUGIN)  # second render — report only
     assert any("이미 있어" in line for line in out)
     assert dest.read_text(encoding="utf-8") == sentinel  # not overwritten
+
+
+def test_render_srs_verify_workflow_reads_no_config(tmp_path: Path):
+    """The user's yes is the gate — /flow-init asks, this only copies."""
+    out = render_srs_verify_workflow(tmp_path, PLUGIN)
+    dest = tmp_path / ".github" / "workflows" / "srs-verify.yml"
+    assert dest.is_file()
+    assert any("srs-verify" in line for line in out)
+    data = _yaml.safe_load(dest.read_text(encoding="utf-8"))
+    assert data["jobs"]["srs-verify"]["timeout-minutes"] == 5
+
+
+def test_render_srs_verify_never_overwrites(tmp_path: Path):
+    dest = tmp_path / ".github" / "workflows" / "srs-verify.yml"
+    dest.parent.mkdir(parents=True)
+    dest.write_text("custom\n", encoding="utf-8")
+    render_srs_verify_workflow(tmp_path, PLUGIN)
+    assert dest.read_text(encoding="utf-8") == "custom\n"

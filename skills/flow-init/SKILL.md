@@ -273,6 +273,30 @@ the block to run and why each guard is written the way it is. Run it uncondition
 block detects the not-applicable case itself (the shipped `[]` default prints a skip line
 and exits 0), so reading the config here to decide would only duplicate that.
 
+### Step 2.8 — srs-verify workflow (when `docs/srs/` exists, skippable)
+
+Applies only when `${ROOT}/docs/srs/` exists in the checkout — without one there is
+nothing to point a workflow at.
+
+Ask via `AskUserQuestion` whether to render `srs-verify.yml`. **The option descriptions
+themselves carry what declining costs**, the same discipline as the `wiki-verify` and
+`doc_style` asks above: the commit gate never reads an SRS, so this workflow is the only
+thing that will ever see a dead anchor or a number two branches both took. Declining does
+not leave a lighter check — it leaves none.
+
+On **yes**:
+
+```bash
+python3 "${PLUGIN}/scripts/flow_init_setup.py" --render-srs-verify
+```
+
+Relay its line. An existing `srs-verify.yml` is reported and never overwritten. The
+command is spelled from `${PLUGIN}`, not the host copy — `flow_init_setup.py` is not in
+`COPY_FILES`, so the host holds no copy of it.
+
+On **no**, say plainly that nothing now checks the SRS's anchors, and that re-running
+`/flow-init` offers this again.
+
 ### Step 3 — Teams webhook URLs + CLAUDE.md block (interactive — Claude, skippable)
 
 1. Ask for the **personal** webhook URL (input-wait alerts). If provided:
@@ -331,7 +355,7 @@ and exits 0), so reading the config here to decide would only duplicate that.
 Print a summary: the **Step 0** dependency status (python3 ≥3.8 / PyYAML required —
 gate fails closed if missing; pre-commit / superpowers guidance), the **Step 2**
 script report (copied / registered / pre-commit checked / **contract-test, unit-test,
-doc-style and e2e workflows rendered-or-skipped** / skipped, + any missing
+doc-style, e2e and srs-verify workflows rendered-or-skipped** / skipped, + any missing
 pre-commit hooks to add manually),
 the **Step 2.6** modules draft result (whether a harness was detected / number of modules
 written / list of unconfirmed items / whether skipped), whether the

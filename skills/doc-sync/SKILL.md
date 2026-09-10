@@ -217,7 +217,8 @@ python3 .claude/harness-tier/scripts/wiki_graph.py --unmapped
    `wiki_id`, so the migration wizard never revisits it either. Split it exactly as
    [`wiki-init`](../wiki-init/SKILL.md) Steps 4-5 direct, including their zero- and
    one-H2 branches — do not assume an H2 split always applies. Record the outcome in the
-   Report.
+   Report. **An SRS document is the exception** — never split it mechanically; see
+   [What this skill does not own](#what-this-skill-does-not-own) below.
 
 7. **Stage new documents, then rebuild and verify**. A document joins the wiki by being in
    git — the graph is built from the index, not the filesystem, so an unstaged new `.md` is
@@ -238,6 +239,18 @@ python3 .claude/harness-tier/scripts/wiki_graph.py --verify
    goes unnoticed until someone else's next session commit. If a merge left conflict
    markers in `graph.yaml`, never resolve them by hand — take either side and re-run
    `--build` ([wiki-init](../wiki-init/SKILL.md) Step 8).
+
+### What this skill does not own
+
+Structure is recorded **before** the code, by `/flow`'s Dev increment steps: module
+overview, Mermaid nodes, integration-point contracts, FR back-links. This skill runs
+**after** the code and reconciles: `sources` shas, stale nodes, splits, orphans. One
+fact, one place — a design decision written here would be written twice.
+
+**An SRS document is never split mechanically.** Step 6's H2 split would break the
+anchors the SDS links (`#nfr-perf`, `#c-003`) and dead-link every FR reference. When one
+grows past `max_lines`, promote a whole section to its own file and fix the links with
+it — an explicit migration, not a mechanical split.
 
 ## 1b. Prove the rewrite lost nothing
 

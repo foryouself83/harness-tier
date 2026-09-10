@@ -41,8 +41,12 @@
    never restate it ("one fact, one place"). This governs authored **rules**
    too: before adding a rule, search the existing rules/docs for the fact and link
    it instead of repeating. `rule.template.md` and `authoring-spec.md` defer here.
-8. **Technical docs (folders by category)**: `docs/README.md` (overall index, done last) · `docs/srs/` (functional/non-functional
-   requirements, greenfield-only, done first) · `docs/sds/` (structure + **Mermaid required**; when a component communicates
+7-1. **SSOT axes are named separately** — requirement and design **text** lives in the repo's
+   documents (`docs/srs/` · `docs/sds/`); **status, approval and assignee** live in the
+   external tracker. Each axis names exactly one authority. No two-way automatic merge.
+8. **Technical docs (folders by category)**: `docs/README.md` (overall index, done last) · `docs/srs/`
+   (`README.md` = common sections + non-functional requirements + area index, `<area>.md` = functional
+   requirements; done first) · `docs/sds/` (structure + **Mermaid required**; when a component communicates
    across a boundary (process/origin/host/auth), include an **integration-point contract** section) ·
    `docs/code-style/` (per-stack `<stack>.md`, no code snippets, one toolchain-config set) ·
    `docs/research/` (merged in, source links) · `docs/onboarding/` (run/debug + links to key docs, done last) ·
@@ -50,7 +54,7 @@
    `docs/verification/integration.md` (per-stack integration-verification SSOT — web = Playwright · non-web = human-in-the-loop; confirmed stacks only, no empty sections).
    The entry document is `README.md`. Structural conventions are rules, behavioral style is docs — **one fact, one place**.
    **Every document cites its reference sources as links.**
-8-1. **SRS scope-clarification gate (greenfield-only, no guessing)**: for greenfield/SRS deliverables, parse the received prompt
+8-1. **SRS scope-clarification gate (no guessing)**: for SRS deliverables, parse the received prompt
    **before** research and SRS writing to fix the development scope. For the SRS's mandatory slots (purpose · goals/non-goals · core functional
    requirements · target users/scenarios · key constraints), ask about **every blank + ambiguous item** via `AskUserQuestion` —
    **ambiguous = unmeasurable · multiply interpretable · scope unclear** (e.g. "fast" · "user-friendly"). Keep asking **until it is measurable
@@ -58,8 +62,12 @@
    resolve it at the SRS stage). Fix as well what the **classification axes** are (domain etc. as primary; user roles/subdomains etc. as secondary) and the **depth
    (2nd–3rd level)** — ask which axes apply, and for axes that do not apply, do not delete them from the SRS but leave them as "N/A — reason"
    (distinguishing them from omissions — isomorphic to 9-2). If still unknown after asking, mark it "needs confirmation" in the SRS
-   (no fabrication — rule 4). The produced **scope summary** is the single input source for research · rationale · SRS. Brownfield skips
-   this gate and uses code-analyzer's code analysis as its scope (only intent that code cannot resolve becomes a selective question).
+   (no fabrication — rule 4). The produced **scope summary** is the single input source for research · rationale · SRS.
+   **Brownfield goes through this gate too** — it still gets only a skeleton, with unresolved slots marked "needs
+   confirmation", and code analysis is an input to scope, never a source of requirements. **FRs are never
+   reverse-engineered from existing code**: code says what the system does, not what anyone wanted, so an FR inferred
+   from behavior describes current behaviour wearing a requirement's clothes — that is rule 4 violated, not satisfied.
+   Requirements arrive incrementally, as a person states them.
 8-2. **Technical docs are wiki nodes**: every generated technical doc (rule 8's `docs/` categories — not
    `.claude/rules/<framework>-conventions.md`, which lives outside the wiki root and is never a node) opens
    with mandatory YAML front matter (`wiki_id`, `title`; id-derivation mechanics are

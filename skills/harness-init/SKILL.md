@@ -28,9 +28,9 @@ Show the result (state/frameworks/existing) to the user **as a table**. Also rep
 (.claude/harness-tier/config/flow-config.yaml).
 
 ## Step 1 — Interview (AskUserQuestion, keep it minimal but scope it clearly)
-0. **Clarify the development scope (greenfield/SRS gate — no guessing)**: If detect reports greenfield, or an SRS
+0. **Clarify the development scope (SRS scope-clarification gate — no guessing)**: whenever an SRS
    artifact is selected, parse the received prompt to fix the development scope **before Step 2 research and Step 4 SRS
-   authoring**. Ask **all blank required SRS slots plus every ambiguous item** via `AskUserQuestion` — **ambiguous = not
+   authoring** — greenfield and brownfield alike. Ask **all blank required SRS slots plus every ambiguous item** via `AskUserQuestion` — **ambiguous = not
    measurable, multiple interpretations, or unclear scope** (e.g., "quickly", "user-friendly"). Keep asking **until each
    is measurable and single-interpretation**, but do not re-ask what is already clear (no over-generation, no
    interrogation). Required slots = purpose · goals/non-goals (YAGNI boundary) · core functional requirements · target
@@ -41,8 +41,9 @@ Show the result (state/frameworks/existing) to the user **as a table**. Also rep
    - **Gate**: do not proceed to Step 2 or Step 4 while scope blanks or ambiguities remain. For slots still unknown after
      asking, **explicitly mark them "needs confirmation"** in the SRS and never fabricate them (harness-rules 4, 8-1).
    - Output = a **scope summary** → the single input source for research, rationale, and the SRS (single downstream source).
-   - **brownfield (no SRS generated) skips this gate** — take scope from the code-analyzer's code analysis, and optionally
-     ask only about intent that the code does not resolve (goals/non-goals, etc.).
+   - **Brownfield goes through this gate too** — it still gets only a skeleton, with unresolved slots marked "needs
+     confirmation", never a full write. Code-analyzer's analysis is an input to scope, never a source of requirements
+     (harness-rules 8-1): ask only about the intent the code cannot resolve (goals/non-goals, etc.).
 1. **Fix the primary development language (hard gate)**: Always fix the primary development language via
    `AskUserQuestion` (ask regardless of the detected value). If a language was detected, offer it as the first option
    (recommended); if multiple/none were detected, list candidates. If the detected value and the user's choice differ,
@@ -55,7 +56,7 @@ Show the result (state/frameworks/existing) to the user **as a table**. Also rep
    reconcile after research, harness-rules 10-1).
 2. Confirm the detected framework/version (correct it if wrong; request input if not detected).
 3. Select the artifacts to generate: CLAUDE.md / rules (the 5 baseline rules + framework conventions) / skills / agents /
-   technical docs (SRS greenfield · SDS · per-stack code-style · research · onboarding · **performance/integration SSOT docs (`docs/verification/performance.md` · `docs/verification/integration.md`)**, in classified folders). **There is no command option.**
+   technical docs (SRS · SDS · per-stack code-style · research · onboarding · **performance/integration SSOT docs (`docs/verification/performance.md` · `docs/verification/integration.md`)**, in classified folders). **There is no command option.**
 4. **Opt-in real configuration**: installing a security scanner · adding CI · scaffolding real folders · real version pins — ask about each one.
    For the operational axes of secrets, authentication/authorization, and input validation, do not stop at a directive alone; also propose opting into a scanner (9-5).
 5. Brownfield conflicts (existing), per item: skip / user's choice.
@@ -68,7 +69,7 @@ write** — it assigns each a **unique topic** and persists the returned output 
 `.harness/research/<agent>_<topic>.md`, then reads them back to synthesize (and for Step 4
 authoring). Sub-agents do not write these files themselves, so parallel dispatch cannot collide on
 a filename and the read-only code-analyzer needs no write access (harness-rules 10).
-- **Scope injection**: for greenfield/SRS, include the **scope summary** from Step 1-0 in the dispatch input so that
+- **Scope injection**: whenever SRS is generated, include the **scope summary** from Step 1-0 in the dispatch input so that
   research is confined to the actual requirements (do not expand scope by guessing — investigate while leaving unknown slots as "needs confirmation").
 - **Operational-concern injection**: when dispatching research, pass the harness-rules 9-1 checklist and the **per-layer language/stack map**
   so that, for each (layer, stack), the sub-agent researches the latest standards, sources, alternatives, and applicability per operational axis (9-2 to 9-4).
@@ -130,7 +131,7 @@ Per the 9-3 split, fill each stack's structure/detailed conventions into both th
      `rule-version-pinning.md` · `security-rule.md` · `rule-reuse-first.md`) into the CLAUDE.md `harness:baseline`
      block (preserve each rule's anchor `<!-- rule:<key> -->`).
    - Fill the technical docs into classified folders. **Author the SRS with the scope summary (Step 1-0) as SSOT** and leave unknown slots as
-     "needs confirmation" (fill from research but do not guess). (Order: SRS greenfield → merge into research → SDS (Mermaid) → per-stack
+     "needs confirmation" (fill from research but do not guess). (Order: SRS → merge into research → SDS (Mermaid) → per-stack
      code-style → onboarding → docs/README, with source links.) First refine `.harness/research/` and merge it into
      `docs/research/` (the basis for the SDS and code-style); thereafter docs link their sources to
      `docs/research/` (do not reference `.harness/`). When generating a skill, include the accompanying references/examples subfolders.
@@ -185,7 +186,8 @@ FAIL-OPEN — a cleanup failure does not block the flow. If there are `link_warn
 Summarize **as a table**: generated/skipped/deferred-by-user + source URLs + critic results (including `version-compat`) + cleanup results (removed/preserved) +
 follow-ups (scanner install commands, etc.).
 Record the generation history, framework, sources, and critic results in `${HARNESS_DIR}/manifest.json` (for audit/re-run).
-**Do not commit** — instruct the user to commit via `/flow`.
+**Do not commit** — instruct the user to commit via `/flow`. If this run created `docs/srs/`, also tell the user to
+re-run `/flow-init` afterward, which then offers the `srs-verify` workflow.
 
 ## Critical rules
 1. No overwrites — marker upsert / create only when absent.

@@ -78,6 +78,8 @@ DOC_STYLE_TEMPLATE = "github/doc-style.workflow.example.yml"  # SOURCE (plugin-o
 DOC_STYLE_DEST = ".github/workflows/doc-style.yml"  # host (GitHub-forced — HARNESS_DIR exc.)
 E2E_TEMPLATE = "github/e2e.workflow.example.yml"  # SOURCE (plugin-owned)
 E2E_DEST = ".github/workflows/e2e.yml"  # host (GitHub-forced — HARNESS_DIR exception)
+SRS_VERIFY_TEMPLATE = "github/srs-verify.workflow.example.yml"  # SOURCE (plugin-owned)
+SRS_VERIFY_DEST = ".github/workflows/srs-verify.yml"  # host (GitHub-forced — HARNESS_DIR exc.)
 # per-job wall-clock cap (minutes) when unit_test.timeout_minutes is unset
 UNIT_TEST_DEFAULT_TIMEOUT = 10
 # Languages the unit-test template runs an official setup-* action for (its `if: matrix.language ==`
@@ -100,10 +102,12 @@ EXAMPLE_CONFIG = "flow-config.example.yaml"  # plugin SOURCE (basis for config-s
 # which answers nothing it recognises — and a runner that reads no verdict gates nothing.
 COPY_FILES = [
     "scripts/_harness_paths.py",
+    "scripts/_md_anchors.py",
     "scripts/flow_gate_check.py",
     "scripts/precommit-runner.sh",
     "scripts/wiki_graph.py",
     "scripts/doc_style_check.py",
+    "scripts/srs_check.py",
     "scripts/teams_alert.py",
     "scripts/notify-push.sh",
     "scripts/check-deps.sh",
@@ -1413,6 +1417,18 @@ def render_wiki_verify_workflow(host: Path, plugin: Path) -> list[str]:
     )
 
 
+def render_srs_verify_workflow(host: Path, plugin: Path) -> list[str]:
+    """Copy srs-verify.yml as-is — no enable gate, no tokens.
+
+    Reached from `/flow-init`'s own step (`--render-srs-verify`), never from run_setup: the
+    workflow reads docs/srs, and a host without one has nothing to point it at. The user's
+    yes IS the gate, which is why nothing is read from config here.
+
+    Idempotent·non-destructive (existing dest → report only), like every render here.
+    """
+    return _render_one(plugin / SRS_VERIFY_TEMPLATE, host / SRS_VERIFY_DEST, {}, "srs-verify 렌더")
+
+
 def render_doc_style_workflow(host: Path, plugin: Path) -> list[str]:
     """Copy doc-style.yml as-is — no tokens, gated by `doc_style.enable`.
 
@@ -1628,7 +1644,7 @@ def run_uninstall(host: Path) -> bool:
     print("    않습니다(주석·팀 커스텀 보존). 필요 시 직접 제거하세요.")
     print("  - .github/workflows/api-contract.yml 은 자동 삭제하지 않습니다(팀 커스텀 보존).")
     print("    계약 테스트를 끄려면 직접 제거하세요.")
-    print("  - .github/workflows/wiki-verify.yml·doc-style.yml 은 방금 삭제된")
+    print("  - .github/workflows/wiki-verify.yml·doc-style.yml·srs-verify.yml 은 방금 삭제된")
     print("    .claude/harness-tier/scripts/ 의 스크립트를 실행합니다. 없는 스크립트를 가드가")
     print("    보고 exit 0 하므로 CI 가 빨개지지는 않지만 더는 아무것도 검증하지 못하니 함께")
     print("    제거하세요. 같은 경로를 쓰는 release 워크플로우는 렌더한 종류에 달렸습니다 —")
@@ -1671,6 +1687,11 @@ def main() -> None:
         action="store_true",
         help="wiki 검증 워크플로우만 렌더(/wiki-init 이 사용자 동의를 받은 뒤 호출).",
     )
+    parser.add_argument(
+        "--render-srs-verify",
+        action="store_true",
+        help="SRS 검증 워크플로우만 렌더(/flow-init 이 사용자 동의를 받은 뒤 호출).",
+    )
     args = parser.parse_args()
     host = host_root()
     if args.render_deploy:
@@ -1679,6 +1700,10 @@ def main() -> None:
         return
     if args.render_wiki_verify:
         for line in render_wiki_verify_workflow(host, plugin_root()):
+            print(line)
+        return
+    if args.render_srs_verify:
+        for line in render_srs_verify_workflow(host, plugin_root()):
             print(line)
         return
     if args.uninstall:

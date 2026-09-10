@@ -5,10 +5,10 @@
 ---
 # wiki_id: derive mechanically from this file's output path relative to the wiki root, the
 # same way wiki-init Step 5 does (e.g. docs/srs/README.md -> srs.readme). Never hand-pick a
-# slug — this template is cloned once per requirement area, and a hand-picked value repeated
-# across clones collides on id.
+# slug — this file is the project's single SRS index; a mechanical id keeps it aligned
+# with every other generated doc's id instead of one guessed by hand.
 wiki_id: {{ID}}
-title: <requirement area>
+title: SRS Index
 tags: [srs]
 # sources is optional — requirements rarely map to specific code paths; uncomment only if
 # this SRS genuinely does, else leave it deleted.
@@ -17,11 +17,21 @@ tags: [srs]
 ---
 # {{PROJECT_NAME}} Software Requirements Specification (SRS)
 
-> Greenfield only — the SSOT for what the system must do (requirements). Write this first. Sources: {{SOURCES}}
+> The SSOT for what the system must do (requirements). Write this first. Sources: {{SOURCES}}
+>
+> **This file is the index**: it holds the sections common to the whole SRS — overview, goals,
+> users and roles, customer requirements, non-functional requirements, constraints. §5
+> Functional Requirements lives one file per requirement area (`<area>.md`, cloned from
+> `srs-area.template.md`) — see the area index at §5.
 >
 > **Split into two levels**: customer requirements (§4) need not be measurable, but must clearly state what is wanted
 > ("would be nice if it were convenient" ✗ → "supports cards and simple/express payment" ✓). Functional requirements (§5, FR) must be measurable and single-interpretation
 > ("fast" ✗ → "p95 < 200ms" ✓). If something is ambiguous or unknown, do not invent it — mark it `needs confirmation` (harness-rules 8-1).
+
+<!-- Ids are issued, never chosen — by a human or a model:
+     python3 .claude/harness-tier/scripts/srs_check.py --next-id <file> --kind <KIND> [--scope <axis>]
+     An area file's ids carry its stem; this index's ids carry no area. The KIND set is open —
+     it is whatever a document already anchors. -->
 
 ## 1. Overview / Purpose
 {{PRODUCT_PURPOSE}}
@@ -35,31 +45,28 @@ tags: [srs]
                               If there is a single role, state "N/A — single user". -->
 
 ### 3.1 User Role Classification
-{{USER_ROLES}}  <!-- e.g. admin / regular user / guest. One line per role covering its responsibilities and access scope.
+{{USER_ROLES}}  <!-- One line per role, each with an `<a id="role-xxx">` anchor and covering its
+                     responsibilities and access scope. An area file's §5 links a role anchor
+                     only when its level-2 axis IS that role — a sub-area axis gets plain text,
+                     since a forced link invents a role that does not exist. Format —
+                     - <a id="role-001"></a>**Admin** Full access; manages billing and users.
                      If there is no role distinction, state "N/A — reason". -->
 
 ## 4. Customer Requirements (C, non-measurable)
 <!-- State clearly what the customer/stakeholder wants — measurable acceptance criteria and implementation approach belong to §5 FR and the SDS.
      No vague sentiments ("would be nice if it were convenient"); be explicit about what will be provided. Give each C an `<a id="c-xxx">` anchor
-     so §5 FR can back-reference it with `(← [C-x])` (the origin of customer-requirement→FR traceability).
+     so an area file's §5 FR can back-reference it with `(← [C-xxx](README.md#c-xxx))` (the origin of customer-requirement→FR traceability).
      If there is no external customer/stakeholder (personal/internal tool), leave "N/A — single stakeholder" and go straight to §5 (no empty ceremony). -->
 {{CUSTOMER_REQUIREMENTS}}
-<!-- Format — - <a id="c-1"></a>**C-1** Payment supports cards and simple/express payment. -->
+<!-- Format — - <a id="c-001"></a>**C-001** Payment supports cards and simple/express payment. -->
 
 ## 5. Functional Requirements
-<!-- Hierarchical classification (fixed schema): domain (level 1) > user role/sub-area (level 2) > individual FR (level 3).
-     Use level-1 axes (domains) that fit the nature of the project, but do not delete an axis that does not apply —
-     leave "N/A — reason" (to distinguish it from an omission). Each FR has measurable acceptance criteria. -->
-
-### 5.1 {{DOMAIN_A}}  <!-- Level 1: domain/functional area -->
-#### 5.1.1 {{ROLE_OR_SUBAREA_A}}  <!-- Level 2: user role or sub-area -->
-{{FR_LIST_A}}
-<!-- Level 3: requirement items. Give each FR an `<a id="fr-xxx">` anchor so the SDS can trace back to it via a link (required). Format —
-     - <a id="fr-001"></a>**FR-001** [P0/P1/P2] (← [C-1](#c-1)) Description. Acceptance criteria: <measurable, verifiable condition>.
-     If there is a source customer requirement, back-reference it with `(← [C-x])` (omit if none). If ambiguous/unknown, state "needs confirmation" in the acceptance criteria. -->
-
-### 5.2 {{DOMAIN_B}}
-{{FR_LIST_B}}
+<!-- One file per requirement area, cloned from srs-area.template.md. The file stem IS the
+     area key, and every FR in it carries that stem uppercased. Splitting here rather than
+     later is deliberate: the SDS links each FR anchor, so a split after the fact breaks
+     those links. -->
+{{AREA_INDEX}}
+<!-- Format — - [Payment](payment.md) — card and express payment -->
 
 ## 6. Non-functional Requirements
 <!-- Fixed sub-axes (aligned to ISO/IEC 25010). For each axis give a **priority [P0/P1/P2]** and a **measurable, verifiable
@@ -69,7 +76,11 @@ tags: [srs]
      do not restate the procedure here (no duplication). -->
 
 ### 6.1 <a id="nfr-perf"></a>Performance
-{{NFR_PERFORMANCE}}  <!-- [P0/P1/P2] Throughput, latency (p50/p95), concurrency. Verify → docs/verification/performance.md. -->
+{{NFR_PERFORMANCE}}  <!-- [P0/P1/P2] Throughput, latency (p50/p95), concurrency.
+     Verify → docs/verification/performance.md. Format —
+     - <a id="nfr-perf-001"></a>**NFR-PERF-001** [P0] p95 < 200ms at 100 rps.
+     The section anchor is the axis; the item anchor is the individual requirement. An axis
+     added as §6.8 yields NFR-<its stem>-NNN with no other change. -->
 
 ### 6.2 <a id="nfr-security"></a>Security
 {{NFR_SECURITY}}  <!-- [P0/P1/P2] Authentication/authorization, encryption, secrets, vulnerability criteria. -->
@@ -89,18 +100,13 @@ tags: [srs]
 ### 6.7 <a id="nfr-compatibility"></a>Compatibility
 {{NFR_COMPATIBILITY}}  <!-- [P0/P1/P2] Supported OS/browser/runtime, API version policy. -->
 
-## 7. Data Requirements
-<!-- Requirements ABOUT data — NOT the schema/ERD (that is design → SDS Data Design). State retention/deletion policy, regulatory
-     constraints (GDPR/PCI-DSS/PII handling), data classification/ownership, integrity/consistency, volume/growth. Give each a
-     `<a id="dr-xxx">` anchor so the SDS can trace back. If the system is stateless / holds no regulated data, leave "N/A — reason" (YAGNI). -->
-{{DATA_REQUIREMENTS}}
-<!-- Format — - <a id="dr-1"></a>**DR-1** [P0] PII is purged 90 days after account deletion. Acceptance: 0 rows older than 90d. -->
-
-## 8. External Interface Requirements
-<!-- Requirements ABOUT external interfaces the system MUST conform to (a constraint), NOT the internal integration design
-     (that is SDS Integration Points). e.g. "must integrate via legacy system X's SOAP API v1.2", mandated protocols/data formats,
-     third-party SLA/rate limits. Give each an `<a id="eir-xxx">` anchor. If none is mandated, leave "N/A — reason" (YAGNI). -->
-{{EXTERNAL_INTERFACE_REQUIREMENTS}}
-
-## 9. Constraints / Assumptions
+## 7. Constraints / Assumptions
+<!-- Environment, technology, and regulatory constraints imposed on the system from the
+     outside, not something the system performs. A data-retention or PII rule is
+     measurable, so it belongs in §5 as an FR instead ("PII is purged 90 days after
+     account deletion. Acceptance: 0 rows older than 90d"). An externally mandated
+     interface belongs here — "must integrate via legacy system X's SOAP API v1.2" is
+     imposed from outside, not performed by the system, and stating it as an FR leaves
+     it with no acceptance criteria. Give each item an `<a id="con-xxx">` anchor. -->
 {{CONSTRAINTS_ASSUMPTIONS}}
+<!-- Format — - <a id="con-001"></a>**CON-001** Must integrate via legacy system X's SOAP API v1.2. -->
