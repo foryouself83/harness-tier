@@ -210,10 +210,10 @@ def _merge_dirs(command: str) -> list[str | None]:
 
 
 # A leading `cd <dir>` before the merge — the merge path's own separator variant of
-# _harness_paths._CD_PREFIX_RE, which recognises `&&` only. `cd <wt>` followed by a NEWLINE (the
-# shape a multi-line Bash call has) then reads as no cd at all, the merge is judged
-# against THIS root, and a flow that is not happening is named in a false block.
-# Deliberately NOT fixed by widening the shared regex: the two paths have opposite risk polarity.
+# _harness_paths._CD_PREFIX_RE. Two differences: this one also reads a bare carriage return as
+# a separator, and it keeps _PATH_TOKEN, whose bare-path branch runs to the next whitespace
+# instead of stopping at `;`/`&`/`|`.
+# Deliberately NOT folded into the shared regex: the two paths have opposite risk polarity.
 # Here a match only ever FAILs OPEN (Invariant #1 — `_points_elsewhere` → exit 0). There the same
 # match re-points ROOT to another worktree for status/diff/tier-marker/module-lint, which
 # Invariant #6 requires to stay conservative ("any uncertainty → main; never newly block").

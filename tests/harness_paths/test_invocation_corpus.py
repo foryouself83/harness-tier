@@ -273,3 +273,21 @@ RUNS_NO_COMMIT = [
 def test_read_only_work_is_not_read_as_a_commit(command: str):
     for word in ("commit", "merge"):
         assert not vp.is_invocation(command, word), (command, word)
+
+
+# Read-only work the xargs/run-a-flag fallback gates anyway: a standalone `git` token beside a
+# standalone `commit` token inside an element that runs another command, with no grammar between
+# them. Invariant 7 allows this direction, and RUNS_A_COMMIT's `echo commit | xargs git` is why
+# the fallback cannot require the `git` token to come first. Pinned so the cost is visible and
+# narrowing the fallback is a deliberate edit, not so the block is desirable.
+READ_ONLY_BUT_GATED = [
+    "git ls-files | xargs rg -n commit",
+    "git ls-files | xargs grep -ln commit",
+    'rg -n "commit" $(git rev-parse --show-toplevel)',
+    "git log --format=%H | xargs -n1 git show --stat | rg commit",
+]
+
+
+@pytest.mark.parametrize("command", READ_ONLY_BUT_GATED)
+def test_a_reader_beside_a_commit_token_is_over_gated(command: str):
+    assert vp.is_invocation(command, "commit"), command
