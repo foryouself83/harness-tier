@@ -1,363 +1,148 @@
 # CLAUDE.md
 
-Guidance for Claude Code (claude.ai/code) in this repository.
-
 This repo is the **Claude Code plugin itself**, not a consumer of it. Usage:
-[README.md](README.md)·[USAGE.md](USAGE.md), each with a Korean twin
-([README.ko.md](README.ko.md)·[USAGE.ko.md](USAGE.ko.md)) that `doc-sync` keeps in step.
-Component authoring specs (agent/hook/skill frontmatter) come from the official docs as SSOT,
-never model knowledge:
+[README.md](README.md)·[USAGE.md](USAGE.md), each with a Korean twin that `doc-sync` keeps in
+step. Component authoring specs (agent/hook/skill frontmatter) come from the official docs as
+SSOT, never model knowledge: [skills](https://code.claude.com/docs/en/skills.md) ·
 [plugins-reference](https://code.claude.com/docs/en/plugins-reference.md) ·
 [hooks](https://code.claude.com/docs/en/hooks.md) ·
-[skills](https://code.claude.com/docs/en/skills.md) ·
 [permissions](https://code.claude.com/docs/en/permissions.md).
 `allowed-tools` pre-approves tools, it does not restrict — enforced at point of use by
-[`.claude/rules/skill-frontmatter.md`](.claude/rules/skill-frontmatter.md) and
-[`tests/skills/`](tests/skills/).
+[`.claude/rules/skill-frontmatter.md`](.claude/rules/skill-frontmatter.md) and `tests/skills/`.
 
-`vway-kit` is its internal sister repo — not a consumer install and not an older name: the same
+`vway-kit` is the internal sister repo — not a consumer install and not an older name: the same
 disciplines and gate scripts, maintained separately, propagating in neither direction. A session
-in THIS repo runs the **installed vway-kit**, so a discipline fixed here does not govern the work
-that fixed it, and reflecting a fix there is its own task.
+here runs the **installed vway-kit**, so a discipline fixed here does not govern the work that
+fixed it, and reflecting a fix there is its own task.
 
 ## Commands
 
-Gate scripts are Python; run tooling via `uv`.
-
 ```bash
-uv sync                                                  # install dependencies
-uv run pytest                                            # run all tests
-uv run pytest tests/flow_gate/test_merge_check.py::<name>  # run a single test
-uv run ruff check && uv run ruff format --check          # lint + format check
-uv run pre-commit run --all-files                        # full static analysis
-uv run python -m evals.run --dry-run --all               # session count + wall-clock, no model calls
-uv run python -m evals.run                               # measure only skills whose description changed
-uv run python -m evals.run --skill integration --capture-fixtures   # …+ stream fixture candidates (*.jsonl.new)
-uv run python -m evals.outcome                           # measure the outcome arm (end-state, reps 3)
-uv run python -m evals.outcome --skill wiki-init         # …one skill only (others keep their baseline)
+uv run python -m evals.run --dry-run --all     # session count + wall-clock, no model calls
+uv run python -m evals.run                     # measure skills whose description changed
+uv run python -m evals.outcome                 # measure the outcome arm
 ```
 
-A drop is not one run: `run.py` re-measures that skill in full to confirm it, so the advertised
-session count doubles exactly when a number falls and you are investigating why.
-`--accept --reason '…'` measures once — for a diagnostic run whose write does not matter.
-
-Verify every `*.sh` change with ShellCheck — the hook runtime is Windows, so a bug hides as
-FAIL-OPEN (see Invariants). Run it in **WSL**: the worktree is CRLF, which ShellCheck reports as
-hundreds of CR errors before it reads a line of shell (see Conventions).
+A falling eval number re-measures that skill to confirm it, doubling its sessions over what
+`--dry-run` advertised. ShellCheck every `*.sh` change **in WSL**: a shell bug hides as FAIL-OPEN
+on the Windows hook runtime, and the CRLF worktree floods ShellCheck with CR errors.
 
 ## Conventions
 
-- **English in the repo** — docs · commit messages · comments/docstrings · test assertion
-  messages. Korean stays only where it is load-bearing: text the repo quotes rather than authors
-  (gate/CLI output, a transcript), the expected strings a test compares against that output, and
-  fixtures whose non-ASCII bytes ARE the case (a cp949 blob, a Hangul filename). Translating one
-  of those leaves a test green while it stops exercising anything.
-  Exception: `docs/superpowers/specs/`·`plans/` — internal, never shipped, in Korean.
-- **Write only what the code can't say** — comments · docstrings · `.md` · rules. SSOT:
-  [`rules/doc-style.md`](rules/doc-style.md), enforced by `scripts/doc_style_check.py --lint`.
-  Same discipline in a commit body ([`rules/risk-tiers.md`](rules/risk-tiers.md) Commit
-  Discipline) and in generated harness artifacts
-  ([`rules/harness-rules.md`](rules/harness-rules.md) 5-2).
-- **Dogfood new CI** — a workflow-rendering feature also lands in this repo's OWN
-  `.github/workflows/`, not only as a `github/*.example.yml` consumer template. Every job carries
-  a tight `timeout-minutes`. Exempt: a template whose subject does not exist here, so
-  a local instance could only ever be a stub — `api-contract` (no REST service), `e2e` (no
-  browser front end), the `deploy.<target>` set (no deployment target).
-- **A test file past 500 lines becomes a folder** — `tests/<what it covers>/`, every file inside
-  under 500 lines: shared symbols in `_helpers.py`, fixtures in `conftest.py`, and an
-  `__init__.py`. That last one is insurance, not plumbing — basenames are unique today and collect
-  without it — but the day two packages both hold a `test_build.py`, pytest errors on the second
-  and **aborts the session**, so nothing in the repo runs. A file under the cap stays flat.
-- **The dev host is Windows, CI is ubuntu** — `core.autocrlf=true` with no `.gitattributes`, so
-  every tracked text file is CRLF in the worktree and LF in the blob. **Never digest the raw
-  bytes of a tracked file**: the digest then fingerprints the checkout instead of the content,
-  and the split is silent — local `pytest` green, CI red. It has bitten twice (`outcome_sha`,
-  then `description_sha` after this rule was already written), so normalize CRLF at every NEW
-  digest rather than trusting the rule to be remembered. Shell, PATH, shebangs, file modes and
-  path separators are checked in **WSL** before a push; a green local `pytest` says nothing
-  about them. `flow_init_setup.py` copies gate scripts byte-for-byte, so consumers receive
-  CRLF `.sh` until the checkout is renormalized.
-- **Mutation-test a fix, and assert the mutation applied** — a no-op edit runs the original code,
-  so the suite passes and reads as verified. Read-modify-write in Python with
-  `assert old in text`, never `sed -i`; revert with `git checkout --` from an already-clean tree.
-  Assert the BASELINE is green where the battery runs: a suite that already fails there reports
-  every mutation as caught, and a battery run in a copy without `.git` is one `git ls-files` away
-  from that. A guard that only bites on POSIX — a file mode, an owner, an access entry — is
-  checked in **WSL**, since on the dev host its test skips or the OS enforces the same thing and
-  the mutation survives into a green suite. A battery that carries rows forward SAYS which it
-  dropped for an anchor that moved: the edit under review is what moves them, and the run still
-  reports a clean sweep over what is left. After any mechanical edit to test files, `comm` the
-  collected node ids before and after — a folder split once made 37 tests skip in silence. And
-  a claim that a gate over- or under-blocks is A/B'd against the released tag over a command
-  matrix before it is acted on: one taken at face value produced a fix in the opposite
-  direction.
+- **English in the repo** — docs, commit messages, comments/docstrings, test assertion messages.
+  Korean stays only where load-bearing: text the repo quotes rather than authors, the strings a
+  test compares against it, and fixtures whose non-ASCII bytes ARE the case — translated, the
+  test stays green and stops exercising anything. Internal `docs/superpowers/` stays Korean.
+- **Write only what the code can't say** — [`rules/doc-style.md`](rules/doc-style.md); for a
+  commit body, [`rules/risk-tiers.md`](rules/risk-tiers.md) Commit Discipline; for generated
+  harness artifacts, [`rules/harness-rules.md`](rules/harness-rules.md) 5-2.
+- **Dogfood new CI** — a workflow-rendering feature also lands in this repo's own
+  `.github/workflows/`, every job with a tight `timeout-minutes`. Exempt: a template whose
+  subject does not exist here (a REST service, a browser front end, a deployment target).
+- **A test file past 500 lines becomes a folder** `tests/<what it covers>/`, every file under
+  the cap, with an `__init__.py` — without it, the day two packages share a basename, pytest
+  **aborts the session**. A file under the cap stays flat.
+- **The dev host is Windows, CI is ubuntu** — `core.autocrlf=true` and no `.gitattributes`:
+  every tracked text file is CRLF in the worktree, LF in the blob. **Never digest a tracked
+  file's raw bytes** (local `pytest` green, CI red, in silence); normalize CRLF inside every new
+  digest. Check shell, PATH, shebangs, file modes and path separators in **WSL** before a push.
+  `/flow-init` copies byte-for-byte: consumers get CRLF `.sh` until the checkout is renormalized.
+- **Mutation-test a fix, and assert the mutation applied** — a no-op edit reads as verified.
+  Apply it in Python with `assert old in text`, never `sed -i`; revert with `git checkout --` from
+  an already-clean tree. Assert the baseline is green where the battery runs, or every mutation
+  reports as caught; a battery that carries rows forward says which it dropped for a moved
+  anchor, since the edit under review moves them and the rest still sweeps clean. Mutate
+  POSIX-only guards in **WSL**, and diff collected node ids around a mechanical test edit. A/B a
+  claim that a gate over- or under-blocks against the released tag, over a command matrix,
+  before acting on it.
 
 ## Folder structure
 
-`agents/`·`hooks/hooks.json`·`skills/` declare no path in the manifest — they are
-**auto-discovered from their default locations**, so adding a component is adding a file. Each
-entry below is folder + purpose; the per-file detail lives in the folder itself.
+`agents/`, `hooks/hooks.json`, `skills/` are **auto-discovered**: adding a component is a new file.
 
 ```text
-.claude-plugin/  plugin.json (minimal manifest) · marketplace.json (self-exposed; source=github + immutable sha pin)
-agents/          harness-researcher · harness-code-analyzer · harness-critic
-hooks/           hooks.json (SessionStart + PostToolUse + Notification) · inject-risk-tiers.sh (rule injection +
-                 stale-build warning) · invalidate-gate-markers.sh (an edit voids the review/doc-sync
-                 evidence; host switch `gate_evidence.invalidate_on_edit`)
-skills/          /slash = skill — one dir each; open the dir for its SKILL.md
-rules/           risk-tiers.md (SSOT: tier classification + commit discipline) — the ONLY one injected,
-                 so its bytes are an eval input and a split of it costs 4 skills a live re-measure;
-                 promotion.md · merge-strategy.md · gate-mechanics.md are its halves, read at a promotion /
-                 at a merge / when a gate blocked, injected by nothing · harness-rules.md (SSOT:
-                 harness-gen) · doc-style.md (SSOT: prose discipline) — all SHIP to consumers,
-                 unlike .claude/rules/
-.claude/rules/   dev-only, never ships: skill-frontmatter.md (fires on a skills/**/*.md) ·
-                 claude-md-authoring.md (fires on this file)
-scripts/         gate + setup scripts incl. wiki_graph.py (build/verify the LLM Wiki graph;
-                 owns `derive_wiki_id`/`--derive-id`, the executable SSOT for the `wiki_id` rule) ·
-                 doc_style_check.py (prose lint + lossless rewrite verify) · srs_check.py
-                 (`--areas`/`--next-id`/`--verify` over docs/srs) · _md_anchors.py (GitHub's anchor
-                 rules; its own module because COPY_FILES lands flat siblings and harness_scaffold,
-                 which also holds them, is never copied — ship one without the other and the host
-                 ImportErrors inside a FAIL-OPEN step) —
-                 authoritative copy list = flow_init_setup.py COPY_FILES (open the dir for the rest)
-github/          *.workflow.example.yml SOURCEs /flow-init renders (CI · release.<tool> · deploy.<target>);
-                 authoring gotchas (timeout-minutes cap · no ${{ }} in a run: block) guarded by tests/flow_init/
-.github/         this repo's OWN CI (release · branch-naming · entropy-check · unit-test · doc-style ·
-                 wiki-verify · srs-verify, all timeout-capped) · scripts/pin-marketplace-sha.py
-flow-tiers.yaml            tier→gates + merge_strategy — plugin-owned, immutable
-flow-config.example.yaml   host environment slots (real file → host .claude/harness-tier/config/, team-shared)
-tests/           pytest over scripts/ — a package per oversized module (flow_gate · flow_init · wiki_graph ·
-                 evals · skills · harness_paths · harness_scaffold · merge_ruleset · doc_style ·
-                 invalidate_gate_markers), the smaller ones flat beside them; skills/ reads the skill FILES
-                 (frontmatter/links/refs + the git commands skills and rules/ issue vs the gate's invocation
-                 grammar) · evals/ the model-free half of evals/
-evals/           skill measurement: invocation (cases.yaml · run.py · scores.py) + outcome (outcome.py · outcome_scores.json;
-                 fixtures/goldens live in scripts/skill_sandbox.py) — NOT shipped → commit as test:/chore:
+.claude-plugin/  plugin manifest · self-exposed marketplace entry (immutable sha pin)
+.claude/         dev-only authoring rules for this repo — never ships
+agents/          subagents the skills dispatch
+hooks/           SessionStart · PostToolUse · Notification hooks — the commit gate is not one
+skills/          one directory per slash command
+rules/           shipped SSOTs: tier discipline (+ on-demand parts), harness generation, prose
+scripts/         gate + setup scripts; the host copy list is flow_init_setup.py COPY_FILES
+github/          consumer workflow templates /flow-init and /wiki-init render
+.github/         this repo's own CI
+tests/           pytest over scripts/ and over the shipped skill and rule files
+evals/           skill measurement (invocation, outcome) — NOT shipped: commit as test:/chore:
+docs/            internal design records (Korean, never shipped) · reference notes
 ```
 
-## Architecture (must-know)
+## Architecture
 
-- **Installed outside the host (in a cache) → dual paths.** `${CLAUDE_PLUGIN_ROOT}` = reads
-  (templates/policy), `${CLAUDE_PROJECT_DIR}` = writes (host config/evidence).
-  **Never write into the plugin directory.**
-- **Host writes group under `${CLAUDE_PROJECT_DIR}/.claude/harness-tier/`**: `scripts/` (copied
-  gate scripts, git-tracked) · `config/` (flow-config.yaml + flow-tiers.yaml) · `.flow/` (gate
-  evidence, gitignored). The only exceptions are files whose location external tools force:
-  `.gitignore` · `.pre-commit-config.yaml` · `.claude/settings.json` · `.github/workflows/` ·
-  `playwright.config.*` (Playwright resolves it from the repo root — `playwright-scaffold`
-  writes it there).
-- **The commit gate is registered in the host's `settings.json`** (not the plugin's hooks.json) —
-  for deny-enforcement reliability, and because `${CLAUDE_PLUGIN_ROOT}` is not resolved there.
-  `/flow-init` **copies** the gate scripts + `flow-tiers.yaml` policy into the host.
-- **Script propagation is one-way**: `scripts/`·`flow-tiers.yaml` (SOURCE·SSOT) → cache → host
-  copies. **Fix only the SOURCE** — host copies are overwritten on reinstall (`/flow-init`
-  re-syncs, `/flow-uninstall` cleans up). Never edit a host copy directly.
-- **Policy vs. environment**: `flow-tiers.yaml` (tier→gates + `merge_strategy`; immutable ·
-  plugin-owned · do not edit) vs. `flow-config.yaml` (branches · modules; host-owned ·
-  team-shared · git-tracked). `merge_strategy` names flows by `flow-config.branches` **key**, so
-  the policy stays environment-free.
-- **Tier-discipline SSOT = [`rules/risk-tiers.md`](rules/risk-tiers.md)** — `flow.md` ·
-  `flow-tiers.yaml` · the gates all defer to it.
-- **Versioning & release**: plugin.json `version` gates updates — a sha change alone does not
-  propagate; reinstall happens only on a version bump. `.github/workflows/release.yml`
-  (python-semantic-release) bumps from the Conventional Commits of pushes to main/stage; on main,
-  `pin-marketplace-sha.py` immutably pins the marketplace `source.sha`. **Therefore a
-  consumer-facing `.md` (rules/skills) change must commit as `feat`/`fix`, not `docs`, to
-  propagate.** Branches: `feature/*` → dev → stage → main.
-- **The plugin's `rules/` is not auto-loaded** → `hooks/inject-risk-tiers.sh` injects it as
-  `additionalContext` at SessionStart. The same hook tells a consumer when the marketplace clone
-  beside the install cache publishes a newer `version` than the loaded build — the update gate is
-  version-only, so nothing else says so. Local files, no network; a build AHEAD of published (a
-  maintainer's rc) stays silent, or the remedy would name a reinstall that fetches the older pin.
-  FAIL-OPEN.
-- **Three verification layers**, independent (per-gate mechanism →
-  [`rules/risk-tiers.md`](rules/risk-tiers.md) · [`flow-tiers.yaml`](flow-tiers.yaml)):
-  1. **Hygiene** — the host's `.pre-commit-config.yaml` (git-native): gitlint · teams-notify-push ·
-     language-agnostic checks.
-  2. **Flow gate** — `precommit-runner.sh` (PreToolUse), **Claude-session commits & merges only**
-     (terminal commits and CI bypass it). Blocks unclassified commits, then runs the tier's
-     `gates`; `git merge` takes a separate path judged against `merge_strategy`. Gate internals &
-     the FAIL-OPEN rules → **Invariants** below.
-  3. **CI (GitHub Actions)** — `/flow-init` renders `api-contract.yml` + `unit-test.yml` +
-     `doc-style.yml` + `e2e.yml` + `srs-verify.yml`, and `/wiki-init` renders `wiki-verify.yml`,
-     closing layer 2's blind spot (it never sees direct/terminal/CI commits). Every job is
-     timeout-capped.
-
-  **PR mode** (`flow-config.merge_workflow.pull_request`;
-  [`rules/promotion.md`](rules/promotion.md) PR workflow) takes a flow's merge out of the
-  hook's sight, so `merge_strategy` stops applying to it and a GitHub branch ruleset
-  enforces the method instead — `scripts/check-merge-ruleset.sh` reports that ruleset's state at
-  `/flow-init` Step 2.7, read-only, never writing to GitHub. The substitution is exact only for
-  `promotion`: a ruleset targets the *destination* ref, so on `daily` it cannot separate
-  `feature/*`=Squash from `fix/*`=Rebase, and "require a PR" then also governs the back-merge push
-  and `hotfix/*` → production, which need a bypass actor or a PR of their own.
-
-  **Marker lifetime** (risk-tiers Step 3): `hooks/invalidate-gate-markers.sh` (PostToolUse)
-  deletes the `review` and `doc-sync` markers on any edit, so passing is a fixpoint and Dev runs
-  doc-sync first, the review last. Ask the review agent for a literal `VERDICT: PASS` /
-  `VERDICT: FAIL` line: an ambiguous report reads as a pass, and the marker then records one
-  that never happened. WHICH tree's evidence goes is resolved in the hook itself
-  (the edited file's repo root, plus `CLAUDE_PROJECT_DIR` unless the two are provably
-  different repos — Invariant 6). Every undecidable case deletes; the hook's own failure keeps
-  them (FAIL-OPEN).
-
-  **`wiki` and `doc-style` ride the flow gate's own process** (one spawn), never the
-  module-command channel, whose "any nonzero exit = failure" contract would make an internal
-  error block every commit. The other two marker-free gates, `precommit`·`security-scan`,
-  DO go through that channel — they are module checks, where a nonzero exit IS the verdict.
-  All four are defined in the risk-tiers gate glossary; what only lives here:
-  - `wiki` (`--wiki-check` remains a compat alias; enabled by `flow-config.wiki`) reads the
-    working tree, because the hook fires
-    before staging — so `graph.yaml` must be staged with the documents it was built from. The
-    graph is built by `doc-sync`, `/wiki-init`, or `/flow`'s Dev step 1b (a new SRS area
-    file) from **git's index**, never by the hook or CI, and no promotion gate rebuilds it:
-    a blocked promotion is resolved by running `--build` into that commit.
-  - `doc-style` never blocks — `doc-style.yml` holds the verdict, where the whole tree is in view.
-
-  Terminal commits bypass every layer-2 gate, so drift is caught late (at the next session
-  commit), not lost; `wiki-verify.yml`, `doc-style.yml` and `srs-verify.yml` close that window.
-  **All three are opt-in, and each is offered where its subject exists** — `doc-style.yml` at
-  `/flow-init` on `doc_style.enable`, `srs-verify.yml` at `/flow-init` guarded on `docs/srs/`
-  being in the checkout, `wiki-verify.yml` at `/wiki-init` once `--verify` passes, since at
-  `/flow-init` time there is no graph to point a workflow at. No absence is visible later,
-  so every ask states what declining leaves unchecked. Each step still guards on its script being
-  in the checkout at all, which it is not in a repo that gitignores `.claude/`. Only
-  `doc_style.enable` also stops an already-rendered workflow (the check script reads it);
-  a `wiki-verify.yml` or `srs-verify.yml` is stopped by deleting it.
-
-  The SRS layer is deliberately asymmetric: the flow gate never reads an SRS at all, and
-  `/flow`'s increment steps only warn, so `srs-verify.yml` is the single place a dead anchor or
-  a number two branches both took is ever caught. A `/harness-init` run that created `docs/srs/`
-  says so and points at a `/flow-init` re-run, because nothing else would.
-- **Skill invocation is measured, not assumed** — `tests/skills/` checks a skill *file*
-  is well-formed; [`evals/`](evals/) checks it is *reached* (half a skill's failure modes live in
-  its `description`) and, in the outcome arm, that it *executed* correctly against a golden
-  fixture. Gate SSOT = [`evals/scores.py`](evals/scores.py) and
-  [`evals/outcome.py`](evals/outcome.py), which own the scoring and the `outcome_sha`
-  fingerprint. A skill enters the outcome arm by a
-  [`scripts/skill_sandbox.py`](scripts/skill_sandbox.py) scenario declaring `outcome=`.
-  Three things nothing else says: the fingerprint is a **denylist**
-  (`outcome.SHA_EXEMPT`), so a field added to `Scenario` is covered by default and any byte
-  change to a `copy_from_repo` source costs a live re-measure; the outcome arm, unlike the
-  invocation one, **does cover `disable-model-invocation` skills**, which is how `/wiki-init` is
-  measured; and a skill declaring `hook_assisted` in `cases.yaml` has the **injected rule folded
-  into its `description_sha`**, so editing [`rules/risk-tiers.md`](rules/risk-tiers.md) or the
-  hook that injects it costs those four skills a live re-measure. A rate can move on a
-  byte-identical description when text lands beside the mandate: position, not size, is the
-  lever, and it is not even monotone — a split that leaves pointer stubs can read worse than the
-  bloat it removed. So: leave `## Principle` and its mandate alone, move WHOLE sections, and
-  never leave a "moved to X" heading behind — a section that is only a pointer costs more than
-  the text it replaced. **Match the baseline's `--reps` before reading a number against it**: a
-  smaller sample can show both a record high and a cap-grazing false-fire that the larger one
-  does not reproduce. `cases.yaml` sets `reps:` per skill where a baseline is measured deeper
-  than the default, so a plain `--all` matches it.
-- **Deployment is not a verification layer** — a release-decoupled opt-in:
-  `/harness-deployments` writes `flow-config.deploy` and renders per-target `deploy-<name>.yml`
-  components + a generated `deploy.yml` orchestrator; `release.yml` calls it via `workflow_call`
-  in-run (no PAT). None of it gates a commit.
+- **Installed outside the host (in a cache) → dual paths.** `${CLAUDE_PLUGIN_ROOT}` reads,
+  `${CLAUDE_PROJECT_DIR}` writes. **Never write into the plugin directory.** Host writes group
+  under `.claude/harness-tier/`, except files whose location an external tool forces.
+- **The commit gate is registered in the host's `settings.json`, not the plugin's hooks.json**,
+  for deny-enforcement reliability. `settings.json` cannot resolve `${CLAUDE_PLUGIN_ROOT}`, so
+  `/flow-init` copies the gate scripts and policy into the host.
+- **Script propagation is one-way** — SOURCE (`scripts/`, `flow-tiers.yaml`) → cache → host
+  copies. **Fix only the SOURCE** — `/flow-init` overwrites a host copy on its next re-sync.
+- **Policy stays environment-free** — `flow-tiers.yaml` is plugin-owned and immutable in a host,
+  and its `merge_strategy` names flows only by `flow-config.branches` **key**.
+- **A consumer-facing `.md` change (rules, skills) commits as `feat`/`fix`** — `docs`/`chore`
+  trigger no release, and only a `plugin.json` version bump reaches a consumer.
+- **[`rules/risk-tiers.md`](rules/risk-tiers.md) is the tier-discipline SSOT**, the only rule
+  injected at SessionStart; the files split from it are read on demand. Editing it or the hook
+  that injects it costs every `hook_assisted` skill a live re-measure. A rate moves with *where*
+  text sits beside `## Principle`'s mandate, not with how much, even on a byte-identical
+  description: leave that section alone, move whole sections, and leave no "moved to X" stub —
+  a pointer-only section can cost more than the text it replaced. Compare a rate only to a
+  baseline of the same model and `--reps` — a plain `--all` already matches.
+- **Three verification layers**, independent: the host's `.pre-commit-config.yaml`; the flow gate
+  (PreToolUse, **Claude-session commits and merges only** — terminal commits and CI bypass it);
+  and CI, which closes that blind spot. Per-gate mechanism: the risk-tiers glossary. PR mode takes
+  a flow's merge out of the hook's sight ([`rules/promotion.md`](rules/promotion.md) PR workflow).
+- **Ask a review agent for a literal `VERDICT: PASS` / `VERDICT: FAIL` line** — an ambiguous
+  report reads as a pass, and the marker then records a review that never happened.
+- **Skills are measured** — `tests/skills/` checks the file is well-formed, [`evals/`](evals/)
+  that it is *reached* and, in the outcome arm, *executed*, whose fingerprint covers the body and
+  every fixture input: a body edit costs a re-measure the description check never shows.
 
 ## Invariants (break these and the gate is silently neutralized)
 
-When modifying the gate scripts (`scripts/*`, `hooks/*.sh`), preserve these:
+Preserve these in `scripts/*` and `hooks/*.sh`; code, tests and skills cite them by number.
 
-1. **FAIL-OPEN, except for missing dependencies, unclassified commits, and merge-strategy
-   violations** — a transient internal error lets the gate pass rather than block, so a broken
-   gate never permanently blocks commits.
-   - **Exception 1**: required tools (`python3` ≥ 3.8 · `PyYAML`) missing or outdated →
-     `precommit-runner.sh` **blocks the commit**, preventing silent non-enforcement, independent
-     of the project's language. Without python3 nothing can classify the command, so the raw-stdin
-     filter only decides whether that deny is reached.
-   - **Exception 2**: policy (`flow-tiers.yaml`) and config (`flow-config.yaml`) parse correctly
-     but the `tier` marker is absent → `flow_gate_check` **blocks** the **unclassified commit**,
-     so bypassing `/flow` cannot silently neutralize the gate. The criterion is "**parsing
-     succeeded** (= it works reliably)", not "the file exists" — a broken policy/config is an
-     internal error and fails open.
-   - **Exception 3**: a `git merge` whose flags violate its branch flow's `merge_strategy` row is
-     **blocked** — a missing `require` flag or a present `forbid` flag, nothing else. It differs
-     in kind from the other two: it is decided **from the command string alone** and reads no
-     repository state, so no internal error can misfire it. Everything uncertain around it fails
-     open (no policy · no matching rule · an unparseable command · a command whose merges ALL
-     name another worktree · a rebase that only *warns*). **All** of them: a merge carrying no
-     `-C` is read as running here, so one of those keeps the whole command judged however many
-     foreign directories sit beside it — otherwise `&& git -C /tmp merge x` is enforcement off
-     in one appended token, and putting the foreign half first would do the same. 0.2.2 read
-     only the first merge, so it enforced that chain one way round and let it through the
-     other. Read as, not proven to: a `cd` prefix moves the shell's directory, and the prefix
-     is consulted only when NO merge named one at all, so a mixed chain behind a `cd` is
-     judged against a root none of it runs in. Those are the only places this **newly denies**
-     where 0.2.2 passed — the reordered chain and the two `cd`-mixed ones — and all three are
-     the safe side of a rule whose whole purpose is to keep a local merge judged.
-     A gate that cannot classify still enters this check,
-     guarded on the script file existing — alone among the stages it reads **stderr** for its
-     reason, where a missing file leaves the interpreter's complaint instead. (superpowers cannot
-     be detected from the shell → guarded in `/flow`·`/flow-init`.)
-2. **Windows encoding** — the hook's Python runs in a cp949 locale. A Korean `print()` / UTF-8
-   `open()` can FAIL-OPEN on an encoding error and *let a commit that should be blocked pass
-   through*. Do not omit the `PYTHONUTF8=1` · `force_utf8_io()` · `encoding="utf-8"` defenses.
-3. **Block = exit 2 + a reason on stderr** (emit the JSON `permissionDecision` too, but exit 2 is
-   the actual blocking mechanism).
-4. **No `if` field on the settings.json gate hook** — it would suppress the hook from firing per
-   build. Filter via `precommit-runner.sh`'s stdin self-filter instead.
-5. **`/flow-init` is idempotent** — no duplicate additions of the settings.json hook · pre-commit
-   id · .gitignore line (match-then-skip).
-6. **Worktree re-designation stays FAIL-OPEN** — `CLAUDE_PROJECT_DIR` is fixed at session start,
-   so `precommit-runner.sh` re-points `ROOT` to the worktree `flow_gate_check.py --classify`
-   detects by branch-key (`_harness_paths.working_root`), and status/diff/tier-marker/module-lint
-   all read it. Any uncertainty — detached HEAD · `--git-common-dir` mismatch · no worktree ·
-   parse/exception · invocations naming different directories — falls back to main; **never
-   newly block**, with one declared exception. The fallback is main only when nothing else
-   answers: once the command itself gives none, the resolver may still reach a worktree from the
-   hook's own cwd, which is the ordinary case in a worktree session. Invocations naming
-   different directories are the exception, because there the answer is a fallback rather than a
-   reading — the command commits in more than one tree, and whichever the resolver returns, its
-   being clean says nothing. So `commit_tree_unresolved` reports it and the runner declines its
-   clean-tree shortcut, gating that tree anyway: a deliberate over-block, taken because the
-   alternative is a clean tree reading as nothing to gate, which skips every gate in silence on
-   a command that does commit.
-   Same-repo identity is `--git-common-dir` equality, never a path prefix (sibling
-   `…/kit` vs `…/kit-feature` must not false-match). Keep the uncertain set small: two
-   `git -C <same wt> commit` in one command (commit-then-amend) name one directory and must
-   resolve to it.
-7. **One authority for what a `git` invocation is** — `--classify` decides; the runner's stdin
-   filter only decides whether to spawn it, and must stay coarse enough that it can never be
-   narrower, since a spelling only one of them accepts is the gate off in silence. Quoting,
-   escapes, comments and heredoc bodies are read in exactly one place,
-   `_harness_paths.mask_literals`, and every rule is located on its mask rather than the raw
-   command (the anchored `cd` prefix excepted — it cannot start inside a literal).
-
-   **Quoted text is data only until something runs it.** `_harness_paths.is_invocation` is the one
-   reader, and it reads twice: the grammar over the mask, then the same grammar over each
-   command-list element with its quoting rubbed out. The second reading is **skipped only for an
-   element whose every program reads** (`_READS_ONLY`), asked of the program at EVERY command
-   position (`_COMMAND_START`) in the SAME walk that steps over a `!`, a redirection or an
-   assignment — split into two walks, `cat f | > /dev/null env 'git' commit` exempts as a `cat`.
-   A position whose program has no name (written quoted, the mask blanks it) is reported as a
-   program, never left out: left out, it is a program the exemption was decided without.
-
-   The exemption is the half that may be wrong: a reader nobody listed over-gates, which the user
-   sees and works around, where an executor nobody listed turns the gate off with nothing
-   reported. A name earns that list only by having no way to run a command written in its own
-   arguments OR named by its environment — so `awk`·`sed`·`find`·`ack`·`ag` are absent from it,
-   `less` is absent (`LESSOPEN`, which a login profile sets on most distributions, is a command it
-   runs), and `git` never enters it. An element carrying an ASSIGNMENT earns no exemption either:
-   the assignment is neither the program nor one of its arguments and reaches inside the program
-   the list vouched for, so that position is reported unnamed —
-   `LESSOPEN='|git commit -m x %s' less -f f` commits.
-
-   A heredoc body is kept only for an element that NAMES an interpreter or expands a substitution,
-   the two places a body is a script rather than the data every other program takes it for.
-   *Where* in the element it names one is not the question: a reserved word, a prefix command, an
-   assignment and a redirection can each stand in front of `bash <<EOF`. An element that expands a
-   substitution anywhere earns no exemption, because what runs is not the reader written inside
-   it; asked instead where the substitution SITS, the question needs every prefix a command may
-   carry, and `!` alone is not one of them — nor is a separator inside a substitution an element
-   boundary.
-
-   A missed commit is the one direction this may never fail in, which is also why the pre-filter
-   requires no blank before the word — the second reading treats a quote as one.
-   `tests/skills/` pins both to a corpus of real invocations AND of commands that merely say the
-   word; a positive list alone is satisfied by a grammar that matches everything. A skill's
-   `git commit`/`git merge` must spell its flags **literally** for the same reason — the hook
-   reads the command unexpanded, so a variable standing where a flag belongs is not an invocation
-   (`tests/skills/`).
+1. **FAIL-OPEN** — a transient internal error lets the gate pass, so a broken gate never
+   permanently blocks commits. Three fail-closed exceptions:
+   - **Exception 1**: `python3` ≥ 3.8 or PyYAML missing or outdated → the runner **blocks**.
+   - **Exception 2**: the policy loads with its `tiers`, the config loads or is absent, no `tier`
+     marker exists, and the config names the branch neither staging nor production →
+     `flow_gate_check` blocks the **unclassified commit**. A missing or broken policy, or a broken
+     config, fails open: the test is "works reliably", not "the file exists".
+   - **Exception 3**: a `git merge` whose flags violate its flow's `merge_strategy` row — a
+     missing `require` flag or a present `forbid` flag, nothing else — is blocked, decided from
+     the command string alone, so no internal error can misfire it. Anything uncertain fails
+     open, as does a command whose merges all run elsewhere; one merge naming no directory
+     beside one that does keeps the whole command judged, behind a `cd` a deliberate over-block.
+2. **Windows encoding** — the hook's Python runs in a cp949 locale, where a Korean `print()` or a
+   UTF-8 `open()` can FAIL-OPEN and let a commit that should be blocked through. Keep the
+   `PYTHONUTF8=1` · `force_utf8_io()` · `encoding="utf-8"` defenses.
+3. **Block = exit 2 + a reason on stderr** — emit the JSON `permissionDecision` too, but exit 2
+   is the mechanism.
+4. **No `if` field on the settings.json gate hook** — it suppresses the hook per build. Filter in
+   the runner's stdin self-filter instead.
+5. **`/flow-init` is idempotent** — match-then-skip on every addition it makes to a host file.
+6. **Worktree re-designation stays FAIL-OPEN** — the commit path re-points `ROOT` to the worktree
+   the commit runs in, read from the command, then from the hook's own cwd; anything uncertain
+   falls back to main, the resolver never guesses between directories the command's invocations
+   name, and re-designation must never newly block. One declared exception: a command whose
+   commit invocations disagree on the directory they name is gated anyway, since whichever tree
+   it resolves to, its being clean says nothing. Same-repo identity is `--git-common-dir`
+   equality, never a path prefix. Keep the uncertain set small. Cases: `scripts/_harness_paths.py`.
+7. **One authority for what a `git` invocation is** — the classifier decides; the runner's stdin
+   filter only decides whether to spawn it, and stays coarser: a spelling one of them alone
+   accepts is the gate off in silence. Quoting, escapes, comments and heredoc bodies are read in
+   one place, and every rule is located on that mask (the anchored `cd` prefix excepted). Quoted
+   text and heredoc bodies are data only until something runs them: any exemption from reading
+   them as a command must err toward over-gating, and `git` never earns one. A missed commit is
+   the one direction this may never fail in; `tests/skills/` pins real invocations **and** mere
+   mentions. Skills spell `git commit` and `git merge` flags **literally** — the hook reads them
+   unexpanded. Exemption and heredoc rules: `scripts/_harness_paths.py`.
