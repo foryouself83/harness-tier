@@ -138,3 +138,7 @@ level; the finalize step is deterministic.
    day-to-day rows and to `/release-commit` for a promotion, several of them hook-enforced. A
    promotion reaches Step 4 with its merge already open (`--no-ff --no-commit`), so the commit
    issued there is what writes that merge commit — do not abort it to write a plain one.
+4. **Never spell a CI-skip marker in the message.** GitHub reads `[skip ci]` anywhere in the
+   pushed head commit's message, body included, and creates **no workflow run** for that push:
+   every CI layer is off for the change, and the absence of a run reports as nothing at all.
+   A message that has to discuss one names it in prose — "a skip-ci marker".
