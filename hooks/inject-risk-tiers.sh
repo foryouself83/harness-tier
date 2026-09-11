@@ -191,8 +191,13 @@ if [ -n "$notice" ]; then
   notice_block="<harness-tier-stale-build>\nRelay this to the user before doing anything else:\n$(escape_for_json "$notice")\n</harness-tier-stale-build>\n\n"
 fi
 
+# The rule links its siblings by bare filename ("[merge-strategy.md](merge-strategy.md)"),
+# which reaches a session with no directory to resolve against — the plugin lives in a
+# versioned cache. The base path is named AFTER the rule, never before it: text beside the
+# mandate moves the skills measured invocation rates, and a path is not worth that.
 rule_escaped="$(escape_for_json "$rule_content")"
-session_context="${notice_block}<harness-tier-risk-tiers>\nThis project enforces the harness-tier risk-tiered workflow AT COMMIT TIME. The commit gate is fail-closed: it blocks any commit whose task was not classified by /flow. So before starting ANY code change, feature, fix, or dev request — and at the latest before you commit — your action MUST be to invoke the /flow skill (via the Skill tool). /flow is what classifies the task, confirms the tier, runs the matching gates, and records the marker the commit gate requires. Do NOT judge the tier yourself and skip the skill; without /flow's marker the commit is rejected.\n\n${rule_escaped}\n</harness-tier-risk-tiers>"
+rules_dir_escaped="$(escape_for_json "${PLUGIN_ROOT}/rules")"
+session_context="${notice_block}<harness-tier-risk-tiers>\nThis project enforces the harness-tier risk-tiered workflow AT COMMIT TIME. The commit gate is fail-closed: it blocks any commit whose task was not classified by /flow. So before starting ANY code change, feature, fix, or dev request — and at the latest before you commit — your action MUST be to invoke the /flow skill (via the Skill tool). /flow is what classifies the task, confirms the tier, runs the matching gates, and records the marker the commit gate requires. Do NOT judge the tier yourself and skip the skill; without /flow's marker the commit is rejected.\n\n${rule_escaped}\n\nThe files this rule links by bare filename live in ${rules_dir_escaped} — read one there when it sends you to it.\n</harness-tier-risk-tiers>"
 
 if [ -n "${CURSOR_PLUGIN_ROOT:-}" ]; then
   printf '{\n  "additional_context": "%s"\n}\n' "$session_context"
