@@ -171,10 +171,12 @@ def _outcome_targets(only: str | None = None) -> list[tuple[str, sandbox.Scenari
 def run_outcome(skill: str, scenario: sandbox.Scenario, reps: int, config_dir: Path) -> dict:
     """Run one skill against its golden fixture `reps` times; score each by end-state.
 
-    `fired_hits` is a diagnostic, never the score, and it is structurally 0 for a scenario
-    whose prompt IS a slash command: a `disable-model-invocation` skill is entered by the
-    user typing it, so no Skill tool_use is ever emitted for stream.observe to see. A 0
-    beside another skill's 1.0 is that, not a regression — the end-state is the verdict.
+    `fired_hits` is a diagnostic, never the score, and it is structurally 0 in two shapes.
+    A scenario whose prompt IS a slash command: a `disable-model-invocation` skill is entered
+    by the user typing it, so no Skill tool_use is ever emitted for stream.observe to see. And
+    a skill declaring `context: fork`: its Skill call runs off the parent stream that
+    stream.observe reads. A 0 beside another skill's 1.0 is one of those, not a regression —
+    the end-state is the verdict.
 
     Each rep gets a throwaway fixture dir so bypassPermissions edits stay contained. Judged by
     the final end-state (chain-agnostic): whether the skill ran directly or via another's

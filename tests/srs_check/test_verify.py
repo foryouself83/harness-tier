@@ -98,6 +98,7 @@ def test_index_anchors_take_no_prefix_check(tmp_path: Path, capsys):
     )
     code, out = run(["--root", str(tmp_path), "--verify"], capsys)
     assert code == 0
+    assert out == ""
 
 
 def test_external_and_absolute_links_are_out_of_scope(tmp_path: Path, capsys):
@@ -108,6 +109,7 @@ def test_external_and_absolute_links_are_out_of_scope(tmp_path: Path, capsys):
     )
     code, out = run(["--root", str(tmp_path), "--verify"], capsys)
     assert code == 0
+    assert out == ""
 
 
 def test_no_srs_dir_is_silent_success(tmp_path: Path, capsys):

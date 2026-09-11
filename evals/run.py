@@ -59,6 +59,9 @@ MAX_TURNS = 6
 # before it could decide. Sessions run to their natural end.
 SESSION_TIMEOUT = 180
 JOBS = 8
+# The run default a per-skill `reps:` in cases.yaml overrides. Named so the suite can pin
+# the override against it rather than restating the number.
+DEFAULT_REPS = 3
 
 # Measured under eight-way load: 35 sessions finished in 252s. Solo they run ~45s — running
 # eight at once stretches each one. This drives the estimate only; SESSION_TIMEOUT is a guard,
@@ -667,7 +670,7 @@ def _main() -> int:
     # sample size without distorting the comparison. The global default stays 3 for provenance
     # (the committed baseline's n) and predictable budget; rate-limit is no longer the driver —
     # at JOBS = 8 a full run is 245 sessions in ~30 min and 5 reps would be ~46 min, both fit.
-    ap.add_argument("--reps", type=int, default=3)
+    ap.add_argument("--reps", type=int, default=DEFAULT_REPS)
     ap.add_argument("--jobs", type=int, default=JOBS, help="sessions in flight at once")
     ap.add_argument("--dry-run", action="store_true", help="print the plan, run nothing")
     ap.add_argument("--accept", action="store_true", help="allow a score below the baseline")

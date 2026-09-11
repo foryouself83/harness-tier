@@ -34,4 +34,5 @@ def test_areas_lists_stem_and_title(tmp_path: Path, capsys):
 def test_readme_is_not_an_area(tmp_path: Path, capsys):
     write(tmp_path, "docs/srs/README.md", "# SRS\n")
     code, out = run(["--root", str(tmp_path), "--areas"], capsys)
+    assert code == 0
     assert out == ""

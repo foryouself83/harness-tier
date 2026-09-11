@@ -3,7 +3,9 @@ import re
 import pytest
 import yaml
 
+import evals.scores as scores
 import scripts.skill_sandbox as sandbox
+from evals.run import DEFAULT_REPS
 from tests.evals._helpers import CASES, REPO, SKILLS
 
 HAPPY_CASES = 5
@@ -55,3 +57,23 @@ def test_case_fixtures_name_a_real_sandbox_scenario(name: str):
             fixtures.add(case.get("fixture"))
     for f in fixtures - {None}:
         assert f in sandbox.BY_NAME, f"{name}: unknown fixture {f!r}"
+
+
+def test_a_reps_override_is_declared_where_the_run_reads_it():
+    """`run.measure` takes reps as `entry.get("reps", args.reps)`, so a misspelled key is
+    ignored in silence and the next `--all` re-baselines that skill at the run default — a
+    smaller denominator under the same name, and the rate it writes still looks plausible.
+
+    What this catches is a cases.yaml edit the scores have not caught up with, which is the
+    state a review sees. A drop that is re-measured in the same breath is self-consistent and
+    passes here; only the cases.yaml comment records why that skill wants its own n."""
+    recorded = scores.load()["skills"]
+    for name in SKILLS:
+        entry = recorded.get(name)
+        if not entry or "reps" not in entry:
+            continue
+        declared = CASES["skills"][name].get("reps", DEFAULT_REPS)
+        assert entry["reps"] == declared, (
+            f"{name}: measured at {entry['reps']} reps, cases.yaml asks for {declared}"
+        )
+        assert entry["false_n"] == entry["reps"] * NEGATIVE_CASES, name

@@ -18,7 +18,7 @@ def test_module_defines_no_second_copy():
     src = (ma.__file__, hs.__file__)
     assert src[0] != src[1]
     body = open(hs.__file__, encoding="utf-8").read()
-    for name in ("def _slugify", "def _has_anchor", "def _strip_frontmatter"):
+    for name in ("def _slugify", "def _has_anchor", "def _strip_frontmatter", "def _strip_code"):
         assert name not in body, f"{name} still defined in harness_scaffold"
 
 
