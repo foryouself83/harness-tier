@@ -164,3 +164,76 @@ def test_runner_ignores_commit_graph_subcommand(tmp_path: Path):
     r = _run_runner(main, f"git -C {wt} commit-graph write")
     assert "echo LINT_RAN" not in (r.stdout + r.stderr)
     assert r.returncode == 0
+
+
+@requires_bash_git
+def test_runner_gates_a_dot_dash_c_beside_a_bare_commit(tmp_path: Path):
+    # D3: `cd $WT && git -C . commit && git commit --amend` resolves to $WT (dirty, unclassified),
+    # not a clean main. The deny proves the gate engaged.
+    main = tmp_path / "main"
+    _init_repo(main)
+    wt = tmp_path / "wt"
+    _rg(["worktree", "add", "-b", "feature/x", str(wt)], main)
+    (wt / "f.txt").write_text("x", encoding="utf-8")
+    _rg(["add", "f.txt"], wt)
+    r = _run_runner(main, f"cd {wt} && git -C . commit -m a && git commit --amend --no-edit")
+    assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)
+
+
+@requires_bash_git
+def test_runner_gates_cd_hopping_across_trees(tmp_path: Path):
+    # D4a: two cd-hops, leading tree clean — unresolved forces the gate.
+    main = tmp_path / "main"
+    _init_repo(main)
+    a = tmp_path / "wta"
+    b = tmp_path / "wtb"
+    _rg(["worktree", "add", "-b", "feature/a", str(a)], main)
+    _rg(["worktree", "add", "-b", "feature/b", str(b)], main)
+    (b / "f.txt").write_text("x", encoding="utf-8")
+    _rg(["add", "f.txt"], b)
+    r = _run_runner(main, f"cd {a} && git commit -m a; cd {b} && git commit -m b")
+    assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)
+
+
+@requires_bash_git
+def test_runner_gates_a_subshell_cd_commit(tmp_path: Path):
+    # D8: `(cd $WT && git commit)` — unresolved gates it.
+    main = tmp_path / "main"
+    _init_repo(main)
+    wt = tmp_path / "wt"
+    _rg(["worktree", "add", "-b", "feature/x", str(wt)], main)
+    (wt / "f.txt").write_text("x", encoding="utf-8")
+    _rg(["add", "f.txt"], wt)
+    r = _run_runner(main, f"(cd {wt} && git commit -m x)")
+    assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)
+
+
+@requires_bash_git
+def test_runner_stops_over_blocking_cd_main_from_a_worktree(tmp_path: Path):
+    # D7: from a worktree cwd, `cd $MAIN; git commit` now resolves to MAIN → rc 0, where before
+    # the fix ROOT stayed on the worktree cwd. The marker below is bound to `main` (not to
+    # `feature/x`, the worktree's own branch), and the worktree is created BEFORE that marker
+    # is even written/committed on main — so the worktree can never inherit a marker that
+    # happens to match its own branch. Pre-fix, ROOT lands on the worktree, which then carries
+    # no matching tier marker at all → unclassified → blocked (rc 2). Only the fix (reading the
+    # `cd $MAIN;` prefix and re-pointing ROOT to main, genuinely classified for its own branch)
+    # produces rc 0 here.
+    main = tmp_path / "main"
+    _init_repo(main)
+    wt = tmp_path / "wt"
+    _rg(["worktree", "add", "-b", "feature/x", str(wt)], main)  # before main is classified
+    flow = main / ".claude" / "harness-tier" / ".flow"
+    flow.mkdir(parents=True)
+    (flow / "tier").write_text("dev:main", encoding="utf-8")  # bound to main's OWN branch
+    (flow / "review.done").touch()
+    (flow / "doc-sync.done").touch()
+    cfg = main / ".claude" / "harness-tier" / "config"
+    cfg.mkdir(parents=True)
+    (cfg / "flow-config.yaml").write_text("modules: []\n", encoding="utf-8")
+    _rg(["add", "-A"], main)
+    _rg(["commit", "-m", "classify"], main)
+    (main / "f.txt").write_text("x", encoding="utf-8")
+    _rg(["add", "f.txt"], main)
+    # hook cwd is the worktree; the command cd's to main
+    r = _run_runner(main, f"cd {main}; git commit -m x", hook_cwd=wt)
+    assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)

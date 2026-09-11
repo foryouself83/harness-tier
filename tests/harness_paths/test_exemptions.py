@@ -44,6 +44,8 @@ def test_a_substitution_is_one_element_however_it_is_spelled():
         "$(date; echo " + chr(34) + "x" + chr(34) + ")",
         chr(96) + "date; echo " + chr(34) + "x" + chr(34) + chr(96),
         "$(date" + chr(10) + "echo x)",
+        "bash <(echo; echo x)",
+        "cat >(echo; tee x)",
     ):
         assert len(vp._list_elements(command, vp.mask_literals(command))) == 1, command
 
@@ -178,3 +180,16 @@ def test_a_program_that_runs_what_its_environment_names_is_not_a_reader():
     wrote in the command — the list's criterion is about arguments and missed it."""
     assert "less" not in vp._READS_ONLY
     assert "more" not in vp._READS_ONLY  # `more` is `less` on enough hosts
+
+
+def test_program_spans_carry_name_and_arg_range():
+    # Each pipe member has its own argument range — position, not name, tells which
+    # program a `-v` belongs to.
+    spans = vp._program_spans("printf -v x | rg -v y")
+    assert [n for n, _s, _e in spans] == ["printf", "rg"]
+    printf_s, printf_e = spans[0][1], spans[0][2]
+    rg_s, rg_e = spans[1][1], spans[1][2]
+    assert "printf -v x | rg -v y"[printf_s:printf_e].strip() == "-v x"
+    assert "printf -v x | rg -v y"[rg_s:rg_e].strip() == "-v y"
+    # The name-list wrapper stays unchanged.
+    assert vp._programs("printf -v x | rg -v y") == ["printf", "rg"]

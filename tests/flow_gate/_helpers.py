@@ -90,7 +90,11 @@ def _classify_worktree_module(wt: Path) -> None:
 
 
 def _run_runner(
-    main: Path, command: str, dryrun: bool = True, plugin_root: Path | None = None
+    main: Path,
+    command: str,
+    dryrun: bool = True,
+    plugin_root: Path | None = None,
+    hook_cwd: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     repo = Path(__file__).resolve().parent.parent.parent
     env = {
@@ -100,7 +104,7 @@ def _run_runner(
         "HARNESS_PRECOMMIT_DRYRUN": "1" if dryrun else "0",
         "PYTHONIOENCODING": "utf-8",
     }
-    hook = json.dumps({"cwd": str(main), "tool_input": {"command": command}})
+    hook = json.dumps({"cwd": str(hook_cwd or main), "tool_input": {"command": command}})
     # bash eats backslashes in an argv path (C:\a\b → C:ab), so pass a forward-slash path.
     return subprocess.run(
         [_REPO_BASH, f"{repo.as_posix()}/scripts/precommit-runner.sh"],

@@ -152,6 +152,32 @@ RUNS_A_COMMIT = [
     # text a builtin runs later, and text a variable holds for something else to run
     ("trap 'git commit -m x' EXIT; true", "commit"),
     ('C="git commit -m x"; eval "$C"', "commit"),
+    # a reader with an exec-capable flag runs the program named in its own arguments; here the
+    # commit text sits where the grammar sees it adjacent (inside $() or the printf string)
+    ("printf -v 'a[$(git commit -qm x)]' 1", "commit"),
+    ("printf -vx 'a[$(git commit -qm x)]'", "commit"),
+    ("printf 'git commit -m x\\n' | sort --compress-program=bash", "commit"),
+    # a heredoc body handed to a NON-reader is a script, even for an interpreter the list never
+    # named — the inversion (§1(b)): the missing entry over-gates instead of turning the gate off
+    ("awk -f - <<'EOF'\nBEGIN { system(\"git commit -qm x\") }\nEOF", "commit"),
+    (". /dev/stdin <<'EOF'\ngit commit -qm x\nEOF", "commit"),
+    ("sed -f - <<'EOF'\n1e git merge --no-ff dev\nEOF", "merge"),
+    # accepted cost: a non-reader whose heredoc body merely MENTIONS a commit is now gated
+    ("nodemon <<EOF\ngit commit -m x\nEOF", "commit"),
+    ("bashful <<EOF\ngit commit -m x\nEOF", "commit"),
+    ("rebash <<EOF\ngit commit -m x\nEOF", "commit"),
+    ("git log -1 --format=%s <<'EOF'\ngit -C /wt commit -m x\nEOF", "commit"),
+    # `<(…)` is a substitution span for element-splitting, so its inner `;` never cuts the element
+    ('bash <(echo; echo "git commit -qm x")', "commit"),
+    ('bash <(true; echo "git merge --no-ff dev")', "merge"),
+    # xargs/parallel reorder args past the grammar; a standalone git + commit token is the signal
+    ("echo commit | xargs git", "commit"),
+    ("echo commit -m x | xargs git", "commit"),
+    ("printf 'merge\\n--no-ff\\ndev' | xargs git", "merge"),
+    ("echo commit | parallel git", "commit"),
+    # rg --pre git <pat> commit: rg runs `git` on the file named `commit` → a standalone git +
+    # commit token, the same signal (§1(a) denied its exemption; the token check catches it here)
+    ("rg --pre git x commit", "commit"),
 ]
 
 
@@ -168,9 +194,6 @@ RUNS_NO_COMMIT = [
     "grep -rn 'git commit' . 0<&3",
     "cat f | 2>&1 grep 'git commit' .",
     "cat f | >> out.txt grep 'git commit'",
-    # an interpreter's name has to END where the token does: `nodemon` is not `node`
-    "nodemon <<EOF\ngit commit -m x\nEOF",
-    "bashful <<EOF\ngit commit -m x\nEOF",
     # the `&` of a `2>&1` starts no command, and the fd after it is not a program:
     # counted as one it is on no reader's list and a piped-and-redirected grep was
     # denied
@@ -210,9 +233,12 @@ RUNS_NO_COMMIT = [
     # the host spells a reader with the suffix it has, and the exemption is by name
     'grep.exe -c "git commit" a.txt',
     'rg.exe -n "git commit" .',
-    # a tool that runs a program by PATH rather than a shell string spells no command
+    # the exec-flag value cannot be a program name (holds whitespace), so nothing runs
     "sort --compress-program='git commit -m x' f",
     "rg --pre 'git commit' pattern .",
+    # --pre-glob is not --pre, and -v after a NON-reader belongs to that reader
+    "rg --pre-glob '*.md' 'git commit' .",
+    "printf x | rg -v 'git commit'",
     # a reader inside a loop or a conditional is still the only program there, wherever the
     # reserved word sits — including at the very start, where a scan can wrongly claim the
     # word itself as the program and never reach the one it introduces
@@ -220,8 +246,6 @@ RUNS_NO_COMMIT = [
     ("if grep -q 'git commit' a.txt; then echo hi; fi"),
     ("while grep -q 'git commit' a.txt; do echo hi; break; done"),
     ("until grep -q 'git commit' a.txt; do echo hi; break; done"),
-    # a name that merely ENDS with an interpreter's is not one
-    ("rebash <<EOF\ngit commit -m x\nEOF"),
     ("for f in *; do grep -n 'git commit' $f; done"),
     ("if true; then echo 'git commit'; fi"),
     ('while read l; do echo "git commit"; done < a.txt'),
@@ -231,6 +255,17 @@ RUNS_NO_COMMIT = [
     ('cat <<EOF\nsay "hi" then git commit -m x\nEOF'),
     # an escaped separator is a literal character, not the end of a command
     "echo a\\; 'git commit'",
+    # a process substitution's output is a filename, not a command, so `cat` reading one
+    # stays a reader — even with a `;` inside it
+    "cat <(echo; echo 'git commit -m x')",
+    # `commit.gpgsign` and `*commit*` are not standalone commit tokens
+    "echo x | xargs git config commit.gpgsign false",
+    "git log | xargs -I{} echo committing {}",
+    # a bare backslash is a Windows path separator, not a token boundary — `\git`, `\commit`, and
+    # `\path` inside a quoted Windows path must not read as standalone tokens
+    'printf -v x "C:\\git\\commit\\y"',
+    'rg --pre cat "C:\\git\\commit\\log.txt"',
+    "find . -name '*.log' | xargs grep 'C:\\git\\commit\\path'",
 ]
 
 

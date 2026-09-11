@@ -175,8 +175,9 @@ consent; never mutate machine-wide state.
          themselves**: the commit-time stage only ever *warns*, so
          `.github/workflows/doc-style.yml` is the single place this rule is ever enforced —
          declining does not leave a lighter check, it leaves none. **Yes** → `enable: true`,
-         then `paths` and `exclude` (offer the example's `["**/*.md"]` / `["CHANGELOG.md"]`
-         as defaults, and mention `**/*.py`·`**/*.sh` cover comments and docstrings).
+         then `paths` and `exclude` (offer the example's `["**/*.md"]` /
+         `["CHANGELOG.md", "docs/superpowers/**", ".superpowers/**"]` as defaults, and
+         mention `**/*.py`·`**/*.sh` cover comments and docstrings).
          **No** → `enable: false`; Step 2 then renders no workflow. The flag also drives the
          commit-time stage, so it is one answer for both layers, and flipping it later
          silences an already-rendered workflow without deleting it.
@@ -279,10 +280,10 @@ Applies only when `${ROOT}/docs/srs/` exists in the checkout — without one the
 nothing to point a workflow at.
 
 Ask via `AskUserQuestion` whether to render `srs-verify.yml`. **The option descriptions
-themselves carry what declining costs**, the same discipline as the `wiki-verify` and
-`doc_style` asks above: the commit gate never reads an SRS, so this workflow is the only
-thing that will ever see a dead anchor or a number two branches both took. Declining does
-not leave a lighter check — it leaves none.
+themselves carry what declining costs**, the same discipline as the `doc_style` ask above
+and `/wiki-init`'s `wiki-verify` ask: the commit gate never reads an SRS, so this workflow
+is the only thing that will ever see a dead anchor or a number two branches both took.
+Declining does not leave a lighter check — it leaves none.
 
 On **yes**:
 

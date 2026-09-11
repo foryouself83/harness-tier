@@ -181,14 +181,19 @@ _BRANCH_PREFIX = "branch "
 _HEADS_PREFIX = "refs/heads/"
 # path token: "double-quoted" | 'single-quoted' | bare (up to whitespace)
 _PATH_TOKEN = r'"([^"]*)"|\'([^\']*)\'|(\S+)'
-# A leading `cd <dir> &&` — the execution directory a chained command moves into before running
-# git. Anchored at the start, so a match is necessarily *before* any later subcommand.
-# `&&` only, deliberately: a match here re-points ROOT to another worktree for
-# status/diff/tier-marker/module-lint, and Invariant #6 requires that path to stay conservative
-# ("any uncertainty → main; never newly block"), so widening the separators is a live behaviour
-# change, not a clean-up. flow_gate_check's merge path — where the same match only FAILs OPEN —
-# states its own separators in _MERGE_CD_PREFIX_RE.
-_CD_PREFIX_RE = re.compile(rf"\s*cd\s+(?:{_PATH_TOKEN})\s*&&")
+# The commit path's own cd-prefix path token: a bare path stops at a command separator so
+# `cd /x;git commit` names `/x`, not `/x;git`. Kept separate from _PATH_TOKEN, which the merge
+# path (_MERGE_CD_PREFIX_RE) shares and must not change.
+_CD_PATH_TOKEN = r'"([^"]*)"|\'([^\']*)\'|([^\s;&|]+)'
+# A leading `cd <dir>` before the commit, followed by `&&`, `;`, or a newline — the execution
+# directory a chained command moves into before running git. Anchored at the start, so a match is
+# necessarily *before* any later subcommand and re-points ROOT conservatively (Invariant #6). A
+# trailing `;`/newline form re-points to the tree the commit actually lands in, exactly as `&&`
+# does; the merge path's differing risk polarity (there the same match only FAILs OPEN) is
+# absorbed by using a dedicated token above, so the merge path keeps _PATH_TOKEN unchanged in its
+# own _MERGE_CD_PREFIX_RE. Limitation: with `;`, a failed `cd` leaves the shell where it was while
+# this judges against X — the over-block that fixing D7 removes is the common case.
+_CD_PREFIX_RE = re.compile(rf"\s*cd\s+(?:{_CD_PATH_TOKEN})\s*(?:&&|[;\n])")
 
 
 def _git(args: list[str], cwd: str | Path) -> str | None:
@@ -282,9 +287,11 @@ _RUNS_TEXT = (
 # `awk` (`system`, a piped command, `getline`), `sed` (GNU `e`), `find`
 # (`-exec`, whose program and subcommand may be quoted), and the two searchers whose
 # `--pager` goes through a shell (`ack`, `ag`) all do, which is why the tools a developer
-# reaches for beside them are here and they are not. The ones that stay run a program by
-# PATH rather than a shell string — `sort --compress-program`, `rg --pre` — where nothing
-# the command spells becomes a command.
+# reaches for beside them are here and they are not. `sort`/`rg`/`printf` stay on this list
+# for their plain search/print use: run by PATH rather than a shell string, nothing the
+# command spells becomes a command there. But an exec-capable flag whose value names a
+# program (`sort --compress-program`/`--co…`, `rg --pre`, `printf -v`) withdraws the
+# exemption for that one element instead — see `_EXEC_FLAG_READERS`/`_runs_by_flag`.
 _READS_ONLY = frozenset(
     (
         "cat",
@@ -317,6 +324,18 @@ _READS_ONLY = frozenset(
         "which",
     )
 )
+# Readers on _READS_ONLY that lose the exemption when handed an exec-capable flag: the flag's
+# value is a program run by PATH, so a value that IS a program (present, no whitespace) means
+# something runs. Measured per pipe member on its own arg range (§1(a)).
+_EXEC_FLAG_READERS = {
+    # program: (predicate over one shlex token → does this token turn the exemption off?)
+    "printf": lambda t: t.startswith("-v"),  # bash printf -v NAME assigns; -vNAME too
+    "rg": lambda t: t == "--pre" or t.startswith("--pre="),  # not --pre-glob
+    "sort": lambda t: t.startswith("--co"),  # GNU --co… abbreviates --compress-program
+}
+# A value that can name a program: present and whitespace-free. rg/sort take the value as the
+# next token or after `=`; missing or whitespace-bearing → no such program → exemption kept.
+_EXEC_FLAG_VALUE_PROGRAMS = ("rg", "sort")
 # A program token at a command position, with the name captured.
 # Shell syntax standing where a program would. The list is the shell's own and therefore
 # closed, unlike a list of programs, and both readings need it: a command may start after one
@@ -376,8 +395,8 @@ _RESERVED_TAIL_RE = re.compile(r"\b(?:" + _RESERVED_ALTERNATION + r")$")
 _LONGEST_RESERVED = max(len(w) for w in _RESERVED_WORDS)
 
 
-def _programs(element: str) -> list[str | None]:
-    """The program at every command position in `element`, `None` where it has none.
+def _program_spans(element: str) -> list[tuple[str | None, int, int]]:
+    """The program at every command position in `element`, with its argument range.
 
     One walk, because two disagreed. The one that stepped over what a command may carry in
     front of its program found the program behind it; the one that built the names did not,
@@ -392,8 +411,12 @@ def _programs(element: str) -> list[str | None]:
     exemption was decided without — the direction this may not fail in. Nothing here can fail
     to finish: the starts come from one scan of a fixed pattern, and the walk over the
     prefixes only ever moves forward.
+
+    `args_start` is the index right after the program token (or, for a `None` position, the
+    command-start index); `args_end` is the next `_SEPARATOR_RE` match at or after that, else
+    `len(element)`. Later checks read positions from this one walk instead of a second one.
     """
-    found: list[str | None] = []
+    found: list[tuple[str | None, int, int]] = []
     # How far a walk has already resolved. A start landing inside that is a token of the
     # command already read, not a new one — and re-reading from each of them is what made
     # `do do do …` cost a walk per word.
@@ -422,12 +445,19 @@ def _programs(element: str) -> list[str | None]:
                 i += 1
             if i <= seen:
                 break  # a walk already resolved the command this start is inside of
-            if i >= len(element) or element[i] in _SEPARATOR_CHARS:
+            if i >= len(element) or element[i] in _SEPARATOR_CHARS or element[i] == "\x00":
+                # A NUL here is a heredoc body's own text, landed on through the newline that
+                # opens it — `_list_elements` already keeps that whole span one element, so no
+                # command starts at this position. A quoted program leaves its quote MARKS on
+                # the mask (only the content between them is NUL), so it never lands here: it
+                # reaches the `name is None` case below instead, which is the read this walk
+                # still owes it.
                 seen = i
                 break  # the start opened no command
             name = _PROGRAM_NAME_RE.match(element, i)
             if name is None:
-                found.append(None)
+                sep = _SEPARATOR_RE.search(element, i)
+                found.append((None, i, sep.start() if sep else len(element)))
                 seen = i
                 break
             text = name.group().rsplit("/", 1)[-1].rsplit(chr(92), 1)[-1]
@@ -440,13 +470,24 @@ def _programs(element: str) -> list[str | None]:
             if assigned:
                 # The name is there, but what it runs is not what the name says: an
                 # assignment reaches inside the program (`LESSOPEN`, `LD_PRELOAD`) and
-                # the exemption was earned by the name alone. Unnamed is what that is.
-                found.append(None)
+                # the exemption was earned by the name alone. Unnamed is what that is —
+                # its range starts at the command position, same as the other None case.
+                sep = _SEPARATOR_RE.search(element, i)
+                found.append((None, i, sep.start() if sep else len(element)))
             else:
-                found.append(text[:-4] if text.lower().endswith(".exe") else text)
+                args_start = name.end()
+                sep = _SEPARATOR_RE.search(element, args_start)
+                args_end = sep.start() if sep else len(element)
+                text = text[:-4] if text.lower().endswith(".exe") else text
+                found.append((text, args_start, args_end))
             seen = i
             break
     return found
+
+
+def _programs(element: str) -> list[str | None]:
+    """The program name at every command position (thin wrapper over _program_spans)."""
+    return [name for name, _s, _e in _program_spans(element)]
 
 
 def _reads_only(element: str) -> bool:
@@ -472,21 +513,66 @@ def _reads_only(element: str) -> bool:
     return bool(names) and all(n is not None and n in _READS_ONLY for n in names)
 
 
-# One of those named anywhere in the element, as a whole token on the mask. It decides one
-# thing only — whether a heredoc body in that element is a script or a message — and asking
-# where the interpreter sits was the same mistake as the old trigger list: a reserved word, a
-# prefix command, an assignment or a redirection in front of it all made `bash <<EOF` stop
-# looking like an interpreter, and the body carrying a real commit went unread. Named rather
-# than positioned, the cost is an element that runs something else and quotes an interpreter's
-# name in a heredoc, which over-gates. `ssh` keeps its `s`: the token has to begin where the
-# name does. Asked as a LOOKBEHIND, because asked forwards it restarted at every character
-# a name cannot hold and walked the rest of the run for a path separator: `{` forty
-# thousand times took ten seconds, and a verdict that never arrives is the gate off
-# rather than a slow gate.
-_INTERPRETER_RE = re.compile(
-    r"(?:(?<=[/\\])|(?<![\w/\\.-]))"
-    r"(?:" + "|".join(_RUNS_TEXT) + r")(?:\.exe)?(?=$|[\s;&|)<>`])"
+# A standalone-token boundary: whitespace, a quote, a command separator, backtick, the string
+# edge — or a `\n`/`\t`/`\r` escape. The last one is for a reader that turns its OWN escape into
+# the separator xargs/parallel then split on: `printf 'merge\n--no-ff\ndev' | xargs git` never
+# has a shell-level space between "merge" and "--no-ff" — printf's `\n` is what becomes one, at
+# print time — so the boundary has to land there. A BARE backslash is deliberately excluded: a
+# Windows path (`C:\git\commit\run.sh`, the exact shape `_QUOTING_RE` above already warns about)
+# carries one on every segment, and reading it as a boundary would over-block a path the way
+# Invariant 6 forbids — `\n`/`\t`/`\r` are printf/echo -e escapes, not path separators, so
+# requiring the letter after the backslash keeps a path segment from ever qualifying.
+_TOKEN_BOUNDARY = r"[\s;&|()'\"`]|\\[ntr]"
+# `git` as a standalone token, spelled as the host spells the program (path prefix, `.exe`).
+_GIT_TOKEN_RE = re.compile(
+    rf"(?:^|{_TOKEN_BOUNDARY})(?:[^\s;&|()'\"]*[/\\])?git(?:\.exe)?(?=$|{_TOKEN_BOUNDARY})"
 )
+_XARGS = frozenset(("xargs", "parallel"))
+
+
+def _standalone_word(view: str, word: str) -> bool:
+    """`word` as a whole token on `view` — bounded by whitespace, a quote, a command separator,
+    backtick, a `\\n`/`\\t`/`\\r` escape, or the string edge. `commit.gpgsign`, `*commit*`, and a
+    Windows path segment (`\\commit\\`) do not qualify."""
+    pattern = rf"(?:^|{_TOKEN_BOUNDARY}){re.escape(word)}(?=$|{_TOKEN_BOUNDARY})"
+    return re.search(pattern, view) is not None
+
+
+def _runs_by_flag(raw_element: str, masked_element: str) -> bool:
+    """Whether a reader in `raw_element` is handed an exec-capable flag (§1(a)).
+
+    Checked per pipe member on its own arg range so `printf x | rg -v y`'s `-v` is rg's. The
+    program token is read on the MASK (one authority for positions); the arg text is shlex-split
+    from the RAW element so a quoted value's whitespace and any `$`/backtick expansion are seen.
+    A ValueError from shlex, or a `$`/backtick in the arg range, loses the exemption — an
+    expansion could become a flag. Erring toward over-gating (Invariant 7).
+    """
+    import shlex
+
+    for name, s, e in _program_spans(masked_element):
+        pred = _EXEC_FLAG_READERS.get(name)
+        if pred is None:
+            continue
+        arg_raw = raw_element[s:e]
+        if "$" in arg_raw or BT_CH in arg_raw:
+            return True
+        try:
+            toks = shlex.split(arg_raw)
+        except ValueError:
+            return True
+        for idx, t in enumerate(toks):
+            if not pred(t):
+                continue
+            if name not in _EXEC_FLAG_VALUE_PROGRAMS:
+                return True  # printf -v: the flag alone runs (assignment evaluates the subscript)
+            # rg/sort: the value is `--flag=VAL` or the next token. A program name iff present
+            # and whitespace-free (a value with a space cannot be a program).
+            val = t.split("=", 1)[1] if "=" in t else (toks[idx + 1] if idx + 1 < len(toks) else "")
+            if val and not any(c.isspace() for c in val):
+                return True
+    return False
+
+
 # Quoting, and the backslash that escapes a quote. A backslash escaping anything else is left
 # alone: on the host this gate runs on it is a path separator, and rubbing it out turns
 # `bash C:\\git\\commit\\run.sh` into an invocation.
@@ -892,10 +978,16 @@ def _unquoted_view(command: str, *, keep_heredoc: bool = False) -> str:
 
 
 def _substitutions(masked: str) -> list[tuple[int, int]]:
-    """Where each `$( … )` and backtick span sits on the mask, outermost first."""
+    """Where each `$( … )`, backtick, and process-substitution `<( … )` / `>( … )` span sits on
+    the mask, outermost first. Used ONLY to keep _list_elements from splitting inside one — a
+    `;` in `bash <(echo; …)` is not a list boundary. _SUBSTITUTION_RE (the reads-only check) is
+    separate and unchanged: a `<(…)`'s output is a filename, not a command, so `cat <(…)` stays
+    a reader."""
     spans, i, n = [], 0, len(masked)
     while i < n:
         if masked[i] == DOLLAR_CH and masked[i + 1 : i + 2] == "(":
+            end = _matching(masked, i + 2, "(", ")")
+        elif masked[i] in "<>" and masked[i + 1 : i + 2] == "(":
             end = _matching(masked, i + 2, "(", ")")
         elif masked[i] == BT_CH:
             end = _matching(masked, i + 1, BT_CH, BT_CH)
@@ -936,21 +1028,32 @@ def _list_elements(command: str, masked: str) -> list[tuple[int, int]]:
 def is_invocation(command: str, word: str) -> bool:
     """Whether `command` runs `git <word>` — the gate's single authority on that question.
 
-    Two readings, in order. The precise one asks the grammar about the mask, where quoted text
-    is data: that is what keeps a read-only `git -c commit.gpgsign=false log` from being denied
-    as an unclassified commit. Behind it sits a net for the case the mask is wrong about — the
-    element of the command list runs something other than a reader, so its quoted text
-    may be a script rather than data. The same grammar is then tried over that element
-    with its quoting rubbed out.
+    Two grammar readings, in order, then a token fallback for what neither can parse. The
+    precise reading asks the grammar about the mask, where quoted text is data: that is what
+    keeps a read-only `git -c commit.gpgsign=false log` from being denied as an unclassified
+    commit. Behind it sits a net for the case the mask is wrong about — the element of the
+    command list runs something other than a reader, so its quoted text (and any heredoc body
+    it is handed) may be a script rather than data. The same grammar is then tried over that
+    element read with its quoting rubbed out and its heredoc body kept.
 
     The exemption is the list, not the gating: a program nobody listed as read-only
     over-gates, which the user sees and can work around, where a channel nobody listed
-    as executing turned the gate off with nothing reported.
+    as executing turned the gate off with nothing reported. So the net does not ask what
+    the element runs — every element that is not a reader (or a reader handed an exec-capable
+    flag) is re-read this way, a heredoc body included, whether or not it names an
+    interpreter the list knows: a missing name over-gates instead of turning the gate off.
 
-    The net cannot fire on a command that starts no interpreter, so it adds nothing to the
-    read-only side. What it costs is a command that both starts one and says something
-    commit-shaped: that one is gated rather than missed, which is the direction this gate is
-    allowed to be wrong in.
+    Neither grammar reading needs `git` and `<word>` to sit next to each other, but both still
+    read one shell command — and xargs/parallel, or a reader an exec-capable flag just cost the
+    exemption, can hand the two to a later process as separate tokens with no shell grammar
+    between them at all: `printf 'merge\n--no-ff\ndev' | xargs git` never spells `git … merge`
+    on either view. For those element shapes the net falls back once more, to whether `git` and
+    `word` each show up as a standalone token in the scripted view — no grammar, just presence.
+
+    The net cannot fire on a command whose every element only reads, so it adds nothing to the
+    read-only side. What it costs is a non-reader element that says something commit-shaped
+    in its heredoc body or quoted text: that one is gated rather than missed, which is the
+    direction this gate is allowed to be wrong in.
 
     Detection only. A merge's FLAGS are still read off the mask, so a merge the net alone
     finds has no strategy verdict and fails open — uncertain, therefore allowed.
@@ -959,14 +1062,18 @@ def is_invocation(command: str, word: str) -> bool:
     masked = mask_literals(command)
     if pattern.search(masked):
         return True
-    plain = _unquoted_view(command)
     scripted = _unquoted_view(command, keep_heredoc=True)
     for a, b in _list_elements(command, masked):
-        if _reads_only(masked[a:b]):
+        if _reads_only(masked[a:b]) and not _runs_by_flag(command[a:b], masked[a:b]):
             continue
-        runs_text = _INTERPRETER_RE.search(masked[a:b]) or _SUBSTITUTION_RE.search(masked[a:b])
-        view = scripted if runs_text else plain
-        if pattern.search(view[a:b]):
+        if pattern.search(scripted[a:b]):
+            return True
+        names = [n for n, _s, _e in _program_spans(masked[a:b])]
+        if (
+            ((set(names) & _XARGS) or _runs_by_flag(command[a:b], masked[a:b]))
+            and _GIT_TOKEN_RE.search(scripted[a:b])
+            and _standalone_word(scripted[a:b], word)
+        ):
             return True
     return False
 
@@ -1057,13 +1164,18 @@ def _dir_from_command(command: str | None) -> str | None:
        Invariant #6 requires ambiguity to end the read rather than guess a third tree.
        ② a leading ``cd <dir> && … git commit`` prefix, reached only when no invocation carried a
        `-C` at all. Conservative shell-lite parse (quoted or bare paths); if nothing matches,
-       None → the caller drops to the next rung.
+       None → the caller drops to the next rung. A `-C` value still carrying shell expansion or a
+       glob (`_norm_dir` → `_UNKNOWN_DIR`) is a tree this cannot name either — it answers None
+       the same way an outright disagreement does, rather than the literal unexpanded text.
     """
     if not command:
         return None
     answers = _commit_dir_answers(command)
+    if _UNKNOWN_DIR in answers:  # a -C value this cannot read → drop to the next rung
+        return None
     if len(answers) == 1:  # ① one answer, however many invocations gave it
-        if (only := answers.pop()) is not None:
+        only = answers.pop()
+        if isinstance(only, str):  # narrows out None (the "no directory named" answer)
             return only
     elif answers:  # invocations that disagree — never guess (Invariant #6). One that names no
         return None  # directory disagrees with one that does: they run in different trees.
@@ -1071,23 +1183,79 @@ def _dir_from_command(command: str | None) -> str | None:
     return next(g for g in m.groups() if g is not None) if m else None
 
 
-def _commit_dir_answers(command: str) -> set[str | None]:
+class _UnknownDir:
+    """Sentinel type: a `-C` value that carries shell expansion or a glob — a tree this cannot
+    name. A dedicated class (rather than a bare `object()`) so `_norm_dir`/`_commit_dir_answers`
+    can be typed honestly instead of lying that they only ever hand back `str | None`."""
+
+
+# A -C value with shell expansion or a glob — a tree this cannot name (`_norm_dir` maps it here
+# rather than to the raw string, so a command carrying one is unresolved instead of silently
+# naming a "tree" that is actually an unexpanded pattern).
+_UNKNOWN_DIR = _UnknownDir()
+# $, backtick, and glob characters — none of them survives to a literal directory this can read.
+_UNEXPANDED_RE = re.compile(r"[$`*?\[]")
+
+
+def _norm_dir(d: str | None) -> str | None | _UnknownDir:
+    """A `-C` value normalized to the answer it represents. `.`/`./` are the directory a bare
+    invocation already runs in, so both are "no directory named" (None) — one answer, not two. A
+    leading `~` is expanded (Invariant #6 keeps the uncertain set small — `~` has one clear
+    meaning, unlike `$`/backtick/glob). A value still carrying shell expansion or a glob after
+    that maps to `_UNKNOWN_DIR`: a tree this cannot name, so the command is unresolved rather
+    than read as naming whatever the unexpanded text happens to spell."""
+    if d is None or d in (".", "./"):
+        return None
+    if d.startswith("~"):
+        d = os.path.expanduser(d)
+    if _UNEXPANDED_RE.search(d):
+        return _UNKNOWN_DIR
+    return d
+
+
+def _commit_dir_answers(command: str) -> set[str | None | _UnknownDir]:
     """The directory each real ``git … commit`` in the command names, ``None`` for one that
-    names none. Text only — no repository is read, so nothing here can misfire on state."""
+    names none (or names `.`/`./`, itself "no directory named"). Text only — no repository is
+    read, so nothing here can misfire on state."""
     masked = mask_literals(command)
     return {
-        dash_c_value(command, masked, m.start(1), m.end(1)) for m in _GIT_COMMIT_RE.finditer(masked)
+        _norm_dir(dash_c_value(command, masked, m.start(1), m.end(1)))
+        for m in _GIT_COMMIT_RE.finditer(masked)
     }
 
 
+def _cd_hop_before_bare_commit(command: str, masked: str) -> bool:
+    """A cd/pushd/popd at a command position — other than the leading `cd X &&`/`;` prefix — that
+    precedes a bare (no ``-C``) `git commit`. The leading prefix is read (§2(b)); any later cd
+    changes the tree the commit lands in without the resolver following it, so its target is a
+    tree this cannot name (§2(c)). A subshell `(cd X && …)` is a hop too: `(` is a command start,
+    not the leading prefix."""
+    lead = _CD_PREFIX_RE.match(command)
+    lead_end = lead.end() if lead else 0
+    bare = [
+        m.start()
+        for m in _GIT_COMMIT_RE.finditer(masked)
+        if _norm_dir(dash_c_value(command, masked, m.start(1), m.end(1))) is None
+    ]
+    if not bare:
+        return False
+    for name, s, _e in _program_spans(masked):
+        if name in ("cd", "pushd", "popd") and s > lead_end and any(s < c for c in bare):
+            return True
+    return False
+
+
 def commit_tree_unresolved(command: str | None) -> bool:
-    """Whether the command commits somewhere this cannot name — its invocations disagree.
+    """Whether the command commits somewhere this cannot name — its invocations disagree, one of
+    them names a tree this cannot resolve (an unexpanded `-C` value), or a cd/pushd/popd hop
+    between commits changes the tree a bare commit lands in without the resolver following it.
 
     :func:`working_root` still answers something for that case, as Invariant #6 requires — main,
     or a worktree it reaches from the hook's own cwd once the command itself gives no answer.
-    Neither is a reading of where the commit lands: the command names more than one tree, and an
-    invocation carrying no ``-C`` adds the shell's own directory to them. So whichever tree the
-    resolver returns, its being clean says nothing about whether the command commits, and a
+    Neither is a reading of where the commit lands: the command names more than one tree, an
+    invocation carrying no ``-C`` adds the shell's own directory to them, and a hop or an
+    unresolvable `-C` value are both a tree this cannot claim to name at all. So whichever tree
+    the resolver returns, its being clean says nothing about whether the command commits, and a
     caller reading that as "nothing to gate" would skip the gate entirely on a command that
     does — the one direction this may never fail in. Asking here keeps the guess out of the
     resolver.
@@ -1095,11 +1263,15 @@ def commit_tree_unresolved(command: str | None) -> bool:
     if not command:
         return False
     try:
-        # `.` is the directory a bare invocation already runs in, so the two spellings are one
-        # answer. Invariant #6 asks the uncertain set to stay small, and a commit-then-amend
-        # written `git -C . commit && git commit --amend` is not two trees.
-        answers = {None if d in (".", "./") else d for d in _commit_dir_answers(command)}
-        return len(answers) > 1
+        masked = mask_literals(command)
+        # `_commit_dir_answers` already folds `.`/`./` into None (the directory a bare invocation
+        # already runs in), so a commit-then-amend written `git -C . commit && git commit --amend`
+        # is not two trees. `_UNKNOWN_DIR` (an unexpanded `-C` value) is unresolved on its own,
+        # even as the lone answer — a `{_UNKNOWN_DIR}` set of len 1 still names no real tree.
+        answers = _commit_dir_answers(command)
+        if len(answers) > 1 or _UNKNOWN_DIR in answers:
+            return True
+        return _cd_hop_before_bare_commit(command, masked)
     except Exception:
         return False  # FAIL-OPEN: an unreadable command is not one this can claim anything about
 
