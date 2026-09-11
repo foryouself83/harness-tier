@@ -62,7 +62,7 @@ on the Windows hook runtime, and the CRLF worktree floods ShellCheck with CR err
 
 ```text
 .claude-plugin/  plugin manifest · self-exposed marketplace entry (immutable sha pin)
-.claude/         dev-only authoring rules for this repo — never ships
+.claude/         dev-only rules for this repo: authoring guidance, and what loads rules/ here — never ships
 agents/          subagents the skills dispatch
 hooks/           SessionStart · PostToolUse · Notification hooks — the commit gate is not one
 skills/          one directory per slash command
