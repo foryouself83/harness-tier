@@ -197,7 +197,7 @@ _CD_PATH_TOKEN = r'"([^"]*)"|\'([^\']*)\'|([^\s;&|]+)'
 # A leading `cd <dir>` before the commit, followed by `&&`, `;`, or a newline — the execution
 # directory a chained command moves into before running git. Anchored at the start, so a match is
 # necessarily *before* any later subcommand and re-points ROOT conservatively (Invariant #6). A
-# trailing `;`/newline form re-points to the tree the commit actually lands in, exactly as `&&`
+# trailing `;`/newline form re-points to the tree the commit lands in, exactly as `&&`
 # does; the merge path's differing risk polarity (there the same match only FAILs OPEN) is
 # absorbed by using a dedicated token above, so the merge path keeps _PATH_TOKEN unchanged in its
 # own _MERGE_CD_PREFIX_RE. Limitation: with `;`, a failed `cd` leaves the shell where it was while
@@ -1053,11 +1053,11 @@ def is_invocation(command: str, word: str) -> bool:
     interpreter the list knows: a missing name over-gates instead of turning the gate off.
 
     Neither grammar reading needs `git` and `<word>` to sit next to each other, but both still
-    read one shell command — and xargs/parallel, or a reader an exec-capable flag just cost the
+    read one shell command — and xargs/parallel, or a reader an exec-capable flag cost the
     exemption, can hand the two to a later process as separate tokens with no shell grammar
     between them at all: `printf 'merge\n--no-ff\ndev' | xargs git` never spells `git … merge`
     on either view. For those element shapes the net falls back once more, to whether `git` and
-    `word` each show up as a standalone token in the scripted view — no grammar, just presence.
+    `word` each show up as a standalone token in the scripted view — no grammar, only presence.
 
     The net cannot fire on a command whose every element only reads, so it adds nothing to the
     read-only side. What it costs is a non-reader element that says something commit-shaped
@@ -1200,7 +1200,7 @@ class _UnknownDir:
 
 # A -C value with shell expansion or a glob — a tree this cannot name (`_norm_dir` maps it here
 # rather than to the raw string, so a command carrying one is unresolved instead of silently
-# naming a "tree" that is actually an unexpanded pattern).
+# naming a "tree" that is an unexpanded pattern).
 _UNKNOWN_DIR = _UnknownDir()
 # $, backtick, and glob characters — none of them survives to a literal directory this can read.
 _UNEXPANDED_RE = re.compile(r"[$`*?\[]")
