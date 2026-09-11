@@ -1,12 +1,16 @@
 ---
 name: release-commit
 description: >-
-  Use when promoting integration to staging or staging to production, cutting a release
-  candidate, or finalizing a release — including bare asks like "stage로 올려줘", "릴리즈 해",
-  "main 승격", "promote to main", "cut an rc". Reads the host's rendered
-  .github/workflows/release.yml to learn whether the bump level can be forced, then runs the
-  promotion's gates, commit and merge in the order the release CI requires. Also use when a
-  promotion produced no release candidate and you need to know why.
+  Use when a branch is promoted toward a release — dev/integration to stage/staging, stage to
+  main/production — or a release candidate is cut or finalized, including bare asks like
+  "stage로 올려줘", "릴리즈 해", "main 승격", "promote to main", "cut an rc". Use it before
+  answering a question about this repo's promotions too: whether the bump level is forced by a
+  Release-Level commit trailer or a workflow dispatch, whether a re-promotion takes the trailer
+  again, why a promotion produced no release candidate, or the back-merge after a release. An
+  answer from generic git-flow habit is where a release breaks unseen — the wrong merge shape,
+  a trailer off HEAD or a `[skip ci]` cuts no rc, and nothing reports it. /flow hands every
+  promotion here; /commit only writes the message this skill decides. Not for installing
+  release CI (/flow-init).
 argument-hint: "[staging | release]"
 # Every rule below matches a command spelled out in the body — a rule matching nothing grants
 # nothing (tests/skills/test_gate_reachability.py). Exact marker paths, no trailing glob: a

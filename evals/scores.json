@@ -136,21 +136,20 @@
       "truncated_quiet": 0.0
     },
     "release-commit": {
-      "description_sha": "5b3d415c70ae",
+      "description_sha": "85be9dd29a29",
       "false_fire": 0.0,
       "false_hits": 0,
       "false_n": 15,
-      "invoke_hits": 7,
+      "invoke_hits": 11,
       "invoke_n": 15,
-      "invoke_rate": 0.47,
+      "invoke_rate": 0.73,
       "lost_to": {
-        "commit": 2,
-        "flow": 1
+        "flow": 2
       },
       "measured_at": "2026-09-11",
       "model": "claude-sonnet-5",
       "reps": 3,
-      "restricted": 0.4,
+      "restricted": 0.6,
       "truncated": 0.0,
       "truncated_quiet": 0.0
     }
