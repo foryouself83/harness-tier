@@ -79,7 +79,7 @@ Two kinds:
     reviewing **every** changed file — git's list, count reported — against the
     checklist, plus the callers of every changed public symbol. Step 3 carries
     both the checklist and the procedure. **Dev and Staging only**
-    — Release drops it; that tier's step says why.
+    — Release drops it; [`promotion.md`](promotion.md) Release says why.
   - **`doc-sync`** — `/doc-sync` harmonizes the doc set (root CLAUDE.md,
     per-service docs, rules) and reconciles code↔doc drift.
     Where the project has an LLM Wiki, it also refreshes each node's front matter
@@ -159,8 +159,8 @@ production→main). No branch is literally named `integration`.
 |------|------------------------|------------|
 | **Docs** | OFF — no code | brainstorming, writing-plans, TDD |
 | **Dev** | ON | — |
-| **Staging** | (promotion gate) | — |
-| **Release** | (promotion gate) | — |
+| **Staging** | OFF — built work | — |
+| **Release** | OFF — built work | — |
 
 Each tier's gates are in the git-flow mapping table above. `precommit`,
 `security-scan`, `wiki` and `doc-style` have no skill behind them — the commit hook

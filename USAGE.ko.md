@@ -193,8 +193,8 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
 |------|------|:---:|------------|
 | `docs` | 코드 없는 변경(문서·주석·설정값) | ✗ | `doc-sync` · `wiki` · `doc-style` |
 | `dev` | 코드 포함 변경(feature/fix) | ✓ | `precommit`(변경 모듈 every-commit 검사) · `review`(도메인 리뷰) · `doc-sync` · `wiki` · `doc-style` |
-| `staging` | QA/RC 승격(integration→staging) | ✓ | `precommit` · `review` · `security-scan`(전체 모듈 promotion 검사) · `bump`(사람이 고르는 릴리스 레벨) · `wiki` · `doc-style` |
-| `release` | 프로덕션 배포(staging→production) | ✓ | `precommit` · `security-scan` · `security`(보안 리뷰) · `wiki` · `doc-style` — `review` 없음: 이 diff 는 Dev 와 Staging 에서 이미 읽힘 |
+| `staging` | QA/RC 승격(integration→staging) | ✗ | `precommit` · `review` · `security-scan`(전체 모듈 promotion 검사) · `bump`(사람이 고르는 릴리스 레벨) · `wiki` · `doc-style` |
+| `release` | 프로덕션 배포(staging→production) | ✗ | `precommit` · `security-scan` · `security`(보안 리뷰) · `wiki` · `doc-style` — `review` 없음: 이 diff 는 Dev 와 Staging 에서 이미 읽힘 |
 
 - **`precommit` · `security-scan`** 은 커밋 훅이 직접 실행함(별도 마커 없음). 해당
   등급의 `gates` 목록에서 빼면 그 검사만 꺼짐.

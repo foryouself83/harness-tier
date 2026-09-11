@@ -200,8 +200,8 @@ pass before it can commit**.
 |------|------|:---:|-----------------|
 | `docs` | no-code change (docs/comments/config values) | ✗ | `doc-sync` · `wiki` · `doc-style` |
 | `dev` | change with code (feature/fix) | ✓ | `precommit` (changed-module every-commit checks) · `review` (domain review) · `doc-sync` · `wiki` · `doc-style` |
-| `staging` | QA/RC promotion (integration→staging) | ✓ | `precommit` · `review` · `security-scan` (all-module promotion checks) · `bump` (human release-level choice) · `wiki` · `doc-style` |
-| `release` | production deploy (staging→production) | ✓ | `precommit` · `security-scan` · `security` (security review) · `wiki` · `doc-style` — no `review`: Dev and Staging already read this diff |
+| `staging` | QA/RC promotion (integration→staging) | ✗ | `precommit` · `review` · `security-scan` (all-module promotion checks) · `bump` (human release-level choice) · `wiki` · `doc-style` |
+| `release` | production deploy (staging→production) | ✗ | `precommit` · `security-scan` · `security` (security review) · `wiki` · `doc-style` — no `review`: Dev and Staging already read this diff |
 
 - **`precommit` · `security-scan`** are executed by the commit hook itself (no marker).
   Removing one from a tier's `gates` list disables that check alone.
