@@ -51,6 +51,11 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+try:
+    from _harness_paths import force_utf8_io  # direct execution (sibling)
+except ImportError:
+    from scripts._harness_paths import force_utf8_io  # package (test/dev)
+
 REPO = Path(__file__).resolve().parent.parent
 
 
@@ -624,6 +629,7 @@ def render(scenario: Scenario, path: Path) -> str:
 
 
 def main() -> int:
+    force_utf8_io()
     ap = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     ap.add_argument("scenario", nargs="?", help="scenario name (see --list)")
     ap.add_argument("--all", action="store_true", help="build every scenario")

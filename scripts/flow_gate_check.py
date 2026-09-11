@@ -544,6 +544,7 @@ def _current_branch(root: Path) -> str | None:
             cwd=root,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             check=True,
         )
         return out.stdout.strip()

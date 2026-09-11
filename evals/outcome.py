@@ -28,6 +28,7 @@ import evals.run as run
 import evals.scores as scores
 import evals.stream as stream
 import scripts.skill_sandbox as sandbox
+from scripts._harness_paths import force_utf8_io
 
 REPO = Path(__file__).resolve().parent.parent
 OUTCOME_SCORES = REPO / "evals/outcome_scores.json"
@@ -237,6 +238,7 @@ def run_outcome(skill: str, scenario: sandbox.Scenario, reps: int, config_dir: P
 
 
 def main() -> int:
+    force_utf8_io()
     ap = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     ap.add_argument("--reps", type=int, default=REPS)
     ap.add_argument("--dry-run", action="store_true", help="print the plan, run nothing")

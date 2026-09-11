@@ -42,9 +42,9 @@ from pathlib import Path
 # directly (sibling import) or imported as a package in tests — see the compatibility
 # idiom in the _harness_paths module docstring.
 try:
-    from _harness_paths import config_dir, host_root
+    from _harness_paths import config_dir, force_utf8_io, host_root
 except ImportError:
-    from scripts._harness_paths import config_dir, host_root
+    from scripts._harness_paths import config_dir, force_utf8_io, host_root
 
 # _host_root is the former function name. It is exposed as an alias of the shared host_root for
 # backward compatibility (tests·external references). The fallback logic
@@ -110,6 +110,7 @@ def _context_label() -> str:
             ["git", "-C", str(ROOT), "rev-parse", "--abbrev-ref", "HEAD"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=3,
         )
         branch = out.stdout.strip()
@@ -176,6 +177,7 @@ def send(channel: str, title: str, text: str) -> bool:
 
 
 def main() -> None:
+    force_utf8_io()
     parser = argparse.ArgumentParser(description="Teams 알림 전송/등록")
     parser.add_argument(
         "--set",

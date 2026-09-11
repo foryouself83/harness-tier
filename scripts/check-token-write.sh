@@ -15,9 +15,12 @@ decode() {  # reads JSON on stdin → exit 0 (write) / 10 (read-only) / 20 (unde
   json="$(cat)"
   if command -v python3 >/dev/null 2>&1; then
     rc=0
+    # Bytes decoded as UTF-8: the API answers UTF-8 and a repo description is free text, while
+    # python's stdin codec follows the locale or PYTHONIOENCODING (CLAUDE.md Invariant #2).
     printf '%s' "$json" | python3 -c 'import json,sys
 try:
-    push = (json.load(sys.stdin).get("permissions") or {}).get("push")
+    doc = json.loads(sys.stdin.buffer.read().decode("utf-8"))
+    push = (doc.get("permissions") or {}).get("push")
 except Exception:
     sys.exit(20)
 sys.exit(0 if push is True else 10 if push is False else 20)' || rc=$?

@@ -126,6 +126,7 @@ def host_root() -> Path:
             ["git", "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             check=True,
             timeout=3,
         )
@@ -148,18 +149,26 @@ def plugin_root() -> Path:
 
 
 def force_utf8_io() -> None:
-    """Reconfigure stdout/stderr to UTF-8 (Invariant #2).
+    """Reconfigure stdin/stdout/stderr to UTF-8 (Invariant #2).
 
     In the Windows hook environment (cp1252/cp949), if a Korean reason print() breaks with
-    UnicodeEncodeError it fails open and the gate is disabled. Also sets PYTHONUTF8 so child
-    python processes inherit UTF-8 too (for standalone calls).
+    UnicodeEncodeError it fails open and the gate is disabled. A hook payload carrying a Korean
+    commit message fails to decode on stdin the same way, and PYTHONIOENCODING outranks the
+    runner's PYTHONUTF8=1 there. stdin keeps the surrogateescape UTF-8 mode gives it, so under
+    the runner nothing changes. Also sets PYTHONUTF8 so child python processes inherit UTF-8
+    too (for standalone calls) — children only: a text-mode pipe this process reads still
+    decodes with the locale codec, so a subprocess call names encoding="utf-8" itself.
     """
     os.environ.setdefault("PYTHONUTF8", "1")
-    for stream in (sys.stdout, sys.stderr):
+    for stream, errors in (
+        (sys.stdin, "surrogateescape"),
+        (sys.stdout, None),
+        (sys.stderr, None),
+    ):
         reconfigure = getattr(stream, "reconfigure", None)
         if reconfigure is not None:
             try:
-                reconfigure(encoding="utf-8")
+                reconfigure(encoding="utf-8", errors=errors)
             except (ValueError, OSError):  # already closed or cannot reconfigure → ignore
                 pass
 

@@ -36,6 +36,7 @@ import yaml
 import evals.scores as scores
 import evals.stream as stream
 import scripts.skill_sandbox as sandbox
+from scripts._harness_paths import force_utf8_io
 
 REPO = Path(__file__).resolve().parent.parent
 CASES = REPO / "evals/cases.yaml"
@@ -859,13 +860,12 @@ def main() -> int:
     run: a ratchet `fail` return, which the plan itself predicts (`integration` sits at 4/15
     and re-measuring re-baselines it). `measure`'s SystemExit guards were uncovered too. A
     `finally` costs one indirection and closes all of them."""
+    force_utf8_io()
     try:
         return _main()
     finally:
-        # A print that raises inside `finally` replaces the exception leaving this frame, and
-        # Invariant #2 is exactly that failure: this module's messages carry em dashes, so a
-        # redirected stdout under a cp949 console raises UnicodeEncodeError. The report is a
-        # diagnostic; it must never become the thing that hides the real exit.
+        # A print that raises inside `finally` replaces the exception leaving this frame. The
+        # report is a diagnostic; it must never become the thing that hides the real exit.
         try:
             report_capture(provisional=CAPTURE_PROVISIONAL)
         except Exception:
