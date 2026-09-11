@@ -243,12 +243,13 @@ select this set. That security pass is therefore discipline, not a gate.
 
 ### Staging (integration → staging)
 
-1. Regression review — Dev Step 3's procedure with ①'s promotion form
+1. Regression review — [`risk-tiers.md`](risk-tiers.md) Step 3's procedure with ①'s form
    for **this** pair (`git fetch origin`, then
    `git diff --name-only "origin/<staging>..origin/<integration>"`;
    the workspace form would list nothing here) → record `review`.
    `precommit` and `security-scan` run automatically on
-   promotion commits (runtime gates — no marker; see Gate glossary).
+   promotion commits (runtime gates — no marker; see
+   [`risk-tiers.md`](risk-tiers.md) Gate glossary).
 2. Promote integration → staging (rc), or open a PR when
    `merge_workflow.pull_request` includes `promotion` (the PR workflow above).
 

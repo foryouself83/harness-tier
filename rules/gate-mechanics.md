@@ -12,7 +12,9 @@ When `flow-config.wiki` is enabled it verifies, read-only, that `graph.yaml` sti
 docs' front matter and that no structural rule is broken. It runs on **every tier including
 `docs`** — a docs commit is exactly when the graph drifts. No wiki configured (absent · `enable:
 false` · missing root) → nothing runs, so a repo without a wiki never notices this gate. The
-graph is **built** by `/doc-sync` or `/wiki-init`, never by the hook and never by CI, and it is
+graph is **built** by `/doc-sync`, by `/wiki-init`, and by hand wherever a step says to run
+`--build` ([`/flow`](../skills/flow/SKILL.md) Dev 1b, a blocked promotion
+commit) — never by the hook and never by CI. It is
 built from **git's index** — `git add` is what admits a document to the wiki, so stage new
 documents before building. Only a real verification failure blocks; an internal error passes
 (Invariant #1) — including a git that cannot list its own index, where the node set falls back
@@ -76,7 +78,7 @@ CI safety net if you need hard enforcement).
   block an unrelated task on another branch; `<gate>.done` markers carry none.
 - The four runtime gates — `precommit`, `security-scan`, `wiki`, `doc-style` — are run
   by the hook rather than recorded as markers; layer 2, not the layer-1 pre-commit
-  (Gate glossary).
+  ([`risk-tiers.md`](risk-tiers.md) Gate glossary).
 - Judgment gates (review quality, human integration test) can only be
   *recorded*, not verified.
 - **Air-gapped limit** — an offline production machine runs on a

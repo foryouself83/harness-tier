@@ -2,7 +2,7 @@
 # Layer-3 safety net for the LLM Wiki: the layer-2 wiki gate sees only Claude-session commits,
 # so graph drift arriving via terminal/direct/CI commits would otherwise surface only at the
 # next session commit — here it fails the push/PR instead. Read-only: CI never builds
-# graph.yaml (doc-sync and /wiki-init own --build).
+# graph.yaml — the author owns --build (/doc-sync, /wiki-init, or by hand).
 # Opt-in: /wiki-init offers it once the graph verifies — at /flow-init time there is no graph
 # to point it at. With no wiki installed (flow-config.wiki absent or enable: false)
 # wiki_graph.py --verify exits 0 silently, so the job stays green. The same holds when the script is not in the

@@ -225,7 +225,7 @@ still written on the local commit.
 
 ## When the `wiki` gate blocks the promotion commit
 
-`doc-sync` is the only thing that rebuilds `graph.yaml`, and it is not a promotion gate — so
+`doc-sync` is the only **gate** that rebuilds `graph.yaml`, and it is not a promotion one — so
 graph drift that reached the integration branch through a terminal commit surfaces here, as a
 blocked promotion commit. Resolve it in place:
 

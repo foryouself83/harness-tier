@@ -298,7 +298,8 @@ for flow in "$@"; do
       if [ "$mrc" = 1 ] || [ "$brc" = 1 ]; then
           rc=10
           # "Require a pull request" comes bundled with allowed_merge_methods, and it also
-          # rejects the post-release back-merge push — which risk-tiers.md calls not optional.
+          # rejects the post-release back-merge push — which promotion.md's Back-merge
+          # after release calls not optional.
           warn_bypass "$integration" "the post-release back-merge" \
             "Allowed merge methods hang off 'Require a pull request before merging', which" \
             "also rejects 'git push origin $integration' — how the production -> integration" \
