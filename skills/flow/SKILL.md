@@ -174,13 +174,16 @@ do not go looking for a skill behind either — none exists; the hook runs the c
    comes from `--next-id`, the integrity from `--verify`. FAIL-OPEN: a failure here warns
    and does not block the commit — the `srs-verify` workflow holds the verdict.
 
-   A **new** area file is the one part of this that is fail-CLOSED — it is a wiki node.
+   A **new** area file is a wiki node, and only half of that is fail-CLOSED.
    Where the host has a wiki, give it front matter: `wiki_id` from
    `python3 .claude/harness-tier/scripts/wiki_graph.py --derive-id docs/srs/<area>.md`, a
    `title`, and a `related` edge to `srs.readme`; then rebuild with
    `python3 .claude/harness-tier/scripts/wiki_graph.py --build` and stage `graph.yaml`
-   alongside it. Without that the commit gate's `--verify` blocks, and its reason names
-   the graph rather than this step that wrote the file.
+   alongside it. Write the front matter and skip the rebuild, and the commit gate's
+   `--verify` blocks with a reason naming the graph rather than this step. **Omit the
+   front matter and nothing blocks** — a file carrying none is no node, so the gate has
+   nothing to compare and the area stays out of the wiki in silence. That is the likelier
+   slip, and it is on you rather than the gate.
 2. **Enter `superpowers:using-superpowers`** — it drives the pipeline automatically
    (brainstorm → plan → implement → verify → review; each skill self-triggers).
    Feed the resolved request from Phase 0 in as the task.
