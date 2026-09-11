@@ -1,9 +1,20 @@
 {
+  "doc-sync": {
+    "fired_hits": 0,
+    "fired_rate": 0.0,
+    "measured_at": "2026-09-11",
+    "model": "claude-sonnet-5",
+    "outcome_hits": 3,
+    "outcome_n": 3,
+    "outcome_pass_rate": 1.0,
+    "outcome_sha": "98cb2a91b97a",
+    "reps": 3
+  },
   "wiki-init": {
     "fired_hits": 0,
     "fired_rate": 0.0,
-    "measured_at": "2026-09-09",
-    "model": "claude-opus-4-8",
+    "measured_at": "2026-09-10",
+    "model": "claude-sonnet-5",
     "outcome_hits": 3,
     "outcome_n": 3,
     "outcome_pass_rate": 1.0,

@@ -29,6 +29,28 @@ the reader attention and earns nothing.
 `LONG` warns above 100 characters of prose on one line. Long lines are not wrong, but a
 line that needs 300 characters is usually three facts pretending to be one.
 
+`CLAIM` warns on a hedged magnitude — `approximately` · `roughly` · `대략` · `약` before a
+digit · `30% faster` · `2x cheaper` · `2배 빠름`. It reads hedges only, never bare digits,
+because the rule below is a judgement no pattern makes.
+
+## A number is a measurement or a contract
+
+Write a number when it is one of two things:
+
+- **A value something is bound to** — a timeout, a limit, a schema bound, a protocol
+  constant. The number *is* the behaviour; replacing it with a direction deletes the fact.
+- **A figure someone measured**, carrying the conditions that produced it.
+  `0.76 at reps 5 (n=25)` survives review because a reader can reproduce it; `0.76` on its
+  own does not. Never let an inline-code span cross a line break — the lint reads one line
+  at a time, so a wrapped span masks the prose after it and hides real violations.
+
+Everything else is a direction: `faster`, `bounded`, `most of the tree`. A direction does
+not go stale and cannot be measured wrong.
+
+The failure this prevents is not an inaccurate document. A guess written as a number reads
+as a contract to the next reader, who defends it, and to a reviewer, who flags it — every
+round, on prose no one can verify.
+
 ## Per artifact
 
 - **`CLAUDE.md`** — common rules only. A mechanism enforced elsewhere (a gate, a test, a

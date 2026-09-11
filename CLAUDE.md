@@ -243,17 +243,15 @@ evals/           skill measurement: invocation (cases.yaml · run.py · scores.p
   invocation one, **does cover `disable-model-invocation` skills**, which is how `/wiki-init` is
   measured; and a skill declaring `hook_assisted` in `cases.yaml` has the **injected rule folded
   into its `description_sha`**, so editing [`rules/risk-tiers.md`](rules/risk-tiers.md) or the
-  hook that injects it costs those four skills a live re-measure. That is not caution: `/flow`
-  measured 0.82 and 0.55 on a byte-identical description, the difference being two lines added
-  beside its mandate. Position, not size, is the lever and it is not even monotone: a 226-line
-  split behind pointer stubs measured *worse* (0.33) than the bloat it removed, while a
-  255-line one leaving NO stubs held the rate (0.80 to 0.76, n=25 both). So: leave
-  `## Principle` and its mandate alone, move WHOLE sections, and never leave a "moved to X"
-  heading behind — a section that is only a pointer costs more than the text it replaced.
-  **Match the baseline's `--reps` before reading a number against it**: the same split
-  measured 0.87 with `false_fire` 0.20 at reps 3 (n=15) and 0.76 with 0.12 at reps 5 (n=25),
-  so a default-reps run against a reps-5 baseline invents both a record high and a
-  cap-grazing false-fire that neither survive the larger sample.
+  hook that injects it costs those four skills a live re-measure. A rate can move on a
+  byte-identical description when text lands beside the mandate: position, not size, is the
+  lever, and it is not even monotone — a split that leaves pointer stubs can read worse than the
+  bloat it removed. So: leave `## Principle` and its mandate alone, move WHOLE sections, and
+  never leave a "moved to X" heading behind — a section that is only a pointer costs more than
+  the text it replaced. **Match the baseline's `--reps` before reading a number against it**: a
+  smaller sample can show both a record high and a cap-grazing false-fire that the larger one
+  does not reproduce. `cases.yaml` sets `reps:` per skill where a baseline is measured deeper
+  than the default, so a plain `--all` matches it.
 - **Deployment is not a verification layer** — a release-decoupled opt-in:
   `/harness-deployments` writes `flow-config.deploy` and renders per-target `deploy-<name>.yml`
   components + a generated `deploy.yml` orchestrator; `release.yml` calls it via `workflow_call`

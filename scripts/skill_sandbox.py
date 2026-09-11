@@ -399,7 +399,15 @@ SCENARIOS: list[Scenario] = [
             "skill's job is to pick the SSOT and reduce the rest to it, not to pick a "
             "majority or rewrite the code."
         ),
-        prompt="The port changed. Sync the documentation.",
+        # The second clause stands in for the tier confirmation /flow's Phase 2 asks a human
+        # for, as wiki-init's prompt pre-answers its Steps 3 and 5. Without it a headless session
+        # that honours the gate stops before editing and fails, while one that skips the gate
+        # passes, so the score would reward skipping it. Which file is the SSOT stays the
+        # agent's judgement.
+        prompt=(
+            "The port changed. Sync the documentation — it is a docs-only change, so go ahead "
+            "without asking me to confirm the tier."
+        ),
         expect=[
             "spots the port disagreement across .env.example, README.md and docs/api.md",
             "treats the code/.env.example as the source of truth (9090)",

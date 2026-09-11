@@ -3,7 +3,7 @@ import warnings
 import pytest
 
 import evals.scores as scores
-from tests.evals._helpers import CASES, EXPECT, N_SKILLS, OK, REPO, SKILLS
+from tests.evals._helpers import CASES, EXPECT, N_SKILLS, OK, OTHER_MODEL, REPO, SKILLS
 
 
 def _entry(**overrides) -> dict:
@@ -175,7 +175,7 @@ def test_check_fails_a_missing_count_key_with_a_verdict_not_a_keyerror():
 def test_a_model_mismatch_fails_like_a_stale_sha():
     """The baseline is a fact about one model (0/4 vs 4/4 on the same case, measured). A
     mismatched fingerprint is as stale as an old sha and forces the same re-measure."""
-    v = scores.check("integration", _entry(model="claude-sonnet-5"), "x", EXPECT, N_SKILLS)
+    v = scores.check("integration", _entry(model=OTHER_MODEL), "x", EXPECT, N_SKILLS)
     assert v.level == "fail"
     assert "model" in v.message
 
@@ -185,7 +185,7 @@ def test_may_write_skips_the_ratchet_across_a_model_change():
     description. MODEL is a reviewed code constant, so crossing it re-baselines instead —
     not an escape hatch."""
     new = _entry(invoke_hits=0, invoke_n=15, invoke_rate=0.0)
-    old = _entry(invoke_hits=15, invoke_n=15, invoke_rate=1.0, model="claude-sonnet-5")
+    old = _entry(invoke_hits=15, invoke_n=15, invoke_rate=1.0, model=OTHER_MODEL)
     v = scores.may_write("integration", new, old, accepted=False, n_skills=N_SKILLS)
     assert v.level == "ok"
 

@@ -216,6 +216,9 @@ do not go looking for a skill behind either — none exists; the hook runs the c
      this review, over a recomputed changed-file list. An edit the hook never
      saw (a terminal command, another tool) leaves the markers standing —
      `rm -f .claude/harness-tier/.flow/review.done .claude/harness-tier/.flow/doc-sync.done`.
+     A host that sets `flow-config.gate_evidence.invalidate_on_edit: false`
+     turns the hook's deletion off, so in its tree an edit after the pass
+     commits unreviewed ([`risk-tiers.md`](../../rules/risk-tiers.md) Step 3).
 4. Commit through the `commit` skill — invoke `Skill: commit` with the tier and what
    changed (rule 4) → merge **applying
    [`merge-strategy.md`](../../rules/merge-strategy.md)** (rule 3 — not a
@@ -263,8 +266,9 @@ rm -rf .claude/harness-tier/.flow
    It is a plain file that outlives the commit that used it, so **a gate whose
    subject changed after it passed is no longer recorded honestly**. The
    `PostToolUse` hook enforces that for `review` and `doc-sync` — any edit
-   deletes both — so what is left to you is the edit it cannot see (a terminal
-   command, another tool): delete the marker yourself and earn it again.
+   deletes both, unless the host turned that off (Dev step 3) — so what is
+   left to you is the edit it cannot see (a terminal command, another tool):
+   delete the marker yourself and earn it again.
 3. **Apply the documented Merge strategy** — direct commit + merge, but
    **do not default to a plain / `--no-ff` merge**. For every merge, look up its
    branch-flow row in [`merge-strategy.md`](../../rules/merge-strategy.md)

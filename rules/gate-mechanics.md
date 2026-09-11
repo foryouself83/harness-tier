@@ -72,8 +72,8 @@ CI safety net if you need hard enforcement).
   it is what stops a skipped `/flow` from silently disabling the gate —
   and promotion gates are likewise fail-*closed* on missing evidence.
   Both still fail open on an internal error.
-- **Branch-bound** — markers carry the branch, so stale state cannot
-  block an unrelated task on another branch.
+- **Branch-bound** — the `tier` marker carries its branch, so a stale label cannot
+  block an unrelated task on another branch; `<gate>.done` markers carry none.
 - The four runtime gates — `precommit`, `security-scan`, `wiki`, `doc-style` — are run
   by the hook rather than recorded as markers; layer 2, not the layer-1 pre-commit
   (Gate glossary).

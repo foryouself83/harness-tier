@@ -145,3 +145,46 @@ def test_a_fence_indented_inside_a_list_item_is_still_code():
     """
     text = "1. Step:\n\n   ```bash\n   run --just now   # it used to be simply this\n   ```\n"
     assert lint_text(Path("doc.md"), text) == []
+
+
+# ---------- CLAIM: a magnitude nobody measured ----------
+
+
+@pytest.mark.parametrize(
+    "prose",
+    [
+        "약 3배 규모로 늘어남",
+        "대략 절반이 여기 해당함",
+        "2.5배 빠름",
+        "This is roughly the same shape.",
+        "It reads approximately every node.",
+        "30% faster than the single-process path.",
+        "2x cheaper per token.",
+    ],
+)
+def test_an_unmeasured_magnitude_warns(prose: str):
+    findings = lint_text(Path("doc.md"), prose + "\n")
+    assert [code for level, _, code, _ in findings if level == "warning"] == ["CLAIM"]
+    assert _codes(Path("doc.md"), prose + "\n") == []
+
+
+@pytest.mark.parametrize(
+    "prose",
+    [
+        "The hook budget is 10 seconds.",
+        "Measured 0.76 at reps 5 (n=25).",
+        "Reads up to two levels down.",
+        "이 값은 계약으로 고정됨",
+        "제약이 하나 더 있음",
+        "요약은 인덱스가 보유함",
+        # The digit is what makes these dangerous: `약` is the last syllable of each, so a
+        # matcher looking only forward reads every one of them as a hedge.
+        "계약 3건을 처리함",
+        "요약 3줄로 정리함",
+        "절약 40% 달성함",
+        "특약 5건 체결함",
+    ],
+)
+def test_a_bound_or_a_measurement_is_not_a_claim(prose: str):
+    """The carve-out is the half that matters: a limit and a measured figure both stay."""
+    assert lint_text(Path("doc.md"), prose + "\n") == []

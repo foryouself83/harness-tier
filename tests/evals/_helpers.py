@@ -71,3 +71,8 @@ OK = {
 # OK's 14/15 clears the significance bar; 7 is the shipped skill-family size.
 EXPECT = 0.80
 N_SKILLS = 7
+
+# The id every mismatch fixture carries. Derived from the pin, never spelled out: a literal
+# model id stops being a mismatch the day MODEL is re-pinned to it, and the test then fails
+# for the opposite of the reason it was written.
+OTHER_MODEL = scores.MODEL + "-not-the-pin"

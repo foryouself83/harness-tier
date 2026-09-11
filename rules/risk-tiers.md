@@ -318,7 +318,14 @@ Docs and Dev here; the promotion tiers' steps are in
      `rm -f .claude/harness-tier/.flow/review.done .claude/harness-tier/.flow/doc-sync.done`.
      A team that wants the older order — a small fix after a pass not
      costing a re-run — sets `gate_evidence.invalidate_on_edit: false`
-     in `flow-config.yaml`. The hook is registered by the plugin, so a
+     in `flow-config.yaml`, and pays for it in coverage: an edit after
+     the pass — the review's own fixes included — commits under a
+     review that never saw it. `/flow` still clears the evidence
+     directory after the commit/merge, but a `<gate>.done` is not
+     branch-bound the way the `tier` marker is, so a task that ends
+     without that step leaves its markers standing for whatever runs
+     next, on any branch.
+     The hook is registered by the plugin, so a
      version bump arms it with no `/flow-init` step to agree to; the
      switch is how the host that carries the cost answers. Armed is the
      default: the hook reads `false` under a top-level `gate_evidence:`

@@ -262,7 +262,9 @@ deploy:
 
 # Gate evidence. The review and doc-sync markers are voided by any edit, so passing is a
 # fixpoint: a fix made after either passed would otherwise commit against evidence earned
-# over code no reviewer saw. false keeps them until the commit - the older order, where a
-# small edit after a review does not cost a re-run.
+# over code no reviewer saw. false stops an edit from voiding them: the older order, where a
+# small edit after a review costs no re-run and commits unreviewed. /flow still clears them
+# after the commit/merge, but these markers are not branch-bound, so a task that ends without
+# that step leaves them standing for whatever runs next.
 gate_evidence:
   invalidate_on_edit: true
