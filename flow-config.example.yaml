@@ -29,7 +29,7 @@ branches:
 # Commit discipline (gitlint · tier gates) is unaffected: commits are still made locally.
 # Either ruleset MUST carry a bypass actor: promotion for the release automation (else the
 # chore(release) push is blocked and releases stop), daily for the post-release back-merge
-# push (else the released tag never returns to integration). See rules/risk-tiers.md.
+# push (else the released tag never returns to integration). See rules/promotion.md.
 merge_workflow:
   pull_request: []
 

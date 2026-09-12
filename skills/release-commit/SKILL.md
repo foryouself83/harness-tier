@@ -48,8 +48,8 @@ A promotion is gated at the **commit on the target branch** — the branch drive
 marker is written. `precommit`, `security-scan`, `wiki` and `doc-style` are runtime gates the
 commit hook runs itself: no marker to write, no skill behind them. The gates needing a recorded
 marker are `review` and `bump` (Staging), `security` alone (Release) — Release runs no code
-review at all, for the reason [`risk-tiers.md`](../../rules/risk-tiers.md) gives under that
-tier.
+review at all, for the reason [`promotion.md`](../../rules/promotion.md) gives under
+Release.
 
 ## Step 0 — Read the host's release model
 

@@ -163,7 +163,7 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
 걸리지 않음.
 
 이 로컬 훅 강제는 그 흐름의 머지가 직접 `git merge` 로 남아있는 동안에만 적용됨.
-`flow-config.merge_workflow.pull_request` 가 어떤 흐름을 PR 경유로 돌리면(`rules/risk-tiers.md`
+`flow-config.merge_workflow.pull_request` 가 어떤 흐름을 PR 경유로 돌리면(`rules/promotion.md`
 의 **PR workflow** 절 참고), 훅은 애초에 `git merge` 명령을 보지 못하므로 위 표의 해당
 행은 더 이상 발동하지 않음 — 강제는 서버 쪽 GitHub 브랜치 룰셋(허용 머지 방식)으로
 옮겨가며, `/flow-init` Step 2.7 이 이를 점검하지만 대신 바꿔주지는 않음.
