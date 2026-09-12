@@ -411,6 +411,12 @@ def verify(path: Path, before: str, after: str) -> list[Finding]:
 
 
 DEFAULT_GLOBS = ("**/*.md",)
+# The carve-outs the rule states with no condition on them: a CHANGELOG a release tool
+# regenerates from commit subjects, and the superpowers record trees whose lines ARE what
+# PLAN bans. A host's own `exclude` is added to these rather than replacing them — a host
+# whose list predates an entry never receives it, because `/flow-init` leaves a host-owned
+# config alone, and its CI then goes red with no edit that could clear it.
+DEFAULT_EXCLUDES = ("CHANGELOG.md", "docs/superpowers/**", ".superpowers/**")
 # Directory NAMES, matched at any depth. A vendored tree is never the repo's own prose, and
 # these hold whatever a consumer's `paths` says — a glob would need every one of them
 # spelled `**/node_modules/**` to reach as far.
@@ -519,7 +525,8 @@ def scope_rules(root: Path) -> tuple[tuple[str, ...], tuple[str, ...]] | None:
     cfg = data.get("doc_style") if isinstance(data, dict) else None
     if not isinstance(cfg, dict) or not cfg.get("enable"):
         return None
-    return tuple(cfg.get("paths") or DEFAULT_GLOBS), tuple(cfg.get("exclude") or ())
+    excluded = DEFAULT_EXCLUDES + tuple(cfg.get("exclude") or ())
+    return tuple(cfg.get("paths") or DEFAULT_GLOBS), tuple(dict.fromkeys(excluded))
 
 
 def in_scope(root: Path, paths: list[Path], fail_open: bool = True) -> list[Path]:

@@ -175,9 +175,9 @@ consent; never mutate machine-wide state.
          themselves**: the commit-time stage only ever *warns*, so
          `.github/workflows/doc-style.yml` is the single place this rule is ever enforced —
          declining does not leave a lighter check, it leaves none. **Yes** → `enable: true`,
-         then `paths` and `exclude` (offer the example's `["**/*.md"]` /
-         `["CHANGELOG.md", "docs/superpowers/**", ".superpowers/**"]` as defaults, and
-         mention `**/*.py`·`**/*.sh` cover comments and docstrings).
+         then `paths` and `exclude` (offer the example's `["**/*.md"]` / `[]` as defaults,
+         and mention `**/*.py`·`**/*.sh` cover comments and docstrings). The checker carries
+         its own carve-outs, so anything named here joins them and never replaces them.
          **No** → `enable: false`; Step 2 then renders no workflow. The flag also drives the
          commit-time stage, so it is one answer for both layers, and flipping it later
          silences an already-rendered workflow without deleting it.

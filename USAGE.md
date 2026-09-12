@@ -236,10 +236,11 @@ pass before it can commit**.
   `exclude` globs put in scope, against the `doc-style` rule — history narration, plan-record
   pointers, filler, Korean `~다` endings, over-long prose lines — and reports them as a
   `systemMessage`. `paths` defaults to `**/*.md`; add `**/*.py` · `**/*.sh` to cover comments
-  and docstrings. `exclude` ships holding what no edit of yours could pass: `CHANGELOG.md`,
+  and docstrings. The checker itself holds what no edit of yours could pass: `CHANGELOG.md`,
   which a release tool rewrites from commit subjects, and the `docs/superpowers/` ·
   `.superpowers/` trees, whose records are the checklist lines and self-pointers the rule
-  bans. Add your own generated and vendored files beside them. The hook and CI read
+  bans. `exclude` adds your own generated and vendored files to those three; it cannot
+  take one back. The hook and CI read
   that scope through one function, so an `exclude` cannot hold in only one of them. A
   `flow-config.yaml` that does not parse fails the CI job rather than reading as "off". The
   verdict belongs to the `doc-style.yml` CI workflow, which sees the whole tree; a commit-time

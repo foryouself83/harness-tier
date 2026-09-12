@@ -38,6 +38,20 @@ def test_lint_config_is_silent_without_the_config(tmp_path: Path, capsys):
     assert capsys.readouterr().err == ""
 
 
+def test_the_rules_own_carve_outs_survive_a_hosts_exclude(tmp_path: Path):
+    """The rule states these unconditionally, so the script carries them — the example config
+    alone reaches new installs only. A host whose `exclude` predates an entry keeps its own
+    list and never receives the new one, because `/flow-init` leaves a host-owned config
+    alone; its CI would then go red on a plan record no edit can clear."""
+    tree = ["a.md", "CHANGELOG.md", "docs/superpowers/plans/p.md", ".superpowers/s.md"]
+    root = _scoped(
+        tmp_path,
+        "doc_style:\n  enable: true\n  exclude: ['docs/legacy/**']\n",
+        tree,
+    )
+    assert _rels(root, config_paths(root)) == ["a.md"]
+
+
 def test_exclude_reaches_past_a_directorys_direct_children(tmp_path: Path):
     """`Path.match` matched from the right, so even `docs/legacy/**` kept nested files in."""
     root = _scoped(
