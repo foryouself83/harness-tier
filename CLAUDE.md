@@ -89,13 +89,13 @@ docs/            internal design records (Korean, never shipped) · reference no
   and its `merge_strategy` names flows only by `flow-config.branches` **key**.
 - **A consumer-facing `.md` change (rules, skills) commits as `feat`/`fix`** — `docs`/`chore`
   trigger no release, and only a `plugin.json` version bump reaches a consumer.
-- **[`rules/risk-tiers.md`](rules/risk-tiers.md) is the tier-discipline SSOT**, the only rule
-  injected at SessionStart; the files split from it are read on demand. Editing it or the hook
-  that injects it costs every `hook_assisted` skill a live re-measure. A rate moves with *where*
-  text sits beside `## Principle`'s mandate, not with how much, even on a byte-identical
-  description: leave that section alone, move whole sections, and leave no "moved to X" stub —
-  a pointer-only section can cost more than the text it replaced. Compare a rate only to a
-  baseline of the same model and `--reps` — a plain `--all` already matches.
+- **[`rules/risk-tiers.md`](rules/risk-tiers.md) is the tier-discipline SSOT**, injected at
+  SessionStart beside a `doc-style.md` summary; the split-out files are read on demand. Editing
+  it or the hook that injects it costs every `hook_assisted` skill a live re-measure. A rate
+  moves with *where* text sits beside `## Principle`'s mandate, not with how much, even on a
+  byte-identical description: leave that section alone, move whole sections, and leave no
+  "moved to X" stub — a pointer-only section can cost more than the text it replaced. Compare a
+  rate only to a baseline of the same model and `--reps` — a plain `--all` already matches.
 - **Three verification layers**, independent: the host's `.pre-commit-config.yaml`; the flow gate
   (PreToolUse, **Claude-session commits and merges only** — terminal commits and CI bypass it);
   and CI, which closes that blind spot. Per-gate mechanism: the risk-tiers glossary. PR mode takes

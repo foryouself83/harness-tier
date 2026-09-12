@@ -1,8 +1,34 @@
 import re
 
+import pytest
 import yaml
 
 from tests.skills._helpers import REPO, body
+
+# The four documents a consumer reads to find out what they got. Both twins are listed: a row
+# added to one and not the other is the drift `doc-sync` exists to catch.
+CONSUMER_DOCS = ("README.md", "README.ko.md", "USAGE.md", "USAGE.ko.md")
+# The one skill a consumer never reaches for. `/harness-init` invokes it as its generation
+# engine and its own description says not to call it directly, so it has no consumer-facing
+# timing, arguments or behaviour to write down.
+UNLISTED_SKILLS = frozenset({"harness-authoring"})
+
+
+@pytest.mark.parametrize("doc", CONSUMER_DOCS)
+def test_every_consumer_facing_skill_is_registered(doc: str):
+    """Adding a skill directory is not adding a skill a consumer can find. `prose-review`
+    shipped in none of the four, and nothing failed: the component tables and the USAGE
+    sections are hand-maintained, and the `doc-sync` gate that reconciles them never runs in
+    a repo with no `flow-config.yaml`."""
+    text = (REPO / doc).read_text(encoding="utf-8")
+    missing = sorted(
+        p.parent.name
+        for p in REPO.glob("skills/*/SKILL.md")
+        if p.parent.name not in UNLISTED_SKILLS
+        and f"`{p.parent.name}`" not in text
+        and f"`/{p.parent.name}`" not in text
+    )
+    assert not missing, f"{doc} names no {missing} — a consumer cannot find what it does"
 
 
 def copy_files() -> list[str]:

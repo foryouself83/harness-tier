@@ -139,13 +139,14 @@ pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre
 | 스킬 | `commit` | 커밋 하나를 작성·발행 — type 선택·50/72·스테이징. `/flow` 와 `/release-commit` 이 각자의 커밋 단계에서 호출 |
 | 스킬 | `/release-commit` | 승격 하나를 끝까지 — integration→staging→production 의 게이트, 범프 레벨, 릴리스 CI 가 요구하는 머지 형태, 백머지 |
 | 스킬 | `doc-sync` | 코드 ↔ 문서 동기화 + 문서 집합 일관성 + 무손실 재작성 검증 |
+| 스킬 | `prose-review` | 주석·docstring·문서의 문체 규율 — 패턴 절반과 판단 절반, 그리고 무손실 재작성 증명 |
 | 스킬 | `harness-insight` | 지정 기간 Claude Code 활동 집계 + 인사이트 리포트 |
 | 스킬 | `/harness-deployments` | 릴리스 워크플로 위에 배포(레지스트리 발행 / 컨테이너 이미지 / 앱 배포) 계층 추가 — 감지 → 질문 → 배포 CI 렌더(옵트인, `/flow-init` 이후) |
 | 스킬 | `playwright-scaffold` · `integration` · `performance` | E2E 스캐폴드 / 통합·성능 검증(비강제 수동 스킬) |
 | 에이전트 | `harness-researcher` · `harness-code-analyzer` · `harness-critic` | 하네스 생성용 리서치 / 코드 분석 / 생성물 검증 |
 | 룰 | `risk-tiers` | 위험도 분류 + 커밋 규율의 단일 기준 |
 | 룰 | `doc-style` | 문서·주석·docstring 문체 규율의 단일 기준 |
-| 훅 | SessionStart · Notification · PreToolUse(commit·merge) · PostToolUse(편집) | 규칙 주입 + 구버전 로드 경고 · Teams 알림 · 커밋 게이트 + 머지 전략 게이트 · 편집으로 낡은 review/doc-sync 증거 무효화 |
+| 훅 | SessionStart · Notification · PreToolUse(commit·merge) · PostToolUse(편집) | 위험도 규칙 + 문서 문체 요약 주입과 구버전 로드 경고 · Teams 알림 · 커밋 게이트 + 머지 전략 게이트 · 편집으로 낡은 review/doc-sync 증거 무효화 |
 
 > **릴리스 CI 토큰** — `/flow-init` 이 렌더링하는 릴리스 워크플로는 기본 `GITHUB_TOKEN` 으로 바로
 > 돎(Actions 쓰기 권한만 부여). `RELEASE_TOKEN` 시크릿은 옵트인 확장. 자세한 내용은

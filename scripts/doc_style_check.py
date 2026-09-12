@@ -48,6 +48,21 @@ PATH_LIKE = re.compile(r"(?:\./|\.\./|/|[A-Za-z]:\\)[\w\-/\\.]+|[\w\-.]+[/\\][\w
 # 7+ hex chars carrying BOTH a letter and a digit: a commit sha, never an English word
 # (`deadbeef` has no digit) and never a plain number (`20240115`, a byte count).
 SHA = re.compile(r"\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{7,40}\b")
+# A filename followed by a line number. The extension whitelist is the rule: without it
+# `12:30`, `localhost:8000` and a YAML `key: 3` all read as anchors. The space after the colon
+# splits the two readings: with none it is an anchor whatever follows, with one it is an anchor
+# only when no word follows the number — so a release note reading
+# `CHANGELOG.md: 12 entries landed` stays the sentence it is. The number excludes a leading
+# zero and stops at six digits: a real line number carries neither, but YAML's int coercion
+# does — `src/a.py: 0123456` records int 42798, not a pointer to line 123456.
+ANCHOR = re.compile(
+    r"[\w.\-/\\]*[\w\-]\."
+    r"(?:py|sh|bash|md|ya?ml|json|toml|ts|tsx|js|jsx|mjs|cjs|go|rs|java|rb|kt|swift|dart|"
+    r"c|h|cc|cpp|hpp|cs|php|sql|html|css|scss|vue|svelte|tf|xml|ini|cfg)"
+    r"\s*:(?:[1-9]\d{0,5}(?!\d)"
+    r"|[ \t]+[1-9]\d{0,5}(?!\d)(?![ \t]*[^\W\d_]))",
+    re.IGNORECASE,
+)
 
 MAX_LINE = 100
 
@@ -79,14 +94,25 @@ def _closes(opener: re.Match, candidate: re.Match) -> bool:
     )
 
 
-def _mask(line: str, keep_link_targets: bool = False) -> str:
+# What each mask mode blanks, and the list `lint_text` loops over to build one masked line
+# per mode. Spelled a second time there, a mode present in only one of the two raises KeyError
+# on the first prose line the gate reads.
+MASK_PATTERNS = {
+    "default": (INLINE_CODE, LINK_TARGET, URL),
+    "links": (INLINE_CODE, URL),
+    "code": (LINK_TARGET, URL),
+}
+
+
+def _mask(line: str, mode: str = "default") -> str:
     """Blank out spans a prose rule must never read: code, URLs, and link targets.
 
-    ``keep_link_targets`` serves PLAN alone: a backticked ``docs/superpowers/plans/`` NAMES
-    the banned pattern, where a link to one IS the pointer the rule bans.
+    Three modes, because two rules need to see what the default hides. ``links`` serves
+    PLAN: a backticked ``docs/superpowers/plans/`` NAMES the banned pattern, where a link
+    to one IS the pointer the rule bans. ``code`` serves ANCHOR: a line anchor is nearly
+    always written inside backticks, so blanking code would switch that rule off.
     """
-    patterns = (INLINE_CODE, URL) if keep_link_targets else (INLINE_CODE, LINK_TARGET, URL)
-    for pattern in patterns:
+    for pattern in MASK_PATTERNS[mode]:
         line = pattern.sub(lambda m: " " * len(m.group(0)), line)
     return line
 
@@ -170,6 +196,26 @@ def prose_of(path: Path, text: str) -> list[tuple[int, str]]:
 
 # ---------- Style rules ----------
 
+# Everything a writer puts in front of a line's text: a list bullet, a quote mark, a heading
+# or comment `#`, an ordinal, an emphasis run. `^\s*` absorbs none of them, so a rule anchored
+# at the line head reads them as text and misses the label or key right behind them.
+_HEAD_MARKER = re.compile(r"^[ \t]*(?:[-+]\s|>\s?|#+\s?|\d+[.)]\s|\*{1,2}|_{1,2})")
+
+
+def _strip_head(line: str) -> str:
+    """The line's text, with those marks and the indent before it gone.
+
+    One helper for two rules: META's field label and TRAP's box keys both decide what a line
+    head is, and a head that means one thing to one of them and another to the other is how a
+    box reports keys missing that sit on the very next line.
+    """
+    while True:
+        shorter = _HEAD_MARKER.sub("", line, count=1)
+        if shorter == line:
+            return line.lstrip()
+        line = shorter
+
+
 BANNED = (
     (
         "HIST",
@@ -233,28 +279,138 @@ BANNED = (
         ),
         "magnitude nobody measured — give the direction, or the figure with its conditions",
     ),
+    (
+        "ANCHOR",
+        "error",
+        ANCHOR,
+        "line-number anchor — name the file; the number is false after the next insert",
+    ),
+    (
+        "META",
+        "error",
+        re.compile(
+            # `@author` and friends anywhere; a field LABEL only at the head of the line, which
+            # `_strip_head` has already cleared of a bullet, a quote mark or a bold run —
+            # the shapes a markdown document records revision metadata in.
+            #
+            # The label alone does not decide it. `Created`, `Modified` and `History` are
+            # ordinary words, and what separates the field from the definition is the VALUE: a
+            # field carries a date, a version, a name or an identifier; a definition carries a
+            # clause, and English cannot state one without a function word gluing its pieces
+            # together (`the`, `is`, `from`, `per`…) — `a`/`an` excepted, since either collides
+            # with a bare initial (`Author: A. Smith`). So the value reads as a clause on
+            # finding one of those words in it, spaced after the colon or not (`Modified:files…`
+            # carries one all the same), never on the case of its first letter — `Created: A new
+            # worktree` is a clause whatever case `A` is in.
+            r"@(author|since|date)\b"
+            r"|^(author|created|modified|updated|last updated|revision|history|"
+            r"changelog)\s*:(?![*_]*\s*.*\b(?:the|is|are|was|were|be|been|being|will|now|"
+            r"per|from|of|to|in|on|at|and|or)\b)"
+            r"|^(작성자|작성일|수정일|변경\s*이력|수정\s*이력)\s*[:：]",
+            re.IGNORECASE,
+        ),
+        "revision metadata — git holds the history, the date and the name",
+    ),
 )
 
-# The one rule that reads link targets (see :func:`_mask`).
-READS_LINK_TARGETS = ("PLAN",)
+# Which spans each rule reads. Anything unlisted takes the default mask (see :func:`_mask`).
+MASK_MODE = {"PLAN": "links", "ANCHOR": "code"}
+# Which rules are matched against the line's text rather than its raw start. PLAN must never
+# join them: the bullet `_strip_head` removes is part of the checklist item PLAN matches on.
+HEAD_ANCHORED = frozenset({"META"})
+
+# Language-invariant literals, not translatable: they are what this rule parses, not prose it
+# judges. Each key is matched at the head of its own line, after `_strip_head` — a key never
+# sits on the same line as the marker, and matching at the head keeps a mid-sentence mention
+# like "the Trigger: field" from satisfying a box it is not part of.
+TRAP_MARKER = re.compile(r"CRITICAL TRAP\s*:")
+# A leading backtick is optional: once a marker has made the box real, a key styled as inline
+# code (`` `Trigger:` a cp949 host``) is still the key — see _trap_findings for the mask that
+# keeps it visible.
+TRAP_KEYS = (
+    ("Trigger:", re.compile(r"`?Trigger\s*:")),
+    ("Symptom:", re.compile(r"`?Symptom\s*:")),
+)
+
+
+def _blocks(entries: list) -> list:
+    """Runs of consecutive non-blank prose lines; each entry starts ``(lineno, raw, ...)`` —
+    whatever a caller carries past those two (mask variants for :func:`_trap_findings`) is
+    never read here.
+
+    A blank line ends a run, and so does a gap in the numbering: one comment and the next
+    are two boxes, and reading them as one would let a marker borrow the keys below it.
+    Blankness is judged on the RAW line, never a masked one: a line holding nothing but an
+    inline-code span masks to spaces, and ending the run there would split a box in half and
+    report the keys under it missing.
+    """
+    out: list = []
+    for entry in entries:
+        lineno, raw = entry[0], entry[1]
+        if not raw.strip():
+            continue
+        if out and lineno == out[-1][-1][0] + 1:
+            out[-1].append(entry)
+        else:
+            out.append([entry])
+    return out
+
+
+def _trap_findings(entries: list) -> list:
+    """The one rule a single line cannot answer: the box is three lines or it is not a box.
+
+    A block is the outer unit, but two boxes can share one unbroken comment run — back-to-back
+    ``CRITICAL TRAP`` lines with no blank line or numbering gap between them. So within a block
+    each marker owns the lines from itself up to the NEXT marker (or the block's end), and only
+    that range is searched for its keys — a marker never borrows keys that belong to the box
+    after it, and each finding reports its own marker's line rather than the block's first one.
+
+    The marker is read on the default mask, so naming it inside backticks stays exempt exactly
+    as it is for every other rule — a doc that only quotes ``CRITICAL TRAP:`` is not a box. A
+    key is read on the "code" mask instead: the box around it is already real once a marker is
+    found, so a key styled as inline code is still the key, not a doc quoting one. Both go
+    through :func:`_strip_head`, so a key behind a bullet or a comment mark is the key it
+    plainly is.
+    """
+    findings = []
+    for block in _blocks(entries):
+        marker_idxs = [i for i, entry in enumerate(block) if TRAP_MARKER.search(entry[2])]
+        for pos, start in enumerate(marker_idxs):
+            end = marker_idxs[pos + 1] if pos + 1 < len(marker_idxs) else len(block)
+            owned = block[start:end]
+            marker = owned[0][0]
+            heads = [_strip_head(entry[3]) for entry in owned]
+            missing = [
+                name
+                for name, pattern in TRAP_KEYS
+                if not any(pattern.match(head) for head in heads)
+            ]
+            if missing:
+                message = f"CRITICAL TRAP box is missing {' and '.join(missing)}"
+                findings.append(("error", marker, "TRAP", message))
+    return findings
 
 
 def lint_text(path: Path, text: str) -> list[Finding]:
     findings: list[Finding] = []
+    entries: list[tuple[int, str, str, str]] = []
     for lineno, raw in prose_of(path, text):
+        masked = {mode: _mask(raw, mode) for mode in MASK_PATTERNS}
+        entries.append((lineno, raw, masked["default"], masked["code"]))
         if not raw.strip():
             continue
-        line = _mask(raw)
-        with_links = _mask(raw, keep_link_targets=True)
         for code, severity, pattern, message in BANNED:
-            m = pattern.search(with_links if code in READS_LINK_TARGETS else line)
+            target = masked[MASK_MODE.get(code, "default")]
+            m = pattern.search(_strip_head(target) if code in HEAD_ANCHORED else target)
             if m:
-                hit = m.group(0).strip() or line.strip()
+                hit = m.group(0).strip() or masked["default"].strip()
                 findings.append((severity, lineno, code, f"{message} — {hit!r}"))
+        line = masked["default"]
         if len(line) > MAX_LINE and "|" not in line:
             findings.append(
                 ("warning", lineno, "LONG", f"prose line is {len(line)} chars (cap {MAX_LINE})")
             )
+    findings.extend(_trap_findings(entries))
     return findings
 
 

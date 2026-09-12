@@ -26,6 +26,9 @@ the reader attention and earns nothing.
 | `PLAN` | Pointers into `docs/superpowers/plans/`·`specs/`, checklist items | The fact itself — plan records are point-in-time and get superseded |
 | `FILLER` | `just` · `simply` · `actually` · `however` · `in order to` · `of course` | Delete. The sentence keeps its meaning |
 | `ENDING` | Korean `~다` endings | Nominal endings (`~함`, `~임`, a noun) |
+| `ANCHOR` | A line number appended to a filename | The filename alone — the number is false after the next insert |
+| `META` | A revision field: `@author` · `Author:` · `Last updated:` · `작성자` | Nothing. Git holds the history, the date and the name |
+| `TRAP` | A `CRITICAL TRAP:` box missing `Trigger:` or `Symptom:` | All three lines, or no box |
 
 `LONG` warns above 100 characters of prose on one line. Long lines are not wrong, but a
 line that needs 300 characters is usually three facts pretending to be one.
@@ -52,6 +55,38 @@ The failure this prevents is not an inaccurate document. A guess written as a nu
 as a contract to the next reader, who defends it, and to a reviewer, who flags it — every
 round, on prose no one can verify.
 
+## A comment is the last resort
+
+Before writing one, try to delete the need for it.
+
+1. **Never explain how.** The code says how. A comment that paraphrases the next line ages
+   into a lie the moment that line changes, and a reader who trusts it is worse off than one
+   who read the code.
+2. **Make the code raise instead.** A constraint a reader could violate is a check, not a
+   sentence: an `assert`, a raised error, a validated bound, a type. Prose asks to be
+   believed; a failing call cannot be ignored.
+3. **When it cannot raise, use the box.** Some traps have no runtime moment to fire at — a
+   locale that silently changes an encoding, an ordering nothing observes until it is wrong.
+   Those get exactly this shape, and nothing else earns three lines:
+
+   ```
+   # CRITICAL TRAP: <what breaks, silently>
+   # Trigger: <the condition that reaches it>
+   # Symptom: <what a reader sees when it does>
+   ```
+
+4. **No revision history, date, or name.** Git holds all three, and holds them correctly.
+5. **A filename, never a line number.** `precommit-runner.sh` survives an edit; a `:31`
+   appended to it is false the next time anyone inserts a line above it.
+6. **Nothing self-evident.** A comment restating the identifier it sits on is noise that
+   costs the reader a line and teaches them to skim the next one.
+
+Everything left over is a reason or a constraint, and it fits on one line.
+
+The three box keys are literals the checker parses, so they stay as written in every
+project. What follows each key is prose: write it in the language the project's comments
+are written in.
+
 ## Per artifact
 
 - **`CLAUDE.md`** — common rules only. A mechanism enforced elsewhere (a gate, a test, a
@@ -61,9 +96,7 @@ round, on prose no one can verify.
 - **`SKILL.md`** — `description` states *when* to reach for it and the stake of skipping
   it; the body holds the procedure. Neither restates the other.
 - **README · USAGE** — what a consumer does, and what breaks without it. No pitch.
-- **Comments and docstrings** — only what the code cannot say: the constraint that makes
-  the shape necessary, the failure mode a reader would otherwise re-introduce. Never a
-  paraphrase of the next line, never a changelog.
+- **Comments and docstrings** — see "A comment is the last resort" above.
 
 ## Compression is verified, not trusted
 

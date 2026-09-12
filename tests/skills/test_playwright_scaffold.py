@@ -4,7 +4,7 @@ SKILL = Path(__file__).resolve().parents[2] / "skills" / "playwright-scaffold" /
 
 
 def test_scaffolded_config_reads_the_base_url_from_the_environment():
-    # The plugin's own guidance (skills/integration/references/web-playwright.md:193)
+    # The plugin's own guidance (skills/integration/references/web-playwright.md)
     # prescribes process.env.BASE_URL. The scaffold wrote a bare literal, so two of the
     # plugin's artifacts disagreed and the CI stack could not publish a different port.
     text = SKILL.read_text(encoding="utf-8")

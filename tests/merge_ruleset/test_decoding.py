@@ -29,7 +29,7 @@ def test_non_ascii_ruleset_name_still_decodes():
 
 def test_script_forces_utf8_io():
     # The env-var half of the same guard, in the form the sibling scripts use
-    # (check-deps.sh:10, precommit-runner.sh:31) — it covers any python added here later.
+    # (check-deps.sh, precommit-runner.sh) — it covers any python added here later.
     assert "export PYTHONUTF8=1" in SCRIPT.read_text(encoding="utf-8")
 
 

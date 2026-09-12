@@ -29,8 +29,8 @@
 # releases, so each is decoded on its own.
 set -u
 # CLAUDE.md Invariant #2 — the host/hook locale is cp949 (or cp1252), so a child python's
-# default I/O encoding is NOT UTF-8. Same guard, same place, as check-deps.sh:10 and
-# precommit-runner.sh:31.
+# default I/O encoding is NOT UTF-8. Same guard, same place, as check-deps.sh and
+# precommit-runner.sh.
 export PYTHONUTF8=1
 
 # Everything every decoder needs, defined ONCE and prepended to each of them. The ref

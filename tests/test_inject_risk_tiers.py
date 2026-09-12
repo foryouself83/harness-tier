@@ -410,6 +410,39 @@ def test_stdin_that_never_closes_does_not_hang(tmp_path):
     assert _extract(json.loads(stdout)["hookSpecificOutput"]["additionalContext"]) is not None
 
 
+def _prose_block(tmp_path) -> str:
+    context = _context(_run(_plugins_root(tmp_path, published=None)))
+    assert "<harness-tier-prose>" in context, "the prose summary never reached the session"
+    return context.split("<harness-tier-prose>", 1)[1].split("</harness-tier-prose>", 1)[0]
+
+
+def test_the_prose_block_follows_the_risk_tiers_block(tmp_path):
+    """Text beside the mandate moves measured invocation rates, so the summary lives in its
+    own block after the closing tag, never inside it."""
+    context = _context(_run(_plugins_root(tmp_path, published=None)))
+    assert context.index("</harness-tier-risk-tiers>") < context.index("<harness-tier-prose>")
+
+
+@pytest.mark.parametrize("name", ["flow", "commit", "doc-sync", "release-commit", "prose-review"])
+def test_the_prose_block_names_no_skill(tmp_path, name):
+    """A skill named here would be forced to declare hook_assisted, folding this hook into its
+    description_sha — see tests/evals/test_injected_rule.py. The path `/doc-style.md` in the
+    block is why this asks about skill names rather than about any slash-word."""
+    assert f"/{name}" not in _prose_block(tmp_path)
+
+
+def test_the_prose_block_asks_for_the_users_language(tmp_path):
+    assert "user's language" in _prose_block(tmp_path)
+
+
+def test_the_prose_block_keeps_the_box_keys_untranslated(tmp_path):
+    """The three keys are what the TRAP rule parses; a localized key is that rule switched
+    off for that language."""
+    block = _prose_block(tmp_path)
+    for key in ("CRITICAL TRAP:", "Trigger:", "Symptom:"):
+        assert key in block
+
+
 def test_a_nested_name_before_the_version_does_not_shadow_the_top_level_one(tmp_path):
     """Key order is not part of the manifest schema. When `author` precedes `version` the read
     is still running when the nested name arrives, so only "first match wins" keeps it out —

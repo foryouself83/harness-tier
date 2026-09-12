@@ -307,8 +307,10 @@ This asks about the rewrite this run made, not about prose style, so it does not
 `flow-config.doc_style` and a repo that never enabled doc-style still runs it. A file this run
 did not touch says nothing either way — the answer comes from comparing against `HEAD`.
 
-Prose itself follows [`doc-style.md`](../../rules/doc-style.md): no history narration, no
-pointer to a plan record, no filler, and Korean documents take nominal endings.
+Prose itself follows [`doc-style.md`](../../rules/doc-style.md). Half of that rule is
+patterns and half is judgement, so run both over the files this run touched — invoke
+`Skill: prose-review` with those paths. It reports what it would change; apply what
+survives review before the marker, since an edit after the marker voids it.
 
 ## 2. Gate marker
 

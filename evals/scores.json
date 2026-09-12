@@ -1,7 +1,7 @@
 {
   "skills": {
     "commit": {
-      "description_sha": "61b1feaabfbe",
+      "description_sha": "868e3c8c36cd",
       "false_fire": 0.0,
       "false_hits": 0,
       "false_n": 15,
@@ -9,8 +9,7 @@
       "invoke_n": 15,
       "invoke_rate": 0.27,
       "lost_to": {
-        "flow": 1,
-        "release-commit": 2
+        "release-commit": 1
       },
       "measured_at": "2026-09-12",
       "model": "claude-sonnet-5",
@@ -20,7 +19,7 @@
       "truncated_quiet": 0.0
     },
     "doc-sync": {
-      "description_sha": "97eb09dacb6b",
+      "description_sha": "fd641814308b",
       "false_fire": 0.0,
       "false_hits": 0,
       "false_n": 15,
@@ -36,18 +35,18 @@
       "truncated_quiet": 0.0
     },
     "flow": {
-      "description_sha": "5bcf084747f9",
-      "false_fire": 0.16,
-      "false_hits": 4,
+      "description_sha": "b3c4655aa41c",
+      "false_fire": 0.04,
+      "false_hits": 1,
       "false_n": 25,
-      "invoke_hits": 18,
+      "invoke_hits": 16,
       "invoke_n": 25,
-      "invoke_rate": 0.72,
+      "invoke_rate": 0.64,
       "lost_to": {},
       "measured_at": "2026-09-12",
       "model": "claude-sonnet-5",
       "reps": 5,
-      "restricted": 0.8,
+      "restricted": 0.6,
       "truncated": 0.0,
       "truncated_quiet": 0.0
     },
@@ -138,19 +137,37 @@
       "truncated": 0.0,
       "truncated_quiet": 0.0
     },
-    "release-commit": {
-      "description_sha": "f1199968dcd6",
-      "false_fire": 0.0,
-      "false_hits": 0,
+    "prose-review": {
+      "description_sha": "ff5761e4ac04",
+      "false_fire": 0.07,
+      "false_hits": 1,
       "false_n": 15,
-      "invoke_hits": 11,
+      "invoke_hits": 12,
       "invoke_n": 15,
-      "invoke_rate": 0.73,
+      "invoke_rate": 0.8,
       "lost_to": {},
       "measured_at": "2026-09-12",
       "model": "claude-sonnet-5",
       "reps": 3,
-      "restricted": 0.6,
+      "restricted": 0.8,
+      "truncated": 0.0,
+      "truncated_quiet": 0.0
+    },
+    "release-commit": {
+      "description_sha": "de16147dcab4",
+      "false_fire": 0.0,
+      "false_hits": 0,
+      "false_n": 15,
+      "invoke_hits": 10,
+      "invoke_n": 15,
+      "invoke_rate": 0.67,
+      "lost_to": {
+        "flow": 3
+      },
+      "measured_at": "2026-09-12",
+      "model": "claude-sonnet-5",
+      "reps": 3,
+      "restricted": 0.8,
       "truncated": 0.0,
       "truncated_quiet": 0.0
     }

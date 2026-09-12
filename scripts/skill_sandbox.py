@@ -23,8 +23,9 @@ against `expect` / `reject`.
 
 **Coverage is deliberately partial.** A scenario is worth writing only where a throwaway
 directory can create the state that decides the skill's answer. That covers /integration,
-/playwright-scaffold, /performance, /doc-sync and /wiki-init. The rest are out of reach
-here, and adding hollow scenarios for them would report coverage this file does not have:
+/playwright-scaffold, /performance, /doc-sync, /prose-review and /wiki-init. The rest are
+out of reach here, and adding hollow scenarios for them would report coverage this file
+does not have:
 
 * `/flow`, `/flow-init`, `/flow-uninstall` — their subject is the *host session*: a
   registered commit hook, an installed plugin cache, `${CLAUDE_PLUGIN_ROOT}`. A fixture
@@ -138,6 +139,38 @@ stolen refresh token is usable once.
 `users` owns the identity columns; `sessions` holds one row per refresh token and
 cascades on delete.
 """
+
+# Every failure the prose rule names, in one file: a header carrying an author tag, a change
+# log and a revision date; two comments that paraphrase the line under them; a docstring that
+# explains how; and a line anchor into another file. The comment marks and quotes here are
+# fixture bytes, not this module's own prose — a string literal is code to `python_prose`.
+PROSE_REVIEW_MODULE = '''"""Order pricing.
+
+@author  j.doe
+Last updated: 2026-08-14
+Changelog:
+  2026-08-14  split the discount table out of price()
+  2026-07-02  first cut
+"""
+
+DISCOUNTS = {"gold": 0.2, "silver": 0.1}
+
+
+def discount_for(tier):
+    """Look the tier up in DISCOUNTS and return what is there.
+
+    Does a dict lookup, falling back to 0.0 when the key is absent.
+    """
+    # read the discount out of the dict
+    return DISCOUNTS.get(tier, 0.0)
+
+
+def price(amount, tier):
+    # multiply the amount by one minus the discount
+    net = amount * (1 - discount_for(tier))
+    # round to two places, the same way billing/invoice.py:118 does
+    return round(net, 2)
+'''
 
 
 SCENARIOS: list[Scenario] = [
@@ -433,6 +466,35 @@ SCENARIOS: list[Scenario] = [
             "docs/api.md": {"must_contain": ["9090"], "must_not_contain": ["3000"]},
             # server.py must keep 9090: the scenario's reject forbids rewriting code to docs.
             "app/server.py": {"must_contain": ["9090"]},
+        },
+    ),
+    Scenario(
+        name="prose-review-comments",
+        skill="prose-review",
+        why=(
+            "Both comments in app/pricing.py restate the line under them, the docstring "
+            "explains how, and the module header carries an author tag, a changelog and a "
+            "revision date. The tempting answer is to reword all of it into better prose; the "
+            "rule's answer is that most of it should not exist and the header belongs to git."
+        ),
+        prompt=(
+            "Go over the comments and docstrings in app/pricing.py and bring them in line "
+            "with the project's prose rules."
+        ),
+        expect=[
+            "deletes the comments that paraphrase the line beneath them rather than rewording",
+            "strips the author tag, the changelog and the date out of the module docstring",
+            "keeps the billing filename and drops the line number appended to it",
+            "cuts the how-explanation from the docstring and keeps what the code cannot say",
+        ],
+        reject=[
+            "rewrites a self-evident comment into a better sentence and keeps it",
+            "keeps the revision header because it reads as useful",
+            "changes a line of code while rewriting the prose",
+        ],
+        files={
+            "app/pricing.py": PROSE_REVIEW_MODULE,
+            "README.md": "# Pricing\n\nTier discounts are applied before rounding.\n",
         },
     ),
     Scenario(

@@ -95,7 +95,10 @@ skills:
       - Profile the slow endpoint.
       - Write a new README section explaining the install steps.
       - Translate CONTRIBUTING.md into Korean.
-      - Rename the variable foo to bar in one file.
+      # prose-review's own happy prompt, in the tree that prompt describes: doc-sync also
+      # rewrites prose over changed files, so this is where over-firing would show.
+      - prompt: These comments explain what the code already says — clean them up.
+        fixture: prose-review-comments
 
   playwright-scaffold:
     fixture: empty-web
@@ -308,3 +311,28 @@ skills:
       - Set up the release workflow for this project.
       - Show me the changelog for the last release.
       - Explain what a release candidate is.
+
+  prose-review:
+    # No `hook_assisted`: the flag keys on the injected text NAMING the skill, and nothing in
+    # it does — declared here, the reverse check in tests/evals/test_injected_rule.py would
+    # demand a name that is deliberately absent. The SessionStart hook does put this skill's
+    # entire subject in front of every session, so the rate below carries thematic help that
+    # `description_sha` does not fold in: read a drop as the description, never a rise.
+    fixture: prose-review-comments
+    expect_invoke: 0.60
+    expect_why: >-
+      comment and wording asks name the artifact, not the skill.
+    happy:
+      - These comments explain what the code already says — clean them up.
+      - Check the docstrings in this module against our prose rules.
+      - Are there any line-number references left in the comments?
+      - This file has an author tag and a change log in its header. Fix it.
+      - Review the wording of the comments I just wrote.
+    negative:
+      # doc-sync and commit are the two real confusions: one also reads changed files and
+      # rewrites prose, the other is the step that follows this one in every workflow.
+      - The docs went stale after this change — bring them back in line.
+      - Write the commit message for what I just changed.
+      - Rename the helper to fetch_orders.
+      - Why is this endpoint slow?
+      - Merge my branch into dev.

@@ -59,6 +59,24 @@ def test_case_fixtures_name_a_real_sandbox_scenario(name: str):
         assert f in sandbox.BY_NAME, f"{name}: unknown fixture {f!r}"
 
 
+def test_the_prose_review_fixture_carries_what_its_prompts_describe():
+    """A rate measured in a tree where the prompt's premise is false measures how the agent
+    reconciled the contradiction, not the description it was meant to measure. Four of the five
+    happy prompts name a comment, a docstring, a line-number reference and an author tag, and
+    the entry first pointed at a fixture whose four-line module carries none of them."""
+    scenario = sandbox.BY_NAME[CASES["skills"]["prose-review"]["fixture"]]
+    source = "\n".join(t for rel, t in scenario.files.items() if rel.endswith(".py"))
+    for what, pattern in (
+        ("a docstring", r'"""'),
+        ("a comment", r"(?m)^\s*#"),
+        ("a line-number reference", r"\.\w+:\d+"),
+        ("an author tag", r"@author"),
+    ):
+        assert re.search(pattern, source), (
+            f"prose-review's fixture ships no {what}, and a happy prompt asks about one"
+        )
+
+
 def test_a_reps_override_is_declared_where_the_run_reads_it():
     """`run.measure` takes reps as `entry.get("reps", args.reps)`, so a misspelled key is
     ignored in silence and the next `--all` re-baselines that skill at the run default — a

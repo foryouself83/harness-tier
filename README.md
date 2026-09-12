@@ -146,13 +146,14 @@ Then start day-to-day work with **`/flow <task description>`**.
 | Skill | `commit` | Author and issue one commit — type choice, 50/72, staging; `/flow` and `/release-commit` call it at every commit step |
 | Skill | `/release-commit` | Run one promotion end to end — integration→staging→production: the gates, the bump level, the merge shape the release CI needs, the back-merge |
 | Skill | `doc-sync` | Code ↔ doc synchronization + doc-set consistency + lossless-rewrite verification |
+| Skill | `prose-review` | Prose discipline over comments, docstrings and documents — the pattern half and the judgement half, then a lossless-rewrite proof |
 | Skill | `harness-insight` | Aggregate Claude Code activity over a period + insight report |
 | Skill | `/harness-deployments` | Layer deployment (registry publish / container image / app deploy) on the release workflow — detect → ask → render deploy CI (opt-in, after `/flow-init`) |
 | Skills | `playwright-scaffold` · `integration` · `performance` | E2E scaffold / integration & performance checks (non-enforcing manual skills) |
 | Agents | `harness-researcher` · `harness-code-analyzer` · `harness-critic` | Research / code analysis / output verification for harness generation |
 | Rule | `risk-tiers` | The single source of truth for risk classification + commit discipline |
 | Rule | `doc-style` | The single source of truth for prose discipline in docs, comments, and docstrings |
-| Hooks | SessionStart · Notification · PreToolUse(commit·merge) · PostToolUse(edit) | Rule injection + stale-build warning · Teams alerts · commit gate + merge-strategy gate · voids the review/doc-sync evidence an edit outdated |
+| Hooks | SessionStart · Notification · PreToolUse(commit·merge) · PostToolUse(edit) | Risk-tiers rule + prose-discipline summary injection, plus a stale-build warning · Teams alerts · commit gate + merge-strategy gate · voids the review/doc-sync evidence an edit outdated |
 
 > **Release CI token** — the rendered release workflow runs on the default `GITHUB_TOKEN` out of
 > the box (grant Actions write permission); a `RELEASE_TOKEN` secret is an opt-in escalation.

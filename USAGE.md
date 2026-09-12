@@ -633,6 +633,25 @@ release" reaches it directly.
    next one would read as its own pass — a run that stopped at the rc included, since nothing
    else removes `bump.done` and the `bump` gate is fail-closed on that file alone.
 
+### 3.11 `prose-review` skill
+
+```text
+/prose-review [paths… | empty = the changed files]
+```
+
+Checks prose against [`doc-style.md`](rules/doc-style.md) and proposes the rewrite.
+
+- **Pattern half** — `doc_style_check.py --lint` over the paths. A repo without the script
+  skips this and keeps the rest.
+- **Judgement half** — per comment, docstring and paragraph: does it explain *how*, could the
+  code raise instead, is it self-evident, is a number measured or merely written.
+- **Proof** — `--verify-git` over the same paths, so a rewrite that dropped a heading, a
+  fenced block, a URL or an inline-code span is reported rather than shipped.
+
+`doc-sync` calls it on the files a run touched, before the gate marker. Violations and fixes
+come back in the language you are writing in; the three box keys `CRITICAL TRAP:` ·
+`Trigger:` · `Symptom:` are literals the checker parses and stay as written.
+
 ---
 
 ## 4. Teams notifications
