@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # PostToolUse hook — an edit voids the review and doc-sync evidence.
 #
-# Those two gates judge the working tree, and their markers are branch-bound: they outlive the
-# commit that used them. Left in place, a fix made after either passed commits against a marker
+# Those two gates judge the working tree, and their markers outlive the commit that used them:
+# the commit does not clear one, and unlike the tier marker they are not branch-bound. Left
+# in place, a fix made after either passed commits against a marker
 # earned over code no reviewer and no doc pass ever saw. They come in a pair because they
 # invalidate each other — a review finding is fixed after doc-sync ran, and the fix is then
 # undocumented — so the only stable state is "both recorded, nothing edited since".

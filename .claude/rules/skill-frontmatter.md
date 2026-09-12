@@ -61,6 +61,40 @@ It keeps the `description` out of the model's context entirely, so on those skil
 description is read by a human scanning the `/` menu: one line, no trigger list. Use it
 for setup and teardown you want to fire by hand.
 
+## `context: fork` is not the Agent tool's `fork`
+
+They share a word and mean opposites. The Agent tool's `subagent_type: "fork"` copies the
+parent conversation and ignores a model override; this one starts a **fresh** context —
+
+> "It won't have access to your conversation history."
+> — [skills.md](https://code.claude.com/docs/en/skills.md), *Run skills in a subagent*
+
+so it is the one that lowers what the skill costs the session that called it, and
+its `model:` sets the forked subagent's model rather than the session's. The SKILL.md body
+becomes the subagent's whole prompt, which is why it fits a skill that is a procedure and
+returns nothing useful from one that is only guidance.
+
+`allowed-tools` **does** reach the fork — measured, 5 of 6 forked sessions, because the docs
+settle only that
+
+> "The `agent` field determines the execution environment (model, tools, and permissions)"
+> — [skills.md](https://code.claude.com/docs/en/skills.md), *Run skills in a subagent*, item 3
+> of the "When this skill runs" list — not the prose under it, which says something weaker
+> and is what a search for this sentence tends to return instead
+
+and leave this open. Without it a gate skill would prompt for its own marker.
+
+A gate skill also needs `background: false`, for three reasons that are each sufficient on
+their own: the marker has to land in the turn that invoked the skill or `/flow` moves on
+without it, a backgrounded fork is cut to the narrower background-subagent tool set, and a
+backgrounded fork's edits sit outside the session's checkpoints where `/rewind` cannot
+reach them.
+
+The eval cost lands asymmetrically. `description_sha` reads the `description` alone, so the
+invocation arm does not notice any of these fields; `outcome_sha` digests the **whole**
+`SKILL.md`, so one frontmatter byte costs that skill a live re-measure. Delete its
+`outcome_scores.json` entry rather than leaving it — absent is a `warn`, stale is a `fail`.
+
 ## A description states when, not what
 
 A description that summarises its own workflow becomes the shortcut the agent takes

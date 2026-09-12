@@ -1,6 +1,9 @@
 import json
+import subprocess
+import sys
 
 import scripts.harness_insight as hi
+from tests._non_utf8 import cp949_stdio_env
 
 # --- normalize_cmd: generic command grouping (no per-project command list) ---
 
@@ -160,3 +163,16 @@ def test_extract_drops_records_outside_window(tmp_path):
     assert any(t == "ancient prompt" for _, t in prompts)  # within 100y window
     prompts, *_ = hi.extract([str(proj)], days=1)
     assert prompts == []  # outside a 1-day window
+
+
+def test_reports_a_hangul_path_in_utf8(tmp_path):
+    # Invariant #2. A Korean Windows user name puts Hangul in every path this prints, and
+    # /harness-insight reads it through a pipe, where stdout takes the locale codec.
+    project = tmp_path / "홍길동"
+    project.mkdir()
+    cmd = [sys.executable, hi.__file__, "--project-dir", str(project)]
+    r = subprocess.run(
+        [*cmd, "--out-dir", str(tmp_path / "out")], env=cp949_stdio_env(), capture_output=True
+    )
+    assert r.returncode == 0, r.stderr.decode("utf-8", "replace")
+    assert "홍길동".encode() in r.stdout

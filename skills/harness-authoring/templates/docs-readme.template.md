@@ -8,7 +8,7 @@ tags: [readme]
 The full structure of the project documentation. If you are new, start with [Onboarding](onboarding/README.md).
 
 ## Structure
-{{SRS_INDEX_LINE_IF_GREENFIELD}}
+{{SRS_INDEX_LINE}}
 - [Design (SDS)](sds/README.md) — structure + Mermaid diagram
 - [Code Style](code-style/README.md) — per-stack conventions, best practices, anti-patterns, toolchain config
 {{VERIFICATION_INDEX_LINE_IF_ANY}}<!-- emit "- [Verification](verification/) — performance & integration verification SSOT (per stack)" only when docs/verification/* was generated; otherwise leave this line blank -->

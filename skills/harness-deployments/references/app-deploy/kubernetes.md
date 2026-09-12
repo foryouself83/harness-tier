@@ -84,7 +84,7 @@ kubectl rollout undo deployment/<name> -n <namespace> --to-revision=<N>   # a sp
 Leave these two commands in the operations guide (`docs/operations/deploy-guide.md`) as rollback pointers.
 
 ## Gotchas
-- `KUBE_CONFIG` must be a ServiceAccount bound with least-privilege RBAC (roughly get/list/patch on `deployments` in the target namespace) — confining the blast radius of an incident to that namespace.
+- `KUBE_CONFIG` must be a ServiceAccount bound with least-privilege RBAC (get/list/patch on `deployments` in the target namespace) — confining the blast radius of an incident to that namespace.
 - The cluster API server must be reachable from the GitHub-hosted runner (either a public endpoint, or, if inside a VPC, a self-hosted runner is required).
 
 ## SSOT

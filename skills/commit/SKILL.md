@@ -126,7 +126,7 @@ Re-promoting to iterate the **same** rc series takes **no trailer**: `version --
 the base version every time it is applied, so a second trailer turns `X.Y.Z-rc.1` into
 `X.Y.(Z+1)-rc.1` and skips `X.Y.Z` as a stable release instead of continuing to `rc.2` — the
 auto-derive path is what continues the series
-([`risk-tiers.md`](../../rules/risk-tiers.md) Staging). A **production** commit never takes a
+([`promotion.md`](../../rules/promotion.md) Staging). A **production** commit never takes a
 level; the finalize step is deterministic.
 
 ## Guardrails
@@ -138,3 +138,7 @@ level; the finalize step is deterministic.
    day-to-day rows and to `/release-commit` for a promotion, several of them hook-enforced. A
    promotion reaches Step 4 with its merge already open (`--no-ff --no-commit`), so the commit
    issued there is what writes that merge commit — do not abort it to write a plain one.
+4. **Never spell a CI-skip marker in the message.** GitHub reads `[skip ci]` anywhere in the
+   pushed head commit's message, body included, and creates **no workflow run** for that push:
+   every CI layer is off for the change, and the absence of a run reports as nothing at all.
+   A message that has to discuss one names it in prose — "a skip-ci marker".

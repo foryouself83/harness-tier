@@ -80,7 +80,7 @@ commit_guide: docs/operations/commit-versioning-guide.md   # host's own commit/v
                              # read by the `commit` skill (missing file → risk-tiers alone)
 
 gate_evidence:               # the review/doc-sync markers are voided by any edit (2.3)
-  invalidate_on_edit: true   # false keeps them until the commit
+  invalidate_on_edit: true   # false: an edit no longer voids them
 
 doc_sync:                    # doc-sync targets
   index: CLAUDE.md
@@ -200,8 +200,8 @@ pass before it can commit**.
 |------|------|:---:|-----------------|
 | `docs` | no-code change (docs/comments/config values) | ✗ | `doc-sync` · `wiki` · `doc-style` |
 | `dev` | change with code (feature/fix) | ✓ | `precommit` (changed-module every-commit checks) · `review` (domain review) · `doc-sync` · `wiki` · `doc-style` |
-| `staging` | QA/RC promotion (integration→staging) | ✓ | `precommit` · `review` · `security-scan` (all-module promotion checks) · `bump` (human release-level choice) · `wiki` · `doc-style` |
-| `release` | production deploy (staging→production) | ✓ | `precommit` · `security-scan` · `security` (security review) · `wiki` · `doc-style` — no `review`: Dev and Staging already read this diff |
+| `staging` | QA/RC promotion (integration→staging) | ✗ | `precommit` · `review` · `security-scan` (all-module promotion checks) · `bump` (human release-level choice) · `wiki` · `doc-style` |
+| `release` | production deploy (staging→production) | ✗ | `precommit` · `security-scan` · `security` (security review) · `wiki` · `doc-style` — no `review`: Dev and Staging already read this diff |
 
 - **`precommit` · `security-scan`** are executed by the commit hook itself (no marker).
   Removing one from a tier's `gates` list disables that check alone.
@@ -223,20 +223,30 @@ pass before it can commit**.
   **working tree** — the hook fires before `git commit` stages anything, so there is no
   commit to inspect yet. Stage `graph.yaml` together with the documents it was built
   from; a rebuilt-but-unstaged graph satisfies the gate while the commit records the
-  stale one. `/flow-init` also renders a `wiki-verify.yml` CI workflow that runs the
-  same verification read-only on push/PR, catching drift from terminal and merge
-  commits the hook never sees.
+  stale one. `/wiki-init` offers a `wiki-verify.yml` CI workflow that runs the same
+  verification read-only on push/PR, catching drift from terminal and merge commits the
+  hook never sees — it asks once the graph verifies, and declining leaves that drift
+  unchecked until somebody's next session commit.
+- **`srs`** is not a gate at all. The flow gate never reads an SRS, and `/flow`'s Dev
+  increment steps only warn, so `srs-verify.yml` — offered at `/flow-init` once `docs/srs/`
+  exists — is the single place a dead requirement anchor or a number two branches both took
+  is ever caught. Declining it leaves no lighter check; it leaves none.
 - **`doc-style`** is the other in-process stage, and the only gate that **never blocks**. When
   `flow-config.doc_style` is enabled it lints the files a commit changes that its `paths` and
   `exclude` globs put in scope, against the `doc-style` rule — history narration, plan-record
   pointers, filler, Korean `~다` endings, over-long prose lines — and reports them as a
   `systemMessage`. `paths` defaults to `**/*.md`; add `**/*.py` · `**/*.sh` to cover comments
-  and docstrings, and put generated files (`CHANGELOG.md`) in `exclude` — a release tool
-  rewrites those from commit subjects, which no edit of yours can fix. The hook and CI read
+  and docstrings. The checker itself holds what no edit of yours could pass: `CHANGELOG.md`,
+  which a release tool rewrites from commit subjects, and the `docs/superpowers/` ·
+  `.superpowers/` trees, whose records are the checklist lines and self-pointers the rule
+  bans. `exclude` adds your own generated and vendored files to those three; it cannot
+  take one back. The hook and CI read
   that scope through one function, so an `exclude` cannot hold in only one of them. A
   `flow-config.yaml` that does not parse fails the CI job rather than reading as "off". The
   verdict belongs to the `doc-style.yml` CI workflow, which sees the whole tree; a commit-time
-  block would deny commits on a rule tightening nobody could predict.
+  block would deny commits on a rule tightening nobody could predict. `/flow-init` renders that
+  workflow only when `doc_style.enable` is true, and asks — so `enable: false` is not a lighter
+  check but none at all, in both layers at once.
   `doc_style_check.py --verify-git` is the other half: it proves a rewrite kept every heading,
   fenced block, URL and inline-code span, and for `.py`/`.sh` that the code is byte-identical
   once comments and docstrings are stripped. `doc-sync` runs it after every rewrite.
@@ -247,7 +257,12 @@ pass before it can commit**.
   edit — including the fixes the review asked for. A fix therefore re-runs doc-sync and the
   review; an edit the hook never sees — a terminal command, another tool — leaves them
   standing. A team that wants the older order — a small fix after a pass not costing a re-run
-  — sets `gate_evidence.invalidate_on_edit: false`. The hook is registered by the plugin, so a
+  — sets `gate_evidence.invalidate_on_edit: false`, and pays for it in coverage: an edit after
+  the pass, the review's own fixes included, commits under a review that never saw it. `/flow`
+  still clears the evidence after the commit/merge, but a `<gate>.done` is not branch-bound the
+  way the `tier` marker is, so a task that ends without that step leaves its markers standing
+  for whatever runs next, on any branch.
+  The hook is registered by the plugin, so a
   version bump arms it with no `/flow-init` step to agree to; the switch is how the host that
   carries the cost answers. `bump` is the human major/minor/patch choice at a staging promotion —
   fail-closed, so the staging commit stays blocked until the choice is made.
@@ -350,7 +365,9 @@ Generates a `CLAUDE.md`, rules, and technical docs tailored to your project. It 
    its real conventions with `harness-code-analyzer`. Versions are chosen not as *each
    one's latest* but as a **compatible set that boots together**.
 3. **Generation** — produce `CLAUDE.md`, rules, and technical docs (SRS, SDS, code style,
-   onboarding, etc.) into classified folders. By default it creates **only `.md` files** and
+   onboarding, etc.) into classified folders. The SRS is written for brownfield as well as
+   greenfield — a brownfield one is a skeleton with its slots marked not yet gathered, never
+   requirements read back out of the code, and `/flow` fills it as people state them. By default it creates **only `.md` files** and
    does not touch actual config files.
 4. **Critique & verification** — `harness-critic` checks the output's quality, consistency,
    and version compatibility (config coherence + runtime-combination compatibility) and
@@ -450,8 +467,9 @@ promotion).
 
 #### E2E safety net (CI) — the counterpart of `/integration`
 
-`e2e.yml` is the fifth CI safety net, next to `api-contract.yml` · `unit-test.yml` ·
-`wiki-verify.yml` · `doc-style.yml`. It is the CI counterpart of `/integration`: layer 2
+`e2e.yml` is one of the CI safety nets, next to `api-contract.yml` · `unit-test.yml` ·
+`wiki-verify.yml` · `doc-style.yml` · `srs-verify.yml`. It is the CI counterpart of
+`/integration`: layer 2
 (§2.3) sees only Claude-session commits, so an integration regression arriving via a
 terminal, direct, or CI commit on a promotion branch would otherwise go unseen. `e2e.yml`
 runs a Playwright suite on push to the promotion branches and makes that regression
@@ -787,9 +805,10 @@ If `/flow-uninstall` is no longer available, remove things by hand:
    marketplace registration (`extraKnownMarketplaces.harness-tier`).
 3. Remove the harness-tier lines from `.gitignore`.
 4. Remove the `harness-tier:teams` managed block from `CLAUDE.md`.
-5. Delete `.github/workflows/wiki-verify.yml` and `.github/workflows/doc-style.yml`, and
+5. Delete `.github/workflows/wiki-verify.yml`, `.github/workflows/doc-style.yml` and
+   `.github/workflows/srs-verify.yml`, and
    any release workflow that calls `.claude/harness-tier/scripts/` — with step 1 done they
-   run a script that is gone. Both guard on that and stay green — they verify nothing, and
+   run a script that is gone. All three guard on that and stay green — they verify nothing, and
    still spend a runner on every push to say so. Among the release renders, `gitversion` and `jreleaser`
    call the path unguarded and fail on pushes to your release branches;
    `python-semantic-release` guards its call, and `cargo-release` / `semantic-release` never

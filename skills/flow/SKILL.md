@@ -139,7 +139,8 @@ do not go looking for a skill behind either — none exists; the hook runs the c
    → `touch .claude/harness-tier/.flow/doc-sync.done`.
 3. Commit through the `commit` skill — invoke `Skill: commit` with the tier and what
    changed; it stages, picks the type, and applies the 50/72 rule (rule 4). Then merge
-   **applying the risk-tiers Merge strategy** (rule 3 — not a plain merge). (The commit
+   **applying [`merge-strategy.md`](../../rules/merge-strategy.md)** (rule 3 — not a
+   plain merge). (The commit
    hook blocks until `doc-sync.done` exists.)
    When `flow-config.merge_workflow.pull_request` includes `daily`, open a **PR** instead
    of merging: rebase → integration-test human gate (unchanged) → push → `gh pr create` →
@@ -162,6 +163,27 @@ do not go looking for a skill behind either — none exists; the hook runs the c
    ([`harness-rules.md`](../../rules/harness-rules.md) 8 fixes those locations). Neither
    existing is normal — proceed. **Docs tier skips this**: reading a design document to
    change a paragraph is the process-to-risk mismatch the tiers exist to prevent.
+1b. **Record a new requirement in the SRS first** — skip silently when `docs/srs/` is
+   absent (the command prints nothing and exits 0). This runs only for a **new
+   customer requirement**; implementing an existing one, a bug, or a refactor skips it.
+   Route with `python3 .claude/harness-tier/scripts/srs_check.py --areas`, then take the
+   number from `--next-id docs/srs/<area>.md --kind FR` and add the FR to that file, plus
+   a `C-NNN` in `docs/srs/README.md` (`--next-id docs/srs/README.md --kind C`) when the
+   request names a customer need the SRS does not yet carry. **You judge two things
+   only** — whether this is a new requirement, and which area it belongs to; the number
+   comes from `--next-id`, the integrity from `--verify`. FAIL-OPEN: a failure here warns
+   and does not block the commit — the `srs-verify` workflow holds the verdict.
+
+   A **new** area file is a wiki node, and only half of that is fail-CLOSED.
+   Where the host has a wiki, give it front matter: `wiki_id` from
+   `python3 .claude/harness-tier/scripts/wiki_graph.py --derive-id docs/srs/<area>.md`, a
+   `title`, and a `related` edge to `srs.readme`; then rebuild with
+   `python3 .claude/harness-tier/scripts/wiki_graph.py --build` and stage `graph.yaml`
+   alongside it. Write the front matter and skip the rebuild, and the commit gate's
+   `--verify` blocks with a reason naming the graph rather than this step. **Omit the
+   front matter and nothing blocks** — a file carrying none is no node, so the gate has
+   nothing to compare and the area stays out of the wiki in silence. That is the likelier
+   slip, and it is on you rather than the gate.
 2. **Enter `superpowers:using-superpowers`** — it drives the pipeline automatically
    (brainstorm → plan → implement → verify → review; each skill self-triggers).
    Feed the resolved request from Phase 0 in as the task.
@@ -170,10 +192,18 @@ do not go looking for a skill behind either — none exists; the hook runs the c
      climb the reuse-before-build ladder (YAGNI → codebase → stdlib → native →
      dependency → one line → minimum code) and stop at the earliest rung. Detail
      and non-negotiable floor in [`risk-tiers.md`](../../rules/risk-tiers.md) Step 3.
+   - **Record the design before the code** — right after the plan, alongside the reuse
+     ladder: a new module, an integration-point contract, or a structural change goes
+     into `docs/sds/` now, with its `Implemented requirements` linking the FR anchors it
+     satisfies. This is the structure half; `doc-sync` reconciles the rest (sources ·
+     stale · orphans) after the code. Placed after `doc-sync` instead, the
+     `PostToolUse` hook would delete `doc-sync.done` and `review.done` on that edit, so
+     both would have to run again — a loop.
    - **Selective TDD** — only business logic / core nodes / validators / workflow
      orchestration (see [`risk-tiers.md`](../../rules/risk-tiers.md) Step 3), not
      every change.
-   - **invoke the `doc-sync` skill** (not part of `superpowers`) → `touch .claude/harness-tier/.flow/doc-sync.done`.
+   - **invoke the `doc-sync` skill** (not part of `superpowers`) →
+     `touch .claude/harness-tier/.flow/doc-sync.done`.
    - **Domain review** — an independent **`general-purpose`** review agent
      (separate context; it runs shell commands). `git` is the authority on the
      changed-file list — **every** file is reviewed and the count is reported —
@@ -189,8 +219,12 @@ do not go looking for a skill behind either — none exists; the hook runs the c
      this review, over a recomputed changed-file list. An edit the hook never
      saw (a terminal command, another tool) leaves the markers standing —
      `rm -f .claude/harness-tier/.flow/review.done .claude/harness-tier/.flow/doc-sync.done`.
+     A host that sets `flow-config.gate_evidence.invalidate_on_edit: false`
+     turns the hook's deletion off, so in its tree an edit after the pass
+     commits unreviewed ([`risk-tiers.md`](../../rules/risk-tiers.md) Step 3).
 4. Commit through the `commit` skill — invoke `Skill: commit` with the tier and what
-   changed (rule 4) → merge **applying the risk-tiers Merge strategy** (rule 3 — not a
+   changed (rule 4) → merge **applying
+   [`merge-strategy.md`](../../rules/merge-strategy.md)** (rule 3 — not a
    plain merge). (The commit hook blocks until `review.done` and `doc-sync.done`.)
    When `flow-config.merge_workflow.pull_request` includes `daily`, open a **PR** instead
    of merging: rebase → integration-test human gate (unchanged) → push → `gh pr create` →
@@ -235,16 +269,19 @@ rm -rf .claude/harness-tier/.flow
    It is a plain file that outlives the commit that used it, so **a gate whose
    subject changed after it passed is no longer recorded honestly**. The
    `PostToolUse` hook enforces that for `review` and `doc-sync` — any edit
-   deletes both — so what is left to you is the edit it cannot see (a terminal
-   command, another tool): delete the marker yourself and earn it again.
+   deletes both, unless the host turned that off (Dev step 3) — so what is
+   left to you is the edit it cannot see (a terminal command, another tool):
+   delete the marker yourself and earn it again.
 3. **Apply the documented Merge strategy** — direct commit + merge, but
    **do not default to a plain / `--no-ff` merge**. For every merge, look up its
-   branch-flow row in [`risk-tiers.md`](../../rules/risk-tiers.md) **Merge strategy**
+   branch-flow row in [`merge-strategy.md`](../../rules/merge-strategy.md)
    and follow it exactly — the required strategy varies by flow (rebase / squash /
-   `--no-ff` merge). Commit types & the 50/72 rule live in the same file's Commit
-   Discipline. Several of those rows are **enforced by the hook**: a merge whose flags
-   violate its row is blocked (exit 2) naming the flag it wants. The table's **Gate**
-   column says which rows fire — the rest still depend on you following them.
+   `--no-ff` merge). Commit types & the 50/72 rule live in
+   [`risk-tiers.md`](../../rules/risk-tiers.md) Commit Discipline. Several of
+   [`merge-strategy.md`](../../rules/merge-strategy.md)'s rows are **enforced by the
+   hook**: a merge whose flags violate its row is blocked (exit 2) naming the flag it
+   wants. That table's **Gate** column says which rows fire — the rest still depend on
+   you following them.
 4. **Every commit goes through the `commit` skill** — invoke `Skill: commit`, which
    owns staging, the type choice, and the 50/72 rule so this skill does not restate
    them. It inherits the pre-commit gate like any other commit: never `--no-verify`.

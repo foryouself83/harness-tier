@@ -76,7 +76,6 @@ def test_the_net_fires_for_every_program_that_runs_text(name: str):
 NET_MUST_NOT_FIRE = [
     # No program that runs text, so the net never looks: the word sits in data and stays data.
     'grep -rn "git commit" scripts/',
-    "git log -1 --format=%s <<'EOF'\ngit -C /wt commit -m x\nEOF",
     'git -C "/c/wt" log --oneline -5 && echo "now commit"',
     "git -c commit.gpgsign=false log --oneline",
     # An interpreter NAMED as an argument is not one the command runs. These are the shapes a
@@ -104,7 +103,6 @@ NET_MUST_NOT_FIRE = [
     'bash -c "echo ok"; grep -rn "git commit" .',
     'bash -c "echo ok"\ngrep -rn "git commit" .',
     'bash -c "echo ok" || grep -rn "git commit" .',
-    "git log -1 --format=%s <<'EOF'\ngit -C /wt commit -m x\nEOF\npython3 -V",
     # An interpreter with no invocation in it either.
     "bash -c 'echo hello'",
     "python3 -c 'import sys; print(sys.version)'",

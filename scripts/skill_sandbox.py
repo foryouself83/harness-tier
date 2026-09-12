@@ -51,6 +51,11 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+try:
+    from _harness_paths import force_utf8_io  # direct execution (sibling)
+except ImportError:
+    from scripts._harness_paths import force_utf8_io  # package (test/dev)
+
 REPO = Path(__file__).resolve().parent.parent
 
 
@@ -399,7 +404,15 @@ SCENARIOS: list[Scenario] = [
             "skill's job is to pick the SSOT and reduce the rest to it, not to pick a "
             "majority or rewrite the code."
         ),
-        prompt="The port changed. Sync the documentation.",
+        # The second clause stands in for the tier confirmation /flow's Phase 2 asks a human
+        # for, as wiki-init's prompt pre-answers its Steps 3 and 5. Without it a headless session
+        # that honours the gate stops before editing and fails, while one that skips the gate
+        # passes, so the score would reward skipping it. Which file is the SSOT stays the
+        # agent's judgement.
+        prompt=(
+            "The port changed. Sync the documentation — it is a docs-only change, so go ahead "
+            "without asking me to confirm the tier."
+        ),
         expect=[
             "spots the port disagreement across .env.example, README.md and docs/api.md",
             "treats the code/.env.example as the source of truth (9090)",
@@ -616,6 +629,7 @@ def render(scenario: Scenario, path: Path) -> str:
 
 
 def main() -> int:
+    force_utf8_io()
     ap = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     ap.add_argument("scenario", nargs="?", help="scenario name (see --list)")
     ap.add_argument("--all", action="store_true", help="build every scenario")

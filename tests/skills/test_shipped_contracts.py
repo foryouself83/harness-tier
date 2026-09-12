@@ -33,9 +33,16 @@ def test_flow_init_does_not_enumerate_the_copy_list():
     enumerated five scripts while COPY_FILES held nine — and told the agent to relay
     that stale list to the user. Naming a script elsewhere (what depends on it, where
     the host copy lives) is fine; re-listing what gets copied is what drifts."""
-    doc = (REPO / "skills/flow-init/SKILL.md").read_text(encoding="utf-8")
+    # The bullet lives wherever flow-init's shipped guidance keeps it — SKILL.md or a
+    # references/ file it loads. Both reach the same agent, so both carry the same rule;
+    # pinning the search to one file turns a move into a green test over unread text.
+    shipped = [
+        REPO / "skills/flow-init/SKILL.md",
+        *sorted((REPO / "skills/flow-init").glob("references/*.md")),
+    ]
+    doc = chr(10).join(f.read_text(encoding="utf-8") for f in shipped)
     bullet = re.search(r"^- \*\*Copies\*\*.*?(?=^- \*\*)", doc, re.M | re.DOTALL)
-    assert bullet, "flow-init/SKILL.md: the **Copies** bullet is gone — did the report change?"
+    assert bullet, "flow-init: the **Copies** bullet is gone — did the report change?"
     listed = [name for name in copy_files() if name in bullet.group(0)]
     assert not listed, (
         f"the Copies bullet enumerates {listed}; that list drifts the moment a script is "

@@ -28,6 +28,7 @@ import evals.run as run
 import evals.scores as scores
 import evals.stream as stream
 import scripts.skill_sandbox as sandbox
+from scripts._harness_paths import force_utf8_io
 
 REPO = Path(__file__).resolve().parent.parent
 OUTCOME_SCORES = REPO / "evals/outcome_scores.json"
@@ -170,10 +171,12 @@ def _outcome_targets(only: str | None = None) -> list[tuple[str, sandbox.Scenari
 def run_outcome(skill: str, scenario: sandbox.Scenario, reps: int, config_dir: Path) -> dict:
     """Run one skill against its golden fixture `reps` times; score each by end-state.
 
-    `fired_hits` is a diagnostic, never the score, and it is structurally 0 for a scenario
-    whose prompt IS a slash command: a `disable-model-invocation` skill is entered by the
-    user typing it, so no Skill tool_use is ever emitted for stream.observe to see. A 0
-    beside another skill's 1.0 is that, not a regression — the end-state is the verdict.
+    `fired_hits` is a diagnostic, never the score, and it is structurally 0 in two shapes.
+    A scenario whose prompt IS a slash command: a `disable-model-invocation` skill is entered
+    by the user typing it, so no Skill tool_use is ever emitted for stream.observe to see. And
+    a skill declaring `context: fork`: its Skill call runs off the parent stream that
+    stream.observe reads. A 0 beside another skill's 1.0 is one of those, not a regression —
+    the end-state is the verdict.
 
     Each rep gets a throwaway fixture dir so bypassPermissions edits stay contained. Judged by
     the final end-state (chain-agnostic): whether the skill ran directly or via another's
@@ -237,6 +240,7 @@ def run_outcome(skill: str, scenario: sandbox.Scenario, reps: int, config_dir: P
 
 
 def main() -> int:
+    force_utf8_io()
     ap = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     ap.add_argument("--reps", type=int, default=REPS)
     ap.add_argument("--dry-run", action="store_true", help="print the plan, run nothing")

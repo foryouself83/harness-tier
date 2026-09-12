@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.skills._helpers import SKILL_IDS, SKILLS, body, frontmatter
+from tests.skills._helpers import REPO, SKILL_IDS, SKILLS, body, frontmatter
 
 # Every field the official SKILL.md frontmatter reference defines. Anything else is
 # either a typo or a command-era leftover that silently does nothing.
@@ -21,9 +21,13 @@ SPEC_FIELDS = {
     "effort",
     "context",
     "agent",
+    "background",
     "hooks",
     "paths",
     "shell",
+    "metadata",
+    "license",
+    "compatibility",
 }
 # Conservative budget for `description` + `when_to_use` in the skill listing. The official
 # docs put the listing truncation at 1,536 chars; 1024 leaves headroom rather than tracking
@@ -41,6 +45,47 @@ def test_frontmatter_parses_and_only_uses_spec_fields(skill: Path):
     data = frontmatter(skill)
     unknown = set(data) - SPEC_FIELDS
     assert not unknown, f"{skill.parent.name}: fields absent from the official spec: {unknown}"
+
+
+@pytest.mark.parametrize("skill", SKILLS, ids=SKILL_IDS)
+def test_fork_fields_come_as_a_cluster_and_name_a_real_agent(skill: Path):
+    """`agent` and `background` do nothing without `context: fork`, and every one of them
+    fails the way the previous test exists to prevent: silently. A skill carrying
+    `background: false` alone blocks nothing and reads as though it does; `agent:
+    general_purpose` falls back to the default agent rather than erroring, so the skill
+    runs somewhere its author never chose. The spec-field check above cannot see either —
+    both are spec fields, spelled right, in the wrong company."""
+    data = frontmatter(skill)
+    dependent = {f for f in ("agent", "background") if f in data}
+    if dependent:
+        assert data.get("context") == "fork", (
+            f"{skill.parent.name}: {sorted(dependent)} needs `context: fork` — without it "
+            f"the field is inert"
+        )
+    if "context" in data:
+        assert data["context"] == "fork", (
+            f"{skill.parent.name}: context={data['context']!r}; `fork` is the only value "
+            f"the spec defines"
+        )
+        # Built-ins per the official reference, plus this plugin's own auto-discovered
+        # agents/ — a plugin skill may name either, and nothing else exists to name.
+        known = {"Explore", "Plan", "general-purpose"} | {
+            p.stem for p in (REPO / "agents").glob("*.md")
+        }
+        agent = data.get("agent", "general-purpose")
+        assert agent in known, f"{skill.parent.name}: agent={agent!r} is not one of {sorted(known)}"
+        # `background` defaults to true, and a backgrounded fork returns after the turn that
+        # invoked it. A gate skill's marker would then land where nothing is waiting for it:
+        # `/flow` reads the evidence in that turn, finds none, and the commit is blocked by a
+        # gate that did run. Omission is the dangerous spelling here, so the field is required
+        # rather than merely checked — of the three reasons the rule file gives, this is the
+        # one a test can see, because the marker write is in the body.
+        if re.search(r"\.flow/\S+\.done", body(skill)):
+            assert data.get("background") is False, (
+                f"{skill.parent.name}: writes a gate marker from a fork, so it needs an "
+                f"explicit `background: false` — the default sends the marker past the turn "
+                f"that is waiting for it"
+            )
 
 
 @pytest.mark.parametrize("skill", SKILLS, ids=SKILL_IDS)

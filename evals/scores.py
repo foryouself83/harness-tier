@@ -52,7 +52,7 @@ ALPHA_FAMILY = 0.05
 # compares a new model's k/n against an old model's — the measured spread on one case was 0/4
 # vs 4/4 across models. Pin the full ID, stamp it per entry, and fail freshness on a mismatch
 # exactly like description_sha.
-MODEL = "claude-opus-4-8"
+MODEL = "claude-sonnet-5"
 
 
 def alpha_single(n_skills: int) -> float:

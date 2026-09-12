@@ -30,6 +30,11 @@ import re
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 
+try:
+    from _harness_paths import force_utf8_io  # direct execution (sibling)
+except ImportError:
+    from scripts._harness_paths import force_utf8_io  # package (test/dev)
+
 BS = chr(92)  # backslash, kept out of regex/string literals for clarity
 
 # Tools whose first sub-token is meaningful (``git commit``, ``uv run``,
@@ -283,6 +288,7 @@ def write_activity(
 
 
 def main() -> None:
+    force_utf8_io()
     ap = argparse.ArgumentParser(description="Harness insight extractor (project-agnostic)")
     ap.add_argument("--days", type=int, default=7, help="lookback window in days")
     ap.add_argument(

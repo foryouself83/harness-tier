@@ -138,6 +138,10 @@ skills:
     # test_every_skill_the_injected_rule_names_declares_hook_assisted checks both directions,
     # over the hook's preamble as well as the rule file it wraps.
     hook_assisted: true
+    # The one skill measured at 5 reps rather than the run's default: its `false_fire` is the
+    # number the tier router is judged on, and at n=15 that rate moves a step per hit. Held
+    # here rather than in a `--reps` flag, so a default `--all` reproduces the baseline's n.
+    reps: 5
     fixture: null
     expect_invoke: 0.80
     expect_why: >-

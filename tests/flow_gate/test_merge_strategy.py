@@ -229,7 +229,7 @@ def test_target_from_command_origin_ref_is_unclear():
 # newline-separated merges fell back to HEAD — through the gate. The separator is therefore an
 # explicit axis here, not a formatting choice of whoever wrote the case.
 _SEPS = pytest.mark.parametrize("sep", [" && ", "\n", "; "], ids=["and", "newline", "semicolon"])
-# risk-tiers' "Merging feature/* → integration" block, verbatim: three newline-separated lines.
+# merge-strategy's "Merging feature/* → integration" block, verbatim: three newline-separated lines.
 _DOC_IDIOM = ["git switch dev", "git pull --ff-only origin dev", "git merge --squash feature/x"]
 
 

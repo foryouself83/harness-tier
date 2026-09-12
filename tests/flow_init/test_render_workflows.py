@@ -1,11 +1,13 @@
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import yaml as _yaml
 
 from scripts.flow_init_setup import (
     load_contract_config,
+    render_srs_verify_workflow,
     render_wiki_verify_workflow,
     render_workflow,
     run_setup,
@@ -93,10 +95,10 @@ def test_run_setup_renders_workflow(tmp_path: Path, capsys):
     assert (tmp_path / ".github" / "workflows" / "api-contract.yml").is_file()
 
 
-def test_render_wiki_verify_workflow_unconditional(tmp_path: Path):
-    # Rendered whether or not flow-config exists and whether or not the wiki is enabled:
-    # the script guarantees a no-op green, which is what frees /flow-init from depending on
-    # /wiki-init having run.
+def test_render_wiki_verify_workflow_reads_no_config(tmp_path: Path):
+    # The function itself is unconditional — /wiki-init is what decides, and it asks the
+    # user rather than reading a key. Reaching it means the wiki exists and its graph
+    # verifies, so there is nothing left here to gate on.
     out = render_wiki_verify_workflow(tmp_path, PLUGIN)
     assert any("생성" in line for line in out)
     dest = tmp_path / ".github" / "workflows" / "wiki-verify.yml"
@@ -157,10 +159,30 @@ def test_render_wiki_verify_workflow_preserves_existing(tmp_path: Path):
     assert dest.read_text(encoding="utf-8") == "# custom\n"
 
 
-def test_run_setup_renders_wiki_verify(tmp_path: Path, capsys):
+def test_run_setup_does_not_render_wiki_verify(tmp_path: Path, capsys):
+    # /flow-init runs before there is a wiki, so a workflow verifying one is a question it
+    # cannot put to the user — /wiki-init owns the render and the risk disclosure with it.
     run_setup(tmp_path, PLUGIN)
+    assert not (tmp_path / ".github" / "workflows" / "wiki-verify.yml").exists()
+    assert "wiki 검증" not in capsys.readouterr().out
+
+
+def test_render_wiki_verify_cli_flag_writes_the_workflow(tmp_path: Path):
+    # /wiki-init reaches the render through this flag, so a rename here is the skill's step
+    # failing at the one moment the user said yes to it.
+    env = dict(os.environ)
+    env["CLAUDE_PROJECT_DIR"] = str(tmp_path)
+    env["CLAUDE_PLUGIN_ROOT"] = str(PLUGIN)
+    env["PYTHONPATH"] = str(PLUGIN)
+    proc = subprocess.run(
+        [sys.executable, str(PLUGIN / "scripts" / "flow_init_setup.py"), "--render-wiki-verify"],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
     assert (tmp_path / ".github" / "workflows" / "wiki-verify.yml").is_file()
-    assert "wiki 검증" in capsys.readouterr().out
 
 
 def test_render_workflow_idempotent_reports_only(tmp_path: Path):
@@ -184,3 +206,21 @@ def test_render_workflow_idempotent_reports_only(tmp_path: Path):
     out = render_workflow(tmp_path, PLUGIN)  # second render — report only
     assert any("이미 있어" in line for line in out)
     assert dest.read_text(encoding="utf-8") == sentinel  # not overwritten
+
+
+def test_render_srs_verify_workflow_reads_no_config(tmp_path: Path):
+    """The user's yes is the gate — /flow-init asks, this only copies."""
+    out = render_srs_verify_workflow(tmp_path, PLUGIN)
+    dest = tmp_path / ".github" / "workflows" / "srs-verify.yml"
+    assert dest.is_file()
+    assert any("srs-verify" in line for line in out)
+    data = _yaml.safe_load(dest.read_text(encoding="utf-8"))
+    assert data["jobs"]["srs-verify"]["timeout-minutes"] == 5
+
+
+def test_render_srs_verify_never_overwrites(tmp_path: Path):
+    dest = tmp_path / ".github" / "workflows" / "srs-verify.yml"
+    dest.parent.mkdir(parents=True)
+    dest.write_text("custom\n", encoding="utf-8")
+    render_srs_verify_workflow(tmp_path, PLUGIN)
+    assert dest.read_text(encoding="utf-8") == "custom\n"
