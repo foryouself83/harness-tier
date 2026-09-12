@@ -1,0 +1,23 @@
+# Dogfood of github/srs-verify.workflow.example.yml (CLAUDE.md: a workflow-rendering
+# feature lands in this repo's OWN CI too). This repo has no host install, so it runs the
+# SOURCE script directly; with no docs/srs here the run exercises the no-op-green contract
+# consumers without an SRS rely on.
+name: srs-verify
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  srs-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Verify SRS anchors and links
+        run: python3 scripts/srs_check.py --verify

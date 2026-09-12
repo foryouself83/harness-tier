@@ -16,6 +16,7 @@ from scripts.flow_init_setup import (
     remove_claude_md_block,
     remove_gitignore_lines,
     remove_harness_dir,
+    run_setup,
     run_uninstall,
     unregister_gate,
     unregister_marketplace,
@@ -294,3 +295,16 @@ def test_wiki_graph_is_copied_to_the_host():
     from scripts.flow_init_setup import COPY_FILES
 
     assert "scripts/wiki_graph.py" in COPY_FILES
+
+
+def test_srs_check_and_its_import_land_together(tmp_path: Path):
+    """A flat copy makes the import chain the contract.
+
+    `srs_check` imports `_md_anchors`; `harness_scaffold`, which also holds it, is not
+    copied. One name without the other is an ImportError at the moment the /flow step
+    runs it, and the step fails open — so the gap is invisible.
+    """
+    run_setup(tmp_path, PLUGIN)
+    dest = tmp_path / ".claude" / "harness-tier" / "scripts"
+    assert (dest / "srs_check.py").is_file()
+    assert (dest / "_md_anchors.py").is_file()

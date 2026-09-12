@@ -77,7 +77,7 @@ commit_guide: docs/operations/commit-versioning-guide.md   # 호스트 자체 �
                              # `commit` 스킬이 읽음(파일 없으면 risk-tiers 만 적용)
 
 gate_evidence:               # review·doc-sync 마커는 편집이 일어나면 무효화됨(2.3)
-  invalidate_on_edit: true   # false 면 커밋 때까지 유지
+  invalidate_on_edit: true   # false 면 편집해도 무효화되지 않음
 
 doc_sync:                    # doc-sync 대상
   index: CLAUDE.md
@@ -163,7 +163,7 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
 걸리지 않음.
 
 이 로컬 훅 강제는 그 흐름의 머지가 직접 `git merge` 로 남아있는 동안에만 적용됨.
-`flow-config.merge_workflow.pull_request` 가 어떤 흐름을 PR 경유로 돌리면(`rules/risk-tiers.md`
+`flow-config.merge_workflow.pull_request` 가 어떤 흐름을 PR 경유로 돌리면(`rules/promotion.md`
 의 **PR workflow** 절 참고), 훅은 애초에 `git merge` 명령을 보지 못하므로 위 표의 해당
 행은 더 이상 발동하지 않음 — 강제는 서버 쪽 GitHub 브랜치 룰셋(허용 머지 방식)으로
 옮겨가며, `/flow-init` Step 2.7 이 이를 점검하지만 대신 바꿔주지는 않음.
@@ -193,8 +193,8 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
 |------|------|:---:|------------|
 | `docs` | 코드 없는 변경(문서·주석·설정값) | ✗ | `doc-sync` · `wiki` · `doc-style` |
 | `dev` | 코드 포함 변경(feature/fix) | ✓ | `precommit`(변경 모듈 every-commit 검사) · `review`(도메인 리뷰) · `doc-sync` · `wiki` · `doc-style` |
-| `staging` | QA/RC 승격(integration→staging) | ✓ | `precommit` · `review` · `security-scan`(전체 모듈 promotion 검사) · `bump`(사람이 고르는 릴리스 레벨) · `wiki` · `doc-style` |
-| `release` | 프로덕션 배포(staging→production) | ✓ | `precommit` · `security-scan` · `security`(보안 리뷰) · `wiki` · `doc-style` — `review` 없음: 이 diff 는 Dev 와 Staging 에서 이미 읽힘 |
+| `staging` | QA/RC 승격(integration→staging) | ✗ | `precommit` · `review` · `security-scan`(전체 모듈 promotion 검사) · `bump`(사람이 고르는 릴리스 레벨) · `wiki` · `doc-style` |
+| `release` | 프로덕션 배포(staging→production) | ✗ | `precommit` · `security-scan` · `security`(보안 리뷰) · `wiki` · `doc-style` — `review` 없음: 이 diff 는 Dev 와 Staging 에서 이미 읽힘 |
 
 - **`precommit` · `security-scan`** 은 커밋 훅이 직접 실행함(별도 마커 없음). 해당
   등급의 `gates` 목록에서 빼면 그 검사만 꺼짐.
@@ -214,18 +214,28 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
   `git commit` 이 무언가를 스테이징하기 전에 뜨므로 검사할 커밋이 아직 없음.
   `graph.yaml` 은 그것을 만들어낸 문서들과 **함께 스테이징**하세요. 다시 빌드했지만
   스테이징하지 않은 그래프는 게이트를 통과시키면서 커밋에는 낡은 것을 기록함.
-  `/flow-init` 은 같은 검증을 push/PR 에서 읽기 전용으로 돌리는 `wiki-verify.yml` CI
-  워크플로도 렌더함 — 훅이 못 보는 터미널·머지 커밋의 drift 를 여기서 잡음.
+  `/wiki-init` 은 같은 검증을 push/PR 에서 읽기 전용으로 돌리는 `wiki-verify.yml` CI
+  워크플로를 제안함 — 훅이 못 보는 터미널·머지 커밋의 drift 를 여기서 잡음. 그래프가
+  `--verify` 를 통과한 뒤 물으며, 거절하면 그 drift 는 누군가의 다음 세션 커밋까지
+  아무도 보지 않음.
+- **`srs`** 는 아예 게이트가 아님. flow 게이트는 SRS 를 읽지 않고 `/flow` 의 Dev 증분
+  단계도 경고만 하므로, `docs/srs/` 가 생긴 뒤 `/flow-init` 이 제안하는 `srs-verify.yml`
+  이 죽은 요구 앵커나 두 브랜치가 같이 뽑은 번호를 잡는 유일한 자리임. 거절하면 가벼운
+  검사가 남는 것이 아니라 아무 검사도 안 남음.
 - **`doc-style`** 도 훅이 인프로세스로 실행하는 스테이지이며, **차단하지 않는 유일한
   게이트**임. `flow-config.doc_style` 이 켜져 있으면 커밋이 바꾼 파일 중 `paths`·`exclude`
   글롭이 범위에 넣은 것을 `doc-style` 룰에 비추어 린트하고(이력 서술 · 구현계획 기록
   포인터 · filler · 한글 `~다` 종결 · 과도하게 긴 산문 줄) 결과를 `systemMessage` 로 알림.
   `paths` 기본값은 `**/*.md` 이고, 주석·docstring 까지 보려면 `**/*.py` · `**/*.sh` 를 넣음.
-  생성 파일(`CHANGELOG.md`)은 `exclude` 로 뺌 — 릴리스 도구가 커밋 제목에서 다시 만들어
-  내므로 사람이 고칠 수 있는 편집이 없음. 훅과 CI 가 그 범위를 같은 함수로 읽어, `exclude`
+  사람이 고칠 수 있는 편집이 없는 것들은 검사기가 직접 들고 있음 — 릴리스 도구가 커밋
+  제목에서 다시 만들어 내는 `CHANGELOG.md`, 그리고 기록 자체가 체크리스트 줄과 자기 경로
+  포인터인 `docs/superpowers/` · `.superpowers/` 트리. `exclude` 는 프로젝트의 생성·벤더
+  파일을 그 셋에 더하며, 셋 중 하나를 빼지는 못함. 훅과 CI 가 그 범위를 같은 함수로 읽어, `exclude`
   가 한쪽에서만 먹는 일은 없음. 파싱되지 않는 `flow-config.yaml` 은 "꺼짐" 으로 읽히지
   않고 CI 잡을 실패시킴. 판정은 트리 전체를 보는 `doc-style.yml` CI 워크플로가 내림 —
-  커밋 시점에 차단하면 규칙을 조인 순간 예측 불가능한 커밋 거부가 생기기 때문임. 나머지
+  커밋 시점에 차단하면 규칙을 조인 순간 예측 불가능한 커밋 거부가 생기기 때문임.
+  `/flow-init` 은 `doc_style.enable` 이 true 일 때만 그 워크플로를 렌더하며 그때 물음 —
+  `enable: false` 는 더 가벼운 검사가 아니라 두 층 모두에서 검사가 없다는 뜻임. 나머지
   절반은 `doc_style_check.py --verify-git` 로, 재작성이 heading · 코드 블록 · URL · 인라인
   코드를 하나도 잃지 않았음을, `.py`/`.sh` 는 주석과 docstring 을 걷어낸 코드가 바이트
   단위로 같음을 증명함. `doc-sync` 가 재작성 뒤 실행함.
@@ -235,7 +245,10 @@ staging → production). 비어 있으면(기본값) 모든 흐름이 직접 머
   판정하므로, PostToolUse 훅이 편집이 일어나면 **두 마커를 모두** 지움 — 리뷰가 요구한
   수정도 포함임. 그래서 수정이 생기면 doc-sync 와 리뷰를 다시 밟음. 훅이 보지 못하는 편집
   (터미널 명령, 다른 도구)은 마커를 그대로 남김. 예전 순서(통과 뒤의 작은 수정이 재실행을
-  물지 않는 쪽)를 원하는 팀은 `gate_evidence.invalidate_on_edit: false` 로 끔. 이 훅은
+  물지 않는 쪽)를 원하는 팀은 `gate_evidence.invalidate_on_edit: false` 로 끄되, 그 대가는
+  커버리지임 — 통과 뒤의 편집은 리뷰가 요구한 수정까지 리뷰 없이 커밋됨. `/flow` 는 커밋·병합
+  뒤 증거를 여전히 지우지만, `<gate>.done` 은 `tier` 마커와 달리 브랜치에 묶이지 않아 그
+  단계 없이 끝난 작업의 마커는 다음에 실행되는 작업에 브랜치와 무관하게 남음. 이 훅은
   플러그인이 등록하므로 버전 올라가는 것만으로 무장되고 `/flow-init` 에 동의할 단계가 없음 —
   비용을 치르는 호스트가 답하는 자리가 이 스위치임. `bump` 은 staging 승격 때 사람이
   고르는 major/minor/patch 선택으로, fail-closed 라 선택하기 전까지 staging 커밋이 계속
@@ -334,6 +347,8 @@ Commits type 을 고르고, 50/72 규칙을 검사한 뒤 `git commit` 을 발�
    무료 기성 솔루션을 웹 조사하고, 기존 코드가 있으면 `harness-code-analyzer` 로 실제
    컨벤션도 분석. 버전은 *각각의 최신*이 아니라 **함께 기동되는 호환 집합**으로 고름.
 3. **생성** — `CLAUDE.md`·규칙·기술 문서(SRS·SDS·코드 스타일·온보딩 등)를 분류별 폴더로.
+   SRS 는 greenfield 뿐 아니라 brownfield 에도 씀 — brownfield 는 슬롯을 미수집으로 표기한
+   골격이고, 코드에서 요구를 역산하지 않으며, 사람이 말할 때 `/flow` 가 증분으로 채움.
    기본은 **`.md` 파일만** 만들고 실제 설정 파일은 건드리지 않음.
 4. **비판·검증** — `harness-critic` 이 생성물의 품질·일관성·버전 호환성(설정 정합 +
    런타임 조합 호환)을 점검하고 다듬음.
@@ -419,8 +434,8 @@ Commits type 을 고르고, 50/72 규칙을 검사한 뒤 `git commit` 을 발�
 
 #### E2E 안전망(CI) — `/integration` 의 CI 짝
 
-`e2e.yml` 은 다섯 번째 CI 안전망으로, `api-contract.yml` · `unit-test.yml` ·
-`wiki-verify.yml` · `doc-style.yml` 과 나란히 놓임. `/integration` 의 CI 버전임 — layer
+`e2e.yml` 은 CI 안전망 중 하나로, `api-contract.yml` · `unit-test.yml` ·
+`wiki-verify.yml` · `doc-style.yml` · `srs-verify.yml` 과 나란히 놓임. `/integration` 의 CI 버전임 — layer
 2(§2.3)는 Claude 세션 커밋만 보므로, 승격 브랜치에 터미널·직접·CI 커밋으로 들어온 통합
 회귀는 그대로 묻힘. `e2e.yml` 은 승격 브랜치 push 에서 Playwright 스위트를 돌려 그 회귀를
 **보이게 함 — 차단은 하지 않음.**
@@ -740,9 +755,9 @@ Windows 는 Git Bash 가 있는지 확인하세요.
    (`extraKnownMarketplaces.harness-tier`) 제거.
 3. `.gitignore` 에서 harness-tier 라인 제거.
 4. `CLAUDE.md` 의 `harness-tier:teams` 관리 블록 제거.
-5. `.github/workflows/wiki-verify.yml`·`doc-style.yml`, 그리고
+5. `.github/workflows/wiki-verify.yml`·`doc-style.yml`·`srs-verify.yml`, 그리고
    `.claude/harness-tier/scripts/` 를 호출하는 release 워크플로우 삭제 — 1번을 끝낸 시점에
-   없는 스크립트를 실행함. 둘 다 그것을 가드해 green 을 유지함 — 아무것도 검증하지
+   없는 스크립트를 실행함. 셋 다 그것을 가드해 green 을 유지함 — 아무것도 검증하지
    못하면서 그 말을 하려고 push 마다 러너를 씀. release 렌더 중 `gitversion`·`jreleaser` 는
    경로를 가드 없이 호출해 **릴리스 브랜치 push 에서** 실패하고, `python-semantic-release`
    는 호출을 가드하며, `cargo-release`·`semantic-release` 는 그 경로를 참조하지 않음.

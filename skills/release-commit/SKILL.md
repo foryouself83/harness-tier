@@ -1,12 +1,16 @@
 ---
 name: release-commit
 description: >-
-  Use when promoting integration to staging or staging to production, cutting a release
-  candidate, or finalizing a release — including bare asks like "stage로 올려줘", "릴리즈 해",
-  "main 승격", "promote to main", "cut an rc". Reads the host's rendered
-  .github/workflows/release.yml to learn whether the bump level can be forced, then runs the
-  promotion's gates, commit and merge in the order the release CI requires. Also use when a
-  promotion produced no release candidate and you need to know why.
+  Use when a branch is promoted toward a release — dev/integration to stage/staging, stage to
+  main/production — or a release candidate is cut or finalized, including bare asks like
+  "stage로 올려줘", "릴리즈 해", "main 승격", "promote to main", "cut an rc". Use it before
+  answering a question about this repo's promotions too: whether the bump level is forced by a
+  Release-Level commit trailer or a workflow dispatch, whether a re-promotion takes the trailer
+  again, why a promotion produced no release candidate, or the back-merge after a release. An
+  answer from generic git-flow habit is where a release breaks unseen — the wrong merge shape,
+  a trailer off HEAD or a `[skip ci]` cuts no rc, and nothing reports it. /flow hands every
+  promotion here; /commit only writes the message this skill decides. Not for installing
+  release CI (/flow-init).
 argument-hint: "[staging | release]"
 # Every rule below matches a command spelled out in the body — a rule matching nothing grants
 # nothing (tests/skills/test_gate_reachability.py). Exact marker paths, no trailing glob: a
@@ -21,7 +25,8 @@ allowed-tools: Bash(grep -c Release-Level .github/workflows/release.yml) Bash(gi
 One promotion end to end: the gates it records, the commit that carries the bump level, the
 merge the release CI needs, and the back-merge that closes the cycle.
 
-**Source of truth**: [`risk-tiers.md`](../../rules/risk-tiers.md) owns Merge strategy, Commit
+**Source of truth**: [`merge-strategy.md`](../../rules/merge-strategy.md) owns Merge
+strategy; [`risk-tiers.md`](../../rules/risk-tiers.md) owns Commit
 Discipline and the gate glossary, and the SessionStart hook injects it, so that half is already
 in context. PR workflow, Merge commit messages and Back-merge after release sit in
 [`promotion.md`](../../rules/promotion.md), which **nothing injects — read it before running a
@@ -43,8 +48,8 @@ A promotion is gated at the **commit on the target branch** — the branch drive
 marker is written. `precommit`, `security-scan`, `wiki` and `doc-style` are runtime gates the
 commit hook runs itself: no marker to write, no skill behind them. The gates needing a recorded
 marker are `review` and `bump` (Staging), `security` alone (Release) — Release runs no code
-review at all, for the reason [`risk-tiers.md`](../../rules/risk-tiers.md) gives under that
-tier.
+review at all, for the reason [`promotion.md`](../../rules/promotion.md) gives under
+Release.
 
 ## Step 0 — Read the host's release model
 
@@ -220,7 +225,7 @@ still written on the local commit.
 
 ## When the `wiki` gate blocks the promotion commit
 
-`doc-sync` is the only thing that rebuilds `graph.yaml`, and it is not a promotion gate — so
+`doc-sync` is the only **gate** that rebuilds `graph.yaml`, and it is not a promotion one — so
 graph drift that reached the integration branch through a terminal commit surfaces here, as a
 blocked promotion commit. Resolve it in place:
 

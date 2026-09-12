@@ -95,6 +95,17 @@ def test_dir_from_command_cd_prefix():
     assert vp._dir_from_command("cd /a/b && git commit -m 'x'") == "/a/b"
 
 
+def test_dir_from_command_reads_a_leading_cd_with_a_semicolon():
+    # `cd $MAIN; git commit` from a worktree hook cwd resolves to MAIN, not the worktree (D7).
+    assert vp._dir_from_command("cd /main; git commit -m x") == "/main"
+    assert vp._dir_from_command("cd /main\ngit commit -m x") == "/main"
+
+
+def test_dir_from_command_leading_cd_path_stops_at_the_semicolon():
+    # the bare path token must not swallow `;git` — `cd /x;git commit` names /x, not `/x;git`.
+    assert vp._dir_from_command("cd /x;git commit -m a") == "/x"
+
+
 def test_dir_from_command_none_without_signal():
     assert vp._dir_from_command("git commit -m 'x'") is None
     assert vp._dir_from_command(None) is None
@@ -217,6 +228,13 @@ def test_dir_from_command_reads_a_path_qualified_git(prefix: str):
     assert vp._dir_from_command(f"{prefix}git -C /a/wt commit -m x") == "/a/wt"
 
 
+def test_dir_from_command_reads_the_cd_prefix_when_dash_c_is_dot():
+    # `.` and a bare commit are one tree, so the answer set is {None}: the cd prefix is read and
+    # the commit resolves to $WT, not to a clean main (D3).
+    assert vp._dir_from_command("cd /wt && git -C . commit -m a && git commit --amend") == "/wt"
+    assert vp._dir_from_command("cd /wt && git -C ./ commit -m a && git commit --amend") == "/wt"
+
+
 def test_parse_worktree_list_blocks_and_detached():
     text = (
         "worktree /main\nHEAD abc\nbranch refs/heads/main\n\n"
@@ -229,11 +247,43 @@ def test_parse_worktree_list_blocks_and_detached():
     assert ("/wt-detached", None) in entries  # detached → no branch
 
 
-def test_commit_tree_unresolved_only_for_a_command_naming_two_trees():
+def test_commit_tree_unresolved_widens_to_untrackable_dir_changes():
+    # a non-leading cd/pushd before a bare commit — the leading tree, clean, would skip the gate
+    command = "cd /wt1 && git commit -m a; cd /wt2 && git commit -m b"
+    assert vp.commit_tree_unresolved(command)  # D4a
+    assert vp.commit_tree_unresolved("(cd /wt && git commit -m x)")  # D8
+    assert vp.commit_tree_unresolved("pushd /wt && git commit -m x")
+    # an unexpanded -C value cannot be a tree this can name
+    assert vp.commit_tree_unresolved('for d in /a /b; do git -C "$d" commit -m x; done')  # D4b
+    assert vp.commit_tree_unresolved("git -C /wt* commit -m x")
+    assert vp.commit_tree_unresolved("git -C $(pwd) commit -m x")
+
+
+def test_dir_from_command_gives_up_on_an_unexpanded_dash_c():
+    # `-C "$d"` names no tree the resolver can read → None (→ hook cwd rung), and unresolved gates
+    assert vp._dir_from_command('for d in /a /b; do git -C "$d" commit -m x; done') is None
+
+
+def test_dir_from_command_expands_a_leading_tilde():
+    import os
+
+    assert vp._dir_from_command("git -C ~/wt commit -m x") == os.path.expanduser("~/wt")
+
+
+def test_commit_tree_unresolved_is_false_for_a_single_clear_tree():
+    # the leading cd prefix is NOT a hop; a single -C or a bare commit stays resolved
+    assert not vp.commit_tree_unresolved("cd /wt && git commit -m x")  # leading prefix, read
+    assert not vp.commit_tree_unresolved("git -C /wt commit -m x")
+    assert not vp.commit_tree_unresolved("git commit -m x && cd ..")  # cd AFTER the commit
+
+
+def test_commit_tree_unresolved_for_a_command_that_names_more_than_one_tree():
     """The runner gives up its clean-tree shortcut on a True here, so a False that should have
     been True skips every gate on a command that commits — and a True that should have been
     False gates a tree with nothing to commit. Both spellings of "the directory I am already
-    in" are one answer: `.` is what a bare invocation already uses."""
+    in" are one answer: `.` is what a bare invocation already uses. "More than one tree" also
+    covers a commit tree this cannot resolve to one place at all: disagreeing directories, an
+    untrackable cd/pushd/popd hop before a bare commit, or an unexpanded `-C` value."""
     assert vp.commit_tree_unresolved("git -C /a commit -m x && git -C /b commit -m y")
     assert not vp.commit_tree_unresolved("git -C /a commit -m x && git -C /a commit --amend")
     assert not vp.commit_tree_unresolved("git commit -m x && git commit --amend")

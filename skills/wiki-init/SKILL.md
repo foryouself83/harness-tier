@@ -224,9 +224,41 @@ drift. Take either side (`git checkout --ours -- <root>/graph/graph.yaml` or
 driver on purpose: an automatic `ours` would silently pass the wrong graph along to the
 next `--verify` block; a conflict forces the rebuild now.)
 
-## 9. Report
+## 9. Offer the CI verification workflow
+
+Only once Step 8's `--verify` passes. If you had to set Step 7's `enable` back to `false`,
+skip this step entirely — a workflow verifying a graph that does not verify turns every push
+red, and the fix for that is the front matter, not CI.
+
+Ask via `AskUserQuestion` whether to render `.github/workflows/wiki-verify.yml`. **The
+option descriptions have to carry what declining costs**, because the gap it leaves is
+invisible from inside a Claude session: the commit-time wiki gate runs on
+**Claude-session commits only**. A terminal commit, a CI commit, and a merge performed in
+GitHub's web UI all reach the branch without it ever looking. Graph drift arriving that way
+surfaces at somebody's next session commit, or at a promotion — long after the commit that
+caused it, and against a diff that does not contain it. This workflow is the only thing that
+reads the graph on every push.
+
+On **yes**:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/flow_init_setup.py" --render-wiki-verify
+```
+
+The script reads the plugin's template and writes into the host — the render is the one
+thing here that is not a host-path call like Step 8's, so it is spelled from the plugin root
+rather than `.claude/harness-tier/scripts/`, which holds no copy of it.
+
+Relay its line. An existing `wiki-verify.yml` is reported and never overwritten, so a host
+that already has one — from a build that rendered it at `/flow-init` time — is unchanged.
+`git add` the rendered file with the rest of Step 8's staging.
+
+On **no**, say plainly that graph drift from outside a Claude session now has nothing
+checking it, and that re-running `/wiki-init` offers this again.
+
+## 10. Report
 
 Report what was split and what `id`s were assigned, plus any remaining orphans and
-over-size documents.
+over-size documents, and whether the CI workflow was rendered.
 
 **Do not commit** — committing is [`/flow`](../flow/SKILL.md)'s job.

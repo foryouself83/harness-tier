@@ -6,8 +6,12 @@ from pathlib import Path
 
 from tests.merge_ruleset._helpers import BASH, SCRIPT
 
-SKILL = Path(__file__).resolve().parent.parent.parent / "skills" / "flow-init" / "SKILL.md"
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent
+FLOW_INIT = PLUGIN_ROOT / "skills" / "flow-init"
+# SKILL.md or a references/ file it loads reach the same agent, so the block is looked for
+# across the set rather than at one path. The "exactly one" assertion below is what keeps
+# that from loosening: the block still has to live in a single place.
+SHIPPED = [FLOW_INIT / "SKILL.md", *sorted(FLOW_INIT.glob("references/*.md"))]
 
 
 def _step_27_block() -> str:
@@ -17,7 +21,8 @@ def _step_27_block() -> str:
     a line of its own and still satisfy any grep-shaped check. Only executing it proves the
     behavior.
     """
-    blocks = re.findall(r"```bash\n(.*?)```", SKILL.read_text(encoding="utf-8"), re.DOTALL)
+    text = chr(10).join(f.read_text(encoding="utf-8") for f in SHIPPED)
+    blocks = re.findall(r"```bash\n(.*?)```", text, re.DOTALL)
     hits = [b for b in blocks if "check-merge-ruleset.sh" in b]
     assert len(hits) == 1, f"expected exactly one Step 2.7 bash block, found {len(hits)}"
     return hits[0]

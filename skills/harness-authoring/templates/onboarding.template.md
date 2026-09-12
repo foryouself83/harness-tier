@@ -18,4 +18,4 @@ tags: [onboarding]
 {{DEBUG_NOTES}}
 
 ## Key Documents (read in this order if you are new)
-{{KEY_DOC_LINKS}}  <!-- SRS→SDS→code-style→research links. Omit SRS if not greenfield. -->
+{{KEY_DOC_LINKS}}  <!-- SRS→SDS→code-style→research links. -->

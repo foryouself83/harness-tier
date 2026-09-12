@@ -29,7 +29,7 @@ branches:
 # Commit discipline (gitlint · tier gates) is unaffected: commits are still made locally.
 # Either ruleset MUST carry a bypass actor: promotion for the release automation (else the
 # chore(release) push is blocked and releases stop), daily for the post-release back-merge
-# push (else the released tag never returns to integration). See rules/risk-tiers.md.
+# push (else the released tag never returns to integration). See rules/promotion.md.
 merge_workflow:
   pull_request: []
 
@@ -101,6 +101,8 @@ doc_sync:
 
 # LLM Wiki (no embeddings). Absent or enable:false → the wiki gate does nothing.
 # doc-sync generates graph.yaml; the commit gate is read-only — it verifies, never generates.
+# /wiki-init sets this key, and offers .github/workflows/wiki-verify.yml at the same time —
+# /flow-init renders no wiki workflow, having no graph to point one at.
 wiki:
   enable: false
   root: docs/                # wiki root. same tree as harness-init output
@@ -111,7 +113,10 @@ wiki:
 
 # Prose discipline (rules/doc-style.md). Absent or enable:false -> the doc-style gate does nothing.
 # The commit gate only warns, on the files a commit changes; .github/workflows/doc-style.yml holds
-# the verdict, over the paths listed here.
+# the verdict, over the paths listed here — so enable:false is not a lighter check, it is none.
+# One flag for both: /flow-init renders that workflow only when this is true, and the check
+# script empties its own path list when it is false, so flipping it back silences a rendered
+# workflow without deleting it.
 doc_style:
   enable: false
   # Repo-root-relative globs: `*` and `?` stop at `/`, a whole-segment `**` spans any number
@@ -119,10 +124,12 @@ doc_style:
   # too to cover comments and docstrings.
   paths: ["**/*.md"]
   # Globs kept out of scope — a subtree is `dir/**`, its direct children `dir/*`.
-  # CHANGELOG.md ships as a default because a release tool regenerates it from commit
-  # subjects: a subject carrying a banned word would make CI red with no edit that could
-  # fix it. Add vendored docs and other generated output here.
-  exclude: ["CHANGELOG.md"]
+  # The checker already carries CHANGELOG.md and the superpowers trees, and what you add
+  # here joins them rather than replacing them. A release tool regenerates the changelog from
+  # commit subjects, so a subject carrying a banned word would make CI red with no edit that
+  # could fix it; a plan record is checklist lines and pointers into its own path, which is
+  # what the PLAN rule bans. Put vendored docs and other generated output here.
+  exclude: []
 
 # REST API contract testing (CI only — GitHub Actions). No REST API → enable:false → not installed.
 # /flow-init reads these values and renders .github/workflows/api-contract.yml.
@@ -255,7 +262,9 @@ deploy:
 
 # Gate evidence. The review and doc-sync markers are voided by any edit, so passing is a
 # fixpoint: a fix made after either passed would otherwise commit against evidence earned
-# over code no reviewer saw. false keeps them until the commit - the older order, where a
-# small edit after a review does not cost a re-run.
+# over code no reviewer saw. false stops an edit from voiding them: the older order, where a
+# small edit after a review costs no re-run and commits unreviewed. /flow still clears them
+# after the commit/merge, but these markers are not branch-bound, so a task that ends without
+# that step leaves them standing for whatever runs next.
 gate_evidence:
   invalidate_on_edit: true

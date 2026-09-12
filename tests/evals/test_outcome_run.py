@@ -8,6 +8,7 @@ import evals.outcome as outcome
 import evals.run as run
 import evals.scores as scores
 import scripts.skill_sandbox as sandbox
+from tests.evals._helpers import OTHER_MODEL
 
 _DOC_SYNC = sandbox.BY_NAME["doc-sync-drift"]
 
@@ -57,7 +58,7 @@ def test_stale_verdict_survives_a_repo_that_does_not_prefix_the_module(monkeypat
 
 
 def test_outcome_check_fails_on_a_model_mismatch():
-    entry = {"outcome_hits": 3, "outcome_n": 3, "outcome_sha": "s", "model": "claude-sonnet-5"}
+    entry = {"outcome_hits": 3, "outcome_n": 3, "outcome_sha": "s", "model": OTHER_MODEL}
     assert outcome.outcome_check("doc-sync", entry, "s", _DOC_SYNC).level == "fail"
 
 

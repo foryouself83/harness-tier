@@ -212,7 +212,6 @@ NON_INVOCATIONS = [
     'git --no-pager log --format="%s" && echo "then merge"',
     "git commit-graph write",
     "git merge-base HEAD dev",
-    "git log -1 --format=%s <<'EOF'\ngit -C /wt commit -m x\nEOF",
     "cat <<" + "\\" + "EOF\ngit -C /wt merge --no-ff dev\nEOF",
     'grep -rn "git commit" scripts/',
     "echo '''nothing to merge'''",

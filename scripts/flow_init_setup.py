@@ -78,6 +78,8 @@ DOC_STYLE_TEMPLATE = "github/doc-style.workflow.example.yml"  # SOURCE (plugin-o
 DOC_STYLE_DEST = ".github/workflows/doc-style.yml"  # host (GitHub-forced — HARNESS_DIR exc.)
 E2E_TEMPLATE = "github/e2e.workflow.example.yml"  # SOURCE (plugin-owned)
 E2E_DEST = ".github/workflows/e2e.yml"  # host (GitHub-forced — HARNESS_DIR exception)
+SRS_VERIFY_TEMPLATE = "github/srs-verify.workflow.example.yml"  # SOURCE (plugin-owned)
+SRS_VERIFY_DEST = ".github/workflows/srs-verify.yml"  # host (GitHub-forced — HARNESS_DIR exc.)
 # per-job wall-clock cap (minutes) when unit_test.timeout_minutes is unset
 UNIT_TEST_DEFAULT_TIMEOUT = 10
 # Languages the unit-test template runs an official setup-* action for (its `if: matrix.language ==`
@@ -100,10 +102,12 @@ EXAMPLE_CONFIG = "flow-config.example.yaml"  # plugin SOURCE (basis for config-s
 # which answers nothing it recognises — and a runner that reads no verdict gates nothing.
 COPY_FILES = [
     "scripts/_harness_paths.py",
+    "scripts/_md_anchors.py",
     "scripts/flow_gate_check.py",
     "scripts/precommit-runner.sh",
     "scripts/wiki_graph.py",
     "scripts/doc_style_check.py",
+    "scripts/srs_check.py",
     "scripts/teams_alert.py",
     "scripts/notify-push.sh",
     "scripts/check-deps.sh",
@@ -1297,6 +1301,12 @@ def load_e2e_config(host: Path) -> dict | None:
     return e2e if isinstance(e2e, dict) else None
 
 
+def load_doc_style_config(host: Path) -> dict | None:
+    """Return the doc_style dict from flow-config.yaml (None if absent/unparseable — FAIL-OPEN)."""
+    ds = _load_yaml_safe(config_path(host)).get("doc_style")
+    return ds if isinstance(ds, dict) else None
+
+
 def _unit_test_matrix_include(jobs: list) -> str:
     """Build the strategy.matrix.include body from unit_test.jobs[].
 
@@ -1391,32 +1401,62 @@ def render_unit_test_workflow(host: Path, plugin: Path) -> list[str]:
 
 
 def render_wiki_verify_workflow(host: Path, plugin: Path) -> list[str]:
-    """Copy wiki-verify.yml as-is — no enable gate, no tokens. Unconditional on purpose:
-    without a wiki the script no-ops green, so rendering at /flow-init time removes the
-    ordering dependency on /wiki-init (which usually runs later). Idempotent·non-destructive
-    (existing dest → report only), same as every other workflow render here."""
+    """Copy wiki-verify.yml as-is — no enable gate, no tokens.
+
+    Reached from `/wiki-init`'s own step (`--render-wiki-verify`), never from run_setup:
+    the workflow verifies a wiki, and at /flow-init time there is none to verify, so the
+    question could only be put to a user with nothing to answer it from. By the time
+    /wiki-init asks, the graph exists and `--verify` has passed on it — which is also why
+    nothing is read from config here. The user's yes IS the gate.
+
+    Idempotent·non-destructive (existing dest → report only), like every render here — so a
+    host that took the earlier unconditional render keeps the file it already has.
+    """
     return _render_one(
         plugin / WIKI_VERIFY_TEMPLATE, host / WIKI_VERIFY_DEST, {}, "wiki-verify 렌더"
     )
 
 
+def render_srs_verify_workflow(host: Path, plugin: Path) -> list[str]:
+    """Copy srs-verify.yml as-is — no enable gate, no tokens.
+
+    Reached from `/flow-init`'s own step (`--render-srs-verify`), never from run_setup: the
+    workflow reads docs/srs, and a host without one has nothing to point it at. The user's
+    yes IS the gate, which is why nothing is read from config here.
+
+    Idempotent·non-destructive (existing dest → report only), like every render here.
+    """
+    return _render_one(plugin / SRS_VERIFY_TEMPLATE, host / SRS_VERIFY_DEST, {}, "srs-verify 렌더")
+
+
 def render_doc_style_workflow(host: Path, plugin: Path) -> list[str]:
-    """Copy doc-style.yml as-is — no enable gate, no tokens. Unconditional for the same reason
-    as wiki-verify: without `flow-config.doc_style` the script no-ops green, so rendering here
-    costs a repo that never opted in nothing. Idempotent and non-destructive (existing dest →
-    report only)."""
+    """Copy doc-style.yml as-is — no tokens, gated by `doc_style.enable`.
+
+    The flag is a RUN switch as well as a render switch, which is what separates it from
+    e2e's: `doc_style_check.py` empties its own path list when `enable` is falsy, so a file
+    rendered while it was true goes quiet the moment it is turned back off. Nothing has to
+    be deleted to stop it.
+
+    Gated at all because this workflow holds the only verdict the prose layer ever gives —
+    the commit-time stage warns and never blocks. That is the reason to ASK rather than to
+    assume: silence here is not a check that stayed green, it is a rule nothing enforces,
+    and /flow-init states that where it collects the flag.
+
+    Idempotent·non-destructive (existing dest → report only), like every render here.
+    """
+    ds = load_doc_style_config(host)
+    if ds is None:
+        return ["  [=] doc_style 미설정 — 워크플로 skip"]
+    if not ds.get("enable"):
+        return ["  [=] doc_style.enable=false — 워크플로 미설치"]
     return _render_one(plugin / DOC_STYLE_TEMPLATE, host / DOC_STYLE_DEST, {}, "doc-style 렌더")
 
 
 def render_e2e_workflow(host: Path, plugin: Path) -> list[str]:
     """Copy e2e.yml as-is — no tokens, gated by one boolean.
 
-    Gated where wiki-verify and doc-style are not: those two no-op green because their own
-    script exits 0 without its config, and a repo that never opted in pays nothing. E2E has
-    no such script — its no-op is a step inside the template — so a consumer with no browser
-    front end would still spend a runner on every push to a promotion branch.
-
-    The boolean is a RENDER switch, not a run switch. Setting it back to false leaves an
+    The boolean is a RENDER switch, not a run switch — unlike doc_style's, which its own
+    script also reads. Setting it back to false leaves an
     already-rendered file running; deleting .github/workflows/e2e.yml is what stops it. That
     asymmetry is why the report below names the scaffold rather than the flag.
 
@@ -1563,7 +1603,6 @@ def run_setup(host: Path, plugin: Path) -> bool:
         _step("[계약 테스트 워크플로우]", lambda: render_workflow(host, plugin)),
         _step("[버저닝 워크플로우]", lambda: render_versioning_workflows(host, plugin)),
         _step("[유닛 테스트 워크플로우]", lambda: render_unit_test_workflow(host, plugin)),
-        _step("[wiki 검증 워크플로우]", lambda: render_wiki_verify_workflow(host, plugin)),
         _step("[문체 검증 워크플로우]", lambda: render_doc_style_workflow(host, plugin)),
         _step("[E2E 워크플로우]", lambda: render_e2e_workflow(host, plugin)),
         _step("[배포 워크플로우]", lambda: render_deploy_workflows(host, plugin)),
@@ -1605,7 +1644,7 @@ def run_uninstall(host: Path) -> bool:
     print("    않습니다(주석·팀 커스텀 보존). 필요 시 직접 제거하세요.")
     print("  - .github/workflows/api-contract.yml 은 자동 삭제하지 않습니다(팀 커스텀 보존).")
     print("    계약 테스트를 끄려면 직접 제거하세요.")
-    print("  - .github/workflows/wiki-verify.yml·doc-style.yml 은 방금 삭제된")
+    print("  - .github/workflows/wiki-verify.yml·doc-style.yml·srs-verify.yml 은 방금 삭제된")
     print("    .claude/harness-tier/scripts/ 의 스크립트를 실행합니다. 없는 스크립트를 가드가")
     print("    보고 exit 0 하므로 CI 가 빨개지지는 않지만 더는 아무것도 검증하지 못하니 함께")
     print("    제거하세요. 같은 경로를 쓰는 release 워크플로우는 렌더한 종류에 달렸습니다 —")
@@ -1643,10 +1682,28 @@ def main() -> None:
         action="store_true",
         help="flow-config.deploy 로부터 배포 워크플로우만 렌더(/harness-deployments 가 호출).",
     )
+    parser.add_argument(
+        "--render-wiki-verify",
+        action="store_true",
+        help="wiki 검증 워크플로우만 렌더(/wiki-init 이 사용자 동의를 받은 뒤 호출).",
+    )
+    parser.add_argument(
+        "--render-srs-verify",
+        action="store_true",
+        help="SRS 검증 워크플로우만 렌더(/flow-init 이 사용자 동의를 받은 뒤 호출).",
+    )
     args = parser.parse_args()
     host = host_root()
     if args.render_deploy:
         for line in render_deploy_workflows(host, plugin_root()):
+            print(line)
+        return
+    if args.render_wiki_verify:
+        for line in render_wiki_verify_workflow(host, plugin_root()):
+            print(line)
+        return
+    if args.render_srs_verify:
+        for line in render_srs_verify_workflow(host, plugin_root()):
             print(line)
         return
     if args.uninstall:

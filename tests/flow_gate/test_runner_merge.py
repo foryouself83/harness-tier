@@ -14,7 +14,7 @@ from tests.flow_gate._helpers import (
 
 # ── merge gate (git merge branches before the `git status` early-exit) ────────────
 # Relies on this repo's own shipped flow-tiers.yaml merge_strategy — both promotion rows
-# (integration → staging and staging → production require --no-ff; see risk-tiers.md Merge
+# (integration → staging and staging → production require --no-ff; see merge-strategy.md Merge
 # strategy) — since _run_runner points CLAUDE_PLUGIN_ROOT at this repo, and tiers_path()
 # prefers CLAUDE_PLUGIN_ROOT/flow-tiers.yaml over any host config copy (dogfooding the real
 # policy end-to-end).
@@ -66,7 +66,7 @@ def test_runner_merge_gate_blocks_ff_promotion_to_staging(tmp_path: Path):
 
 @requires_bash_git
 def test_runner_merge_gate_reads_switch_target_from_command(tmp_path: Path):
-    # `git switch <integration> && git merge feature/x` — the exact three-step idiom risk-tiers'
+    # `git switch <integration> && git merge feature/x` — the exact three-step idiom merge-strategy'
     # "Merging feature/* → integration" prescribes, which Claude Code sends as ONE Bash call. At
     # hook time HEAD is still feature/x, so reading the target from HEAD matches no rule and the
     # policy's own documented idiom would walk straight through the gate (exit 0).
@@ -85,7 +85,7 @@ def test_runner_merge_gate_reads_switch_target_from_command(tmp_path: Path):
 
 @requires_bash_git
 def test_runner_merge_gate_reads_a_newline_separated_switch_target(tmp_path: Path):
-    # The same idiom as above, written the way risk-tiers prints it: three LINES, no `&&`.
+    # The same idiom as above, written the way merge-strategy prints it: three LINES, no `&&`.
     # End-to-end because the unit test alone proved insufficient once — the whole merge suite was
     # written with `&&`, so a separator class missing `\n` passed 653 tests while every
     # newline-separated merge walked through the gate. Here the `--squash` the policy requires is

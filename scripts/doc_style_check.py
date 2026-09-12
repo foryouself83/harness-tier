@@ -216,6 +216,23 @@ BANNED = (
         re.compile(r"[가-힣]다[.]|[가-힣]다\s*$"),
         "`~다` ending — use a nominal ending",
     ),
+    (
+        "CLAIM",
+        "warning",
+        re.compile(
+            # Hedged magnitudes only. A bare number is a measurement or a bound as often as
+            # it is a guess, and no pattern separates those — that half is the judgement
+            # rules/doc-style.md states and this cannot make.
+            r"\b(approximately|roughly)\b"
+            r"|[0-9.]+\s*[%x]\s*(faster|slower|cheaper|larger|smaller)\b"
+            # `약` needs a digit after it AND no Hangul before it. Korean offers no word
+            # boundary, and the digit alone is not the guard it looks like: 계약·요약·절약
+            # each end in that syllable, so `계약 3건` reads as a hedge without the lookbehind.
+            r"|(?<![가-힣])약\s*[0-9]|대략|[0-9.]+\s*배\s*[빠느]",
+            re.IGNORECASE,
+        ),
+        "magnitude nobody measured — give the direction, or the figure with its conditions",
+    ),
 )
 
 # The one rule that reads link targets (see :func:`_mask`).
@@ -394,6 +411,12 @@ def verify(path: Path, before: str, after: str) -> list[Finding]:
 
 
 DEFAULT_GLOBS = ("**/*.md",)
+# The carve-outs the rule states with no condition on them: a CHANGELOG a release tool
+# regenerates from commit subjects, and the superpowers record trees whose lines ARE what
+# PLAN bans. A host's own `exclude` is added to these rather than replacing them — a host
+# whose list predates an entry never receives it, because `/flow-init` leaves a host-owned
+# config alone, and its CI then goes red with no edit that could clear it.
+DEFAULT_EXCLUDES = ("CHANGELOG.md", "docs/superpowers/**", ".superpowers/**")
 # Directory NAMES, matched at any depth. A vendored tree is never the repo's own prose, and
 # these hold whatever a consumer's `paths` says — a glob would need every one of them
 # spelled `**/node_modules/**` to reach as far.
@@ -502,7 +525,8 @@ def scope_rules(root: Path) -> tuple[tuple[str, ...], tuple[str, ...]] | None:
     cfg = data.get("doc_style") if isinstance(data, dict) else None
     if not isinstance(cfg, dict) or not cfg.get("enable"):
         return None
-    return tuple(cfg.get("paths") or DEFAULT_GLOBS), tuple(cfg.get("exclude") or ())
+    excluded = DEFAULT_EXCLUDES + tuple(cfg.get("exclude") or ())
+    return tuple(cfg.get("paths") or DEFAULT_GLOBS), tuple(dict.fromkeys(excluded))
 
 
 def in_scope(root: Path, paths: list[Path], fail_open: bool = True) -> list[Path]:

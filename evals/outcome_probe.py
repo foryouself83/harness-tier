@@ -2,6 +2,7 @@
 session, and does it match the golden_tier? Standalone — the scored path never imports it."""
 
 import argparse
+import contextlib
 import json
 import re
 import tempfile
@@ -108,6 +109,10 @@ def main(reps: int = 3, jobs: int = 8) -> None:
 
 
 if __name__ == "__main__":
+    with contextlib.suppress(ImportError):  # a run by path has no `scripts` package on sys.path
+        from scripts._harness_paths import force_utf8_io
+
+        force_utf8_io()
     ap = argparse.ArgumentParser(description="Router outcome-capture probe (step a).")
     ap.add_argument("--reps", type=int, default=3)
     ap.add_argument("--jobs", type=int, default=8)

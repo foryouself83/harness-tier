@@ -35,7 +35,7 @@ The generation engine of `/harness-init`. It fills `templates/` (skeletons) with
   anchor section, with the flesh linked to docs/code-style. **Do not create new marker blocks**)
 - If needed, a skill / agent (authoring guide enforced, with companion folders references/examples) — **command excluded**
 - Technical docs (folders by category, `tech-doc-guide.md` discipline):
-  `docs/README.md` · `docs/srs/README.md` (greenfield) · `docs/sds/README.md` (Mermaid) ·
+  `docs/README.md` · `docs/srs/README.md` · `docs/srs/<area>.md` · `docs/sds/README.md` (Mermaid) ·
   `docs/code-style/README.md` + `docs/code-style/<stack>.md` · `docs/research/` (incorporated) · `docs/onboarding/README.md` ·
   `docs/verification/performance.md` (performance SSOT per confirmed stack — stack section + shared API load section, no empty stack sections) ·
   `docs/verification/integration.md` (integration-verification SSOT per confirmed stack — stack section + shared E2E section, no empty stack sections) ·
@@ -49,7 +49,7 @@ The generation engine of `/harness-init`. It fills `templates/` (skeletons) with
    **not** put the `harness:baseline` BEGIN/END lines into the marker_upsert content — body only (apply wraps it).
 4. Fill the technical docs following the folder structure and authoring order of `tech-doc-guide.md`
    (SRS → research incorporation → SDS → code-style → onboarding → docs/README). Source links are mandatory; no
-   speculation. SRS is greenfield only. The code-style docs consume the researcher's **best-practices-by-lens**
+   speculation. The code-style docs consume the researcher's **best-practices-by-lens**
    output as per-lens sub-sections (tech-doc-guide code-style · harness-rules 9-7 · 9-8), not one flat list. If you generate a skill, add companion folders (references/examples) per the
    `skill-writing-guide.md` discipline. Generate `commit-versioning-guide` under `docs/operations/` using the
    `tech-doc-guide.md` operations section (harness-rules 13-1 · 13-2 — regardless of whether flow is detected;

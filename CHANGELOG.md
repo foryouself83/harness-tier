@@ -2,6 +2,78 @@
 
 <!-- version list -->
 
+## v0.3.3-rc.1 (2026-09-12)
+
+### Bug Fixes
+
+- **commit**: Ban a CI-skip marker in the message
+  ([`a7085f6`](https://github.com/foryouself83/harness-tier/commit/a7085f65477434fd405de55effb25df49bd766a2))
+
+- **doc-style**: Carry the rule's own carve-outs
+  ([`5176e02`](https://github.com/foryouself83/harness-tier/commit/5176e021094fcfbc09ddb2f4dcc0a17467c0ec35))
+
+- **doc-style**: Keep superpowers docs out of scope
+  ([`b7a1807`](https://github.com/foryouself83/harness-tier/commit/b7a18070116a81650f2a4619068a742675c19e8c))
+
+- **docs**: Correct two overstated scopes
+  ([`cfa0418`](https://github.com/foryouself83/harness-tier/commit/cfa0418a3eceba9cc3d92da135bc762cda135bf4))
+
+- **gate**: Close invocation-classification gaps
+  ([`602c11a`](https://github.com/foryouself83/harness-tier/commit/602c11aecb4f92f2ffd6b32cb6c8fdcad793ec0f))
+
+- **gate**: Make the command scan linear
+  ([`eec256e`](https://github.com/foryouself83/harness-tier/commit/eec256e7cb6a23419d4c0d9ae3367e076f6d6e3d))
+
+- **gate**: Restate the cd-prefix difference
+  ([`356f755`](https://github.com/foryouself83/harness-tier/commit/356f755b56c483f5bb0877bd128b695b4f439581))
+
+- **hooks**: Give the injected rule a base path
+  ([`eafd31b`](https://github.com/foryouself83/harness-tier/commit/eafd31b8d8413fedf02cb3be73785bbbdb432e43))
+
+- **release-commit**: Say when to reach for it
+  ([`4f1eb61`](https://github.com/foryouself83/harness-tier/commit/4f1eb6180d0f9e72e4f56cc5005cfcab432080cd))
+
+- **rules**: Finish the pointer and SSOT sweep
+  ([`9609e8f`](https://github.com/foryouself83/harness-tier/commit/9609e8fc46d9375b3197cd8c80f7708d8d1f1555))
+
+- **rules**: Make pointers and claims resolve
+  ([`f303f42`](https://github.com/foryouself83/harness-tier/commit/f303f4278fb672e485cb59b17adb8c64b30ba3fa))
+
+- **scripts**: Keep i/o utf-8 on non-utf-8 hosts
+  ([`1ca594d`](https://github.com/foryouself83/harness-tier/commit/1ca594d5eaafb9e821509e8e4c7e376c35d81f62))
+
+- **tiers**: Mark promotions superpowers-OFF
+  ([`22cfac3`](https://github.com/foryouself83/harness-tier/commit/22cfac3bf95d9f17cf8f9b8cb96b57cf85004e37))
+
+### Documentation
+
+- **claude-md**: Absorb what only memory held
+  ([`a1f94ea`](https://github.com/foryouself83/harness-tier/commit/a1f94ea6a16788103bb861d92498e05bdab3db71))
+
+- **claude-md**: Cut to rules and pointers
+  ([`acd1fb3`](https://github.com/foryouself83/harness-tier/commit/acd1fb3a0154af81bb57cff83724eb2e1913455e))
+
+- **rules**: Load the shipped rules here
+  ([`bab3c17`](https://github.com/foryouself83/harness-tier/commit/bab3c17245eb79237e21fdd4d9fabc356645eba6))
+
+- **scripts**: Drop filler words from comments
+  ([`6df1764`](https://github.com/foryouself83/harness-tier/commit/6df17647916fa91f89c18f5c02d6b22d05aea29d))
+
+### Features
+
+- **ci**: Make wiki-verify and doc-style opt-in
+  ([`200819b`](https://github.com/foryouself83/harness-tier/commit/200819b6214037e70cc7a8e25a7097210d2fd277))
+
+- **doc-style**: Flag unmeasured magnitude claims
+  ([`37f113a`](https://github.com/foryouself83/harness-tier/commit/37f113a3e747565eebd60b62bb725d0ee1c8d681))
+
+- **doc-sync**: Run in a forked subagent
+  ([`17b7545`](https://github.com/foryouself83/harness-tier/commit/17b7545536c5aed0aa0a11ca9047016bac813175))
+
+- **srs**: Make SRS/SDS the requirement-text SSOT
+  ([`b454b41`](https://github.com/foryouself83/harness-tier/commit/b454b41aa4fb7bbd7f331b60bd4f02c650156550))
+
+
 ## v0.3.2-rc.1 (2026-09-08)
 
 ### Bug Fixes

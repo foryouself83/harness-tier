@@ -182,7 +182,7 @@ _MERGE_FLAGS_WITH_ARG = frozenset(
 )
 
 # A `git switch` / `git checkout` INVOCATION that precedes the merge in the SAME command.
-# risk-tiers' "Merging feature/* → integration" prescribes a three-step block
+# merge-strategy's "Merging feature/* → integration" prescribes a three-step block
 # (`git switch <integration>` → `git pull --ff-only` → `git merge --squash feature/<name>`) that
 # Claude Code sends as ONE Bash call, so at hook time HEAD is still the SOURCE branch and no rule
 # would match — the very idiom the policy documents would bypass the gate.
@@ -210,15 +210,17 @@ def _merge_dirs(command: str) -> list[str | None]:
 
 
 # A leading `cd <dir>` before the merge — the merge path's own separator variant of
-# _harness_paths._CD_PREFIX_RE, which recognises `&&` only. `cd <wt>` followed by a NEWLINE (the
-# shape a multi-line Bash call has) then reads as no cd at all, the merge is judged
-# against THIS root, and a flow that is not happening is named in a false block.
-# Deliberately NOT fixed by widening the shared regex: the two paths have opposite risk polarity.
+# _harness_paths._CD_PREFIX_RE. Two differences: this one also reads a bare carriage return as
+# a separator, and it keeps _PATH_TOKEN, whose bare-path branch runs to the next whitespace
+# instead of stopping at `;`/`&`/`|`.
+# Deliberately NOT folded into the shared regex: the two paths have opposite risk polarity.
 # Here a match only ever FAILs OPEN (Invariant #1 — `_points_elsewhere` → exit 0). There the same
 # match re-points ROOT to another worktree for status/diff/tier-marker/module-lint, which
 # Invariant #6 requires to stay conservative ("any uncertainty → main; never newly block").
 # One grammar cannot carry both polarities, so the merge path states its own separators.
-_MERGE_CD_PREFIX_RE = re.compile(rf"\s*cd\s+(?:{_PATH_TOKEN})\s*(?:&&|[;\n\r])")
+# Anchored in the pattern too, for the reason _CD_PREFIX_RE carries: under `search` the leading
+# `\s*` retries at every start position.
+_MERGE_CD_PREFIX_RE = re.compile(rf"\A\s*cd\s+(?:{_PATH_TOKEN})\s*(?:&&|[;\n\r])")
 
 
 def parse_merge_command(command: str) -> tuple[set[str], str | None]:
@@ -466,7 +468,7 @@ def merge_check_output() -> None:
             print(
                 f"머지 전략 위반 — '{rule.get('source')}' → '{target}' 는 "
                 f"{required} 가 필요합니다. "
-                f"절차는 risk-tiers 규칙의 Merge strategy 절을 따르세요.",
+                f"절차는 harness-tier rules/merge-strategy.md 를 따르세요.",
                 file=sys.stderr,
             )
             sys.exit(BLOCK_EXIT_CODE)
@@ -476,7 +478,7 @@ def merge_check_output() -> None:
             print(
                 f"머지 전략 위반 — '{rule.get('source')}' → '{target}' 에는 "
                 f"{forbidden} 를 쓰지 않습니다. "
-                f"절차는 risk-tiers 규칙의 Merge strategy 절을 따르세요.",
+                f"절차는 harness-tier rules/merge-strategy.md 를 따르세요.",
                 file=sys.stderr,
             )
             sys.exit(BLOCK_EXIT_CODE)
@@ -544,6 +546,7 @@ def _current_branch(root: Path) -> str | None:
             cwd=root,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             check=True,
         )
         return out.stdout.strip()
