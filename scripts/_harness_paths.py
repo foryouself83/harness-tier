@@ -202,7 +202,10 @@ _CD_PATH_TOKEN = r'"([^"]*)"|\'([^\']*)\'|([^\s;&|]+)'
 # absorbed by using a dedicated token above, so the merge path keeps _PATH_TOKEN unchanged in its
 # own _MERGE_CD_PREFIX_RE. Limitation: with `;`, a failed `cd` leaves the shell where it was while
 # this judges against X — the over-block that fixing D7 removes is the common case.
-_CD_PREFIX_RE = re.compile(rf"\s*cd\s+(?:{_CD_PATH_TOKEN})\s*(?:&&|[;\n])")
+# Anchored in the PATTERN as well as by the `match` call: the leading `\s*` retries at every start
+# position under `search`, which is quadratic on a long run of whitespace. The anchor is what
+# stops a future `search` caller from inheriting that.
+_CD_PREFIX_RE = re.compile(rf"\A\s*cd\s+(?:{_CD_PATH_TOKEN})\s*(?:&&|[;\n])")
 
 
 def _git(args: list[str], cwd: str | Path) -> str | None:
@@ -388,6 +391,8 @@ _COMMAND_START_RE = re.compile(_COMMAND_START)
 # BEFORE one — which is how `cat f | > /dev/null 'git' commit -m x` counted one `cat`
 # and read as a reader.
 _NOT_SEPARATOR = r"[^\s<>" + re.escape(_SEPARATOR_CHARS) + r"]"
+# `match(element, i)` only, never `search`: it is called at a position, so it cannot carry the
+# `\A` its siblings above do, and its own leading `[ \t]*` is quadratic under a scan.
 _COMMAND_PREFIX_RE = re.compile(
     r"[ \t]*(?:!|[0-9]*[<>]{1,2}&?[ \t]*"
     + _NOT_SEPARATOR
@@ -533,8 +538,13 @@ def _reads_only(element: str) -> bool:
 # requiring the letter after the backslash keeps a path segment from ever qualifying.
 _TOKEN_BOUNDARY = r"[\s;&|()'\"`]|\\[ntr]"
 # `git` as a standalone token, spelled as the host spells the program (path prefix, `.exe`).
+# The path prefix is a zero-width lookbehind, never a `[^...]*[/\\]` run: the boundary branch
+# `\\[ntr]` opens with a backslash that such a run also accepts, so the run re-scanned the rest
+# of the command once per start position. A long `printf '...\n...' | xargs` then cost seconds
+# inside the hook and, past its timeout, no verdict at all — which Invariant #1 turns into a
+# commit that passes ungated.
 _GIT_TOKEN_RE = re.compile(
-    rf"(?:^|{_TOKEN_BOUNDARY})(?:[^\s;&|()'\"]*[/\\])?git(?:\.exe)?(?=$|{_TOKEN_BOUNDARY})"
+    rf"(?:^|(?<=[/\\])|{_TOKEN_BOUNDARY})git(?:\.exe)?(?=$|{_TOKEN_BOUNDARY})"
 )
 _XARGS = frozenset(("xargs", "parallel"))
 

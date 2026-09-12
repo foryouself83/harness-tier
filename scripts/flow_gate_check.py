@@ -218,7 +218,9 @@ def _merge_dirs(command: str) -> list[str | None]:
 # match re-points ROOT to another worktree for status/diff/tier-marker/module-lint, which
 # Invariant #6 requires to stay conservative ("any uncertainty → main; never newly block").
 # One grammar cannot carry both polarities, so the merge path states its own separators.
-_MERGE_CD_PREFIX_RE = re.compile(rf"\s*cd\s+(?:{_PATH_TOKEN})\s*(?:&&|[;\n\r])")
+# Anchored in the pattern too, for the reason _CD_PREFIX_RE carries: under `search` the leading
+# `\s*` retries at every start position.
+_MERGE_CD_PREFIX_RE = re.compile(rf"\A\s*cd\s+(?:{_PATH_TOKEN})\s*(?:&&|[;\n\r])")
 
 
 def parse_merge_command(command: str) -> tuple[set[str], str | None]:
