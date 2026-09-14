@@ -132,8 +132,8 @@ consent; never mutate machine-wide state.
 
 2. If the file is **absent** (first-time setup), build it:
 
-   2a. Read `${PLUGIN}/flow-config.example.yaml` as the template (slots + format comments).
-   2b. Ask for each slot via `AskUserQuestion`, showing the example value as default:
+   1. Read `${PLUGIN}/flow-config.example.yaml` as the template (slots + format comments).
+   2. Ask for each slot via `AskUserQuestion`, showing the example value as default:
        - **branches**: `integration` / `staging` / `production` / `feature_prefix`
        - **merge_workflow**: `AskUserQuestion` (**multiSelect**) "Which flows go through a
          pull request?" — options `daily (feature/* · fix/* → integration)` and
@@ -184,7 +184,7 @@ consent; never mutate machine-wide state.
        - **modules** (per-module monorepo pre-checks — host-owned, lives under config):
          do not collect values on the first run. In Step 2.6, draft them by consulting
          the harness SSOT or by taking user input.
-   2c. Write the filled `${ROOT}/.claude/harness-tier/config/flow-config.yaml` (create the
+   3. Write the filled `${ROOT}/.claude/harness-tier/config/flow-config.yaml` (create the
        `.claude/harness-tier/config/` directory if absent).
 
 ### Step 2 — Run the mechanical setup (idempotent script)

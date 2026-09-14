@@ -67,11 +67,13 @@ modules:                     # 모노레포 모듈 단위 사전검사 (모듈�
       test:        "uv run pytest services/api"
       security:    "uv run bandit -r services/api"
 
-review_checklist:            # Dev 리뷰 게이트가 변경 파일마다 대조하는 항목
-  - "regression / 회귀 테스트 통과"
-  - "cross-service contract / 서비스 간 계약 유효성"
-  - "DB transaction / migration 안전성"
-  - "async task idempotency / 비동기 작업 멱등성"
+review_checklist:            # Dev 리뷰 게이트가 변경 파일마다 대조하는 항목.
+                             # 다섯 항목은 risk-tiers Step 3 에서 옴
+  - "regression tests pass"
+  - "cross-service contract validity"
+  - "DB transaction & migration safety"
+  - "async task idempotency & queue routing"
+  - "API error conventions"
 
 commit_guide: docs/operations/commit-versioning-guide.md   # 호스트 자체 커밋·버저닝 문서.
                              # `commit` 스킬이 읽음(파일 없으면 risk-tiers 만 적용)

@@ -203,3 +203,19 @@ def test_duplicate_survives_alongside_a_commented_example(tmp_path: Path, capsys
     code, out = run(["--root", str(tmp_path), "--verify"], capsys)
     assert code == 1
     assert "fr-payment-001" in out
+
+
+def test_the_area_template_prompts_for_the_related_edge_without_shipping_it():
+    """`related` is the one edge that keeps a cloned area file off the orphan list, so the
+    template has to name it. It stays commented out all the same: the target is the SRS
+    index's id, and a host whose `docs/srs/README.md` carries no front matter has no such
+    node — a live edge would dangle there, and a dangling edge blocks the commit gate where
+    an orphan only warns."""
+    text = _TEMPLATE_PATH.read_text(encoding="utf-8")
+    assert "# related:" in text, "the template stopped prompting for the related edge"
+    assert "srs.readme" in text, "the template no longer names the edge's target"
+    for line in text.splitlines():
+        assert not line.startswith("related:"), (
+            "the template ships a live related edge — it dangles on a host whose SRS index "
+            "has no front matter, turning a non-blocking orphan warning into a blocked commit"
+        )

@@ -70,11 +70,13 @@ modules:                     # per-module monorepo pre-checks (when modules use 
       test:        "uv run pytest services/api"
       security:    "uv run bandit -r services/api"
 
-review_checklist:            # what the Dev review gate judges every changed file against
-  - "regression / regression tests pass"
-  - "cross-service contract / cross-service contract validity"
-  - "DB transaction / migration safety"
-  - "async task idempotency"
+review_checklist:            # what the Dev review gate judges every changed file
+                             # against; the five come from risk-tiers Step 3
+  - "regression tests pass"
+  - "cross-service contract validity"
+  - "DB transaction & migration safety"
+  - "async task idempotency & queue routing"
+  - "API error conventions"
 
 commit_guide: docs/operations/commit-versioning-guide.md   # host's own commit/versioning doc,
                              # read by the `commit` skill (missing file → risk-tiers alone)

@@ -297,15 +297,23 @@ BANNED = (
             # ordinary words, and what separates the field from the definition is the VALUE: a
             # field carries a date, a version, a name or an identifier; a definition carries a
             # clause, and English cannot state one without a function word gluing its pieces
-            # together (`the`, `is`, `from`, `per`…) — `a`/`an` excepted, since either collides
-            # with a bare initial (`Author: A. Smith`). So the value reads as a clause on
-            # finding one of those words in it, spaced after the colon or not (`Modified:files…`
-            # carries one all the same), never on the case of its first letter — `Created: A new
-            # worktree` is a clause whatever case `A` is in.
+            # together (`the`, `is`, `from`, `per`…). So the value reads as a clause on finding
+            # one of those words in it, spaced after the colon or not (`Modified:files…`
+            # carries one all the same), never on the case of its first letter — `Created: A
+            # new worktree` is a clause whatever case `A` is in.
+            #
+            # An article is glue too, but only away from `author`, and only when a word
+            # follows it. A name field has no clause an article could be rescuing, so
+            # `An Nguyen` and `A Smith` stay names there. Elsewhere the word after the
+            # article is the whole test: an initial carries a period instead
+            # (`Created: A. Smith`), and a value cut short carries nothing (`History: a`,
+            # trailing blank or not).
             r"@(author|since|date)\b"
-            r"|^(author|created|modified|updated|last updated|revision|history|"
-            r"changelog)\s*:(?![*_]*\s*.*\b(?:the|is|are|was|were|be|been|being|will|now|"
+            r"|^author\s*:(?![*_]*\s*.*\b(?:the|is|are|was|were|be|been|being|will|now|"
             r"per|from|of|to|in|on|at|and|or)\b)"
+            r"|^(created|modified|updated|last updated|revision|history|changelog)"
+            r"\s*:(?![*_]*\s*.*\b(?:the|is|are|was|were|be|been|being|will|now|"
+            r"per|from|of|to|in|on|at|and|or|(?:an|a)(?=\s+\S))\b)"
             r"|^(작성자|작성일|수정일|변경\s*이력|수정\s*이력)\s*[:：]",
             re.IGNORECASE,
         ),

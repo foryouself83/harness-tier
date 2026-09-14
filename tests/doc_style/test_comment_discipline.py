@@ -147,6 +147,12 @@ def test_a_bare_or_value_shaped_field_is_still_caught(prose: str):
         "Created: A new worktree per run.\n",
         "History: The gate is fail-closed.\n",
         "Modified:files are re-read from disk.\n",
+        # An article is a function word like any other. It was held out of the list while
+        # the list could not tell `a` from the initial in `Author: A. Smith`, and every
+        # clause whose only glue was an article paid for that.
+        "Created: a new worktree.\n",
+        "Updated: an entry.\n",
+        "Revision: a tree nobody can pin.\n",
     ],
 )
 def test_a_definitional_label_is_not_a_revision_field(prose: str):
@@ -154,6 +160,41 @@ def test_a_definitional_label_is_not_a_revision_field(prose: str):
     the value: a field carries a date, a version, a name or an identifier; a definition carries
     a clause, and English cannot state one without a function word joining its pieces."""
     assert _codes(Path("doc.md"), prose) == []
+
+
+@pytest.mark.parametrize(
+    "prose",
+    ["Author: A. Smith\n", "Author: A. B. Smith\n", "Created: A. Smith\n"],
+)
+def test_an_initial_is_a_name_not_an_article(prose: str):
+    """Away from `author` an article counts as glue only when a word follows it. After an
+    initial comes a period, so `A.` stays a name."""
+    assert _codes(Path("doc.md"), prose) == ["META"]
+
+
+@pytest.mark.parametrize(
+    "prose",
+    [
+        "Author: An Nguyen\n",
+        "Author: A Smith\n",
+        "Author: A, Smith\n",
+        "Author: a\n",
+        "**Author:** An Nguyen\n",
+    ],
+)
+def test_an_article_never_rescues_an_author_line(prose: str):
+    """`author` carries a name, and a name has no clause for an article to be gluing —
+    so the article is not a stopword there. Reading it as one turned every name that
+    starts with `A`/`An` into a field the rule stopped reporting."""
+    assert _codes(Path("doc.md"), prose) == ["META"]
+
+
+@pytest.mark.parametrize("prose", ["History: a\n", "History: a \n", "Revision: an\n"])
+def test_an_article_with_nothing_after_it_is_a_truncated_value(prose: str):
+    """A clause needs a word after its article, and a trailing blank is not one — reading
+    only the whitespace let `History: a ` pass as a sentence while `History: a` did not.
+    Both are values cut short, and the rule keeps reporting them."""
+    assert _codes(Path("doc.md"), prose) == ["META"]
 
 
 # ---------- TRAP: a CRITICAL TRAP marker needs its Trigger/Symptom keys ----------
@@ -380,7 +421,7 @@ def test_a_backticked_key_still_counts_for_its_box():
     """The marker on line 1 is unbackticked and real, so the box already exists — a re-review
     found that styling the `Trigger:` key itself as inline code then hid it from the key
     search (which read the same default mask as the marker) and reported the box as missing
-    Trigger:, even though the key is plainly there, just formatted. Reading the keys on the
+    Trigger:, even though the key is plainly there, styled as code. Reading the keys on the
     "code" mask instead keeps the key visible without reopening the marker's own exemption
     (naming `CRITICAL TRAP:` in backticks with no box around it still is not one — see
     test_naming_the_marker_in_backticks_is_not_a_box_in_a_comment)."""

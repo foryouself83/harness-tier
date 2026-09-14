@@ -68,13 +68,14 @@ modules:
       static: "npm --prefix services/web run typecheck"
       test:   "npm --prefix services/web test"
 
-# Regression / contract / idempotency review checklist — what the Dev `review` gate
-# judges every changed file against.
+# What the Dev `review` gate judges every changed file against. These five come from
+# rules/risk-tiers.md Step 3; a team appends its own rather than dropping one.
 review_checklist:
-  - "regression / regression tests pass"
-  - "cross-service contract / cross-service contract validity"
-  - "DB transaction / migration / DB transaction & migration safety"
-  - "async task idempotency / async task idempotency"
+  - "regression tests pass"
+  - "cross-service contract validity"
+  - "DB transaction & migration safety"
+  - "async task idempotency & queue routing"
+  - "API error conventions"
 
 # The host's own commit/versioning document, which /harness-init generates. The `commit` skill
 # reads it and prefers its project-specific facts (scope vocabulary, 0.x policy, and whether the

@@ -10,6 +10,14 @@
 wiki_id: {{ID}}
 title: <requirement area>
 tags: [srs]
+# related is what keeps this file out of the orphan list: wiki_graph.py reaches nodes from
+# the index, and an area file nothing points at is unreachable however complete it is. The
+# target is the SRS index's own mechanical id (docs/srs/README.md -> srs.readme under the
+# default wiki root). Uncomment it once that README carries front matter of its own — an
+# edge to a document that is no node dangles, and a dangling edge blocks the commit gate
+# where an orphan only warns.
+# related:
+#   - srs.readme
 # sources is optional — requirements rarely map to specific code paths; uncomment only if
 # this SRS genuinely does, else leave it deleted.
 # sources:

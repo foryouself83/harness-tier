@@ -163,7 +163,7 @@ do not go looking for a skill behind either — none exists; the hook runs the c
    ([`harness-rules.md`](../../rules/harness-rules.md) 8 fixes those locations). Neither
    existing is normal — proceed. **Docs tier skips this**: reading a design document to
    change a paragraph is the process-to-risk mismatch the tiers exist to prevent.
-1b. **Record a new requirement in the SRS first** — skip silently when `docs/srs/` is
+2. **Record a new requirement in the SRS first** — skip silently when `docs/srs/` is
    absent (the command prints nothing and exits 0). This runs only for a **new
    customer requirement**; implementing an existing one, a bug, or a refactor skips it.
    Route with `python3 .claude/harness-tier/scripts/srs_check.py --areas`, then take the
@@ -177,17 +177,19 @@ do not go looking for a skill behind either — none exists; the hook runs the c
    A **new** area file is a wiki node, and only half of that is fail-CLOSED.
    Where the host has a wiki, give it front matter: `wiki_id` from
    `python3 .claude/harness-tier/scripts/wiki_graph.py --derive-id docs/srs/<area>.md`, a
-   `title`, and a `related` edge to `srs.readme`; then rebuild with
-   `python3 .claude/harness-tier/scripts/wiki_graph.py --build` and stage `graph.yaml`
-   alongside it. Write the front matter and skip the rebuild, and the commit gate's
-   `--verify` blocks with a reason naming the graph rather than this step. **Omit the
+   `title`, and the `related` edge the template leaves commented out — uncomment it once
+   `docs/srs/README.md` carries front matter of its own, since an edge to a document that
+   is no node dangles and blocks. Then rebuild with
+   `python3 .claude/harness-tier/scripts/wiki_graph.py --build` and stage
+   `graph.yaml` alongside it. Write the front matter and skip the rebuild, and the commit
+   gate's `--verify` blocks with a reason naming the graph rather than this step. **Omit the
    front matter and nothing blocks** — a file carrying none is no node, so the gate has
    nothing to compare and the area stays out of the wiki in silence. That is the likelier
    slip, and it is on you rather than the gate.
-2. **Enter `superpowers:using-superpowers`** — it drives the pipeline automatically
+3. **Enter `superpowers:using-superpowers`** — it drives the pipeline automatically
    (brainstorm → plan → implement → verify → review; each skill self-triggers).
    Feed the resolved request from Phase 0 in as the task.
-3. Apply the project overlays `superpowers` does not know about:
+4. Apply the project overlays `superpowers` does not know about:
    - **Implementation minimalism** — right after the plan, before writing code,
      climb the reuse-before-build ladder (YAGNI → codebase → stdlib → native →
      dependency → one line → minimum code) and stop at the earliest rung. Detail
@@ -208,7 +210,8 @@ do not go looking for a skill behind either — none exists; the hook runs the c
      (separate context; it runs shell commands). `git` is the authority on the
      changed-file list — **every** file is reviewed and the count is reported —
      judged against `flow-config.review_checklist` (regression, cross-service
-     contract, DB/migration & transactions, async task idempotency, API errors),
+     contract, DB/migration & transactions, async task idempotency & queue
+     routing, API error conventions),
      plus the callers of every changed public symbol. Procedure in
      [`risk-tiers.md`](../../rules/risk-tiers.md) Step 3.
      On pass → `touch .claude/harness-tier/.flow/review.done`.
@@ -222,7 +225,7 @@ do not go looking for a skill behind either — none exists; the hook runs the c
      A host that sets `flow-config.gate_evidence.invalidate_on_edit: false`
      turns the hook's deletion off, so in its tree an edit after the pass
      commits unreviewed ([`risk-tiers.md`](../../rules/risk-tiers.md) Step 3).
-4. Commit through the `commit` skill — invoke `Skill: commit` with the tier and what
+5. Commit through the `commit` skill — invoke `Skill: commit` with the tier and what
    changed (rule 4) → merge **applying
    [`merge-strategy.md`](../../rules/merge-strategy.md)** (rule 3 — not a
    plain merge). (The commit hook blocks until `review.done` and `doc-sync.done`.)
