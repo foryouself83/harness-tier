@@ -36,6 +36,13 @@ The script performs the following, idempotently:
   GitHub Actions `strategy.matrix.include` (one job per line), so each language/module
   runs in parallel with its own `timeout-minutes`. Skips when `enable: false` or the
   section is absent.
+- **Renders** the release workflows from `flow-config.versioning` when `enable: true` (same
+  create-if-absent / never-overwrite rules): `release.yml` from the template matching
+  `release_tool`, case-insensitive — `python-semantic-release` · `semantic-release` ·
+  `jreleaser` · `gitversion` · `cargo-release`; any other value is reported and skipped.
+  `branch-naming.yml` and `entropy-check.yml` each render only under their own
+  `branch_naming.enable` / `entropy.enable`. Relay the skip line: an unrecognised tool leaves
+  the repo with no release workflow and nothing else says so.
 - **Does not render** `.github/workflows/wiki-verify.yml` — the workflow verifies a wiki,
   and at this point in a repo's life there is none to verify, so the question could only be
   put to a user with nothing to answer it from. [`/wiki-init`](../../wiki-init/SKILL.md)

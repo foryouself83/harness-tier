@@ -134,7 +134,7 @@ consent; never mutate machine-wide state.
 
    1. Read `${PLUGIN}/flow-config.example.yaml` as the template (slots + format comments).
    2. Ask for each slot via `AskUserQuestion`, showing the example value as default:
-       - **branches**: `integration` / `staging` / `production` / `feature_prefix`
+       - **branches**: `integration` / `staging` / `production`
        - **merge_workflow**: `AskUserQuestion` (**multiSelect**) "Which flows go through a
          pull request?" — options `daily (feature/* · fix/* → integration)` and
          `promotion (integration → staging → production)`. Nothing selected →

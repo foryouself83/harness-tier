@@ -1,8 +1,9 @@
 # CLAUDE.md
 
 This repo is the **Claude Code plugin itself**, not a consumer of it. Usage:
-[README.md](README.md)·[USAGE.md](USAGE.md), each with a Korean twin that `doc-sync` keeps in
-step. Component authoring specs (agent/hook/skill frontmatter) come from the official docs as
+[README.md](README.md) (core idea + install) · [USAGE.md](USAGE.md) (per-topic index into
+[docs/usage/](docs/usage/)), every file with a Korean twin that `doc-sync` keeps in step.
+Component authoring specs (agent/hook/skill frontmatter) come from the official docs as
 SSOT, never model knowledge: [skills](https://code.claude.com/docs/en/skills.md) ·
 [plugins-reference](https://code.claude.com/docs/en/plugins-reference.md) ·
 [hooks](https://code.claude.com/docs/en/hooks.md) ·
@@ -72,7 +73,8 @@ github/          consumer workflow templates /flow-init and /wiki-init render
 .github/         this repo's own CI
 tests/           pytest over scripts/ and over the shipped skill and rule files
 evals/           skill measurement (invocation, outcome) — NOT shipped: commit as test:/chore:
-docs/            internal design records (Korean, never shipped) · reference notes
+docs/            internal design records (Korean, never shipped) · reference notes ·
+                 usage/ consumer guide (English + .ko twins, shipped)
 ```
 
 ## Architecture

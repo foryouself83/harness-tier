@@ -13,9 +13,6 @@ branches:
   # Production release branch (typically main)
   production: main
 
-  # feature branch name prefix (e.g. feature/, feat/)
-  feature_prefix: "feature/"
-
 # How work reaches its target branch. Only the flows listed here go through a PR; the rest
 # stay direct merges. An empty list (the default) = all direct — the existing behaviour.
 #   daily     — feature/* · fix/* → integration
@@ -155,7 +152,8 @@ contract_test:
 # End-to-end CI safety net (CI only — GitHub Actions). Playwright suites only; no browser
 # front end → enable:false → not installed. /flow-init copies .github/workflows/e2e.yml as-is
 # (no tokens): it is a starting point you own and edit, and a later plugin fix does not reach
-# a file you already have. It blocks nothing — see USAGE "E2E safety net" before making it a
+# a file you already have. It blocks nothing — see docs/usage/ci-workflows.md "E2E
+# safety net" before making it a
 # required status check. NOTE: this flag is a RENDER switch. Setting it back to false leaves
 # an already-rendered e2e.yml running; delete that file to stop it.
 e2e:

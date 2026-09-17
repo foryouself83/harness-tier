@@ -5,7 +5,7 @@ with `flow-tiers.yaml` sends a promotion through the whole design->plan->impleme
 pipeline over already-built work. Every copy goes stale together, so `doc-sync` sees no
 drift to report.
 
-Pinned here: both USAGE tables and risk-tiers Step 2 — the copy `flow-tiers.yaml` names as
+Pinned here: both usage-guide tables and risk-tiers Step 2 — the copy `flow-tiers.yaml` names as
 the SSOT, and the one an agent reads, being the only rule injected at SessionStart. Left
 unpinned: the prose restatements under that table and at `/flow`'s Docs and Dev headings,
 which carry a tier per sentence rather than in a grid.
@@ -17,7 +17,7 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-TWINS = ("USAGE.md", "USAGE.ko.md")
+TWINS = ("docs/usage/tiers-and-gates.md", "docs/usage/tiers-and-gates.ko.md")
 RULE = "rules/risk-tiers.md"
 MARK = {"✓": True, "✗": False}
 

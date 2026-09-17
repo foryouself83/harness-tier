@@ -7,13 +7,26 @@ import yaml
 from scripts.doc_style_check import markdown_prose
 from tests.skills._helpers import REPO, body
 
-# The four documents a consumer reads to find out what they got. Both twins are listed: a row
-# added to one and not the other is the drift `doc-sync` exists to catch.
-CONSUMER_DOCS = ("README.md", "README.ko.md", "USAGE.md", "USAGE.ko.md")
+# The documents a consumer reads to find out what they got: each README, and the usage guide
+# in each language read as one text, since a skill documented in any topic file is documented.
+# Both languages are listed: a row added to one and not the other is the drift `doc-sync`
+# exists to catch.
+CONSUMER_DOCS = ("README.md", "README.ko.md", "docs/usage (en)", "docs/usage (ko)")
+USAGE_DIR = REPO / "docs" / "usage"
 # The one skill a consumer never reaches for. `/harness-init` invokes it as its generation
 # engine and its own description says not to call it directly, so it has no consumer-facing
 # timing, arguments or behaviour to write down.
 UNLISTED_SKILLS = frozenset({"harness-authoring"})
+
+
+def _consumer_text(doc: str) -> str:
+    if doc == "docs/usage (en)":
+        files = [p for p in sorted(USAGE_DIR.glob("*.md")) if not p.name.endswith(".ko.md")]
+    elif doc == "docs/usage (ko)":
+        files = sorted(USAGE_DIR.glob("*.ko.md"))
+    else:
+        files = [REPO / doc]
+    return chr(10).join(p.read_text(encoding="utf-8") for p in files)
 
 
 @pytest.mark.parametrize("doc", CONSUMER_DOCS)
@@ -22,7 +35,7 @@ def test_every_consumer_facing_skill_is_registered(doc: str):
     shipped in none of the four, and nothing failed: the component tables and the USAGE
     sections are hand-maintained, and the `doc-sync` gate that reconciles them never runs in
     a repo with no `flow-config.yaml`."""
-    text = (REPO / doc).read_text(encoding="utf-8")
+    text = _consumer_text(doc)
     missing = sorted(
         p.parent.name
         for p in REPO.glob("skills/*/SKILL.md")
@@ -157,7 +170,7 @@ def test_no_skill_numbers_a_step_in_a_shape_commonmark_rejects(skill: str):
 
 
 def test_the_review_checklist_is_one_list_in_three_files():
-    """The template a host copies and the two USAGE docs that quote it. They drifted once
+    """The template a host copies and the two configuration guides that quote it. They drifted once
     already: an English pass rewrote the Korean half of each `term / meaning` line into the
     term again, leaving `regression / regression tests pass` in the template while USAGE had
     deduped two of the four. A reader then cannot tell which file is the example."""
@@ -170,7 +183,7 @@ def test_the_review_checklist_is_one_list_in_three_files():
         # always verbatim: `DB transaction / migration / DB transaction & migration safety`
         # buries it one segment further in. Containment catches every form it took.
         assert not (sep and head in tail), f"{item!r} restates itself across the separator"
-    for doc in ("USAGE.md", "USAGE.ko.md"):
+    for doc in ("docs/usage/configuration.md", "docs/usage/configuration.ko.md"):
         quoted = _checklist_in(REPO / doc)
         assert quoted == items, (
             f"{doc}'s review_checklist example is {quoted}, not the template's {items} — the "

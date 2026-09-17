@@ -63,11 +63,11 @@ else
   need "    설치 후: pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre-push"
 fi
 
-# 4) superpowers plugin (required for Standard+) — a Claude layer, undetectable from the shell. Guidance only.
-need "superpowers 플러그인 (Standard+ 작업 필수) — Claude 에서 마켓 등록 후 설치:"
-need "    /plugin marketplace add anthropics/claude-code   (또는 해당 마켓)"
+# 4) superpowers plugin (required for Dev) — a Claude layer, undetectable from the shell. Guidance only.
+need "superpowers 플러그인 (Dev 작업 필수) — Claude 에서 마켓 등록 후 설치:"
+need "    /plugin marketplace add anthropics/claude-plugins-official"
 need "    /plugin install superpowers@claude-plugins-official"
-need "    (미설치 시 /flow 가 Dev+ 에서 중단한다)"
+need "    (미설치 시 /flow 가 Dev 에서 중단)"
 
 if [ "$missing_required" -eq 1 ]; then
   echo "필수 의존성(셸·python3≥3.8·PyYAML) 미충족 — 위 안내대로 설치 후 다시 실행하세요."
