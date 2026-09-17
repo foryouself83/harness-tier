@@ -36,7 +36,8 @@ CONFIG=".claude/harness-tier/config/flow-config.yaml"
 # anything else (a flow mapping, a block scalar) opens no block, so nothing under it is read.
 # Being off is asked for, never inferred.
 opted_out() {
-  local root=$1 line indent child="" in_block=0 answer=1
+  # Set up front: a failed first `read` must leave the hook armed, not trip `set -u` and exit.
+  local root=$1 line="" indent child="" in_block=0 answer=1
   [ -n "$root" ] && [ -r "$root/$CONFIG" ] || return 1
   while IFS= read -r line || [ -n "$line" ]; do
     # A config edited on Windows arrives CRLF and no line is stripped: a trailing CR is
