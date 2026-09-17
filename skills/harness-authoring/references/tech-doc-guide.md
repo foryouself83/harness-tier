@@ -9,7 +9,7 @@ Place docs in category folders and make the entry document `README.md` (friendly
 ```text
 docs/
   README.md                  overall index · written last · links EVERY category below (incl. verification/ · operations/)
-  srs/README.md              common sections (overview·goals·users·customer & non-functional
+  srs/README.md              common sections (glossary·overview·goals·users·customer & non-functional
                               requirements·constraints) + area index · written first
   srs/<area>.md              §5 functional requirements, one file per requirement area
   sds/README.md     structure + Mermaid structure diagram (required)
@@ -48,6 +48,22 @@ reinforce it with research. Do not guess unknown slots — leave them as "needs 
 blanks but also ambiguous items via questions before writing). **Separate into two levels**: customer needs (§4) must be clear about what
 is wanted even if not measurable ("would be nice if it were convenient" ✗ → "support cards·simple payment" ✓), while functional requirements (§5, FR) must be measurable and single-interpretation.
 
+**The SRS is read by people who do not write code** — planners, customers, QA. Three rules keep
+it readable by all of them:
+
+- **Business language** — a requirement states what a user or the business observes, never the
+  implementation that produces it ("optimize the query with a DB index" ✗ → "search results
+  appear within 2 seconds of pressing Search" ✓). The implementation is the SDS's. A technical
+  measure (p95, rps, RTO) may qualify an observable criterion as its measurement condition.
+- **Glossary, first** — the `## Glossary` section opens `srs/README.md`, ahead of §1. Every domain
+  term, business term and abbreviation the SRS uses gets one entry there, defined in words a
+  non-developer understands, with a `<a id="term-xxx">` anchor issued by `--next-id --kind TERM`.
+  It is never "not applicable": a document with no term to define has not named its domain yet.
+- **One term, one meaning** — each thing is named by its Glossary term in every SRS file, and by
+  no other word ("login" · "sign-in" · "user authentication" for one feature ✗). A synonym readers
+  may bring along is named once, inside the entry, and nowhere else. Renaming a term renames it in
+  every file in the same edit.
+
 **Hierarchical classification (fixed schema)**:
 - **Customer needs (§4)** — express what customers/stakeholders want as `C-x`. Give each C an `<a id="c-xxx">` anchor. §5 FRs
   back-reference via `(← [C-x])`, making this the source of customer-need→FR traceability. **If there are no external customers/stakeholders (personal·internal tools),
@@ -69,11 +85,11 @@ is wanted even if not measurable ("would be nice if it were convenient" ✗ → 
   the axis key is the section anchor's stem, so a new axis needs no mapping update. **The
   verification procedure is owned by `docs/verification/*` (SSOT) — link it, do not restate it here.**
 - **Data and external-interface requirements are not separate SRS sections** — a data-retention or
-  regulatory requirement is measurable, so it is written as an FR instead ("PII is purged 90 days
-  after account deletion. Acceptance: 0 rows older than 90d"). An externally mandated interface
-  obligation belongs in §7 Constraints — it is imposed from outside the system, not performed by
-  it. The owned data and the integration-point contract themselves are the SDS's, and always
-  were — see SDS Data Design and Integration Points below.
+  regulatory requirement is measurable, so it is written as an FR instead ("Personal data is
+  deleted 90 days after account deletion. Acceptance: none of a deleted account's personal data
+  remains after 90 days"). An externally mandated interface obligation belongs in §7
+  Constraints — it is imposed from outside the system, not performed by it. The owned data and
+  the integration-point contract themselves are the SDS's, and always were — see SDS Data Design and Integration Points below.
 - **Users/scenarios (§3)** — classify by user role and connect it to the permission axis of the features.
 
 ## SDS — sds/README.md

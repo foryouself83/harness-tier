@@ -20,18 +20,36 @@ tags: [srs]
 > The SSOT for what the system must do (requirements). Write this first. Sources: {{SOURCES}}
 >
 > **This file is the index**: it holds the sections common to the whole SRS — overview, goals,
-> users and roles, customer requirements, non-functional requirements, constraints. §5
+> glossary, users and roles, customer requirements, non-functional requirements, constraints. §5
 > Functional Requirements lives one file per requirement area (`<area>.md`, cloned from
 > `srs-area.template.md`) — see the area index at §5.
 >
 > **Split into two levels**: customer requirements (§4) need not be measurable, but must clearly state what is wanted
 > ("would be nice if it were convenient" ✗ → "supports cards and simple/express payment" ✓). Functional requirements (§5, FR) must be measurable and single-interpretation
-> ("fast" ✗ → "p95 < 200ms" ✓). If something is ambiguous or unknown, do not invent it — mark it `needs confirmation` (harness-rules 8-1).
+> ("fast" ✗ → "search results appear within 2 seconds of pressing Search" ✓). If something is ambiguous or unknown, do not invent it — mark it `needs confirmation` (harness-rules 8-1).
+>
+> **Written for readers who are not developers**: planners, customers and QA read this document
+> too. State what a user or the business observes, never how the system achieves it — "optimize
+> the query with a DB index" is an SDS decision, not a requirement. Every domain term and
+> abbreviation is defined once in the Glossary, and the document names each thing by that one
+> term everywhere ("login" in one FR and "sign-in" in the next reads as two features).
 
 <!-- Ids are issued, never chosen — by a human or a model:
      python3 .claude/harness-tier/scripts/srs_check.py --next-id <file> --kind <KIND> [--scope <axis>]
      An area file's ids carry its stem; this index's ids carry no area. The KIND set is open —
      it is whatever a document already anchors. -->
+
+## Glossary
+<!-- Mandatory, and first: a reader meets a term here before any requirement uses it. Define
+     every domain term, business term and abbreviation the SRS uses, in words a non-developer
+     understands. One entry per term, alphabetical; a synonym readers may bring along is named
+     in the entry and never used elsewhere in the SRS. Give each entry an `<a id="term-xxx">`
+     anchor (`--next-id <this file> --kind TERM`) so an area file can link the term where a
+     reader needs its definition. A term changed here is changed in every document that uses
+     it, in the same edit. -->
+{{GLOSSARY}}
+<!-- Format — - <a id="term-001"></a>**Express payment** Paying with a card saved on a
+     previous purchase, without re-entering its number. Not "quick pay" or "one-click". -->
 
 ## 1. Overview / Purpose
 {{PRODUCT_PURPOSE}}
@@ -70,7 +88,9 @@ tags: [srs]
 
 ## 6. Non-functional Requirements
 <!-- Fixed sub-axes (aligned to ISO/IEC 25010). For each axis give a **priority [P0/P1/P2]** and a **measurable, verifiable
-     criterion** ("fast" ✗ → "p95 < 200ms" ✓), or leave "N/A — reason" (no blanks). Each axis carries an `<a id="nfr-xxx">` anchor
+     criterion** ("fast" ✗ → "95% of searches show results within 2 seconds" ✓), or leave "N/A — reason" (no blanks).
+     Lead with what a user observes; a technical measure (p95, rps, RTO) may follow it as the
+     measurement condition, and the Glossary defines it. Each axis carries an `<a id="nfr-xxx">` anchor
      so the SDS "NFR Realization" section can back-trace which design satisfies it (the requirement→design→verification chain).
      **How a criterion is verified is owned by `docs/verification/*` (performance.md · integration.md) as SSOT — link there;
      do not restate the procedure here (no duplication). -->
@@ -78,7 +98,8 @@ tags: [srs]
 ### 6.1 <a id="nfr-perf"></a>Performance
 {{NFR_PERFORMANCE}}  <!-- [P0/P1/P2] Throughput, latency (p50/p95), concurrency.
      Verify → docs/verification/performance.md. Format —
-     - <a id="nfr-perf-001"></a>**NFR-PERF-001** [P0] p95 < 200ms at 100 rps.
+     - <a id="nfr-perf-001"></a>**NFR-PERF-001** [P0] Search results appear within 2 seconds
+       of pressing Search, for 95% of searches (p95) with 100 users searching at once.
      The section anchor is the axis; the item anchor is the individual requirement. An axis
      added as §6.8 yields NFR-<its stem>-NNN with no other change. -->
 
@@ -103,8 +124,9 @@ tags: [srs]
 ## 7. Constraints / Assumptions
 <!-- Environment, technology, and regulatory constraints imposed on the system from the
      outside, not something the system performs. A data-retention or PII rule is
-     measurable, so it belongs in §5 as an FR instead ("PII is purged 90 days after
-     account deletion. Acceptance: 0 rows older than 90d"). An externally mandated
+     measurable, so it belongs in §5 as an FR instead ("Personal data is deleted 90 days after
+     account deletion. Acceptance: none of a deleted account's personal data remains
+     after 90 days"). An externally mandated
      interface belongs here — "must integrate via legacy system X's SOAP API v1.2" is
      imposed from outside, not performed by the system, and stating it as an FR leaves
      it with no acceptance criteria. Give each item an `<a id="con-xxx">` anchor. -->

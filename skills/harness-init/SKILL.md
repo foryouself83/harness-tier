@@ -35,7 +35,9 @@ Show the result (state/frameworks/existing) to the user **as a table**. Also rep
    is measurable and single-interpretation**, but do not re-ask what is already clear (no over-generation, no
    interrogation). Required slots = purpose · goals/non-goals (YAGNI boundary) · core functional requirements · target
    users/scenarios · key constraints (scale, performance, security, deployment environment). Fix as well the
-   **classification axes** (domain as primary; user role/subdomain as secondary) and the **depth (2–3 levels)**. For axes
+   **classification axes** (domain as primary; user role/subdomain as secondary) and the **depth (2–3 levels)**. Fix the
+   **terms** too: a thing the prompt names two ways ("login" · "sign-in") is ambiguous — ask which one is canonical — and
+   every domain term and abbreviation goes into the scope summary with its meaning, for the SRS Glossary. For axes
    that do not apply, leave the literal "N/A — reason" in the SRS (for the detailed discipline and structure, see
    harness-rules 8-1, the SRS section of `tech-doc-guide.md`, and `srs.template.md`).
    - **Gate**: do not proceed to Step 2 or Step 4 while scope blanks or ambiguities remain. For slots still unknown after

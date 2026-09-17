@@ -48,6 +48,11 @@ and reports any remainder as "unresolved".
   set reviewed — if a lens is missing, is there an emit/skip reason (9-2), (b) does each lens carry **coding guidance only** and **link** (not
   duplicate) the owning SSOT (perf → `docs/verification/performance.md`; integration → `docs/sds` Integration Points; security → the
   ops-conventions rule + scanner), (c) is no UX/a11y lens forced onto a non-UI stack (evidence-based emit)? Violations are `high`.
+- **SRS readability (8-1)**: (a) does `docs/srs/README.md` open with a Glossary that defines every
+  domain term and abbreviation the SRS files use, (b) is each thing named by its one Glossary term in
+  every SRS file — quote both spellings when one thing carries two names, (c) does any requirement
+  or acceptance criterion state an implementation (index, cache, query, endpoint) instead of what a
+  user or the business observes? (a) and (b) are `high` — two names read as two features. (c) is `med`.
 - **Stack reconcile coverage (9-6·10-1)**: are **all** the "stacks needing conventions"
   (infrastructure included) reported by the researcher either (a) given conventions (rule +
   `docs/code-style/<stack>.md`) or (b) recorded with a **rejection reason** in the SDS
