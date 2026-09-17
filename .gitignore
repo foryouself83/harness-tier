@@ -6,3 +6,6 @@ flow-config.yaml
 .claude/harness-tier/.flow/
 
 .claude/vway-kit/.vdev/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
