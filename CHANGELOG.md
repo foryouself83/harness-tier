@@ -2,6 +2,31 @@
 
 <!-- version list -->
 
+## v0.4.0-rc.1 (2026-09-22)
+
+### Bug Fixes
+
+- **hooks**: Stay armed when the config read fails
+  ([`89dd637`](https://github.com/foryouself83/harness-tier/commit/89dd637d92e8a01436786b6f474dc0799b5c0ee3))
+
+- **shipped**: Defects that fail without a signal
+  ([`36928c1`](https://github.com/foryouself83/harness-tier/commit/36928c1f8e5dff3715a710d578fa78bbb2aa32ed))
+
+### Features
+
+- **doc-style**: Make a comment the last resort
+  ([`6a120dd`](https://github.com/foryouself83/harness-tier/commit/6a120dda53eb49403ef7053b9eb9a54f88ebeaf7))
+
+- **docs**: Split USAGE into docs/usage/ topics
+  ([`2671e2a`](https://github.com/foryouself83/harness-tier/commit/2671e2ae212abc3a4261643ed189fff988285911))
+
+- **harness-authoring**: SRS readable by non-devs
+  ([`5dee2c6`](https://github.com/foryouself83/harness-tier/commit/5dee2c6c607661a05320a137394f143d5fb47948))
+
+- **skills**: Design deliverable skills to docx
+  ([`c47ce96`](https://github.com/foryouself83/harness-tier/commit/c47ce9666a75d23b2fe8f07f2119d1a6808eb67d))
+
+
 ## v0.3.3-rc.1 (2026-09-12)
 
 ### Bug Fixes
