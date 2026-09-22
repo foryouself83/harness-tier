@@ -153,6 +153,7 @@ Then start day-to-day work with **`/flow <task description>`**.
 | Skill | `/harness-insight` | Aggregate Claude Code activity over a period + insight report |
 | Skill | `/harness-deployments` | Layer deployment (registry publish / container image / app deploy) on the release workflow — detect → ask → render deploy CI (opt-in, after `/flow-init`) |
 | Skills | `/playwright-scaffold` · `/integration` · `/performance` | E2E scaffold / integration & performance checks (non-enforcing manual skills) |
+| Skills | `/design-srs` · `/design-sds` · `/design-architecture` · `/design-api` · `/design-erd` · `/design-table` | Requirement and design documents → `.docx` deliverables, ids and cross-references machine-checked (user-invoked only) |
 | Skill | `harness-authoring` | Generation engine `/harness-init` invokes internally — not called directly |
 | Agents | `harness-researcher` · `harness-code-analyzer` · `harness-critic` | Research / code analysis / output verification for harness generation |
 | Rule | `risk-tiers` | The single source of truth for risk classification + commit discipline — injected every session |

@@ -136,6 +136,19 @@ Dev `review` 게이트가 변경된 모든 파일을 판단하는 기준. 위 �
 검사기는 `CHANGELOG.md`, `docs/superpowers/`, `.superpowers/` 를 항상 건너뜀; `exclude` 는
 여기에 더할 뿐 뺄 수는 없음. `/flow-init` 이 이 섹션을 물음.
 
+### `design_docs`
+
+여섯 [설계 산출물 스킬](design-docs.ko.md) 이 읽음.
+
+| 슬롯 | 기본값 | 의미 |
+|------|--------|------|
+| `templates` | `.claude/harness-tier/templates/design-docs` | `<doc>.template.md` 파일 위치; `/flow-init` 이 최초 1회 시딩하고 이후 절대 덮어쓰지 않음 |
+| `docs` | `docs/deliverables` | 작성형 스킬(아키텍처·API·ERD·테이블)이 `<doc>.md` 를 쓰는 위치 — SRS·SDS 는 `docs/srs/`·`docs/sds/` 에 그대로 남음 |
+| `output` | `docs/deliverables/results` | `<doc>.docx` 가 렌더링되는 위치 |
+| `renderer` | `https://kroki.io` | `mermaid`·`d2` 도식 블록을 전송해 SVG로 렌더받는 곳 — 자체 호스팅 Kroki를 가리키면 도식 원본이 공개 서비스 밖으로 나가지 않음 |
+| `base_docx` | `null` | 렌더가 스타일을 재사용할 회사 `.docx` 양식; `null` 이면 `python-docx` 기본 스타일 사용 |
+| `gitignore_output` | `false` | `true` 면 `/flow-init` 이 `output` 을 `.gitignore` 에 추가 |
+
 ### CI 섹션
 
 `contract_test`·`unit_test`·`e2e`·`versioning` 은 각각 GitHub Actions 워크플로를 렌더링하고,

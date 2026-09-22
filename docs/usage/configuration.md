@@ -135,6 +135,19 @@ The prose check against [`rules/doc-style.md`](../../rules/doc-style.md).
 The checker always skips `CHANGELOG.md`, `docs/superpowers/` and `.superpowers/`; `exclude` adds
 to them and cannot remove one. `/flow-init` asks about this section.
 
+### `design_docs`
+
+Read by the six [design deliverable skills](design-docs.md).
+
+| Slot | Default | Meaning |
+|------|---------|---------|
+| `templates` | `.claude/harness-tier/templates/design-docs` | Where the `<doc>.template.md` files live; `/flow-init` seeds them once, never overwrites |
+| `docs` | `docs/deliverables` | Where a writer skill (architecture, API, ERD, table) writes `<doc>.md` — SRS and SDS stay in `docs/srs/`, `docs/sds/` |
+| `output` | `docs/deliverables/results` | Where every `<doc>.docx` is rendered |
+| `renderer` | `https://kroki.io` | Where a `mermaid`/`d2` diagram block is POSTed and rendered to SVG — point it at a self-hosted Kroki to keep diagram source off the public service |
+| `base_docx` | `null` | A company `.docx` whose styles the render reuses; `null` uses `python-docx`'s own default styling |
+| `gitignore_output` | `false` | `true` has `/flow-init` add `output` to `.gitignore` |
+
 ### CI sections
 
 `contract_test`, `unit_test`, `e2e` and `versioning` each render a GitHub Actions workflow;

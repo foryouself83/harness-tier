@@ -267,3 +267,16 @@ deploy:
 # that step leaves them standing for whatever runs next.
 gate_evidence:
   invalidate_on_edit: true
+
+# Design deliverables (/design-srs · /design-sds · /design-architecture · /design-api ·
+# /design-erd · /design-table). /flow-init seeds `templates` once and never overwrites it:
+# edit those files and every later check and .docx follows the edit.
+design_docs:
+  templates: .claude/harness-tier/templates/design-docs
+  docs: docs/deliverables              # <doc>.md the skills write (SRS/SDS stay in docs/srs, docs/sds)
+  output: docs/deliverables/results    # <doc>.docx
+  # Diagram source is POSTed here, so the design leaves the host; point it at a
+  # self-hosted Kroki to keep it inside.
+  renderer: https://kroki.io
+  base_docx: null                      # a company .docx whose styles the output uses
+  gitignore_output: false              # true → /flow-init adds `output` to .gitignore

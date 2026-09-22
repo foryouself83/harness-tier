@@ -70,6 +70,7 @@ skills/          one directory per slash command
 rules/           shipped SSOTs: tier discipline (+ on-demand parts), harness generation, prose
 scripts/         gate + setup scripts; the host copy list is flow_init_setup.py COPY_FILES
 github/          consumer workflow templates /flow-init and /wiki-init render
+templates/       design-doc templates /flow-init seeds once into the host (host-owned after)
 .github/         this repo's own CI
 tests/           pytest over scripts/ and over the shipped skill and rule files
 evals/           skill measurement (invocation, outcome) — NOT shipped: commit as test:/chore:

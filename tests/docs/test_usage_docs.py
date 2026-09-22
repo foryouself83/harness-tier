@@ -23,6 +23,7 @@ TOPICS = (
     "ci-workflows",
     "project-harness",
     "manual-verification",
+    "design-docs",
     "teams",
     "troubleshooting",
     "update-and-removal",
@@ -32,9 +33,7 @@ LINK = re.compile(r"\]\(([^)\s]+)\)")
 
 def test_the_topic_list_is_the_directory():
     """A topic added on disk but not here is never checked for a twin or an index entry."""
-    on_disk = {
-        p.name.removesuffix(".md").removesuffix(".ko") for p in USAGE_DIR.glob("*.md")
-    }
+    on_disk = {p.name.removesuffix(".md").removesuffix(".ko") for p in USAGE_DIR.glob("*.md")}
     assert on_disk == set(TOPICS)
 
 

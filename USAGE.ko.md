@@ -18,6 +18,7 @@
 | [CI 워크플로](docs/usage/ci-workflows.ko.md) | `/flow-init` 이 렌더링하는 워크플로 전체와 각각의 스위치 |
 | [프로젝트 하네스](docs/usage/project-harness.ko.md) | `/harness-init`(언어표 포함) · `/wiki-init` · `harness-insight` |
 | [수동 검증](docs/usage/manual-verification.ko.md) | `/integration` · `/performance` · `playwright-scaffold` |
+| [설계 산출물](docs/usage/design-docs.ko.md) | `/design-srs` · `/design-sds` · `/design-architecture` · `/design-api` · `/design-erd` · `/design-table` |
 | [Teams](docs/usage/teams.ko.md) | 웹훅 설정, 채널별 발송 시점 |
 | [문제 해결](docs/usage/troubleshooting.ko.md) | 차단 메시지별 의미, 게이트 무반응 |
 | [갱신과 제거](docs/usage/update-and-removal.ko.md) | `/flow-init` 재실행, `/flow-uninstall`, 수동 정리 |

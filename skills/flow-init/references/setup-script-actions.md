@@ -25,6 +25,11 @@ The script performs the following, idempotently:
   them** for the user to add manually.
 - **Appends** missing `.gitignore` lines (the gate-evidence `.flow/` directory and
   the personal webhook file), skipping any already present.
+- **Seeds** the design-doc templates into `design_docs.templates` (default
+  `.claude/harness-tier/templates/design-docs/`), one file at a time, skipping every file
+  that already exists — the host copy is the consumer's to edit, and every `/design-*`
+  check and render follows it. `.gitignore` also gains `design_docs.output` when
+  `gitignore_output: true`.
 - **Renders** `.github/workflows/api-contract.yml` from `flow-config.contract_test`
   when `enable: true` (creates if absent; if it already exists, **does NOT overwrite** —
   reports for manual review). `.github/workflows/` is GitHub's enforced location — a

@@ -146,6 +146,7 @@ pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre
 | 스킬 | `/harness-insight` | 지정 기간 Claude Code 활동 집계 + 인사이트 리포트 |
 | 스킬 | `/harness-deployments` | 릴리스 워크플로 위에 배포(레지스트리 발행 / 컨테이너 이미지 / 앱 배포) 계층 추가 — 감지 → 질문 → 배포 CI 렌더(옵트인, `/flow-init` 이후) |
 | 스킬 | `/playwright-scaffold` · `/integration` · `/performance` | E2E 스캐폴드 / 통합·성능 검증(비강제 수동 스킬) |
+| 스킬 | `/design-srs` · `/design-sds` · `/design-architecture` · `/design-api` · `/design-erd` · `/design-table` | 요구사항·설계 문서 → `.docx` 산출물, ID·상호 참조 기계 검증(사용자 호출 전용) |
 | 스킬 | `harness-authoring` | `/harness-init` 이 내부적으로 부르는 생성 엔진 — 직접 호출하지 않음 |
 | 에이전트 | `harness-researcher` · `harness-code-analyzer` · `harness-critic` | 하네스 생성용 리서치 / 코드 분석 / 생성물 검증 |
 | 룰 | `risk-tiers` | 위험도 분류 + 커밋 규율의 단일 기준 — 세션마다 주입 |
