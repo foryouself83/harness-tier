@@ -63,6 +63,11 @@
    (2nd–3rd level)** — ask which axes apply, and for axes that do not apply, do not delete them from the SRS but leave them as "N/A — reason"
    (distinguishing them from omissions — isomorphic to 9-2). If still unknown after asking, mark it "needs confirmation" in the SRS
    (no fabrication — rule 4). The produced **scope summary** is the single input source for research · rationale · SRS.
+   **The SRS is written for readers who do not write code**, so the gate also fixes its words: a thing the prompt
+   names two ways ("login" · "sign-in") is multiply interpretable — ask which term is canonical — and every
+   domain term and abbreviation lands in the scope summary with its meaning, as the SRS Glossary's input.
+   Requirements state what a user or the business observes, never the implementation (that is the SDS's).
+   The authoring half — Glossary section, one term per thing — is `tech-doc-guide.md`'s SRS section.
    **Brownfield goes through this gate too** — it still gets only a skeleton, with unresolved slots marked "needs
    confirmation", and code analysis is an input to scope, never a source of requirements. **FRs are never
    reverse-engineered from existing code**: code says what the system does, not what anyone wanted, so an FR inferred

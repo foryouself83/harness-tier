@@ -13,9 +13,6 @@ branches:
   # Production release branch (typically main)
   production: main
 
-  # feature branch name prefix (e.g. feature/, feat/)
-  feature_prefix: "feature/"
-
 # How work reaches its target branch. Only the flows listed here go through a PR; the rest
 # stay direct merges. An empty list (the default) = all direct — the existing behaviour.
 #   daily     — feature/* · fix/* → integration
@@ -68,13 +65,14 @@ modules:
       static: "npm --prefix services/web run typecheck"
       test:   "npm --prefix services/web test"
 
-# Regression / contract / idempotency review checklist — what the Dev `review` gate
-# judges every changed file against.
+# What the Dev `review` gate judges every changed file against. These five come from
+# rules/risk-tiers.md Step 3; a team appends its own rather than dropping one.
 review_checklist:
-  - "regression / regression tests pass"
-  - "cross-service contract / cross-service contract validity"
-  - "DB transaction / migration / DB transaction & migration safety"
-  - "async task idempotency / async task idempotency"
+  - "regression tests pass"
+  - "cross-service contract validity"
+  - "DB transaction & migration safety"
+  - "async task idempotency & queue routing"
+  - "API error conventions"
 
 # The host's own commit/versioning document, which /harness-init generates. The `commit` skill
 # reads it and prefers its project-specific facts (scope vocabulary, 0.x policy, and whether the
@@ -154,7 +152,8 @@ contract_test:
 # End-to-end CI safety net (CI only — GitHub Actions). Playwright suites only; no browser
 # front end → enable:false → not installed. /flow-init copies .github/workflows/e2e.yml as-is
 # (no tokens): it is a starting point you own and edit, and a later plugin fix does not reach
-# a file you already have. It blocks nothing — see USAGE "E2E safety net" before making it a
+# a file you already have. It blocks nothing — see docs/usage/ci-workflows.md "E2E
+# safety net" before making it a
 # required status check. NOTE: this flag is a RENDER switch. Setting it back to false leaves
 # an already-rendered e2e.yml running; delete that file to stop it.
 e2e:
@@ -268,3 +267,16 @@ deploy:
 # that step leaves them standing for whatever runs next.
 gate_evidence:
   invalidate_on_edit: true
+
+# Design deliverables (/design-srs · /design-sds · /design-architecture · /design-api ·
+# /design-erd · /design-table). /flow-init seeds `templates` once and never overwrites it:
+# edit those files and every later check and .docx follows the edit.
+design_docs:
+  templates: .claude/harness-tier/templates/design-docs
+  docs: docs/deliverables              # <doc>.md the skills write (SRS/SDS stay in docs/srs, docs/sds)
+  output: docs/deliverables/results    # <doc>.docx
+  # Diagram source is POSTed here, so the design leaves the host; point it at a
+  # self-hosted Kroki to keep it inside.
+  renderer: https://kroki.io
+  base_docx: null                      # a company .docx whose styles the output uses
+  gitignore_output: false              # true → /flow-init adds `output` to .gitignore

@@ -64,9 +64,9 @@ jobs:
               echo "## ❌ Release blocked — token lacks write permission"
               echo "Grant it: **Settings → Actions → General → Workflow permissions → Read and write**,"
               echo "or use a PAT secret \`RELEASE_TOKEN\` with Contents+Workflows: Read and write."
-              echo "See USAGE.md → \"Release token write permission\"."
+              echo "See docs/usage/promotion-and-release.md → \"Release token write permission\"."
             } >> "$GITHUB_STEP_SUMMARY"
-            echo "::error::token lacks write permission (see job summary / USAGE.md)"
+            echo "::error::token lacks write permission (see job summary / docs/usage/promotion-and-release.md)"
             exit 1
           fi
           echo "token write preflight: rc=$rc (0=ok; 20=undetermined → continue; a later failure step surfaces the how-to)"
@@ -181,5 +181,5 @@ jobs:
             echo "If this was a push/tag/release permission error, the token likely lacks write access."
             echo "Grant it: **Settings → Actions → General → Workflow permissions → Read and write**,"
             echo "or set a PAT secret \`RELEASE_TOKEN\` (Contents + Workflows: Read and write)."
-            echo "See USAGE.md → \"Release token write permission\"."
+            echo "See docs/usage/promotion-and-release.md → \"Release token write permission\"."
           } >> "$GITHUB_STEP_SUMMARY"

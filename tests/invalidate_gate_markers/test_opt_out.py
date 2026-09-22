@@ -91,6 +91,16 @@ def test_the_switch_has_to_be_asked_for(project: Path):
             assert not (flow(project) / name).exists(), (body, name)
 
 
+def test_a_config_the_reader_cannot_read_leaves_the_hook_armed(project: Path):
+    """A config path that is a directory passes `-r` and fails the first `read`. A reader
+    that dies there leaves the markers standing, so the switch fails toward armed instead."""
+    (project / ".claude" / "harness-tier" / "config" / "flow-config.yaml").mkdir(parents=True)
+    out = run(project, payload(str(project / "src" / "a.py")))
+    assert out.returncode == 0, out.stderr
+    for name in MARKERS:
+        assert not (flow(project) / name).exists(), name
+
+
 def test_the_switch_survives_the_shapes_a_real_config_has(project: Path):
     """The reader is line-based, so the shapes a hand-edited YAML file carries have to
     reach it: CRLF from a Windows editor, comments above and beside the key, a comment at

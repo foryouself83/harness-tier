@@ -23,8 +23,10 @@ against `expect` / `reject`.
 
 **Coverage is deliberately partial.** A scenario is worth writing only where a throwaway
 directory can create the state that decides the skill's answer. That covers /integration,
-/playwright-scaffold, /performance, /doc-sync and /wiki-init. The rest are out of reach
-here, and adding hollow scenarios for them would report coverage this file does not have:
+/playwright-scaffold, /performance, /doc-sync, /prose-review, /wiki-init and /design-table
+(the heaviest /design-* path; its siblings follow the same procedure). The rest are
+out of reach here, and adding hollow scenarios for them would report coverage this file
+does not have:
 
 * `/flow`, `/flow-init`, `/flow-uninstall` — their subject is the *host session*: a
   registered commit hook, an installed plugin cache, `${CLAUDE_PLUGIN_ROOT}`. A fixture
@@ -138,6 +140,196 @@ stolen refresh token is usable once.
 `users` owns the identity columns; `sessions` holds one row per refresh token and
 cascades on delete.
 """
+
+# Every failure the prose rule names, in one file: a header carrying an author tag, a change
+# log and a revision date; two comments that paraphrase the line under them; a docstring that
+# explains how; and a line anchor into another file. The comment marks and quotes here are
+# fixture bytes, not this module's own prose — a string literal is code to `python_prose`.
+PROSE_REVIEW_MODULE = '''"""Order pricing.
+
+@author  j.doe
+Last updated: 2026-08-14
+Changelog:
+  2026-08-14  split the discount table out of price()
+  2026-07-02  first cut
+"""
+
+DISCOUNTS = {"gold": 0.2, "silver": 0.1}
+
+
+def discount_for(tier):
+    """Look the tier up in DISCOUNTS and return what is there.
+
+    Does a dict lookup, falling back to 0.0 when the key is absent.
+    """
+    # read the discount out of the dict
+    return DISCOUNTS.get(tier, 0.0)
+
+
+def price(amount, tier):
+    # multiply the amount by one minus the discount
+    net = amount * (1 - discount_for(tier))
+    # round to two places, the same way billing/invoice.py:118 does
+    return round(net, 2)
+'''
+
+# A shop host for /design-table: an SRS with two FRs, an SDS mapping both, an ERD that
+# already issued ENT-001/ENT-002, and a schema whose orders table points at users. The
+# ERD is written in the shipped erd template's shape so the cross-check runs, not skips.
+DESIGN_SRS_README = """\
+---
+wiki_id: srs.readme
+title: Shop SRS
+tags: [srs]
+---
+# Shop SRS
+
+## 4. Customer Requirements
+
+<a id="c-001"></a>**C-001** Customers buy from the shop online.
+"""
+
+DESIGN_SRS_ORDER = """\
+---
+wiki_id: srs.order
+title: Orders
+tags: [srs]
+---
+# Orders
+
+<a id="fr-order-001"></a>**FR-ORDER-001** A visitor signs up. (← [C-001](README.md#c-001))
+
+<a id="fr-order-002"></a>**FR-ORDER-002** A user places an order. (← [C-001](README.md#c-001))
+"""
+
+DESIGN_SDS = """\
+---
+wiki_id: sds.readme
+title: Shop SDS
+tags: [sds]
+sources: {}
+---
+# Shop SDS
+
+## Module Overview
+
+#### accounts
+- Implemented requirements: [FR-ORDER-001](../srs/order.md#fr-order-001)
+- Owned data: users
+
+#### ordering
+- Implemented requirements: [FR-ORDER-002](../srs/order.md#fr-order-002)
+- Owned data: orders
+"""
+
+DESIGN_ERD = """\
+---
+wiki_id: deliverables.erd
+title: ERD
+tags: [deliverable, erd]
+related: [srs.readme]
+sources: {app/models.py: null}
+revisions:
+  - {version: "1.0", date: 2026-09-21, summary: first}
+---
+## 1. 개요
+
+Shop accounts and orders.
+
+## 2. 엔터티 관계도
+
+```mermaid
+erDiagram
+  USER ||--o{ ORDER : places
+```
+
+## 3. 엔터티 목록
+
+| 엔터티ID | 엔터티명 | 설명 | 주 식별자 | 요구사항 |
+|---|---|---|---|---|
+| <a id="ent-001"></a>ENT-001 | User | account | id | FR-ORDER-001 |
+| <a id="ent-002"></a>ENT-002 | Order | order | id | FR-ORDER-002 |
+
+## 4. 관계 정의
+
+| 부모 엔터티 | 자식 엔터티 | 카디널리티 | 관계 설명 |
+|---|---|---|---|
+| ENT-001 | ENT-002 | 1:N | a user places orders |
+
+## 5. 요구사항 추적표
+
+| 요구사항 | 엔터티 |
+|---|---|
+| FR-ORDER-001 | ENT-001 |
+| FR-ORDER-002 | ENT-002 |
+
+## 부록 A. 코드 인벤토리
+
+```bash
+grep -n "class .*(Base)" app/models.py
+```
+
+| 대상 | 근거 | 문서 ID |
+|---|---|---|
+| User | app/models.py | ENT-001 |
+| Order | app/models.py | ENT-002 |
+"""
+
+DESIGN_MODELS = """\
+from sqlalchemy import Column, ForeignKey, Integer, String
+from sqlalchemy.orm import declarative_base
+
+Base = declarative_base()
+
+
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True)
+    email = Column(String(255), nullable=False, unique=True)
+
+
+class Order(Base):
+    __tablename__ = "orders"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    total = Column(Integer, nullable=False)
+"""
+
+DESIGN_MIGRATION = """\
+CREATE TABLE users (
+  id INTEGER PRIMARY KEY,
+  email VARCHAR(255) NOT NULL UNIQUE
+);
+
+CREATE TABLE orders (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  total INTEGER NOT NULL
+);
+"""
+
+# Everything /flow-init would have put on the host for the /design-* skills: the checker
+# and its imports, and the seeded templates the check reads.
+DESIGN_HOST_COPIES = {
+    **{
+        f".claude/harness-tier/scripts/{name}": f"scripts/{name}"
+        for name in (
+            "_harness_paths.py",
+            "_md_anchors.py",
+            "_design_md.py",
+            "srs_check.py",
+            "wiki_graph.py",
+            "design_doc_check.py",
+            "design_doc_render.py",
+        )
+    },
+    **{
+        f".claude/harness-tier/templates/design-docs/{doc}.template.md": (
+            f"templates/design-docs/{doc}.template.md"
+        )
+        for doc in ("srs", "sds", "architecture", "api", "erd", "table")
+    },
+}
 
 
 SCENARIOS: list[Scenario] = [
@@ -436,6 +628,35 @@ SCENARIOS: list[Scenario] = [
         },
     ),
     Scenario(
+        name="prose-review-comments",
+        skill="prose-review",
+        why=(
+            "Both comments in app/pricing.py restate the line under them, the docstring "
+            "explains how, and the module header carries an author tag, a changelog and a "
+            "revision date. The tempting answer is to reword all of it into better prose; the "
+            "rule's answer is that most of it should not exist and the header belongs to git."
+        ),
+        prompt=(
+            "Go over the comments and docstrings in app/pricing.py and bring them in line "
+            "with the project's prose rules."
+        ),
+        expect=[
+            "deletes the comments that paraphrase the line beneath them rather than rewording",
+            "strips the author tag, the changelog and the date out of the module docstring",
+            "keeps the billing filename and drops the line number appended to it",
+            "cuts the how-explanation from the docstring and keeps what the code cannot say",
+        ],
+        reject=[
+            "rewrites a self-evident comment into a better sentence and keeps it",
+            "keeps the revision header because it reads as useful",
+            "changes a line of code while rewriting the prose",
+        ],
+        files={
+            "app/pricing.py": PROSE_REVIEW_MODULE,
+            "README.md": "# Pricing\n\nTier discounts are applied before rounding.\n",
+        },
+    ),
+    Scenario(
         name="wiki-init-migration",
         skill="wiki-init",
         why=(
@@ -523,6 +744,64 @@ SCENARIOS: list[Scenario] = [
             ".claude/harness-tier/config/flow-config.yaml": {
                 "must_contain": ["enable: true", "integration: dev"]
             },
+        },
+    ),
+    Scenario(
+        name="design-table-shop",
+        skill="design-table",
+        why=(
+            "The ERD already issued ENT-001/ENT-002 and the schema's orders table points at "
+            "users. The tempting answers invent entity names, copy the template's {{...}} "
+            "slots through, or hand-type a wiki_id — the golden asserts against those. An FK "
+            "cell left as a column name passes every substring needle, so that trap is "
+            "judged by expect alone."
+        ),
+        # /design-table is disable-model-invocation, so the slash command IS the prompt. The
+        # clause answers Step 1's install question: the outcome is the Markdown, and a
+        # headless session cannot answer AskUserQuestion.
+        prompt=(
+            "/design-table — do not install anything; if the render dependencies are "
+            "missing, run the check steps and skip rendering."
+        ),
+        expect=[
+            "issues one TBL block per schema table, users and orders",
+            "names ENT-001 and ENT-002 from erd.md in the entity column",
+            "puts the users table's TBL id in the orders FK column",
+            "records the listing command and one inventory row per table",
+            "takes wiki_id from --wiki-id and runs --doc table until it reports 0 violations",
+        ],
+        reject=[
+            "invents entities the ERD does not issue",
+            "leaves a {{...}} template slot in the document",
+            "edits the template or erd.md to make the check pass",
+        ],
+        files={
+            "docs/srs/README.md": DESIGN_SRS_README,
+            "docs/srs/order.md": DESIGN_SRS_ORDER,
+            "docs/sds/README.md": DESIGN_SDS,
+            "docs/deliverables/erd.md": DESIGN_ERD,
+            "app/models.py": DESIGN_MODELS,
+            "migrations/001_init.sql": DESIGN_MIGRATION,
+        },
+        copy_from_repo=DESIGN_HOST_COPIES,
+        outcome={
+            # Both tables issued, both entities mapped, the derived id used (value only: an
+            # author may quote the scalar), the listing command kept, no template slot left.
+            "docs/deliverables/table.md": {
+                "must_contain": [
+                    "wiki_id:",
+                    "deliverables.table",
+                    "tbl-001",
+                    "tbl-002",
+                    "ENT-001",
+                    "ENT-002",
+                    "```bash",
+                ],
+                "must_not_contain": ["{{"],
+            },
+            # The checker's inputs stay the consumer's: a run that edited them to pass
+            # would drop the ERD's ids.
+            "docs/deliverables/erd.md": {"must_contain": ["ent-001", "ent-002"]},
         },
     ),
 ]
