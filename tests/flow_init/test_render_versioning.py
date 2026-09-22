@@ -12,24 +12,41 @@ def _release_tools():
     return sorted(_RELEASE_TEMPLATES)
 
 
-# The one release template whose tool cannot be handed a level: Node semantic-release derives
-# the bump from commit types and reads no trailer. Listed rather than detected — a new
-# auto-only template has to be a decision, and an unlisted one fails the test below.
-_AUTO_ONLY_TOOLS = {"semantic-release"}
+# Release templates whose tool cannot be handed a level. None today: every template applies a
+# forced level. Listed rather than detected — a new auto-only template has to be a decision,
+# and an unlisted one fails the test below.
+_AUTO_ONLY_TOOLS: set[str] = set()
 
 
 def _reads_the_trailer(body: str) -> bool:
-    """The mechanism, not the mention: a run step that pulls the level out of the commit
-    message with a `sed -nE` anchored on `^Release-Level:`. Every trailer-reading template also
-    NAMES the trailer in a header comment, so a bare `"Release-Level" in body` is satisfied by
-    that comment alone and stays green when the extraction line itself is deleted."""
-    return any(
-        not line.lstrip().startswith("#")
-        and "git log" in line
-        and "sed" in line
-        and "^Release-Level:" in line
-        for line in body.splitlines()
-    )
+    """The mechanism, not the mention, AND its use: a run step that pulls the level out of the
+    commit message and acts on the result. Two accepted shapes: a `sed -nE` anchored on
+    `^Release-Level:` (the legacy per-tool extraction), or a `bump_version.py next` call whose
+    computed `$NEXT` is consumed after the shared block — used in a branch condition or handed
+    to a tool as an argument. The shared block itself is universal (every template computes
+    `$NEXT`), so a bare post-block `echo "version=$NEXT" >> "$GITHUB_OUTPUT"` does not count:
+    that forwards the value without acting on it. Every trailer-reading template also NAMES
+    the trailer in a header comment, so a bare `"Release-Level" in body` is satisfied by that
+    comment alone and stays green when the extraction — or its use — is deleted."""
+    lines = body.splitlines()
+    for line in lines:
+        if line.lstrip().startswith("#"):
+            continue
+        if "git log" in line and "sed" in line and "^Release-Level:" in line:
+            return True  # legacy per-tool extraction
+
+    marker_idx = next((i for i, line in enumerate(lines) if "<<< next-version" in line), None)
+    if marker_idx is None:
+        return False
+    for line in lines[marker_idx + 1 :]:
+        if line.lstrip().startswith("#"):
+            continue
+        if "$NEXT" not in line:
+            continue
+        if "GITHUB_OUTPUT" in line:
+            continue  # forwarded as a job output, not consumed
+        return True
+    return False
 
 
 def test_render_versioning_python(tmp_path):
@@ -163,6 +180,64 @@ def test_a_release_template_either_reads_the_trailer_or_is_declared_auto_only(to
             f"`git log -1 --pretty=%B | sed -nE 's/^Release-Level:...'` line, or list the tool "
             f"as auto-only."
         )
+
+
+_COMPUTE_ONLY_BODY = """\
+      - name: Compute next version (prerelease)
+        run: |
+          # >>> next-version (shared by every release workflow; tests/release_level pins it)
+          NEXT="$(python3 "$HARNESS_SCRIPTS/bump_version.py" next --tags "$(git tag --list)")"
+          # <<< next-version
+          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
+      - name: Semantic release
+        run: npx --yes semantic-release
+"""
+
+
+def test_reads_the_trailer_rejects_computation_without_consumption():
+    """Pins the gap a bare `_reads_the_trailer` scan for `bump_version.py next` would miss: the
+    shared next-version block is universal, so a template can compute `$NEXT` and only forward
+    it as a job output while its tool runs unconditionally. That shape must read as False.
+    Stripping python-semantic-release's forced-level dispatch back to the same shape
+    (compute-and-discard, no branch on `$NEXT`) must also flip it to False."""
+    from scripts.flow_init_setup import _RELEASE_TEMPLATES
+
+    assert not _reads_the_trailer(_COMPUTE_ONLY_BODY), (
+        "a template that only forwards $NEXT to $GITHUB_OUTPUT and never acts on it must not "
+        "count as reading the trailer."
+    )
+
+    psr_body = (PLUGIN / _RELEASE_TEMPLATES["python-semantic-release"]).read_text(
+        encoding="utf-8"
+    )
+    assert _reads_the_trailer(psr_body)
+    old = (
+        '          if [ "$NEXT" = "auto" ]; then\n'
+        "            semantic-release version --commit --tag --push --changelog\n"
+        "          else\n"
+        '            python "$HARNESS_SCRIPTS/finalize_prerelease.py" --set "$NEXT"\n'
+        "            git add pyproject.toml\n"
+        "            [ -f .claude-plugin/plugin.json ] && git add .claude-plugin/plugin.json\n"
+        '            git commit -m "chore(release): $NEXT [skip ci]"\n'
+        '            git tag "v$NEXT"\n'
+        "            semantic-release changelog || true\n"
+        "            git add CHANGELOG.md 2>/dev/null || true\n"
+        "            if ! git diff --cached --quiet -- CHANGELOG.md; then\n"
+        '              git commit --amend --no-edit && git tag -f "v$NEXT"\n'
+        "            fi\n"
+        '            git push origin HEAD:"$REF_NAME"\n'
+        '            git push origin "v$NEXT"\n'
+        "          fi\n"
+    )
+    assert old in psr_body, "apply block text drifted — update this pin alongside it"
+    mutated = psr_body.replace(
+        old, "          semantic-release version --commit --tag --push --changelog\n"
+    )
+    assert mutated != psr_body
+    assert not _reads_the_trailer(mutated), (
+        "stripping the forced-level dispatch back to an unconditional auto call must flip the "
+        "helper to False — it no longer applies a forced level, only computes and discards it."
+    )
 
 
 @pytest.mark.parametrize("tool", _release_tools())

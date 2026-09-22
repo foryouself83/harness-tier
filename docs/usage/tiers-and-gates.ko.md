@@ -115,9 +115,10 @@ flow 게이트는 SRS 를 전혀 읽지 않음. `docs/srs/` 가 생기면 `/flow
 | staging → production | `--no-ff` 필수 |
 | `fix/*` → integration | `--no-ff` 금지 |
 
-위반은 차단됨. 정답 플래그가 하나뿐인 흐름만 검사함: production → integration 백머지는
-fast-forward 나 `--no-ff` 둘 다 허용하고, production → staging 백머지는 fast-forward 가
-거부됐을 때 건너뛰길 원하는데 이는 어떤 `require` 규칙으로도 표현되지 않음. rebase 없이
+위반은 차단됨. 정답 플래그가 하나뿐인 흐름만 검사함: production → integration 백머지와
+재승격 전 staging → integration 백머지는 fast-forward 나 `--no-ff` 둘 다 허용하고,
+production → staging 백머지는 fast-forward 가 거부됐을 때 건너뛰길 원하는데 이는 어떤
+`require` 규칙으로도 표현되지 않음. rebase 없이
 올라온 `feature/*` 머지는 경고만 하고 차단하지 않음 — `origin` 참조가 오래됐을 때 오탐을
 막기 위함.
 

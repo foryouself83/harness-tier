@@ -235,6 +235,8 @@ do not go looking for a skill behind either — none exists; the hook runs the c
    from a `feature/*` branch, **"Rebase and merge"** from `fix/*` (Merge strategy rows 1·2;
    the integration ruleset allows both and cannot tell them apart, so this one is on you) —
    then stop. Without `gh`, print the compare URL and let the user create it — never block.
+   A `hotfix/*` branch merges into production instead: invoke `Skill: release-commit` and run
+   its Hotfix section, which owns that merge, the release check and the back-merge after it.
 
 ## Promotion — Staging (integration → staging) / Release (staging → production)
 

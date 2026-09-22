@@ -5,13 +5,13 @@
       "false_fire": 0.0,
       "false_hits": 0,
       "false_n": 15,
-      "invoke_hits": 4,
+      "invoke_hits": 3,
       "invoke_n": 15,
-      "invoke_rate": 0.27,
+      "invoke_rate": 0.2,
       "lost_to": {
         "release-commit": 1
       },
-      "measured_at": "2026-09-12",
+      "measured_at": "2026-09-22",
       "model": "claude-sonnet-5",
       "reps": 3,
       "restricted": 0.2,
@@ -36,17 +36,17 @@
     },
     "flow": {
       "description_sha": "b3c4655aa41c",
-      "false_fire": 0.04,
-      "false_hits": 1,
+      "false_fire": 0.08,
+      "false_hits": 2,
       "false_n": 25,
-      "invoke_hits": 16,
+      "invoke_hits": 18,
       "invoke_n": 25,
-      "invoke_rate": 0.64,
+      "invoke_rate": 0.72,
       "lost_to": {},
-      "measured_at": "2026-09-12",
+      "measured_at": "2026-09-22",
       "model": "claude-sonnet-5",
       "reps": 5,
-      "restricted": 0.6,
+      "restricted": 0.8,
       "truncated": 0.0,
       "truncated_quiet": 0.0
     },
@@ -162,12 +162,12 @@
       "invoke_n": 15,
       "invoke_rate": 0.67,
       "lost_to": {
-        "flow": 3
+        "flow": 4
       },
-      "measured_at": "2026-09-12",
+      "measured_at": "2026-09-22",
       "model": "claude-sonnet-5",
       "reps": 3,
-      "restricted": 0.8,
+      "restricted": 0.6,
       "truncated": 0.0,
       "truncated_quiet": 0.0
     }

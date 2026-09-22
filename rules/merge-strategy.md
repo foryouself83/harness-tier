@@ -12,15 +12,16 @@ Branch names refer to `flow-config.branches` keys.
 | integration → staging | **`--no-ff` Merge** | ✅ enforced |
 | staging → production | **`--no-ff` Merge** | ✅ enforced |
 | `hotfix/*` → production | **Squash** — under `promotion` PR mode a **PR** (merge commit) | ✅ enforced |
-| production → integration (after release) | **FF / `--no-ff` Merge** (back-merge) | — |
-| production → staging (after release) | **FF only** (back-merge; refused → skip) | — |
+| staging → integration (before a re-promotion) | **FF / `--no-ff` Merge** (back-merge) | — |
+| production → integration (after a release or hotfix) | **FF / `--no-ff` Merge** (back-merge) | — |
+| production → staging (after a release or hotfix) | **FF only** (back-merge; refused → skip) | — |
 
 **Gate column** — `flow-tiers.yaml`'s `merge_strategy`, checked by the PreToolUse hook on
 `git merge`. ✅ = exit 2 on a violating flag, `require` and `forbid` alike. `—` = no
 `merge_strategy` entry.
 
-- Row 6: a choice ("or") — nothing to enforce.
-- Row 7: a refused fast-forward needs a **skip**, and `require: --ff-only` would block the
+- Rows 6 and 7: a choice ("or") — nothing to enforce.
+- Row 8: a refused fast-forward needs a **skip**, and `require: --ff-only` would block the
   `--no-ff` retry instead of ending the step.
 - Row 2's ✅ names a narrower pattern than its row — enforced for that pattern only; the
   rest is unchecked discipline.

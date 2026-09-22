@@ -120,10 +120,10 @@ Branch names resolve from `flow-config.branches`.
 | `fix/*` → integration | `--no-ff` refused |
 
 A violation is blocked. Only flows with a single correct flag are checked: the production →
-integration back-merge allows fast-forward or `--no-ff`, and the production → staging back-merge
-wants a skip when the fast-forward is refused, which no `require` rule expresses. A `feature/*`
-merge not rebased first is warned about, not blocked — a stale `origin` ref would otherwise raise
-false alarms.
+integration back-merge and the staging → integration back-merge before a re-promotion allow
+fast-forward or `--no-ff`, and the production → staging back-merge wants a skip when the
+fast-forward is refused, which no `require` rule expresses. A `feature/*` merge not rebased
+first is warned about, not blocked — a stale `origin` ref would otherwise raise false alarms.
 
 A command the gate cannot decide lets the merge through: no matching rule, a command it cannot
 parse, or merges that all run in another directory. A merge behind a `cd` beside one naming no
