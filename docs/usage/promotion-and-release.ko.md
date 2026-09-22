@@ -36,8 +36,11 @@
 3. **Release** — `origin/<staging>` 가 대기 중인 `X.Y.Z-rc.N` 버전을 갖는지 확인하고,
    `/security-review` 를 돌리고, `security` 마커를 기록함. 코드 리뷰는 없음 — Dev 와
    Staging 에서 이미 이 diff 를 읽었기 때문.
-4. **머지한 뒤 커밋하고 push 함.** `git merge --no-ff --no-commit origin/<source>` 다음
-   `/commit` 이 대기 중인 머지를 `Merge <source>: <headline>` 으로 쓰고, 이어서 push —
+4. **머지한 뒤 커밋하고 push 함.** `git merge --no-ff --no-commit origin/<source>`; Release
+   에서는 이어서 정식 `CHANGELOG.md` 절을 초안해 접어 넣음 — 이 릴리스가 담는 모든 rc 를
+   중복 없이 요약해 승인받은 뒤 반영함
+   ([정식 changelog 절](#정식-changelog-절)). 그다음 `/commit` 이 대기 중인 머지를
+   `Merge <source>: <headline>` 으로 쓰고, 이어서 push —
    릴리스 워크플로를 쏘는 것이 그 push 임. Staging 에서 워크플로가 트레일러를 읽으면
    `Release-Level: <choice>` 를 붙임 — `auto` 포함, 항상 명시. CI 는 `git log -1` 만
    읽으므로 순서가 중요함: 머지 전에 커밋된 트레일러는 한 커밋 뒤로 밀려나고 실행은
@@ -105,6 +108,23 @@ staging 승격 커밋은 `Release-Level:` 에 `auto`·`continue`·`patch`·`mino
 제시하며, 재승격에서는 트레일러를 쓰지 않음 — 그 워크플로가 rc 를 스스로 이어감.
 `continue`·`auto`·가드를 쓰려면 `.github/workflows/release.yml` 을 지우고 `/flow-init` 을
 다시 실행한 뒤 손으로 고친 부분을 옮겨 옴.
+
+## 정식 changelog 절
+
+Release 에서, production 커밋 전에 `/release-commit` 이 이 릴리스가 담는 모든 rc 절을 읽어
+`CHANGELOG.md` 가 이미 쓰는 방식으로 그룹화한 중복 없는 요약 하나를 초안하고 승인받음.
+승인된 본문은 그 릴리스의 `## vX.Y.Z` 절로 `CHANGELOG.md` 에 접혀 들어가 승격 커밋에
+합류함. 렌더링된 모든 릴리스 템플릿은 그 뒤 stable 브랜치에서 공유 단계를 돌려 GitHub
+Release 의 notes 를 그 절로 바꿔 씀 — fail-open: 정식 절이 없거나 `gh release edit` 이
+실패하면 릴리스 도구가 이미 만든 notes 를 그대로 둠.
+
+hotfix 는 여기서 아무것도 접지 않음 — PSR 자체 hotfix 경로가 정식 절을 직접 쓰고, 이
+단계는 그것을 읽음. `@semantic-release/changelog` 를 돌리는 Node 호스트는 그 플러그인이
+만든 절을 이 절 위에 하나 더 얹고, 이 단계는 그 첫 절을 대신 읽음.
+
+`promotion` PR 모드에서는 이 단계를 건너뜀 — Release PR 은 `origin/<staging>` 자체를
+머지하지, 이 단계가 접어 넣는 로컬 머지를 머지하지 않으므로, 릴리스는 그 도구가 만든
+notes 를 그대로 유지함.
 
 ## PR 워크플로와 브랜치 룰셋
 

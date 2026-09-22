@@ -205,6 +205,22 @@ jobs:
             gh release create "$TAG" --title "$TAG" --generate-notes $PRERELEASE
           fi
 
+      - name: Stable release notes from CHANGELOG
+        if: ${{ github.ref_name == 'main' && steps.sr.outputs.released == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          HARNESS_SCRIPTS: scripts
+        run: |
+          TAG="$(git describe --tags --abbrev=0)"
+          # >>> release-notes (shared by every release workflow; tests/release_level pins it)
+          if python3 "$HARNESS_SCRIPTS/changelog_section.py" extract --version "${TAG#v}" > stable-notes.md; then
+            gh release edit "$TAG" --notes-file stable-notes.md \
+              || echo "::warning::could not replace the $TAG release notes with its CHANGELOG section"
+          else
+            echo "no stable ${TAG} section in CHANGELOG.md — keeping the release notes as created"
+          fi
+          # <<< release-notes
+
       - name: On failure — release token hint
         if: ${{ failure() }}
         run: |

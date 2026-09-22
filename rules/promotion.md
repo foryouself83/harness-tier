@@ -138,7 +138,8 @@ so integration's `plugin.json` drifts to a stale version.
 After every production release, **back-merge production → integration**
 — one merge, nothing else. A hotfix release is one too: `hotfix/*` → production
 never passes through `/release-commit`'s Release, so its back-merge runs from
-[`release-commit`](../skills/release-commit/SKILL.md)'s Hotfix section. The merge:
+[`release-commit`](../skills/release-commit/SKILL.md)'s Hotfix procedure
+([`references/hotfix.md`](../skills/release-commit/references/hotfix.md)). The merge:
 
 ```bash
 git fetch origin
@@ -320,8 +321,14 @@ will not make, never as the change that was written, and this was the only
 layer that read it the right way round.
 
 1. Security review — `/security-review` → record `security`.
-2. Release note — Conventional Commits + semantic-release; the grouped, plumbing-filtered
-   CHANGELOG section becomes the GitHub Release body (auto-notes fallback).
+2. Stable changelog section —
+   [`references/changelog.md`](../skills/release-commit/references/changelog.md) drafts a
+   deduplicated summary of every rc the release folds in, the user approves it, and it folds
+   into `CHANGELOG.md` as that release's `## vX.Y.Z` section, staged into the merge. Every
+   release template's shared step then replaces the GitHub Release body with that section
+   (auto-notes fallback when none exists). Under `promotion` PR mode this step is skipped —
+   the PR merges `origin/<staging>` itself, never the local merge this step folds into
+   ([`references/pr-mode.md`](../skills/release-commit/references/pr-mode.md)).
 3. Promote staging → production and/or deploy, or open a PR for the
    promotion when `merge_workflow.pull_request` includes `promotion`
    (the PR workflow above, which covers `hotfix/*` →

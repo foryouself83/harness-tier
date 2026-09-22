@@ -39,7 +39,7 @@ def test_state_without_a_pending_rc_reports_continue_as_failing(capsys):
 
 
 def test_state_reads_the_tag_list_from_git_when_none_is_given(monkeypatch, capsys):
-    monkeypatch.setattr(bump_version, "_git_tags", lambda: PENDING.splitlines())
+    monkeypatch.setattr(bump_version, "git_tags", lambda: PENDING.splitlines())
     assert main(["state"]) == 0
     assert capsys.readouterr().out.splitlines()[0] == "pending: v1.1.0-rc.2"
 
@@ -48,7 +48,7 @@ def test_state_fails_when_git_cannot_list_tags(monkeypatch, capsys):
     def broken():
         raise OSError("git: not found")
 
-    monkeypatch.setattr(bump_version, "_git_tags", broken)
+    monkeypatch.setattr(bump_version, "git_tags", broken)
     assert main(["state"]) == 2
     captured = capsys.readouterr()
     assert captured.out == ""
@@ -65,14 +65,14 @@ def test_git_tags_reads_a_real_repository(tmp_path, monkeypatch):
     git("tag", "v1.0.0")
     git("tag", "v1.1.0-rc.1")
     monkeypatch.chdir(tmp_path)
-    assert sorted(bump_version._git_tags()) == ["v1.0.0", "v1.1.0-rc.1"]
+    assert sorted(bump_version.git_tags()) == ["v1.0.0", "v1.1.0-rc.1"]
 
 
 def test_git_tags_raises_outside_a_repository(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
     with pytest.raises(OSError):
-        bump_version._git_tags()
+        bump_version.git_tags()
 
 
 def test_state_survives_a_non_utf8_stdout():

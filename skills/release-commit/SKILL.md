@@ -17,7 +17,7 @@ argument-hint: "[staging | release]"
 # glob's `*` crosses path separators including `..`. `git commit` and `git merge` are
 # deliberately absent — the commit prompt is the mechanical backstop behind the gate, and this
 # skill's whole subject is which merge shape the release CI needs.
-allowed-tools: Bash(grep -c Release-Level .github/workflows/release.yml) Bash(grep -c next-version .github/workflows/release.yml) Bash(git fetch origin) Bash(git fetch --tags origin) Bash(python3 .claude/harness-tier/scripts/bump_version.py state) Bash(mkdir -p .claude/harness-tier/.flow) Bash(touch .claude/harness-tier/.flow/review.done) Bash(touch .claude/harness-tier/.flow/bump.done) Bash(touch .claude/harness-tier/.flow/security.done)
+allowed-tools: Bash(grep -c Release-Level .github/workflows/release.yml) Bash(grep -c next-version .github/workflows/release.yml) Bash(git fetch origin) Bash(git fetch --tags origin) Bash(python3 .claude/harness-tier/scripts/bump_version.py state) Bash(python3 .claude/harness-tier/scripts/changelog_section.py pending) Bash(mkdir -p .claude/harness-tier/.flow) Bash(touch .claude/harness-tier/.flow/review.done) Bash(touch .claude/harness-tier/.flow/bump.done) Bash(touch .claude/harness-tier/.flow/security.done)
 ---
 
 # Release Commit — integration → staging → production
@@ -41,7 +41,13 @@ Branch names come from `flow-config.branches` (`integration` / `staging` / `prod
 
 - **$ARGUMENTS** — `staging` (integration → staging) or `release` (staging → production). With
   neither, ask the user which promotion this is. A `hotfix/*` branch `/flow` hands over takes
-  neither: it runs [Hotfix](#hotfix-hotfix--production).
+  neither: it runs [`references/hotfix.md`](references/hotfix.md).
+
+Three more procedures sit in `references/`, each read only when it applies:
+[`changelog.md`](references/changelog.md) at Step 2 item 5,
+[`pr-mode.md`](references/pr-mode.md) when `flow-config.merge_workflow.pull_request` names
+`promotion` or `daily`, and [`wiki-gate.md`](references/wiki-gate.md) when the `wiki` gate
+blocks a promotion commit.
 
 ## Which gates need a marker
 
@@ -230,7 +236,8 @@ python3 .claude/harness-tier/scripts/bump_version.py state
 The rc was cut when `pending:` names `v` plus the version the chosen option was labelled
 with — the `continue` line's on a legacy re-promotion, and for `auto` or a count 0 host any rc
 other than the first read's `pending:`. The same line, `none` or a failed run: **no rc was cut
-and the promotion is not finished** — report it and stop. Under PR mode, check after the merge.
+and the promotion is not finished** — report it and stop. Under PR mode, check after the merge
+([`pr-mode.md`](references/pr-mode.md)).
 
 **A run that stops at the rc goes to End state from here** — the ordinary case. `bump.done`
 outlives it otherwise: the PostToolUse hook deletes the `review` and `doc-sync` markers only,
@@ -275,7 +282,11 @@ git switch <production> && git merge --ff-only origin/<production>
 git merge --no-ff --no-commit origin/<staging>
 ```
 
-**5. Write that pending merge** through `Skill: commit` — **no level here.** Finalize is
+**5. Write the stable changelog section** into the open merge —
+[`references/changelog.md`](references/changelog.md): a deduplicated summary of every rc this
+release folds in, approved by the user, which the release CI publishes as the release notes.
+
+**6. Write that pending merge** through `Skill: commit` — **no level here.** Finalize is
 deterministic: it strips the rc token off the version staging already carries. Same subject
 form as Staging (`Merge <staging>: <headline>`), and the same fixed order, for the same
 reason: HEAD is the only commit CI reads. Then push — this is what fires finalize:
@@ -285,127 +296,6 @@ git push origin <production>
 ```
 
 Deploy is project-specific and not gated; the production-branch commit is the gate.
-
-## Hotfix (hotfix/* → production)
-
-A hotfix reaches production without passing through staging or Step 2, and still ships a
-release — so End state's back-merge is owed after it too. `/flow` hands a `hotfix/*` branch
-here once its Dev-tier commit is on the branch.
-
-**1. Record the baseline before merging** — production's current tag, which item 4 compares
-against, and the `pending:` line, which item 6 compares against:
-
-```bash
-git fetch --tags origin
-git describe --tags --abbrev=0 origin/<production>
-python3 .claude/harness-tier/scripts/bump_version.py state
-```
-
-Write both into the run's output literally, as `before: vX.Y.Z` and the `pending:` line —
-each Bash call is a fresh shell, so a variable holding them is gone by item 4.
-
-**2. Security review, then the marker.** The squash commit lands on production, so the commit
-hook gates it as Release: `/security-review` over the hotfix branch's changes, then
-
-```bash
-mkdir -p .claude/harness-tier/.flow
-touch .claude/harness-tier/.flow/security.done
-```
-
-**3. Squash the hotfix into production** —
-[`merge-strategy.md`](../../rules/merge-strategy.md) row 5; the hook blocks this merge
-without `--squash`:
-
-```bash
-git switch <production> && git merge --ff-only origin/<production>
-git merge --squash hotfix/<name>
-```
-
-Write it through `Skill: commit` as a `fix:` commit — not a `Merge` subject, and never
-`[skip ci]`: this commit is what fires the release workflow and what the release tool reads a
-patch from. Then push:
-
-```bash
-git push origin <production>
-```
-
-Under `promotion` PR mode the production ruleset rejects that local path: open a PR from the
-hotfix branch and merge it with "Create a merge commit" instead
-([`promotion.md`](../../rules/promotion.md) PR workflow). Items 4 to 6 run once it merges.
-
-**4. Confirm the release shipped.** Wait for the release run on that push, then read production's
-tag again — the `after` value:
-
-```bash
-git fetch --tags origin
-git describe --tags --abbrev=0 origin/<production>
-```
-
-The release shipped when this `after` value is a stable `vX.Y.Z` — no `-rc.` — and differs
-from item 1's `before`. `after` equal to `before` means the run has not finished or has
-failed; the back-merge waits for it, because what it carries is that run's `chore(release)`
-commits.
-
-**5. Back-merge**, both steps of End state with its commands as written there: production →
-integration, fast-forward else `--no-ff`, not optional; then production → staging,
-`--ff-only` alone, a refused fast-forward skipped and reported. An integration that took a
-re-promotion back-merge carries the rc version, so the version files conflict: keep
-integration's rc version lines.
-
-**6. Tell the user when the hotfix overtook the pending rc.** When item 1 recorded
-`pending: vX.Y.Z-rc.N` and item 4's `after` is `vX.Y.Z` — the same base — or higher, that
-rc can no longer be released. The finalize step fails its release run, printing (for a higher
-one, `is below the latest release`):
-
-```text
-::error::vX.Y.Z already exists — a hotfix shipped this base. Re-promote staging with Release-Level: patch (or higher) before releasing.
-```
-
-It is no longer pending either, so `continue` fails too. The next integration → staging
-promotion must choose `patch` or higher (`1.1.1-rc.1` behind a shipped `1.1.1` →
-`1.1.2-rc.1`). Any other answer needs nothing further.
-
-**7. Clear the markers** with End state's `rm -f`.
-
-## PR-mode promotion
-
-When `flow-config.merge_workflow.pull_request` includes `promotion`, the merge moves to a pull
-request and the hook stops seeing it. Gate recording is unchanged — every marker above is
-still written on the local commit.
-
-- The PR **must** land as a **merge commit**. A rebase stops the release; a squash destroys the
-  history semantic-release reads.
-- On a `count >= 1` host, pin the trailer item 3 chose in the merge command, `auto` included
-  (a legacy re-promotion pins none).
-  `PR` is a literal number: written as `<n>`, bash reads `<n` as a redirection and eats the
-  next word.
-
-  ```bash
-  PR=123
-  gh pr merge "$PR" --merge --subject "Merge <staging>: release X.Y.Z" --body "Release-Level: <choice>"
-  ```
-
-- The PR merge replaces Step 1 item 8's and Step 2 item 5's push: confirm the rc once it lands.
-- A **`hotfix/*` → production** landing is a PR under this mode too — the production ruleset
-  governs every merge into that branch and rejects the local squash-and-push.
-- Under `daily` PR mode the integration ruleset rejects the re-promotion back-merge's
-  `git push origin <integration>`, as it does the release back-merge's: whoever runs it needs
-  the integration bypass actor ([`promotion.md`](../../rules/promotion.md) PR workflow).
-
-## When the `wiki` gate blocks the promotion commit
-
-`doc-sync` is the only **gate** that rebuilds `graph.yaml`, and it is not a promotion one — so
-graph drift that reached the integration branch through a terminal commit surfaces here, as a
-blocked promotion commit. Resolve it in place:
-
-```bash
-python3 .claude/harness-tier/scripts/wiki_graph.py --build
-```
-
-Stage the rebuilt `graph.yaml` into the promotion commit. A failure naming a **structure**
-violation instead — `wiki_id` format or duplicate, missing `title`, dangling `depends_on`, a
-cycle, front matter that carries a `wiki_id` and does not parse — is a document's front matter
-to fix; `--build` cannot resolve those.
 
 ## End state
 
@@ -449,7 +339,7 @@ passing evidence. A run that ended at Staging is where that bites: nothing else 
 `bump.done`, so the next rc satisfies its fail-closed `bump` gate with no one choosing a level.
 
 ```bash
-rm -f .claude/harness-tier/.flow/review.done .claude/harness-tier/.flow/bump.done .claude/harness-tier/.flow/security.done
+rm -f .claude/harness-tier/.flow/review.done .claude/harness-tier/.flow/bump.done .claude/harness-tier/.flow/security.done .claude/harness-tier/.flow/release-notes.md
 ```
 
 Deleting evidence stays a deliberate prompt: no `allowed-tools` rule covers that `rm`. Under

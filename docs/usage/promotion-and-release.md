@@ -36,8 +36,11 @@ With no argument it asks which promotion. A bare "cut the release" reaches it to
 3. **Release** — confirms `origin/<staging>` carries a pending `X.Y.Z-rc.N` version, runs
    `/security-review`, and writes the `security` marker. No code review: Dev and Staging read
    this diff already.
-4. **Merges, then commits, then pushes.** `git merge --no-ff --no-commit origin/<source>`,
-   then `/commit` writes the pending merge as `Merge <source>: <headline>`, followed by a
+4. **Merges, then commits, then pushes.** `git merge --no-ff --no-commit origin/<source>`;
+   at Release, drafts and folds the stable `CHANGELOG.md` section next — a deduplicated
+   summary of every rc the release folds in, shown for approval before it lands
+   ([the stable changelog section](#the-stable-changelog-section)). Then `/commit` writes
+   the pending merge as `Merge <source>: <headline>`, followed by a
    push — that push is what fires the release workflow. At Staging, where the workflow reads
    the trailer, it carries `Release-Level: <choice>` — always written, `auto` included. CI
    reads `git log -1` alone, so the order matters: a trailer committed before the merge sits
@@ -105,6 +108,25 @@ guard; `/release-commit` spots it (`next-version` count 0), warns, offers only
 patch / minor / major on a first promotion and writes no trailer on a re-promotion, where
 that workflow continues the rc on its own. To get `continue`, `auto` and the guard, delete
 `.github/workflows/release.yml` and re-run `/flow-init`, then carry over any hand edits.
+
+## The stable changelog section
+
+At Release, before the production commit, `/release-commit` reads every rc section the
+release folds in, drafts one deduplicated summary grouped the way `CHANGELOG.md` already
+is, and shows it for approval. The approved body folds into `CHANGELOG.md` as that
+release's `## vX.Y.Z` section and joins the promotion commit. Every rendered release
+template then runs a shared step on the stable branch that replaces the GitHub Release's
+notes with that section — fail-open: a release with no stable section, or a failed
+`gh release edit`, keeps the notes the release tool already created.
+
+A hotfix folds nothing here — PSR's own hotfix path writes its stable section directly,
+and this step reads that one. A Node host running `@semantic-release/changelog` gets a
+second section from that plugin, prepended above this one, and the step reads that first
+section instead.
+
+Under `promotion` PR mode this step is skipped: the Release PR merges `origin/<staging>`
+itself, never the local merge this step folds into, so the release keeps the notes its tool
+generated instead.
 
 ## PR workflow and branch rulesets
 

@@ -91,6 +91,21 @@ jobs:
       - name: Expose released tag
         id: exposetag
         run: echo "tag=$(git describe --tags --abbrev=0)" >> "$GITHUB_OUTPUT"
+      - name: Stable release notes from CHANGELOG
+        if: ${{ github.ref_name == '__HARNESS_STABLE__' && steps.exposetag.outputs.tag != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          HARNESS_SCRIPTS: .claude/harness-tier/scripts
+          TAG: ${{ steps.exposetag.outputs.tag }}
+        run: |
+          # >>> release-notes (shared by every release workflow; tests/release_level pins it)
+          if python3 "$HARNESS_SCRIPTS/changelog_section.py" extract --version "${TAG#v}" > stable-notes.md; then
+            gh release edit "$TAG" --notes-file stable-notes.md \
+              || echo "::warning::could not replace the $TAG release notes with its CHANGELOG section"
+          else
+            echo "no stable ${TAG} section in CHANGELOG.md — keeping the release notes as created"
+          fi
+          # <<< release-notes
 
   # __HARNESS_DEPLOY_BEGIN__ (managed by /harness-deployments · /flow-init — do not edit inside)
   # __HARNESS_DEPLOY_END__

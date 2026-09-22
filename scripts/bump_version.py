@@ -173,7 +173,7 @@ def next_version(
     return version
 
 
-def _git_tags() -> list[str]:
+def git_tags() -> list[str]:
     """Return `git tag --list` of the working directory; OSError when git cannot answer."""
     try:
         r = subprocess.run(
@@ -242,7 +242,7 @@ def main(argv: list[str]) -> int:
         if hasattr(sys.stdout, "reconfigure"):
             sys.stdout.reconfigure(encoding="utf-8")
         try:
-            tags = args.tags.splitlines() if args.tags is not None else _git_tags()
+            tags = args.tags.splitlines() if args.tags is not None else git_tags()
         except OSError as e:
             print(f"bump_version: cannot list tags — {e}", file=sys.stderr)
             return 2
