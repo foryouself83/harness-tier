@@ -1,8 +1,49 @@
 import re
+from pathlib import Path
 
+import pytest
 import yaml
 
+from scripts.doc_style_check import markdown_prose
 from tests.skills._helpers import REPO, body
+
+# The documents a consumer reads to find out what they got: each README, and the usage guide
+# in each language read as one text, since a skill documented in any topic file is documented.
+# Both languages are listed: a row added to one and not the other is the drift `doc-sync`
+# exists to catch.
+CONSUMER_DOCS = ("README.md", "README.ko.md", "docs/usage (en)", "docs/usage (ko)")
+USAGE_DIR = REPO / "docs" / "usage"
+# The one skill a consumer never reaches for. `/harness-init` invokes it as its generation
+# engine and its own description says not to call it directly, so it has no consumer-facing
+# timing, arguments or behaviour to write down.
+UNLISTED_SKILLS = frozenset({"harness-authoring"})
+
+
+def _consumer_text(doc: str) -> str:
+    if doc == "docs/usage (en)":
+        files = [p for p in sorted(USAGE_DIR.glob("*.md")) if not p.name.endswith(".ko.md")]
+    elif doc == "docs/usage (ko)":
+        files = sorted(USAGE_DIR.glob("*.ko.md"))
+    else:
+        files = [REPO / doc]
+    return chr(10).join(p.read_text(encoding="utf-8") for p in files)
+
+
+@pytest.mark.parametrize("doc", CONSUMER_DOCS)
+def test_every_consumer_facing_skill_is_registered(doc: str):
+    """Adding a skill directory is not adding a skill a consumer can find. `prose-review`
+    shipped in none of the four, and nothing failed: the component tables and the USAGE
+    sections are hand-maintained, and the `doc-sync` gate that reconciles them never runs in
+    a repo with no `flow-config.yaml`."""
+    text = _consumer_text(doc)
+    missing = sorted(
+        p.parent.name
+        for p in REPO.glob("skills/*/SKILL.md")
+        if p.parent.name not in UNLISTED_SKILLS
+        and f"`{p.parent.name}`" not in text
+        and f"`/{p.parent.name}`" not in text
+    )
+    assert not missing, f"{doc} names no {missing} — a consumer cannot find what it does"
 
 
 def copy_files() -> list[str]:
@@ -83,3 +124,74 @@ def test_the_commit_guide_slot_is_the_one_the_commit_skill_reads():
     assert example["commit_guide"] in guide, (
         "tech-doc-guide no longer generates the doc the commit_guide default points at"
     )
+
+
+def _checklist_in(doc: Path) -> list[str]:
+    """The items of the `review_checklist:` block in a doc's config example.
+
+    Read as a block rather than as substrings: an item quoted in the surrounding prose says
+    nothing about whether the example a reader copies still carries it.
+    """
+    out: list[str] = []
+    seen = False
+    for line in doc.read_text(encoding="utf-8").splitlines():
+        if line.startswith("review_checklist:"):
+            seen = True
+            continue
+        if not seen:
+            continue
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            out.append(yaml.safe_load(stripped[2:]))
+        elif stripped.startswith("#") or not stripped.split("#")[0].strip():
+            continue
+        else:
+            break
+    return out
+
+# A nested step is indented, and the shape is no less broken one level down. Case-insensitive
+# for the same reason. Fenced blocks are dropped before this runs — a sample of the broken
+# shape inside one is an illustration, not a step.
+_SUBSTEP_MARKER = re.compile(r"^[ \t]*\d+[a-z]+[.)]\s", re.IGNORECASE)
+
+
+@pytest.mark.parametrize("skill", sorted(d.name for d in (REPO / "skills").iterdir() if d.is_dir()))
+def test_no_skill_numbers_a_step_in_a_shape_commonmark_rejects(skill: str):
+    """CommonMark takes digits then `.` or `)` and nothing else, so a step numbered `1b.`
+    is not a list item — it is absorbed as a lazy continuation of the step above it, taking
+    its own continuation lines with it. The page still reads, which is why this survived:
+    only the structure is gone."""
+    text = (REPO / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+    hits = [line for _, line in markdown_prose(text) if _SUBSTEP_MARKER.match(line)]
+    assert not hits, (
+        f"{skill}/SKILL.md numbers a step {hits} — renumber the list; CommonMark reads that "
+        "as a paragraph, not a list item"
+    )
+
+
+def test_the_review_checklist_is_one_list_in_three_files():
+    """The template a host copies and the two configuration guides that quote it. They drifted once
+    already: an English pass rewrote the Korean half of each `term / meaning` line into the
+    term again, leaving `regression / regression tests pass` in the template while USAGE had
+    deduped two of the four. A reader then cannot tell which file is the example."""
+    example = yaml.safe_load((REPO / "flow-config.example.yaml").read_text(encoding="utf-8"))
+    items = example["review_checklist"]
+    assert items, "flow-config.example lost its review_checklist"
+    for item in items:
+        head, sep, tail = item.partition(" / ")
+        # The leftover shape is the term restated on the far side of the separator, not
+        # always verbatim: `DB transaction / migration / DB transaction & migration safety`
+        # buries it one segment further in. Containment catches every form it took.
+        assert not (sep and head in tail), f"{item!r} restates itself across the separator"
+    for doc in ("docs/usage/configuration.md", "docs/usage/configuration.ko.md"):
+        quoted = _checklist_in(REPO / doc)
+        assert quoted == items, (
+            f"{doc}'s review_checklist example is {quoted}, not the template's {items} — the "
+            "doc and the file a host copies have to show one list"
+        )
+    # The categories the review gate judges against live in the tier SSOT; the
+    # template is the copy a host edits, so a category added there has to reach it.
+    tiers = (REPO / "rules" / "risk-tiers.md").read_text(encoding="utf-8")
+    assert len(items) == 5, f"expected the five risk-tiers categories, got {len(items)}"
+    for word in ("queue routing", "API error conventions"):
+        assert word in tiers, f"risk-tiers no longer names {word!r}"

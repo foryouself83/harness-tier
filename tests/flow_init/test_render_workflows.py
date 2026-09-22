@@ -224,3 +224,21 @@ def test_render_srs_verify_never_overwrites(tmp_path: Path):
     dest.write_text("custom\n", encoding="utf-8")
     render_srs_verify_workflow(tmp_path, PLUGIN)
     assert dest.read_text(encoding="utf-8") == "custom\n"
+
+
+def test_render_srs_verify_cli_flag_writes_the_workflow(tmp_path: Path):
+    # /flow-init reaches the render through this flag, so a rename here is the skill's step
+    # failing at the one moment the user said yes to it.
+    env = dict(os.environ)
+    env["CLAUDE_PROJECT_DIR"] = str(tmp_path)
+    env["CLAUDE_PLUGIN_ROOT"] = str(PLUGIN)
+    env["PYTHONPATH"] = str(PLUGIN)
+    proc = subprocess.run(
+        [sys.executable, str(PLUGIN / "scripts" / "flow_init_setup.py"), "--render-srs-verify"],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert (tmp_path / ".github" / "workflows" / "srs-verify.yml").is_file()

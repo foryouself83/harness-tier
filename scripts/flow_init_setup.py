@@ -108,6 +108,9 @@ COPY_FILES = [
     "scripts/wiki_graph.py",
     "scripts/doc_style_check.py",
     "scripts/srs_check.py",
+    "scripts/_design_md.py",
+    "scripts/design_doc_check.py",
+    "scripts/design_doc_render.py",
     "scripts/teams_alert.py",
     "scripts/notify-push.sh",
     "scripts/check-deps.sh",
@@ -242,6 +245,58 @@ def copy_artifacts(plugin: Path, host: Path) -> list[str]:
         report.append(f"  [!] {TIERS_FILENAME} 복사 실패({_why(exc)}) — 수동 확인 필요")
         return report
     report.append(f"  [+] 복사: {TIERS_FILENAME} → config/")
+    return report
+
+
+DESIGN_TEMPLATES_SOURCE = "templates/design-docs"  # plugin SOURCE, seeding only
+
+
+def _design_doc_check():
+    """Import design_doc_check lazily (sibling-first, then `scripts.` fallback).
+
+    design_doc_check imports yaml + wiki_graph/srs_check/_design_md/_md_anchors at module
+    scope, unlike this file's own deferred `import yaml` inside `_load_yaml_safe` — so a
+    module-level import here would let a missing/broken dependency take down every step,
+    not only the design-doc one. Deferred to the two callers that need it, each inside its
+    own _step().
+    """
+    try:
+        import design_doc_check as m
+    except ImportError:
+        from scripts import design_doc_check as m
+    return m
+
+
+def seed_design_templates(plugin: Path, host: Path) -> list[str]:
+    """Seed the design-doc templates once per file; the host copy is the consumer's to edit
+    and every later render follows it, so an existing file is never overwritten."""
+    src = plugin / DESIGN_TEMPLATES_SOURCE
+    if not src.is_dir():
+        return [f"  [!] 소스 없음, skip: {DESIGN_TEMPLATES_SOURCE}"]
+    ddc = _design_doc_check()  # raises through to _step's own handling on failure
+    block = _load_yaml_safe(config_path(host)).get("design_docs")
+    rel = (
+        block.get("templates")
+        if isinstance(block, dict) and block.get("templates")
+        else ddc.DESIGN_TEMPLATES_DIR
+    )
+    dest = host / rel
+    try:
+        dest.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return [f"  [!] {rel} 을 만들지 못했습니다({_why(exc)}) — 수동 확인 필요"]
+    report: list[str] = []
+    for f in sorted(src.glob("*.template.md")):
+        target = dest / f.name
+        if target.exists():
+            report.append(f"  [=] 템플릿 유지: {f.name}")
+            continue
+        try:
+            shutil.copyfile(f, target)
+        except OSError as exc:
+            report.append(f"  [!] 템플릿 시딩 실패({_why(exc)}): {f.name}")
+            continue
+        report.append(f"  [+] 템플릿 시딩: {f.name} → {rel}")
     return report
 
 
@@ -570,12 +625,29 @@ def register_marketplace(host: Path) -> str:
     return msg
 
 
+def design_gitignore_lines(host: Path) -> list[str]:
+    """The docx output directory, only when the consumer chose to ignore it."""
+    block = _load_yaml_safe(config_path(host)).get("design_docs")
+    if not isinstance(block, dict) or block.get("gitignore_output") is not True:
+        return []
+    out = block.get("output")
+    if not out:
+        try:
+            out = _design_doc_check().DEFAULTS["output"]
+        except ImportError:
+            # design_doc_check unavailable — skip only the design line; append_gitignore's
+            # base GITIGNORE_LINES must still land.
+            return []
+    out = str(out).strip().rstrip("/")
+    return [f"{out}/"] if out else []
+
+
 def append_gitignore(host: Path) -> list[str]:
     """Add only the missing lines to .gitignore (without duplicates). Skip if all are present."""
     gi = host / ".gitignore"
     text = gi.read_text(encoding="utf-8") if gi.is_file() else ""
     existing = {ln.strip() for ln in text.splitlines()}
-    missing = [ln for ln in GITIGNORE_LINES if ln not in existing]
+    missing = [ln for ln in [*GITIGNORE_LINES, *design_gitignore_lines(host)] if ln not in existing]
     if not missing:
         return ["  [=] .gitignore 이미 최신 (skip)"]
     if text and not text.endswith("\n"):
@@ -1599,6 +1671,7 @@ def run_setup(host: Path, plugin: Path) -> bool:
         _step("[커밋 게이트]", lambda: [register_gate(host)]),
         _step("[마켓 자동 업데이트]", lambda: [register_marketplace(host)]),
         _step("[pre-commit 점검]", lambda: check_precommit(plugin, host)),
+        _step("[설계 산출물 템플릿]", lambda: seed_design_templates(plugin, host)),
         _step("[gitignore]", lambda: append_gitignore(host)),
         _step("[계약 테스트 워크플로우]", lambda: render_workflow(host, plugin)),
         _step("[버저닝 워크플로우]", lambda: render_versioning_workflows(host, plugin)),
