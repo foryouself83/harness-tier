@@ -207,9 +207,7 @@ def test_reads_the_trailer_rejects_computation_without_consumption():
         "count as reading the trailer."
     )
 
-    psr_body = (PLUGIN / _RELEASE_TEMPLATES["python-semantic-release"]).read_text(
-        encoding="utf-8"
-    )
+    psr_body = (PLUGIN / _RELEASE_TEMPLATES["python-semantic-release"]).read_text(encoding="utf-8")
     assert _reads_the_trailer(psr_body)
     old = (
         '          if [ "$NEXT" = "auto" ]; then\n'

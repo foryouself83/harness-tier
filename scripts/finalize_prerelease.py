@@ -98,7 +98,9 @@ def set_version(root: Path, version: str) -> None:
 def main(argv: list[str]) -> None:
     if argv and argv[0] == "--set":
         if len(argv) != 2:
-            print("finalize_prerelease: --set requires exactly one version argument", file=sys.stderr)
+            print(
+                "finalize_prerelease: --set requires exactly one version argument", file=sys.stderr
+            )
             sys.exit(2)
         set_version(Path.cwd(), argv[1])
         print(argv[1])

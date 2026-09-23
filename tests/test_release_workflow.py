@@ -176,9 +176,7 @@ def test_cargo_release_prerelease_branch_dispatches_on_next():
     reference: "bump version to given version... has to be a valid semver string"), so the
     prerelease branch applies `$NEXT` directly when the shared block resolved one, and falls
     back to cargo-release's own `rc` level only when `$NEXT` is still the literal `auto`."""
-    text = (ROOT / "github/release.cargo-release.workflow.example.yml").read_text(
-        encoding="utf-8"
-    )
+    text = (ROOT / "github/release.cargo-release.workflow.example.yml").read_text(encoding="utf-8")
     assert 'if [ "$NEXT" = "auto" ]; then' in text
     assert "cargo release rc --execute --no-confirm --no-publish" in text
     assert 'cargo release "$NEXT" --execute --no-confirm --no-publish' in text

@@ -51,7 +51,9 @@ def test_pending_sections_are_the_rc_sections_above_the_last_stable_tag():
 
 
 def test_fold_replaces_every_pending_rc_section_with_one_stable_section():
-    out = fold(PSR, "0.5.0", "### Features\n\n- **release**: Fold rc sections\n", TAGS, "2026-09-24")
+    out = fold(
+        PSR, "0.5.0", "### Features\n\n- **release**: Fold rc sections\n", TAGS, "2026-09-24"
+    )
     assert headings(out) == ["## v0.5.0 (2026-09-24)", "## v0.4.0-rc.1 (2026-09-12)"]
     assert out.startswith("# CHANGELOG\n\n<!-- version list -->\n\n## v0.5.0 (2026-09-24)\n\n")
     assert "Read the worktree" not in out
@@ -176,7 +178,10 @@ def test_node_minor_headings_are_sections_too():
     # conventional-changelog-angular writes a minor or major release as `# [x.y.z]`.
     assert len(pending_sections(NODE, NODE_TAGS)) == 2
     out = fold(NODE, "1.3.0", "- summary\n", NODE_TAGS, "2026-09-24")
-    assert headings(out) == ["## v1.3.0 (2026-09-24)", "## [1.2.1](https://x/compare/v1.2.0...v1.2.1) (2026-09-10)"]
+    assert headings(out) == [
+        "## v1.3.0 (2026-09-24)",
+        "## [1.2.1](https://x/compare/v1.2.0...v1.2.1) (2026-09-10)",
+    ]
     assert out.startswith("# Changelog\n\n## v1.3.0 (2026-09-24)\n\n- summary\n")
     assert "# [1.2.0]" in out and "rc one" not in out
     assert extract(NODE, "1.2.0") == "- minor"

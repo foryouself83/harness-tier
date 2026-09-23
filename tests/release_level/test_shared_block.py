@@ -93,14 +93,14 @@ _CASES = [
 )
 @pytest.mark.parametrize("tags, level, expect_ok, expected", _CASES)
 def test_block_runs_against_a_real_repo(tmp_path, tags, level, expect_ok, expected):
-    message = "feat: something\n" if level is None else f"feat: something\n\nRelease-Level: {level}\n"
+    message = (
+        "feat: something\n" if level is None else f"feat: something\n\nRelease-Level: {level}\n"
+    )
     repo = _seed_repo(tmp_path, tags, message)
     block = "\n".join(_block(ROOT / ".github/workflows/release.yml"))
     script = block + '\necho "NEXT=$NEXT"\n'
     env = {**os.environ, "HARNESS_SCRIPTS": str(ROOT / "scripts"), "AUTO_LEVEL": ""}
-    result = subprocess.run(
-        [BASH, "-c", script], cwd=repo, env=env, capture_output=True, text=True
-    )
+    result = subprocess.run([BASH, "-c", script], cwd=repo, env=env, capture_output=True, text=True)
     if expect_ok:
         assert result.returncode == 0, result.stderr
         assert f"NEXT={expected}" in result.stdout, result.stdout
