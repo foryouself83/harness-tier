@@ -234,9 +234,17 @@ def test_the_ratchet_tolerates_noise_and_welcomes_a_rise():
     assert scores.may_write("integration", higher, RATCHET_OLD, False, n_skills=7).level == "ok"
 
 
-def gate(name: str, entry: dict | None, sha: str, expect: float | None, n_skills: int) -> None:
+def gate(
+    name: str,
+    entry: dict | None,
+    sha: str,
+    expect: float | None,
+    n_skills: int,
+    *,
+    fixture: str | None = None,
+) -> None:
     """Apply a verdict: fail loudly, warn visibly, pass quietly."""
-    v = scores.check(name, entry, sha, expect, n_skills)
+    v = scores.check(name, entry, sha, expect, n_skills, fixture=fixture)
     if v.level == "fail":
         pytest.fail(v.message)
     if v.level == "warn":
@@ -272,4 +280,5 @@ def test_the_committed_baseline_passes_the_gate():
             scores.description_sha(name),
             CASES["skills"][name].get("expect_invoke"),
             len(SKILLS),
+            fixture=scores.fixture_sha(name),
         )

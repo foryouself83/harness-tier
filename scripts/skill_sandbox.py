@@ -46,6 +46,7 @@ does not have:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -53,7 +54,7 @@ import stat
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 try:
@@ -868,6 +869,53 @@ def _force_remove(func, path, _exc):
     and fail every time after."""
     os.chmod(path, stat.S_IWRITE)
     func(path)
+
+
+# Scenario fields that describe the run for a human instead of shaping it: the sandbox's
+# prose pass/fail criteria and the rationale behind them. Nothing build() or check_outcome
+# touches, so rewording one must not cost a re-measurement. Everything else is fingerprinted,
+# including fields added later — see fingerprint. The cost runs the other way too: a field
+# only the outcome arm reads (`outcome`, the sandbox `prompt`) still stales the invocation
+# score of every skill whose cases run in that scenario.
+SHA_EXEMPT = frozenset({"why", "expect", "reject"})
+
+
+def _copied_file_sha(src: str) -> str:
+    """Digest of one file `copy_from_repo` brings into the fixture.
+
+    Line endings are normalized first. The checkout is CRLF on Windows and LF on the CI
+    runner, so a digest over raw bytes fingerprints the checkout rather than the content, and
+    the two platforms permanently disagree about the same file — every other input reaches
+    the payload through read_text, which already normalizes.
+
+    A path that does not resolve still fingerprints, under its own name: such a scenario is
+    already broken and build() is where that gets said, while fingerprint is walked
+    field-by-field by the tests, so raising here would turn a fingerprint into a crash."""
+    try:
+        content = (REPO / src).read_bytes()
+    except (OSError, TypeError, ValueError):
+        return "unreadable"
+    return hashlib.sha256(content.replace(b"\r\n", b"\n")).hexdigest()
+
+
+def fingerprint(scenario: Scenario) -> dict:
+    """The fixture content a measurement depends on, as a JSON-ready dict.
+
+    Shared by both freshness keys — the outcome arm's `outcome_sha` and the invocation
+    arm's `fixture_sha` — so a fixture edit stales every score that ran against it, and a
+    prose edit (SHA_EXEMPT) stales none."""
+    fixture = {k: v for k, v in asdict(scenario).items() if k not in SHA_EXEMPT}
+    # A field added after a baseline was recorded stales every scenario that never sets it,
+    # and the re-measure that clears it proves nothing — the fixture did not change. So a
+    # later field drops out of the payload while it is unset, and joins it the moment a
+    # scenario uses one. Every field present when the baselines were recorded stays in
+    # unconditionally, empty or not, or their fingerprints would move instead.
+    if not scenario.uncommitted:
+        fixture.pop("uncommitted", None)
+    fixture["copy_from_repo"] = {
+        dest: [src, _copied_file_sha(src)] for dest, src in scenario.copy_from_repo.items()
+    }
+    return fixture
 
 
 def build(scenario: Scenario, root: Path) -> Path:

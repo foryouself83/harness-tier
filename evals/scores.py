@@ -20,6 +20,8 @@ from typing import NamedTuple
 
 import yaml
 
+import scripts.skill_sandbox as sandbox
+
 REPO = Path(__file__).resolve().parent.parent
 SCORES = REPO / "evals/scores.json"
 CASES = REPO / "evals/cases.yaml"
@@ -135,6 +137,43 @@ def description_sha(name: str) -> str:
     return h.hexdigest()[:12]
 
 
+def fixtures_for(name: str) -> list[str]:
+    """Every sandbox scenario this skill's cases run in, sorted: the skill-level fixture and
+    each case's own, across both arms, by the override rule `run.cases_for` applies — a case's
+    `fixture` key wins, an explicit null included. `run` imports this module, so the rule is
+    restated here rather than imported; a test holds the two to the same answer."""
+    skills = (yaml.safe_load(CASES.read_text(encoding="utf-8")) or {}).get("skills") or {}
+    entry = skills.get(name) or {}
+    default = entry.get("fixture")
+    names = set()
+    for arm in ("happy", "negative"):
+        for case in entry.get(arm) or []:
+            fixture = case.get("fixture", default) if isinstance(case, dict) else default
+            if fixture:
+                names.add(fixture)
+    return sorted(names)
+
+
+def fixture_sha(name: str) -> str | None:
+    """Hash the fixtures this skill's cases run in, or None for a skill that runs in none.
+
+    The second invocation input beside the description: a prompt meets its fixture before it
+    meets any skill, and a fixture that stops presuming what its prompt presumes moves the
+    rate as surely as a description edit — `flow` read 0/6 on one case in an empty directory
+    and 3/3 in a repository carrying the change it asked to commit. Prose fields are left out
+    by `sandbox.fingerprint`, so rewording a scenario's rationale costs no re-measure."""
+    names = fixtures_for(name)
+    if not names:
+        return None
+    # An unknown name still fingerprints, under its own name: run.py's is_stale calls this for
+    # every skill, and a typo in one case must fail where that case builds, not stop the run.
+    payload = {
+        n: sandbox.fingerprint(sandbox.BY_NAME[n]) if n in sandbox.BY_NAME else "unknown"
+        for n in names
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+
+
 def load(path: Path | None = None) -> dict:
     path = path or SCORES
     if not path.exists():
@@ -142,7 +181,17 @@ def load(path: Path | None = None) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def check(name: str, entry: dict | None, sha: str, expect: float | None, n_skills: int) -> Verdict:
+def check(
+    name: str,
+    entry: dict | None,
+    sha: str,
+    expect: float | None,
+    n_skills: int,
+    *,
+    fixture: str | None = None,
+) -> Verdict:
+    """Gate one recorded entry. `fixture` is the skill's current `fixture_sha`, None for a
+    skill whose cases run in no fixture."""
     # No global constant to fall back on: the gate refuses to operate on a skill that has not
     # declared what it expects — measured or not. Checking the entry first returned "warn" for
     # an unmeasured-and-undeclared skill, quietly bypassing the forcing function that replaced
@@ -158,6 +207,11 @@ def check(name: str, entry: dict | None, sha: str, expect: float | None, n_skill
         return Verdict("fail", f"{name}: entry is missing {missing} — re-measure")
     if entry.get("description_sha") != sha:
         return Verdict("fail", f"{name}: description changed since the score — re-measure")
+    # Two ways a recorded fixture stops describing the cases: it moved, or the skill gained or
+    # lost fixtures since (a key present but null recorded a fixture-less run). A key that is
+    # absent predates fixture_sha and is left to the warn below.
+    if "fixture_sha" in entry and entry["fixture_sha"] != fixture:
+        return Verdict("fail", f"{name}: fixture changed since the score — re-measure")
     # The freshness pair: the sha says the score measured this description, the model says it
     # measured it on the model the gate is pinned to. Model identity swings a skill's rate
     # 0.0<->1.0 on the same case (measured), so a mismatched fingerprint is as stale as an
@@ -201,6 +255,11 @@ def check(name: str, entry: dict | None, sha: str, expect: float | None, n_skill
             f"{name}: invoke_rate {entry['invoke_rate']:.2f} is significantly below its declared "
             f"expectation {expect:.2f} — the description needs work",
         )
+    # Recorded before the key existed. Whether its fixture moved since is unknowable here, and
+    # failing it would demand a re-measure that proves nothing when it did not; the next
+    # measurement of this skill writes the key.
+    if fixture is not None and "fixture_sha" not in entry:
+        return Verdict("warn", f"{name}: no fixture_sha recorded — its next measurement adds it")
     return Verdict("ok", f"{name}: ok")
 
 
@@ -233,6 +292,11 @@ def may_write(
         # attribute model drift to the description. MODEL is a reviewed code constant, so
         # crossing it is a re-baseline, not an escape hatch.
         return Verdict("ok", f"{name}: writing")
+    if "fixture_sha" in old and old["fixture_sha"] != new.get("fixture_sha"):
+        # Same reasoning for the directory the prompts met: a moved fixture measures a
+        # different case, and ratcheting across it reads a fixture edit as a description
+        # regression. The fixture is reviewed code in skill_sandbox.py, like MODEL.
+        return Verdict("ok", f"{name}: writing — fixture changed, re-baselined")
     tripped = ratchet_trips(
         new["invoke_hits"],
         new["invoke_n"],

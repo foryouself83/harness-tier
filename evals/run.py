@@ -277,6 +277,17 @@ class RateLimited(RuntimeError):
     fire" is a fabricated score. Everything measured before this point is already on disk."""
 
 
+def is_stale(name: str, recorded: dict) -> bool:
+    """Whether the incremental run re-measures this skill. A recorded fixture_sha that no
+    longer matches is as stale as a moved description; an entry that predates the key is left
+    alone, so adding the key re-measured nothing."""
+    fixture = scores.fixture_sha(name)
+    return (
+        recorded.get("description_sha") != scores.description_sha(name)
+        or recorded.get("fixture_sha", fixture) != fixture
+    )
+
+
 def cases_for(entry: dict, arm: str) -> list[tuple[str, str | None]]:
     """Normalise both `- "prompt"` and `- {prompt:, fixture:}` into (prompt, fixture)."""
     out = []
@@ -585,6 +596,9 @@ def measure(name: str, entry: dict, reps: int, config_dir: Path, jobs: int) -> d
         # run measures one skill and rewrites the whole file; a file-level `reps` would then
         # claim this run's sample size for six skills it never touched.
         "measured_at": date.today().isoformat(),
+        # The fixtures this run's prompts met. None records a run in no fixture, which check()
+        # holds the skill to: gaining a fixture later stales the score.
+        "fixture_sha": scores.fixture_sha(name),
         "reps": reps,
         # The raw counts are what the gate and ratchet read — the exact binomial needs k and n,
         # not a two-decimal rate. `invoke_rate`/`false_fire` are kept as derived, human-readable
@@ -740,11 +754,7 @@ def _main() -> int:
     else:
         # The default is incremental. A harness nobody can afford to run is one whose
         # freshness gate blocks every merge.
-        targets = [
-            n
-            for n in sorted(data["skills"])
-            if old_skills.get(n, {}).get("description_sha") != scores.description_sha(n)
-        ]
+        targets = [n for n in sorted(data["skills"]) if is_stale(n, old_skills.get(n, {}))]
         if not targets:
             print("every score is current — nothing to measure")
             return 0

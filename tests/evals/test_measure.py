@@ -28,7 +28,9 @@ def test_measure_writes_an_entry_the_gate_accepts(monkeypatch):
     monkeypatch.setattr(run, "_one", fake_one)
     result = run.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
 
-    v = scores.check(name, result, scores.description_sha(name), 0.70, N_SKILLS)
+    fixture = scores.fixture_sha(name)
+    assert fixture is not None, "integration runs in fixtures; the case needs one"
+    v = scores.check(name, result, scores.description_sha(name), 0.70, N_SKILLS, fixture=fixture)
     assert v.level == "ok", v.message
     assert result["model"] == scores.MODEL  # the ratchet needs a same-model baseline
 

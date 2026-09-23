@@ -97,6 +97,7 @@ def test_outcome_sha_moves_when_a_copied_file_changes(tmp_path: Path, monkeypatc
         stand_in.parent.mkdir(parents=True, exist_ok=True)
         stand_in.write_text("original\n", encoding="utf-8")
     monkeypatch.setattr(outcome, "REPO", tmp_path)
+    monkeypatch.setattr(sandbox, "REPO", tmp_path)  # copy_from_repo sources resolve here
 
     base = outcome.outcome_sha("wiki-init", s)
     edited = tmp_path / next(iter(s.copy_from_repo.values()))
@@ -116,6 +117,7 @@ def test_outcome_sha_does_not_depend_on_line_endings(tmp_path: Path, monkeypatch
     skill_md.parent.mkdir(parents=True)
     skill_md.write_text("body\n", encoding="utf-8")
     monkeypatch.setattr(outcome, "REPO", tmp_path)
+    monkeypatch.setattr(sandbox, "REPO", tmp_path)  # copy_from_repo sources resolve here
 
     def _write(newline: str) -> str:
         for src in s.copy_from_repo.values():
@@ -146,6 +148,7 @@ def test_outcome_sha_survives_a_copy_source_that_is_not_there(tmp_path: Path, mo
     skill_md.parent.mkdir(parents=True)
     skill_md.write_text("body\n", encoding="utf-8")
     monkeypatch.setattr(outcome, "REPO", tmp_path)
+    monkeypatch.setattr(sandbox, "REPO", tmp_path)  # copy_from_repo sources resolve here
     assert outcome.outcome_sha("wiki-init", s)
 
 
