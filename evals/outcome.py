@@ -79,6 +79,13 @@ def outcome_sha(skill: str, scenario: sandbox.Scenario) -> str:
     digest of each source travels beside its path."""
     body = (REPO / f"skills/{skill}/SKILL.md").read_text(encoding="utf-8")
     fixture = {k: v for k, v in asdict(scenario).items() if k not in SHA_EXEMPT}
+    # A field added after a baseline was recorded stales every scenario that never sets it,
+    # and the re-measure that clears it proves nothing — the fixture did not change. So a
+    # later field drops out of the payload while it is unset, and joins it the moment a
+    # scenario uses one. Every field present when the baselines were recorded stays in
+    # unconditionally, empty or not, or their fingerprints would move instead.
+    if not scenario.uncommitted:
+        fixture.pop("uncommitted", None)
     fixture["copy_from_repo"] = {
         dest: [src, _copied_file_sha(src)] for dest, src in scenario.copy_from_repo.items()
     }

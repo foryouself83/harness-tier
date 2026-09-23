@@ -617,7 +617,7 @@ def measure(name: str, entry: dict, reps: int, config_dir: Path, jobs: int) -> d
         # agent could not do the work itself" is wrong. `--allowedTools Skill` removes Read
         # and Bash, so it also removes the agent's ability to *see the fixture* that
         # run_session went to the trouble of building — the arm answers only "does the prompt
-        # match the description on its own words". That is why all four fixture-backed skills
+        # match the description on its own words". That is why a fixture-backed skill tends to
         # read `restricted <= invoke_rate` while fixture-less ones can read higher, and why
         # playwright-scaffold shows 1.00 free against 0.20 restricted. Second caveat: reps are
         # not applied to this arm, so it is n=5 however many reps the scored arms ran — two

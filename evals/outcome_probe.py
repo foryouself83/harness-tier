@@ -39,7 +39,9 @@ def parse_stream_tier(text: str) -> str | None:
 
 def read_marker_tier(workdir: Path) -> str | None:
     """The tier from /flow's marker file (written only if Phase 2 completed), or None.
-    flow's fixture is null, so <workdir> is the session CWD and the marker lands beneath it."""
+    `workdir` is the session's CWD: the temp dir for a fixture-less case, and the directory
+    `build()` made inside it for a case that names one — the marker lands beneath whichever
+    the session ran in."""
     marker = Path(workdir) / ".claude" / "harness-tier" / ".flow" / "tier"
     if not marker.exists():
         return None
@@ -47,25 +49,37 @@ def read_marker_tier(workdir: Path) -> str | None:
     return tier or None
 
 
-def golden_cases() -> list[tuple[str, str]]:
-    """flow's happy prompts carrying a golden_tier — (prompt, golden_tier). The unlabelled
-    'Commit these changes' (tier depends on the diff) is skipped."""
+def golden_cases() -> list[tuple[str, str, str | None]]:
+    """flow's happy prompts carrying a golden_tier — (prompt, golden_tier, fixture).
+
+    A prompt whose tier depends on an unspecified diff carries no golden and is skipped. The
+    fixture travels with the case: measured without it, a prompt that presumes a state its
+    directory does not have answers something else, which is not the router's classification."""
     data = yaml.safe_load((REPO / "evals/cases.yaml").read_text(encoding="utf-8"))
+    entry = data["skills"]["flow"]
     out = []
-    for case in data["skills"]["flow"]["happy"]:
+    for case in entry["happy"]:
         if isinstance(case, dict) and case.get("golden_tier"):
-            out.append((case["prompt"], case["golden_tier"]))
+            # Case first, then the skill-level default — the same order run.cases_for applies.
+            # Read the case alone and a skill-level fixture would build for the scored run and
+            # not for this one, measuring the router against a directory the score never saw.
+            fixture = case.get("fixture") or entry.get("fixture")
+            out.append((case["prompt"], case["golden_tier"], fixture))
     return out
 
 
-def _probe_one(prompt: str, golden: str, config_dir: Path) -> dict:
+def _probe_one(prompt: str, golden: str, fixture: str | None, config_dir: Path) -> dict:
     """One session; capture the tier two ways. Lazy import keeps run's subprocess machinery
     off the import path of the pure-function tests."""
     from evals import run, stream
 
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         wd = Path(tmp)
-        text, _err = run._claude_stream(prompt, None, wd, config_dir, False)
+        text, _err = run._claude_stream(prompt, fixture, wd, config_dir, False)
+        # _claude_stream builds a fixture into <tmp>/<scenario> and runs there, so the marker
+        # lands one level down. Reading <tmp> instead would report every fixture-backed case
+        # as "no marker", which is what a capture rate is for.
+        wd = wd / fixture if fixture else wd
         return {
             "prompt": prompt,
             "golden": golden,
@@ -97,11 +111,11 @@ def _report(rows: list[dict]) -> None:
 def main(reps: int = 3, jobs: int = 8) -> None:
     from evals import run
 
-    plan = [(p, g) for p, g in golden_cases() for _ in range(reps)]
+    plan = [(p, g, f) for p, g, f in golden_cases() for _ in range(reps)]
     rows: list[dict] = []
     with run.isolated_config_dir() as cfg:
         with ThreadPoolExecutor(max_workers=jobs) as pool:
-            futures = [pool.submit(_probe_one, p, g, cfg) for p, g in plan]
+            futures = [pool.submit(_probe_one, p, g, f, cfg) for p, g, f in plan]
             for done, fut in enumerate(as_completed(futures), 1):
                 rows.append(fut.result())
                 print(f"\r  {done}/{len(plan)} sessions", end="", flush=True)
@@ -121,7 +135,7 @@ if __name__ == "__main__":
     if args.dry_run:
         cases = golden_cases()
         print(f"{len(cases)} case(s) x {args.reps} reps = {len(cases) * args.reps} sessions")
-        for p, g in cases:
-            print(f"  [{g:8}] {p}")
+        for p, g, f in cases:
+            print(f"  [{g:8}] {p}" + (f"  (fixture: {f})" if f else ""))
     else:
         main(reps=args.reps, jobs=args.jobs)

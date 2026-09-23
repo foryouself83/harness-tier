@@ -192,3 +192,13 @@ def test_outcome_sha_covers_every_scenario_field_without_being_told():
     assert outcome.SHA_EXEMPT == frozenset({"why", "expect", "reject"}), (
         "SHA_EXEMPT grew: every entry must be prose that build() and check_outcome never read"
     )
+
+
+def test_an_unused_optional_field_does_not_move_the_fingerprint():
+    """Adding a field to Scenario must not stale every committed baseline: a scenario that
+    never sets it is the same fixture it was. Setting it still moves the sha."""
+    s = sandbox.BY_NAME["doc-sync-drift"]
+    assert not s.uncommitted
+    base = outcome.outcome_sha("doc-sync", s)
+    assert outcome.outcome_sha("doc-sync", replace(s, uncommitted={})) == base
+    assert outcome.outcome_sha("doc-sync", replace(s, uncommitted={"a.txt": "x\n"})) != base

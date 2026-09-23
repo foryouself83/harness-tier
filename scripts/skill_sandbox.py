@@ -28,10 +28,13 @@ directory can create the state that decides the skill's answer. That covers /int
 out of reach here, and adding hollow scenarios for them would report coverage this file
 does not have:
 
-* `/flow`, `/flow-init`, `/flow-uninstall` — their subject is the *host session*: a
-  registered commit hook, an installed plugin cache, `${CLAUDE_PLUGIN_ROOT}`. A fixture
-  directory cannot stand any of that up, and `tests/flow_gate/` and
-  `tests/flow_init/` already cover the mechanics.
+* `/flow-init`, `/flow-uninstall` — their subject is the *host session*: a registered commit
+  hook, an installed plugin cache, `${CLAUDE_PLUGIN_ROOT}`. A fixture directory cannot stand
+  any of that up, and `tests/flow_gate/` and `tests/flow_init/` already cover the mechanics.
+  `/flow` has one scenario for the single piece of its state a directory *can* create — a
+  working tree with pending changes, which is what "commit these changes" presumes. What the
+  fixture still cannot reach is everything after the routing decision: the registered hook,
+  the marker it reads, the plugin cache.
 * `/harness-init`, `/harness-authoring`, `/harness-deployments` — each fans out to
   sub-agents and the live web, so a run is neither cheap nor repeatable, and its output is
   prose whose correctness is a judgement rather than an assertion. `harness-critic` is the
@@ -81,6 +84,11 @@ class Scenario:
     # fallback path instead of the real one. Off by default: `git init` costs a subprocess
     # per build, and no other scenario's answer depends on it.
     git: bool = False
+    # Written after the seed commit, so the built fixture has a dirty working tree: the same
+    # { "<relpath>": "<content>" } shape as `files`, and a path already in `files` is modified
+    # rather than added. A prompt about pending changes has none to reach for otherwise —
+    # `git` commits everything the scenario wrote.
+    uncommitted: dict[str, str] = field(default_factory=dict)
     # Machine-checkable golden end-state for the outcome arm (evals/outcome.py). The prose
     # expect/reject above stay for the human-judged invocation sandbox; this is asserted.
     # { "<relpath>": {"must_contain": [...], "must_not_contain": [...]} }
@@ -437,6 +445,49 @@ SCENARIOS: list[Scenario] = [
             "vite.config.js": "export default { server: { port: 5173 } };\n",
             "index.html": "<!doctype html><title>vanilla</title>\n",
             "src/main.js": "document.body.textContent = 'hi';\n",
+        },
+    ),
+    Scenario(
+        name="flow-pending-commit",
+        skill="flow",
+        why=(
+            "A repository with a real pending change, which is what a bare 'commit these "
+            "changes' presumes. In an empty directory that request has no answer, so the "
+            "session reads an empty tree and replies instead of routing — a miss that says "
+            "nothing about the description."
+        ),
+        prompt="Commit these changes.",
+        expect=[
+            "classifies the tier before it commits",
+            "records the tier marker the commit gate reads",
+        ],
+        reject=[
+            "commits without classifying the work",
+            "reports that there is nothing to commit",
+        ],
+        files={
+            "README.md": "# sbx\n\nA tiny CLI.\n",
+            "sbx/__init__.py": "",
+            "sbx/cli.py": "def main(argv):\n    print(argv)\n    return 0\n",
+            "tests/test_cli.py": (
+                "from sbx.cli import main\n\n\ndef test_main():\n    assert main([]) == 0\n"
+            ),
+        },
+        git=True,
+        uncommitted={
+            "sbx/cli.py": (
+                "def main(argv):\n"
+                "    if not argv:\n"
+                '        print("usage: sbx <name>")\n'
+                "        return 2\n"
+                "    print(argv)\n"
+                "    return 0\n"
+            ),
+            "tests/test_cli.py": (
+                "from sbx.cli import main\n\n\n"
+                "def test_main():\n    assert main([]) == 2\n\n\n"
+                'def test_main_with_a_name():\n    assert main(["x"]) == 0\n'
+            ),
         },
     ),
     Scenario(
@@ -860,6 +911,10 @@ def build(scenario: Scenario, root: Path) -> Path:
             ["git", *identity, "commit", "-qm", "seed"],
         ):
             subprocess.run(cmd, cwd=target, check=True, capture_output=True)
+    for rel, content in scenario.uncommitted.items():
+        path = target / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8", newline="")
     return target
 
 
