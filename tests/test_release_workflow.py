@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import tomllib
 from pathlib import Path
@@ -366,3 +367,39 @@ def test_every_python_semantic_release_install_constrains_gitpython():
         "python-semantic-release is installed without a GitPython constraint:\n  "
         + "\n  ".join(offenders)
     )
+
+
+_INLINE_PY = re.compile(r"python3 -c '(.*?)'", re.DOTALL)
+
+
+def _inline_python(rel: str) -> list[str]:
+    """Every `python3 -c '...'` body in the workflow's `run:` scripts, as YAML hands them to
+    bash — a snippet reads fine in the file and still fails once the block indent is stripped."""
+    data = yaml.safe_load((ROOT / rel).read_text(encoding="utf-8"))
+    runs = [step.get("run") or "" for job in data["jobs"].values() for step in job.get("steps", [])]
+    return [body for run in runs for body in _INLINE_PY.findall(run)]
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [p.relative_to(ROOT).as_posix() for p in sorted((ROOT / "github").glob("release.*.yml"))]
+    + [".github/workflows/release.yml"],
+)
+def test_inline_python_compiles(rel):
+    for body in _inline_python(rel):
+        compile(body, rel, "exec")
+
+
+def test_cargo_version_snippet_reads_the_workspace_version():
+    rel = "github/release.cargo-release.workflow.example.yml"
+    (body,) = _inline_python(rel)
+    metadata = (
+        '{"workspace_members": ["a 1.1.0-rc.2", "b 1.1.0-rc.2"], "packages": ['
+        '{"id": "a 1.1.0-rc.2", "name": "a", "version": "1.1.0-rc.2"},'
+        '{"id": "b 1.1.0-rc.2", "name": "b", "version": "1.1.0-rc.2"}]}'
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", body], input=metadata, capture_output=True, text=True, check=False
+    )
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "1.1.0-rc.2"

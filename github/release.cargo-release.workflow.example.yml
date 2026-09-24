@@ -87,32 +87,32 @@ jobs:
             # below decides whether the guard runs, never the member count.
             CARGO_METADATA="$(cargo metadata --no-deps --format-version 1)" || exit 1
             CARGO_VERSION="$(printf '%s' "$CARGO_METADATA" | python3 -c '
-            import json, sys
-            data = json.load(sys.stdin)
-            members = set(data["workspace_members"])
-            pkgs = [p for p in data["packages"] if p["id"] in members]
-            if not pkgs:
-                sys.stderr.write("::error::cargo metadata reported no workspace members\n")
-                sys.exit(1)
-            versions = []
-            for p in pkgs:
-                v = p.get("version")
-                if not isinstance(v, str) or not v:
-                    sys.stderr.write(
-                        "::error::cargo metadata did not report a version string for %s\n"
-                        % p.get("name", "<unknown>")
-                    )
-                    sys.exit(1)
-                versions.append(v)
-            distinct = sorted(set(versions))
-            if len(distinct) != 1:
-                sys.stderr.write(
-                    "::warning::finalize guard skipped - workspace members carry %d "
-                    "different versions (independently versioned); release proceeds "
-                    "without a tag-existence check\n" % len(distinct)
-                )
-                sys.exit(0)
-            print(distinct[0])
+          import json, sys
+          data = json.load(sys.stdin)
+          members = set(data["workspace_members"])
+          pkgs = [p for p in data["packages"] if p["id"] in members]
+          if not pkgs:
+              sys.stderr.write("::error::cargo metadata reported no workspace members\n")
+              sys.exit(1)
+          versions = []
+          for p in pkgs:
+              v = p.get("version")
+              if not isinstance(v, str) or not v:
+                  sys.stderr.write(
+                      "::error::cargo metadata did not report a version string for %s\n"
+                      % p.get("name", "<unknown>")
+                  )
+                  sys.exit(1)
+              versions.append(v)
+          distinct = sorted(set(versions))
+          if len(distinct) != 1:
+              sys.stderr.write(
+                  "::warning::finalize guard skipped - workspace members carry %d "
+                  "different versions (independently versioned); release proceeds "
+                  "without a tag-existence check\n" % len(distinct)
+              )
+              sys.exit(0)
+          print(distinct[0])
             ')" || exit 1
             if [ -n "$CARGO_VERSION" ]; then
               STABLE="$(python3 "$HARNESS_SCRIPTS/bump_version.py" finalize --current "$CARGO_VERSION" || true)"
