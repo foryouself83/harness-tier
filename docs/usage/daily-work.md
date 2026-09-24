@@ -51,8 +51,9 @@ release.
 
 - It reads your `commit_guide` when that file exists
   ([configuration](configuration.md#commit_guide)) and prefers its stack facts.
-- A promotion commit carries a `Release-Level:` trailer only in the cases
-  [`/release-commit`](promotion-and-release.md#release-commit--run-one-promotion) describes.
+- A staging promotion commit carries `Release-Level: <choice>`, `auto` included, wherever
+  the release workflow reads the trailer
+  ([the release level](promotion-and-release.md#the-release-level)).
 - It never passes `--no-verify`, never uses `git add -A`, and never writes a CI-skip marker in
   a message — GitHub reads one anywhere in the head commit and starts no workflow run.
 

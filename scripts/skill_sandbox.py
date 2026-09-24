@@ -28,10 +28,13 @@ directory can create the state that decides the skill's answer. That covers /int
 out of reach here, and adding hollow scenarios for them would report coverage this file
 does not have:
 
-* `/flow`, `/flow-init`, `/flow-uninstall` — their subject is the *host session*: a
-  registered commit hook, an installed plugin cache, `${CLAUDE_PLUGIN_ROOT}`. A fixture
-  directory cannot stand any of that up, and `tests/flow_gate/` and
-  `tests/flow_init/` already cover the mechanics.
+* `/flow-init`, `/flow-uninstall` — their subject is the *host session*: a registered commit
+  hook, an installed plugin cache, `${CLAUDE_PLUGIN_ROOT}`. A fixture directory cannot stand
+  any of that up, and `tests/flow_gate/` and `tests/flow_init/` already cover the mechanics.
+  `/flow` has one scenario for the single piece of its state a directory *can* create — a
+  working tree with pending changes, which is what "commit these changes" presumes. What the
+  fixture still cannot reach is everything after the routing decision: the registered hook,
+  the marker it reads, the plugin cache.
 * `/harness-init`, `/harness-authoring`, `/harness-deployments` — each fans out to
   sub-agents and the live web, so a run is neither cheap nor repeatable, and its output is
   prose whose correctness is a judgement rather than an assertion. `harness-critic` is the
@@ -43,6 +46,7 @@ does not have:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -50,7 +54,7 @@ import stat
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 try:
@@ -81,6 +85,11 @@ class Scenario:
     # fallback path instead of the real one. Off by default: `git init` costs a subprocess
     # per build, and no other scenario's answer depends on it.
     git: bool = False
+    # Written after the seed commit, so the built fixture has a dirty working tree: the same
+    # { "<relpath>": "<content>" } shape as `files`, and a path already in `files` is modified
+    # rather than added. A prompt about pending changes has none to reach for otherwise —
+    # `git` commits everything the scenario wrote.
+    uncommitted: dict[str, str] = field(default_factory=dict)
     # Machine-checkable golden end-state for the outcome arm (evals/outcome.py). The prose
     # expect/reject above stay for the human-judged invocation sandbox; this is asserted.
     # { "<relpath>": {"must_contain": [...], "must_not_contain": [...]} }
@@ -437,6 +446,49 @@ SCENARIOS: list[Scenario] = [
             "vite.config.js": "export default { server: { port: 5173 } };\n",
             "index.html": "<!doctype html><title>vanilla</title>\n",
             "src/main.js": "document.body.textContent = 'hi';\n",
+        },
+    ),
+    Scenario(
+        name="flow-pending-commit",
+        skill="flow",
+        why=(
+            "A repository with a real pending change, which is what a bare 'commit these "
+            "changes' presumes. In an empty directory that request has no answer, so the "
+            "session reads an empty tree and replies instead of routing — a miss that says "
+            "nothing about the description."
+        ),
+        prompt="Commit these changes.",
+        expect=[
+            "classifies the tier before it commits",
+            "records the tier marker the commit gate reads",
+        ],
+        reject=[
+            "commits without classifying the work",
+            "reports that there is nothing to commit",
+        ],
+        files={
+            "README.md": "# sbx\n\nA tiny CLI.\n",
+            "sbx/__init__.py": "",
+            "sbx/cli.py": "def main(argv):\n    print(argv)\n    return 0\n",
+            "tests/test_cli.py": (
+                "from sbx.cli import main\n\n\ndef test_main():\n    assert main([]) == 0\n"
+            ),
+        },
+        git=True,
+        uncommitted={
+            "sbx/cli.py": (
+                "def main(argv):\n"
+                "    if not argv:\n"
+                '        print("usage: sbx <name>")\n'
+                "        return 2\n"
+                "    print(argv)\n"
+                "    return 0\n"
+            ),
+            "tests/test_cli.py": (
+                "from sbx.cli import main\n\n\n"
+                "def test_main():\n    assert main([]) == 2\n\n\n"
+                'def test_main_with_a_name():\n    assert main(["x"]) == 0\n'
+            ),
         },
     ),
     Scenario(
@@ -819,6 +871,53 @@ def _force_remove(func, path, _exc):
     func(path)
 
 
+# Scenario fields that describe the run for a human instead of shaping it: the sandbox's
+# prose pass/fail criteria and the rationale behind them. Nothing build() or check_outcome
+# touches, so rewording one must not cost a re-measurement. Everything else is fingerprinted,
+# including fields added later — see fingerprint. The cost runs the other way too: a field
+# only the outcome arm reads (`outcome`, the sandbox `prompt`) still stales the invocation
+# score of every skill whose cases run in that scenario.
+SHA_EXEMPT = frozenset({"why", "expect", "reject"})
+
+
+def _copied_file_sha(src: str) -> str:
+    """Digest of one file `copy_from_repo` brings into the fixture.
+
+    Line endings are normalized first. The checkout is CRLF on Windows and LF on the CI
+    runner, so a digest over raw bytes fingerprints the checkout rather than the content, and
+    the two platforms permanently disagree about the same file — every other input reaches
+    the payload through read_text, which already normalizes.
+
+    A path that does not resolve still fingerprints, under its own name: such a scenario is
+    already broken and build() is where that gets said, while fingerprint is walked
+    field-by-field by the tests, so raising here would turn a fingerprint into a crash."""
+    try:
+        content = (REPO / src).read_bytes()
+    except (OSError, TypeError, ValueError):
+        return "unreadable"
+    return hashlib.sha256(content.replace(b"\r\n", b"\n")).hexdigest()
+
+
+def fingerprint(scenario: Scenario) -> dict:
+    """The fixture content a measurement depends on, as a JSON-ready dict.
+
+    Shared by both freshness keys — the outcome arm's `outcome_sha` and the invocation
+    arm's `fixture_sha` — so a fixture edit stales every score that ran against it, and a
+    prose edit (SHA_EXEMPT) stales none."""
+    fixture = {k: v for k, v in asdict(scenario).items() if k not in SHA_EXEMPT}
+    # A field added after a baseline was recorded stales every scenario that never sets it,
+    # and the re-measure that clears it proves nothing — the fixture did not change. So a
+    # later field drops out of the payload while it is unset, and joins it the moment a
+    # scenario uses one. Every field present when the baselines were recorded stays in
+    # unconditionally, empty or not, or their fingerprints would move instead.
+    if not scenario.uncommitted:
+        fixture.pop("uncommitted", None)
+    fixture["copy_from_repo"] = {
+        dest: [src, _copied_file_sha(src)] for dest, src in scenario.copy_from_repo.items()
+    }
+    return fixture
+
+
 def build(scenario: Scenario, root: Path) -> Path:
     target = root / scenario.name
     if target.exists():
@@ -860,6 +959,10 @@ def build(scenario: Scenario, root: Path) -> Path:
             ["git", *identity, "commit", "-qm", "seed"],
         ):
             subprocess.run(cmd, cwd=target, check=True, capture_output=True)
+    for rel, content in scenario.uncommitted.items():
+        path = target / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8", newline="")
     return target
 
 

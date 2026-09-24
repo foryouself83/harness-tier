@@ -45,17 +45,38 @@ jobs:
         id: ver
         env:
           REF_NAME: ${{ github.ref_name }}
-          RUN_NUMBER: ${{ github.run_number }}
+          HARNESS_SCRIPTS: .claude/harness-tier/scripts
+          AUTO_LEVEL: patch
         run: |
           echo "GitVersion computed: ${{ steps.gitversion.outputs.semVer }} (informational)"
           LEVEL="$(git log -1 --pretty=%B | sed -nE 's/^Release-Level:[[:space:]]*(major|minor|patch)[[:space:]]*$/\1/p' | head -1)"
           LEVEL="${LEVEL:-patch}"
           CURRENT="$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo 0.0.0)"
           if [ "$REF_NAME" = "__HARNESS_PRERELEASE__" ]; then
-            NEXT="$(python3 .claude/harness-tier/scripts/bump_version.py bump --current "$CURRENT" --level "$LEVEL" --prerelease "rc.$RUN_NUMBER")"
+            # >>> next-version (shared by every release workflow; tests/release_level pins it)
+            git fetch --tags --force --quiet origin || true
+            NEXT="$(python3 "$HARNESS_SCRIPTS/bump_version.py" next \
+              --message "$(git log -1 --pretty=%B)" \
+              --tags "$(git tag --list)" \
+              --auto-level "${AUTO_LEVEL:-}")" || exit 1
+            echo "next version: $NEXT"
+            # <<< next-version
           else
             NEXT="$(python3 .claude/harness-tier/scripts/bump_version.py finalize --current "$CURRENT" || true)"
-            if [ -z "$NEXT" ]; then
+            if [ -n "$NEXT" ]; then
+              STABLE="$NEXT"
+              # >>> finalize-guard (shared by every release workflow; tests/release_level pins it)
+              if git rev-parse -q --verify "refs/tags/v$STABLE" >/dev/null; then
+                echo "::error::v$STABLE already exists — a hotfix shipped this base. Re-promote staging with Release-Level: patch (or higher) before releasing." >&2
+                exit 1
+              fi
+              LATEST_STABLE="$(git tag --list 'v*' | sed -n 's/^v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$/\1/p' | sort -V | tail -n 1)"
+              if [ -n "$LATEST_STABLE" ] && [ "$(printf '%s\n%s\n' "$LATEST_STABLE" "$STABLE" | sort -V | tail -n 1)" != "$STABLE" ]; then
+                echo "::error::v$STABLE is below the latest release v$LATEST_STABLE — a hotfix shipped a higher base, so finalizing would downgrade. Re-promote staging with Release-Level: patch (or higher) before releasing." >&2
+                exit 1
+              fi
+              # <<< finalize-guard
+            else
               NEXT="$(python3 .claude/harness-tier/scripts/bump_version.py bump --current "$CURRENT" --level "$LEVEL")"
             fi
           fi
@@ -77,6 +98,21 @@ jobs:
       - name: Expose released tag
         id: exposetag
         run: echo "tag=$(git describe --tags --abbrev=0)" >> "$GITHUB_OUTPUT"
+      - name: Stable release notes from CHANGELOG
+        if: ${{ github.ref_name == '__HARNESS_STABLE__' && steps.exposetag.outputs.tag != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          HARNESS_SCRIPTS: .claude/harness-tier/scripts
+          TAG: ${{ steps.exposetag.outputs.tag }}
+        run: |
+          # >>> release-notes (shared by every release workflow; tests/release_level pins it)
+          if python3 "$HARNESS_SCRIPTS/changelog_section.py" extract --version "${TAG#v}" > stable-notes.md; then
+            gh release edit "$TAG" --notes-file stable-notes.md \
+              || echo "::warning::could not replace the $TAG release notes with its CHANGELOG section"
+          else
+            echo "no stable ${TAG} section in CHANGELOG.md — keeping the release notes as created"
+          fi
+          # <<< release-notes
 
   # __HARNESS_DEPLOY_BEGIN__ (managed by /harness-deployments · /flow-init — do not edit inside)
   # __HARNESS_DEPLOY_END__

@@ -17,7 +17,7 @@ argument-hint: "[staging | release]"
 # glob's `*` crosses path separators including `..`. `git commit` and `git merge` are
 # deliberately absent — the commit prompt is the mechanical backstop behind the gate, and this
 # skill's whole subject is which merge shape the release CI needs.
-allowed-tools: Bash(grep -c Release-Level .github/workflows/release.yml) Bash(git fetch origin) Bash(mkdir -p .claude/harness-tier/.flow) Bash(touch .claude/harness-tier/.flow/review.done) Bash(touch .claude/harness-tier/.flow/bump.done) Bash(touch .claude/harness-tier/.flow/security.done)
+allowed-tools: Bash(grep -c Release-Level .github/workflows/release.yml) Bash(grep -c next-version .github/workflows/release.yml) Bash(git fetch origin) Bash(git fetch --tags origin) Bash(python3 .claude/harness-tier/scripts/bump_version.py state) Bash(python3 .claude/harness-tier/scripts/changelog_section.py pending) Bash(mkdir -p .claude/harness-tier/.flow) Bash(touch .claude/harness-tier/.flow/review.done) Bash(touch .claude/harness-tier/.flow/bump.done) Bash(touch .claude/harness-tier/.flow/security.done)
 ---
 
 # Release Commit — integration → staging → production
@@ -40,7 +40,14 @@ Branch names come from `flow-config.branches` (`integration` / `staging` / `prod
 ## Input
 
 - **$ARGUMENTS** — `staging` (integration → staging) or `release` (staging → production). With
-  neither, ask the user which promotion this is.
+  neither, ask the user which promotion this is. A `hotfix/*` branch `/flow` hands over takes
+  neither: it runs [`references/hotfix.md`](references/hotfix.md).
+
+Three more procedures sit in `references/`, each read only when it applies:
+[`changelog.md`](references/changelog.md) at Step 2 item 5,
+[`pr-mode.md`](references/pr-mode.md) when `flow-config.merge_workflow.pull_request` names
+`promotion` or `daily`, and [`wiki-gate.md`](references/wiki-gate.md) when the `wiki` gate
+blocks a promotion commit.
 
 ## Which gates need a marker
 
@@ -58,33 +65,68 @@ at all. Ask the rendered workflow, not a template list:
 
 ```bash
 grep -c Release-Level .github/workflows/release.yml
+grep -c next-version .github/workflows/release.yml
 ```
 
-**`grep -c` exits 1 on zero matches.** That non-zero exit is the answer "no trailer", not a
-failure — do not report it as an error.
+**`grep -c` exits 1 on zero matches.** That non-zero exit is an answer — "no trailer", "no
+shared next-version block" — not a failure; do not report it as an error.
 
-- **count >= 1** — the level can be forced. The staging commit carries
-  `Release-Level: <level>` and CI forces the bump.
-- **count 0** — nothing in this workflow reads the trailer, so the level **cannot** be forced
-  and the bump comes from the commit types alone (Node `semantic-release` is the rendered
-  case). Say so and skip the level question.
+- **count >= 1** — the level can be forced. Every template `/flow-init` renders lands here —
+  python-semantic-release, Node semantic-release, jreleaser, gitversion, cargo-release. The
+  staging commit carries `Release-Level: <choice>` and CI applies it.
+- **count >= 1, `next-version` count 0** — a **legacy render**, older than the shared
+  next-version block, that `/flow-init` never overwrites: `major | minor | patch` alone, no
+  finalize guard. Warn once, follow items 3 and 7's legacy lines, and tell the user to delete
+  `.github/workflows/release.yml` and re-run `/flow-init`.
+- **count 0** — a hand-written workflow that reads no trailer, so the level **cannot** be
+  forced and the bump is whatever that workflow derives. Say so and skip the level question.
 - **no such file** — no release CI is installed. Stop and tell the user to run `/flow-init`.
 
-Whether the file was rendered from a template is not the question — a hand-written
-`release.yml` gets the same answer from the same grep, because the subject is the artifact
-that runs.
-
-**Cross-check the host commit guide.** `flow-config.commit_guide` (ships as
-`docs/operations/commit-versioning-guide.md`) already records which kind the host is on. Read
-it when it exists. If it disagrees with the grep, **the workflow wins** — and report the
-disagreement in one line, because it means the guide has gone stale. No guide is a normal
-answer, not a failure.
-
-**No workflow here takes the level from a `workflow_dispatch`.** The sister plugin vway-kit
-does; this one does not. Never trigger one to force a level — it forces nothing and the
-promotion silently produces no rc.
+**Cross-check the host commit guide** (`flow-config.commit_guide`, ships as
+`docs/operations/commit-versioning-guide.md`): where it disagrees with the grep, **the
+workflow wins** — report the stale guide in one line. No guide is a normal answer.
 
 ## Step 1 — Staging (integration → staging)
+
+**Read the release state first** — the code the release CI runs, over the same tag list:
+
+```bash
+git fetch --tags origin
+python3 .claude/harness-tier/scripts/bump_version.py state
+```
+
+`pending:` names the **pending rc**: the highest `vX.Y.Z-rc.N` whose base `X.Y.Z` has no
+stable tag and sits above the highest stable tag. `pending: none`, with
+`continue: fails — … no pending rc to continue`, is the answer "no pending rc", not an error.
+The four level lines are the versions item 3 labels its options with. `invalid choice: 'state'`
+means the host copy predates it: tell the user to re-run `/flow-init`. Keep the `pending:`
+line: item 8 compares against it. Never read the pending rc off `git describe`: it follows one
+branch's ancestry, and a staging whose release back-merge refused the fast-forward still sits
+on the rc that release shipped.
+
+**A pending rc makes this a re-promotion: back-merge staging first.** Integration takes
+staging's rc version commit before the review, so the review reads the pair after it.
+Fast-forward when integration is strictly behind:
+
+```bash
+git switch <integration> && git merge --ff-only origin/<integration>
+git merge --ff-only origin/<staging>
+```
+
+A refused fast-forward takes a merge commit instead — the row
+[`merge-strategy.md`](../../rules/merge-strategy.md) gives this back-merge:
+
+```bash
+git merge --no-ff origin/<staging>
+```
+
+Either way, push it before the review reads `origin/<integration>`:
+
+```bash
+git push origin <integration>
+```
+
+No pending rc skips the back-merge.
 
 **1. Regression review.** An independent **`general-purpose`** agent (separate context, runs
 its own shell commands), judged against `flow-config.review_checklist` plus the callers of
@@ -96,25 +138,36 @@ git fetch origin
 git diff --name-only "origin/<staging>..origin/<integration>"
 ```
 
-Use the freshly fetched `origin/` refs — a stale local ref shrinks the reviewed set with no
-sign that it did. Two dots, not three: `git diff` reads that as a two-endpoint diff, so a
-commit sitting on staging alone still surfaces — inverted, as a deletion this merge will not
-make. Staging is the only promotion that reviews at all; Release has no pair to carry this
-one into.
+Freshly fetched `origin/` refs — a stale local ref shrinks the reviewed set in silence. Two
+dots, not three: a commit on staging alone still surfaces, inverted, as a deletion. Staging
+is the only promotion that reviews at all.
 
-**2. Compute a recommended level.** Two inputs:
+**2. Compute a recommended level** from the commit types over the promoted range
+([`risk-tiers.md`](../../rules/risk-tiers.md) Commit type → version impact; where the tool
+derives its own bump, `semantic-release version --print` shows its pick, best effort), under
+the host guide's 0.x policy: `major_on_zero=false`, `1.0.0` only by an explicit decision.
 
-- The commit-derived level over the promoted range — the type-to-version mapping lives in
-  [`risk-tiers.md`](../../rules/risk-tiers.md) Commit type → version impact. Where the release
-  tool derives its own bump, `semantic-release version --print` prints the **version** it would
-  pick (best effort); compare it against the current version to read off major/minor/patch.
-- The host commit guide's 0.x policy: `major_on_zero=false`, and `1.0.0` only by an explicit
-  decision. With no guide, the first input alone is the recommendation — a normal path.
+**3. Ask the user — where Step 0 answered `count >= 1`.** `AskUserQuestion`, every option
+labelled with the version the release-state block printed for it. The recommendation never
+stands in for the answer: **always ask.**
 
-**3. Ask the user — where Step 0 answered `count >= 1`.** `AskUserQuestion` with
-**major / minor / patch**, defaulting to the recommendation. The recommendation never stands in
-for the answer: **always ask.** When the current version is `0.x` and the choice is `major`,
-warn that it jumps straight to `1.0.0`.
+- **No pending rc** — **auto / patch / minor / major**, defaulting to the recommendation.
+  `auto` leaves the level to the release tool: label it "commit-derived", with the level item 2
+  read off when it read one. Where the workflow sets `AUTO_LEVEL: patch` (the gitversion and
+  jreleaser templates — those tools derive nothing), `auto` is `patch`: label it with that
+  version.
+- **Pending rc** — **continue / patch / minor / major**, `continue` first and recommended: it
+  cuts the next rc of the same base, `1.1.0-rc.2` → `1.1.0-rc.3`. A forced level bumps the base
+  again and skips `X.Y.Z` as a stable release (`patch` → `1.1.1-rc.1`); say so in each forced
+  option's description. `auto` is not offered: `continue` names the outcome rather than leaving
+  it to the tool.
+
+When the current version is `0.x` and the choice is `major`, warn that it jumps straight to
+`1.0.0`.
+
+On a **legacy** host (Step 0) a first promotion offers **patch / minor / major** alone, and
+a re-promotion asks nothing: that workflow's no-trailer path continues the rc series, while a
+forced level there bumps the base again.
 
 On a **count 0** host, skip it: no workflow reads the trailer, so the answer would change
 nothing and the bump is whatever the commit types derive. Item 5 still records `bump.done` —
@@ -138,44 +191,74 @@ touch .claude/harness-tier/.flow/review.done
 touch .claude/harness-tier/.flow/bump.done
 ```
 
-**6. Merge integration into staging, leaving the commit unwritten:**
+**6. Merge integration into staging, leaving the commit unwritten.** Start on an up-to-date
+staging — a re-promotion's back-merge left HEAD on integration:
 
 ```bash
+git switch <staging> && git merge --ff-only origin/<staging>
 git merge --no-ff --no-commit origin/<integration>
 ```
 
 **7. Write that pending merge** through `Skill: commit`, **passing the chosen level in the
 arguments** where item 3 asked for one. That is the only channel it has: `bump.done` is an
-empty marker and nothing on disk carries the level. The commit skill appends the trailer
-`Release-Level: <level>`, which CI reads to force
-`semantic-release version --<level> --as-prerelease`, and gives the commit the subject a
-promotion merge takes — `Merge <integration>: <headline>`, capital `Merge`, no Conventional
-type ([`promotion.md`](../../rules/promotion.md) Merge commit messages).
+empty marker and nothing on disk carries the level. The commit skill appends
+`Release-Level: <choice>` — every choice written out, `auto` included: an absent trailer runs
+as `auto` too, but only a written one records that the level was asked. It gives the commit
+the subject a promotion merge takes — `Merge <integration>: <headline>`, capital `Merge`, no
+Conventional type ([`promotion.md`](../../rules/promotion.md) Merge commit messages).
 
-On a **count 0** host pass no level, and the commit takes no trailer: nothing reads one, and a
-trailer written where nothing reads it is a promise the release does not keep. Same subject
-form, same order.
+CI reads the trailer off HEAD: `auto` hands the bump to the release tool, any other choice
+becomes the version the release-state block printed for it. A value outside
+`auto | continue | patch | minor | major`, an empty one, two different ones, or `continue`
+with no pending rc **fails the release run** — nothing falls back to a derived bump.
+
+On a **count 0** host, and on a **legacy** re-promotion, pass no level, and the commit takes
+no trailer: a trailer written where nothing reads it is a promise the release does not keep.
+Same subject form, same order.
 
 **Merge before commit, never after.** CI reads `git log -1` alone, so the trailer has to land
-**on HEAD**: written first and merged after, it sits one commit back, the run finds no trailer
-and auto-derives the bump with nothing to say it did.
+**on HEAD**: written first and merged after, it sits one commit back, and the run reads `auto`
+with nothing to say it did.
 
-**A run that stops at the rc goes to End state from here** — the ordinary case, with the
-release following days later. `bump.done` outlives it otherwise: the PostToolUse hook deletes
-the `review` and `doc-sync` markers only, and `/flow` Phase 4 leaves a promotion's markers to
-this skill.
+**8. Push, then confirm the rc was cut** — on every host, count 0 included:
+
+```bash
+git push origin <staging>
+```
+
+Wait for the release run on that push, then read the release state again:
+
+```bash
+git fetch --tags origin
+python3 .claude/harness-tier/scripts/bump_version.py state
+```
+
+The rc was cut when `pending:` names `v` plus the version the chosen option was labelled
+with — the `continue` line's on a legacy re-promotion, and for `auto` or a count 0 host any rc
+other than the first read's `pending:`. The same line, `none` or a failed run: **no rc was cut
+and the promotion is not finished** — report it and stop. Under PR mode, check after the merge
+([`pr-mode.md`](references/pr-mode.md)).
+
+**A run that stops at the rc goes to End state from here** — the ordinary case. `bump.done`
+outlives it otherwise: the PostToolUse hook deletes the `review` and `doc-sync` markers only,
+and `/flow` Phase 4 leaves a promotion's markers to this skill.
 
 ## Step 2 — Release (staging → production)
 
-**1. Fetch first, and confirm staging carries the rc.**
+**1. Fetch first, and confirm staging carries a pending rc.**
 
 ```bash
-git fetch origin
+git fetch --tags origin
+python3 .claude/harness-tier/scripts/bump_version.py state
 ```
 
-`origin/<staging>` must sit at `X.Y.Z-rc.N` — the version bump the rc CI pushed. Merging
-before it lands leaves the finalize step with no pending rc to strip; it falls back to plain
-compute and the forced level is gone.
+`origin/<staging>` must sit at the `X.Y.Z-rc.N` the rc CI pushed — merged before it lands,
+finalize has no rc to strip and falls back to plain compute, losing the forced level — and
+`pending:` must name that rc. `none` or another rc means a hotfix shipped `X.Y.Z` or a higher
+base first, and finalize fails the run before writing anything:
+`vX.Y.Z already exists — a hotfix shipped this base`, or `vX.Y.Z is below the latest release`.
+Stop, and re-promote staging through Step 1 choosing `patch` or higher. A release run failing
+with either error means the same thing.
 
 **2. Security review** — `/security-review` over this promotion. It is the only review layer
 here; do not add a code-review pass back.
@@ -191,64 +274,42 @@ One marker, not two. A `review.done` sitting here is **Staging's**, left behind 
 stopped at the rc — clear it (the End state's `rm -f` covers it) rather than reading it as
 evidence for anything on this tier.
 
-**4. Merge the freshly fetched staging into production, leaving the commit unwritten:**
+**4. Merge the freshly fetched staging into production, leaving the commit unwritten,**
+starting on an up-to-date production:
 
 ```bash
+git switch <production> && git merge --ff-only origin/<production>
 git merge --no-ff --no-commit origin/<staging>
 ```
 
-**5. Write that pending merge** through `Skill: commit` — **no level here.** Finalize is
+**5. Write the stable changelog section** into the open merge —
+[`references/changelog.md`](references/changelog.md): a deduplicated summary of every rc this
+release folds in, approved by the user, which the release CI publishes as the release notes.
+
+**6. Write that pending merge** through `Skill: commit` — **no level here.** Finalize is
 deterministic: it strips the rc token off the version staging already carries. Same subject
 form as Staging (`Merge <staging>: <headline>`), and the same fixed order, for the same
-reason: HEAD is the only commit CI reads.
+reason: HEAD is the only commit CI reads. Then push — this is what fires finalize:
+
+```bash
+git push origin <production>
+```
 
 Deploy is project-specific and not gated; the production-branch commit is the gate.
 
-## PR-mode promotion
-
-When `flow-config.merge_workflow.pull_request` includes `promotion`, the merge moves to a pull
-request and the hook stops seeing it. Gate recording is unchanged — every marker above is
-still written on the local commit.
-
-- The PR **must** land as a **merge commit**. A rebase stops the release; a squash destroys the
-  history semantic-release reads.
-- With a forced level, pin the trailer in the merge command. `PR` is a literal number: written
-  as `<n>`, bash reads `<n` as a redirection and eats the next word.
-
-  ```bash
-  PR=123
-  gh pr merge "$PR" --merge --subject "Merge <staging>: release X.Y.Z" --body "Release-Level: <level>"
-  ```
-
-- A **`hotfix/*` → production** landing is a PR under this mode too — the production ruleset
-  governs every merge into that branch and rejects the local squash-and-push.
-
-## When the `wiki` gate blocks the promotion commit
-
-`doc-sync` is the only **gate** that rebuilds `graph.yaml`, and it is not a promotion one — so
-graph drift that reached the integration branch through a terminal commit surfaces here, as a
-blocked promotion commit. Resolve it in place:
-
-```bash
-python3 .claude/harness-tier/scripts/wiki_graph.py --build
-```
-
-Stage the rebuilt `graph.yaml` into the promotion commit. A failure naming a **structure**
-violation instead — `wiki_id` format or duplicate, missing `title`, dangling `depends_on`, a
-cycle, front matter that carries a `wiki_id` and does not parse — is a document's front matter
-to fix; `--build` cannot resolve those.
-
 ## End state
 
-**Both promotions end here**, a run that stopped at the rc included. The back-merge is
-Release's alone; the marker clearing is every run's.
+**Both promotions end here**, a run that stopped at the rc included, and so does a hotfix. The
+back-merge follows a release alone — Release's or a hotfix's; the marker clearing is every
+run's.
 
 **Back-merge production → integration (Release). Not optional.** Once the finalize CI has
 pushed its `chore(release)` version-bump and marketplace-sha-pin commits to production:
 
 ```bash
 git fetch origin
-git switch <integration> && git merge --ff-only origin/<production>
+git switch <integration> && git merge --ff-only origin/<integration>
+git merge --ff-only origin/<production>
 git push origin <integration>
 ```
 
@@ -258,7 +319,8 @@ released tag unreachable from integration, and the next version is computed wron
 **Then staging, `--ff-only` and nothing else:**
 
 ```bash
-git switch <staging> && git merge --ff-only origin/<production>
+git switch <staging> && git merge --ff-only origin/<staging>
+git merge --ff-only origin/<production>
 git push origin <staging>
 ```
 
@@ -277,7 +339,7 @@ passing evidence. A run that ended at Staging is where that bites: nothing else 
 `bump.done`, so the next rc satisfies its fail-closed `bump` gate with no one choosing a level.
 
 ```bash
-rm -f .claude/harness-tier/.flow/review.done .claude/harness-tier/.flow/bump.done .claude/harness-tier/.flow/security.done
+rm -f .claude/harness-tier/.flow/review.done .claude/harness-tier/.flow/bump.done .claude/harness-tier/.flow/security.done .claude/harness-tier/.flow/release-notes.md
 ```
 
 Deleting evidence stays a deliberate prompt: no `allowed-tools` rule covers that `rm`. Under
@@ -308,21 +370,20 @@ Each of these produces a release that looks finished and is not.
 
 ## Monorepo / multi-service
 
-A promotion versions **the whole repository at one version**. Multiple modules are first-class
-in gates, tests and deployment (`modules[]`, `unit_test.jobs[]`, a `deploy-<name>.yml` per
-target), but the `versioning` block is singular and has no slot for a per-service version — a
-backend and a frontend in one repo work correctly on lockstep versions with per-target deploys.
-Do not read `versioning.version_files` as evidence of anything: no script and no workflow reads
-that slot, and what stamps a version into a file is the release tool's own configuration.
+A promotion versions **the whole repository at one version**: modules are first-class in gates,
+tests and per-target deploys, on lockstep versions. `versioning` has no per-service slot, and
+nothing reads `versioning.version_files` — the release tool's own config stamps a version.
 
 ## Never
 
-- **Never force a level through a `workflow_dispatch`** — no workflow here reads one.
+- **Never force a level through a `workflow_dispatch`** — no workflow here reads one (the
+  sister plugin vway-kit's does): it forces nothing, and the promotion cuts no rc.
 - **Never put `[skip ci]` in a promotion merge.**
-- **Re-promote without the trailer.** `version --<level>` bumps the base every time it is
-  applied, so a second forced promotion takes `X.Y.Z-rc.1` → `X.Y.(Z+1)-rc.1` and skips
-  `X.Y.Z` as a stable release. To continue the rc series on the same target version, drop the
-  trailer and let the auto-derive path run.
+- **Never offer a forced level as the way to fold a follow-up into a pending rc.** `continue`
+  is that option; `patch`/`minor`/`major` there bump the base again and skip `X.Y.Z` as a
+  stable release, so they are the user's explicit choice, never the default.
+- **Never leave the trailer off a `count >= 1` promotion** but a legacy re-promotion. Write
+  the choice, `auto` included, spelled exactly: a value outside the five fails the run.
 - **Never spell a `git merge` flag through a variable.** The commit hook reads the command
   text unexpanded, so a variable where a flag belongs makes it read "not a merge" and every
   merge-strategy check switches off in silence (CLAUDE.md Invariant 7).

@@ -69,9 +69,12 @@ at a script that no longer exists. Delete that hook by hand (step 2 below).
 5. Decide on each rendered workflow:
    - `wiki-verify.yml`, `doc-style.yml`, `srs-verify.yml` — each skips when its script is gone,
      stays green, verifies nothing, and still spends a runner on every push. Delete them.
-   - release workflows — `gitversion` and `jreleaser` call `.claude/harness-tier/scripts/`
-     without a guard and fail on pushes to your release branches; `python-semantic-release`
-     guards its call; `cargo-release` and `semantic-release` never reference the path.
+   - release workflows — every template computes the rc version with
+     `.claude/harness-tier/scripts/bump_version.py`, unguarded, so every staging push fails.
+     On the stable branch `gitversion`, `jreleaser` and `semantic-release` fail too;
+     `python-semantic-release` guards its call and falls back to plain compute;
+     `cargo-release` skips the finalize guard and releases. Delete the workflow, or replace
+     its version step by hand.
    - `branch-naming.yml` (every push), `entropy-check.yml` (weekly), `api-contract.yml`,
      `unit-test.yml`, `e2e.yml`, `deploy.yml` and `deploy-*.yml` reference nothing of ours and
      keep running. Delete the ones you no longer want; `docs/operations/deploy-guide.md` goes

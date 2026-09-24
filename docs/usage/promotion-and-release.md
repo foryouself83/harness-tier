@@ -15,28 +15,38 @@ release). The branch the commit lands on sets the tier, so there is no `tier` ma
 With no argument it asks which promotion. A bare "cut the release" reaches it too.
 
 1. **Reads your release model.** `grep -c Release-Level .github/workflows/release.yml`
-   answers whether the bump level can be forced. The `python-semantic-release`, `jreleaser`,
-   `gitversion` and `cargo-release` templates read the trailer; Node `semantic-release` derives
-   the level from commit types and reads none. With no `release.yml` it stops and points you to
-   `/flow-init`. No workflow takes a level from a `workflow_dispatch`, so triggering one forces
-   nothing.
+   answers whether the bump level can be forced. Every template `/flow-init` renders reads the
+   trailer; a count of 0 means a hand-written workflow that reads none, and the level question
+   is skipped. A second `grep -c next-version` spots a workflow rendered before `continue`
+   existed ([adopting the new templates](#adopting-the-new-templates)). With no `release.yml`
+   it stops and points you to `/flow-init`. No workflow
+   takes a level from a `workflow_dispatch`, so triggering one forces nothing.
 2. **Staging** —
+   - when staging carries a pending rc, a back-merge of staging into integration first
+     (fast-forward, else `--no-ff`) — a **re-promotion**;
    - an independent review of `origin/<staging>..origin/<integration>` against
      `review_checklist`;
    - a recommended level from the commit types and your `commit_guide`'s 0.x policy;
-   - where the level can be forced, it always asks major / minor / patch, and warns when `major`
-     on `0.x` jumps to `1.0.0`;
+   - where the level can be forced, it always asks — auto / patch / minor / major, or on a
+     re-promotion continue / patch / minor / major — with every option labelled by the version
+     it produces ([the release level](#the-release-level)), and warns when `major` on `0.x`
+     jumps to `1.0.0`;
    - a warning when the release token cannot push (best effort, never blocks);
    - the `review` and `bump` markers.
-3. **Release** — confirms `origin/<staging>` carries an `X.Y.Z-rc.N` version, runs
+3. **Release** — confirms `origin/<staging>` carries a pending `X.Y.Z-rc.N` version, runs
    `/security-review`, and writes the `security` marker. No code review: Dev and Staging read
    this diff already.
-4. **Merges, then commits.** `git merge --no-ff --no-commit origin/<source>`, then `/commit`
-   writes the pending merge as `Merge <source>: <headline>`. The `Release-Level:` trailer goes
-   on only at Staging, only where the workflow reads it, and only on the first promotion of a
-   version — re-promoting the same rc series with a trailer bumps the base version again and
-   skips the release. CI reads `git log -1` alone, so the order matters: a trailer committed
-   before the merge sits one commit back and the run auto-derives the bump.
+4. **Merges, then commits, then pushes.** `git merge --no-ff --no-commit origin/<source>`;
+   at Release, drafts and folds the stable `CHANGELOG.md` section next — a deduplicated
+   summary of every rc the release folds in, shown for approval before it lands
+   ([the stable changelog section](#the-stable-changelog-section)). Then `/commit` writes
+   the pending merge as `Merge <source>: <headline>`, followed by a
+   push — that push is what fires the release workflow. At Staging, where the workflow reads
+   the trailer, it carries `Release-Level: <choice>` — always written, `auto` included. CI
+   reads `git log -1` alone, so the order matters: a trailer committed before the merge sits
+   one commit back and the run reads `auto`. Staging then re-reads the release state: the rc
+   is cut only when `pending:` names a different rc than the one before the push, and any
+   other outcome means the promotion is not finished.
 5. **Closes the cycle.** After a release:
    - back-merge production → integration — not optional; the released tag is otherwise
      unreachable from integration and the next version comes out wrong;
@@ -46,11 +56,77 @@ With no argument it asks which promotion. A bare "cut the release" reaches it to
    Either promotion then deletes its own evidence markers. A run that stopped at the rc included:
    nothing else removes `bump.done`, and the next promotion would read it as its own pass.
 
+**A hotfix release owes the same back-merge.** `/flow` hands a `hotfix/*` branch to
+`/release-commit`, which squashes it into production (a PR under `promotion`), waits for the
+release CI's stable tag, then runs both back-merges above. When the hotfix shipped the base of
+the rc pending on staging, or a higher one, that rc can no longer be released: the next
+integration → staging promotion must choose `patch` or higher.
+
 When the `wiki` gate blocks a promotion commit, rebuild with
 `python3 .claude/harness-tier/scripts/wiki_graph.py --build` and stage `graph.yaml` into it.
 
 A promotion versions the whole repository at one version. Never put a CI-skip marker in a
 promotion merge message: the release job never runs and nothing reports it.
+
+## The release level
+
+The staging promotion commit carries `Release-Level:` with one of `auto`, `continue`, `patch`,
+`minor`, `major`. A **pending rc** is the highest `vX.Y.Z-rc.N` tag whose `X.Y.Z` has no stable
+tag and sits above the highest stable tag, read from the whole tag list. An rc a later release
+left behind is never continued: finishing it would ship a downgrade.
+
+| Choice | No pending rc (last stable `1.0.3`) | Pending `1.1.0-rc.2` |
+|---|---|---|
+| `auto` | the release tool's commit-derived level | not offered |
+| `patch` | `1.0.4-rc.1` | `1.1.1-rc.1` |
+| `minor` | `1.1.0-rc.1` | `1.2.0-rc.1` |
+| `major` | `2.0.0-rc.1` | `2.0.0-rc.1` |
+| `continue` | not offered | `1.1.0-rc.3`, recommended |
+
+A forced level on a re-promotion skips `1.1.0` as a stable release. What breaks without care:
+
+- **A misspelled, empty or doubled trailer fails the rc run**, as does `continue` with no
+  pending rc. Nothing falls back to a derived bump.
+- **gitversion and jreleaser derive nothing**: `auto` continues the pending rc, else `patch`.
+- **python-semantic-release, forced level**: only the pyproject `[project]` version and
+  `.claude-plugin/plugin.json` are stamped. Other `version_variables` / `version_toml`
+  targets move on the `auto` path alone.
+- **Node semantic-release, forced level**: the rc is an annotated tag and a GitHub
+  prerelease — no npm publish, changelog or version commit. While it is pending, a push with
+  no trailer continues it and the commit types' level is ignored until it ships. A squash
+  promotion hides it from the release commit, and semantic-release decides that release.
+- **A hotfix that ships the rc's base, or a higher one, first fails the release run** with
+  `vX.Y.Z already exists — a hotfix shipped this base` or
+  `vX.Y.Z is below the latest release`. Re-promote staging with `patch` or higher, then
+  release.
+
+### Adopting the new templates
+
+`/flow-init` never overwrites a rendered `release.yml`. One rendered before `continue` and
+`auto` existed reads `Release-Level: major | minor | patch` alone and carries no finalize
+guard; `/release-commit` spots it (`next-version` count 0), warns, offers only
+patch / minor / major on a first promotion and writes no trailer on a re-promotion, where
+that workflow continues the rc on its own. To get `continue`, `auto` and the guard, delete
+`.github/workflows/release.yml` and re-run `/flow-init`, then carry over any hand edits.
+
+## The stable changelog section
+
+At Release, before the production commit, `/release-commit` reads every rc section the
+release folds in, drafts one deduplicated summary grouped the way `CHANGELOG.md` already
+is, and shows it for approval. The approved body folds into `CHANGELOG.md` as that
+release's `## vX.Y.Z` section and joins the promotion commit. Every rendered release
+template then runs a shared step on the stable branch that replaces the GitHub Release's
+notes with that section — fail-open: a release with no stable section, or a failed
+`gh release edit`, keeps the notes the release tool already created.
+
+A hotfix folds nothing here — PSR's own hotfix path writes its stable section directly,
+and this step reads that one. A Node host running `@semantic-release/changelog` gets a
+second section from that plugin, prepended above this one, and the step reads that first
+section instead.
+
+Under `promotion` PR mode this step is skipped: the Release PR merges `origin/<staging>`
+itself, never the local merge this step folds into, so the release keeps the notes its tool
+generated instead.
 
 ## PR workflow and branch rulesets
 
@@ -69,8 +145,12 @@ so enforcement moves to a GitHub branch ruleset's allowed merge methods:
 
 - **`promotion` is an exact swap.** One method per branch. Merge a promotion PR with "Create a
   merge commit" only — a rebase leaves the `[skip ci]` release commit as the head, so the release
-  never runs; a squash destroys the release history. With a forced level, pin the trailer:
-  `gh pr merge "$PR" --merge --subject "Merge <staging>: release X.Y.Z" --body "Release-Level: patch"`.
+  never runs; a squash destroys the release history. Pin the trailer the level question chose:
+
+  ```bash
+  gh pr merge "$PR" --merge --subject "Merge <staging>: release X.Y.Z" --body "Release-Level: patch"
+  ```
+
 - **`daily` is partial.** A ruleset targets the destination branch, so it cannot tell a
   `feature/*` PR from a `fix/*` one. It guarantees only "no merge commit into integration".
   Say which method the PR takes when you hand it over: "Squash and merge" for `feature/*`,

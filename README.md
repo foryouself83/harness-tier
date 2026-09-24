@@ -180,4 +180,5 @@ Then start day-to-day work with **`/flow <task description>`**.
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE).
+Apache License 2.0 — see [LICENSE](LICENSE); third-party licenses in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

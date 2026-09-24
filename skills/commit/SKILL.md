@@ -119,15 +119,18 @@ the tier gate.
 
 ## Step 5 — Promotion commits only: the `Release-Level` trailer
 
-The **first** forced staging promotion of a version ends with a blank line and
-`Release-Level: <level>`, taking the level from `$ARGUMENTS`. CI reads it to force the bump.
+A staging promotion on a host whose release workflow reads the trailer ends with a blank line
+and `Release-Level: <choice>`, the choice taken from `$ARGUMENTS`: `auto`, `continue`,
+`patch`, `minor` or `major`. Write it whatever the choice, `auto` included — an absent trailer
+runs as `auto` too, but only a written one records that the level was asked. Spell it exactly:
+any other value, an empty one, two different ones, or `continue` with no pending rc fails the
+release run rather than falling back to a derived bump.
 
-Re-promoting to iterate the **same** rc series takes **no trailer**: `version --<level>` bumps
-the base version every time it is applied, so a second trailer turns `X.Y.Z-rc.1` into
-`X.Y.(Z+1)-rc.1` and skips `X.Y.Z` as a stable release instead of continuing to `rc.2` — the
-auto-derive path is what continues the series
-([`promotion.md`](../../rules/promotion.md) Staging). A **production** commit never takes a
-level; the finalize step is deterministic.
+`continue` cuts the next rc of the pending series (`1.1.0-rc.2` → `1.1.0-rc.3`); a forced
+level on a re-promotion bumps the base again and skips `X.Y.Z` as a stable release
+([`promotion.md`](../../rules/promotion.md) Staging). `/release-commit` passes no level where
+the workflow reads no trailer, and then the commit takes none. A **production** commit never
+takes a level; the finalize step is deterministic.
 
 ## Guardrails
 

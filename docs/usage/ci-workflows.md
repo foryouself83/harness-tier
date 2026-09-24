@@ -100,10 +100,14 @@ duplicate id introduced on separate branches — the flow gate never reads an SR
   `python-semantic-release`, `semantic-release` (Node), `jreleaser`, `gitversion`,
   `cargo-release`. An unrecognized value is reported and no `release.yml` is rendered. Every
   template authenticates with `${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}`
-  ([release token](promotion-and-release.md#release-token-write-permission)). The GitHub Release
-  body is the latest grouped `CHANGELOG.md` section, falling back to auto-generated notes when
-  missing — this behavior belongs to the `python-semantic-release` template alone; the other
-  templates do not read `CHANGELOG.md`.
+  ([release token](promotion-and-release.md#release-token-write-permission)). On the stable
+  branch, every template runs a shared step that replaces the GitHub Release's notes with
+  `CHANGELOG.md`'s `## vX.Y.Z` section for that tag
+  ([the stable changelog section](promotion-and-release.md#the-stable-changelog-section)),
+  fail-open to the notes the release tool already created when that section is missing. The
+  `python-semantic-release` template additionally derives its own initial release notes from
+  `CHANGELOG.md`; the other templates create theirs with `--generate-notes` and rely on the
+  shared step alone to pull from the file.
 - **`branch-naming.yml`** under its own `branch_naming.enable`, on every push. It fails a push
   whose branch does not match a fixed set of patterns: `feature/*`, `fix/*`, `docs/*`,
   `hotfix/X.Y.Z`, `release/X.Y.Z`, the literal `dev`, and `versioning.branches.stable`/

@@ -149,6 +149,7 @@ def _checklist_in(doc: Path) -> list[str]:
             break
     return out
 
+
 # A nested step is indented, and the shape is no less broken one level down. Case-insensitive
 # for the same reason. Fenced blocks are dropped before this runs — a sample of the broken
 # shape inside one is an illustration, not a step.

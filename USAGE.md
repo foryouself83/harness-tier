@@ -25,4 +25,5 @@ page and a Korean twin under [`docs/usage/`](docs/usage/); `doc-sync` keeps ever
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE).
+Apache License 2.0 — see [LICENSE](LICENSE); third-party licenses in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -253,16 +253,22 @@ break after cleanup.
    template yet and stay opt-in/manual (13-2). C++, PHP, Ruby and Swift are a step further
    out — no ecosystem-standard release tool exists at all, so the doc names a per-project
    candidate rather than a default.
-   - The current version always comes from the release branch's git tag
-     (`git describe --tags --abbrev=0`), never a value a human types — the one
-     language-agnostic part every template shares.
-   - Python and Node read Conventional Commits themselves, so patch/minor/major is derived.
-   - JReleaser, GitVersion and cargo-release do not (verified against each tool's docs — do
-     not assume otherwise for a new stack without the same verification). Their templates read
-     the `Release-Level: major|minor|patch` commit trailer the `/release-commit`
-     staging-bump step already writes, defaulting to `patch` when absent. JReleaser and
-     GitVersion compute the next version with the shared `scripts/bump_version.py` helper;
-     cargo-release takes the level as a native CLI argument.
+   - The next version always comes from the repository's git tags, never a value a human
+     types — the one language-agnostic part every template shares. A pending rc is the
+     highest `vX.Y.Z-rc.N` whose `X.Y.Z` has no stable tag and sits above the highest stable
+     tag, read from the whole tag list (`git tag --list`), not `git describe`, which follows
+     one branch's ancestry. The stable branch refuses to finalize a version that already has
+     a tag or sits below the highest stable one.
+   - Every template reads the `Release-Level: auto|continue|patch|minor|major` commit trailer
+     the `/release-commit` staging-bump step writes, and computes the next rc with the shared
+     `scripts/bump_version.py next` helper. A forced level is applied as that version.
+     `auto` (also a missing trailer) goes to the tool where the tool derives a level, and to
+     the helper where it does not.
+   - Python and Node read Conventional Commits themselves, so `auto` is derived there, and
+     cargo-release derives it as `cargo release rc`.
+   - JReleaser and GitVersion derive nothing (verified against each tool's docs — do not
+     assume otherwise for a new stack without the same verification): `auto` continues the
+     pending rc, else takes `patch`.
    - GitVersion and cargo-release create only a git tag, so their templates add a
      `gh release create` step, as the Python template already does.
 

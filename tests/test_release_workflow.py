@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import tomllib
 from pathlib import Path
@@ -24,7 +25,8 @@ def test_release_parses_and_has_jobs():
 def test_stage_forces_level_from_trailer():
     text = _release_text()
     assert "Release-Level:" in text
-    assert "--as-prerelease" in text
+    assert 'finalize_prerelease.py" --set' in text
+    assert "--as-prerelease" not in text
 
 
 def test_main_uses_deterministic_finalize():
@@ -37,7 +39,8 @@ def test_consumer_template_has_force_and_finalize():
         encoding="utf-8"
     )
     assert "Release-Level:" in tmpl
-    assert "--as-prerelease" in tmpl
+    assert 'finalize_prerelease.py" --set' in tmpl
+    assert "--as-prerelease" not in tmpl
     assert "finalize_prerelease.py" in tmpl
     assert "__HARNESS_STABLE__" in tmpl and "__HARNESS_PRERELEASE__" in tmpl
 
@@ -133,22 +136,51 @@ def test_new_language_templates_read_release_level_trailer():
 
 
 def test_new_language_templates_use_bump_version_helper_where_needed():
-    # jreleaser/gitversion lack a native "bump by explicit level" primitive, so they use the
-    # shared bump_version.py helper. cargo-release is the one exception: it accepts the level as
-    # a native CLI argument (`cargo release patch/rc/release`), so no helper is needed.
+    # jreleaser/gitversion lack a native "bump by explicit level" primitive, so their own apply
+    # logic calls bump_version.py's `bump`/`finalize` verbs. cargo-release is the one exception:
+    # it accepts the level as a native CLI argument (`cargo release patch/rc/release`), so its
+    # apply logic needs no helper call — only the shared next-version block (every template
+    # carries it, cargo-release included) calls bump_version.py there, via its `next` verb.
     with_helper = (
         "github/release.jreleaser.workflow.example.yml",
         "github/release.gitversion.workflow.example.yml",
     )
     for rel in with_helper:
         text = (ROOT / rel).read_text(encoding="utf-8")
-        assert "bump_version.py" in text, f"{rel}: expected bump_version.py usage"
+        assert "bump_version.py bump" in text, f"{rel}: expected bump_version.py usage"
 
     cargo_text = (ROOT / "github/release.cargo-release.workflow.example.yml").read_text(
         encoding="utf-8"
     )
-    assert "bump_version.py" not in cargo_text
+    assert "bump_version.py bump" not in cargo_text
+    assert "bump_version.py finalize" not in cargo_text
     assert "cargo release" in cargo_text
+
+
+def test_gitversion_and_jreleaser_prerelease_branches_consume_shared_next_version():
+    """The shared next-version block already resolves the prerelease branch's version (a
+    continued or fresh rc, or the literal `auto` when AUTO_LEVEL falls through) — the branch
+    must not recompute it with a local `bump --prerelease rc.$RUN_NUMBER` call, which would
+    silently overwrite `$NEXT` and discard the shared block's continue/fresh-rc logic."""
+    for rel in (
+        "github/release.gitversion.workflow.example.yml",
+        "github/release.jreleaser.workflow.example.yml",
+    ):
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert "rc.$RUN_NUMBER" not in text, f"{rel}: still recomputes with rc.$RUN_NUMBER"
+        assert "RUN_NUMBER" not in text, f"{rel}: unused RUN_NUMBER env var still declared"
+        assert '--prerelease "rc.' not in text, f"{rel}: prerelease branch still bumps locally"
+
+
+def test_cargo_release_prerelease_branch_dispatches_on_next():
+    """cargo-release's `[version]` positional accepts an explicit semver string (crate-ci's
+    reference: "bump version to given version... has to be a valid semver string"), so the
+    prerelease branch applies `$NEXT` directly when the shared block resolved one, and falls
+    back to cargo-release's own `rc` level only when `$NEXT` is still the literal `auto`."""
+    text = (ROOT / "github/release.cargo-release.workflow.example.yml").read_text(encoding="utf-8")
+    assert 'if [ "$NEXT" = "auto" ]; then' in text
+    assert "cargo release rc --execute --no-confirm --no-publish" in text
+    assert 'cargo release "$NEXT" --execute --no-confirm --no-publish' in text
 
 
 def test_release_body_uses_changelog_section():
@@ -335,3 +367,39 @@ def test_every_python_semantic_release_install_constrains_gitpython():
         "python-semantic-release is installed without a GitPython constraint:\n  "
         + "\n  ".join(offenders)
     )
+
+
+_INLINE_PY = re.compile(r"python3 -c '(.*?)'", re.DOTALL)
+
+
+def _inline_python(rel: str) -> list[str]:
+    """Every `python3 -c '...'` body in the workflow's `run:` scripts, as YAML hands them to
+    bash — a snippet reads fine in the file and still fails once the block indent is stripped."""
+    data = yaml.safe_load((ROOT / rel).read_text(encoding="utf-8"))
+    runs = [step.get("run") or "" for job in data["jobs"].values() for step in job.get("steps", [])]
+    return [body for run in runs for body in _INLINE_PY.findall(run)]
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [p.relative_to(ROOT).as_posix() for p in sorted((ROOT / "github").glob("release.*.yml"))]
+    + [".github/workflows/release.yml"],
+)
+def test_inline_python_compiles(rel):
+    for body in _inline_python(rel):
+        compile(body, rel, "exec")
+
+
+def test_cargo_version_snippet_reads_the_workspace_version():
+    rel = "github/release.cargo-release.workflow.example.yml"
+    (body,) = _inline_python(rel)
+    metadata = (
+        '{"workspace_members": ["a 1.1.0-rc.2", "b 1.1.0-rc.2"], "packages": ['
+        '{"id": "a 1.1.0-rc.2", "name": "a", "version": "1.1.0-rc.2"},'
+        '{"id": "b 1.1.0-rc.2", "name": "b", "version": "1.1.0-rc.2"}]}'
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", body], input=metadata, capture_output=True, text=True, check=False
+    )
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "1.1.0-rc.2"

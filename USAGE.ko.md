@@ -25,4 +25,5 @@
 
 ## 라이선스
 
-Apache License 2.0 — [LICENSE](LICENSE) 참고.
+Apache License 2.0 — [LICENSE](LICENSE) 참고. 서드파티 라이선스는
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 참고.

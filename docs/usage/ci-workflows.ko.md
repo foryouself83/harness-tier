@@ -97,10 +97,13 @@ SRS 를 아예 읽지 않기 때문.
   `python-semantic-release`, `semantic-release`(Node), `jreleaser`, `gitversion`,
   `cargo-release`. 인식되지 않는 값은 보고만 되고 `release.yml` 은 렌더링되지 않음.
   모든 템플릿은 `${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}` 로 인증함
-  ([릴리스 토큰](promotion-and-release.ko.md#릴리스-토큰-쓰기-권한)). GitHub Release
-  본문은 최신 `CHANGELOG.md` 섹션이고, 없으면 자동 생성 노트로 대체됨 — 이 동작은
-  `python-semantic-release` 템플릿에만 해당하고 다른 템플릿은 `CHANGELOG.md` 를
-  읽지 않음.
+  ([릴리스 토큰](promotion-and-release.ko.md#릴리스-토큰-쓰기-권한)). stable 브랜치에서는
+  모든 템플릿이 공유 단계를 돌려 GitHub Release 의 notes 를 그 태그에 대한
+  `CHANGELOG.md` 의 `## vX.Y.Z` 절로 바꿔 씀
+  ([정식 changelog 절](promotion-and-release.ko.md#정식-changelog-절)) — 그 절이
+  없으면 릴리스 도구가 이미 만든 notes 를 그대로 두는 fail-open. `python-semantic-release`
+  템플릿은 여기에 더해 최초 release notes 자체도 `CHANGELOG.md` 에서 끌어오고, 다른
+  템플릿은 `--generate-notes` 로 만든 뒤 이 공유 단계로만 그 파일을 반영함.
 - **`branch-naming.yml`** — 자신의 `branch_naming.enable` 아래, 모든 push 에서.
   고정된 패턴 집합에 안 맞는 브랜치의 push 를 실패시킴: `feature/*`, `fix/*`,
   `docs/*`, `hotfix/X.Y.Z`, `release/X.Y.Z`, 리터럴 `dev`, 그리고
