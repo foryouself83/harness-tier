@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v0.4.1-rc.1 (2026-09-24)
+
+### Bug Fixes
+
+- **license**: Add third-party notice for ponytail
+  ([`ed47f5c`](https://github.com/foryouself83/harness-tier/commit/ed47f5c0c5ff08df490dcfba2a8b3f5c0369da69))
+
+- **release**: Dedent cargo template inline python
+  ([`c39841c`](https://github.com/foryouself83/harness-tier/commit/c39841c1a278827b19ee9a6788bb9cb2da7b53b5))
+
+### Features
+
+- **release**: Choose the level on every promotion
+  ([`d615732`](https://github.com/foryouself83/harness-tier/commit/d6157328474c20b3857a1fbd13723b50076907f8))
+
+- **release**: Fold the rcs into a stable section
+  ([`1fe936f`](https://github.com/foryouself83/harness-tier/commit/1fe936f91b635bb6cccb0445a8f51d56795d067d))
+
+
 ## v0.4.0-rc.1 (2026-09-22)
 
 ### Bug Fixes
