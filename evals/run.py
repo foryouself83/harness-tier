@@ -277,6 +277,17 @@ class RateLimited(RuntimeError):
     fire" is a fabricated score. Everything measured before this point is already on disk."""
 
 
+def is_stale(name: str, recorded: dict) -> bool:
+    """Whether the incremental run re-measures this skill. A recorded fixture_sha that no
+    longer matches is as stale as a moved description; an entry that predates the key is left
+    alone, so adding the key re-measured nothing."""
+    fixture = scores.fixture_sha(name)
+    return (
+        recorded.get("description_sha") != scores.description_sha(name)
+        or recorded.get("fixture_sha", fixture) != fixture
+    )
+
+
 def cases_for(entry: dict, arm: str) -> list[tuple[str, str | None]]:
     """Normalise both `- "prompt"` and `- {prompt:, fixture:}` into (prompt, fixture)."""
     out = []
@@ -585,6 +596,9 @@ def measure(name: str, entry: dict, reps: int, config_dir: Path, jobs: int) -> d
         # run measures one skill and rewrites the whole file; a file-level `reps` would then
         # claim this run's sample size for six skills it never touched.
         "measured_at": date.today().isoformat(),
+        # The fixtures this run's prompts met. None records a run in no fixture, which check()
+        # holds the skill to: gaining a fixture later stales the score.
+        "fixture_sha": scores.fixture_sha(name),
         "reps": reps,
         # The raw counts are what the gate and ratchet read — the exact binomial needs k and n,
         # not a two-decimal rate. `invoke_rate`/`false_fire` are kept as derived, human-readable
@@ -617,7 +631,7 @@ def measure(name: str, entry: dict, reps: int, config_dir: Path, jobs: int) -> d
         # agent could not do the work itself" is wrong. `--allowedTools Skill` removes Read
         # and Bash, so it also removes the agent's ability to *see the fixture* that
         # run_session went to the trouble of building — the arm answers only "does the prompt
-        # match the description on its own words". That is why all four fixture-backed skills
+        # match the description on its own words". That is why a fixture-backed skill tends to
         # read `restricted <= invoke_rate` while fixture-less ones can read higher, and why
         # playwright-scaffold shows 1.00 free against 0.20 restricted. Second caveat: reps are
         # not applied to this arm, so it is n=5 however many reps the scored arms ran — two
@@ -740,11 +754,7 @@ def _main() -> int:
     else:
         # The default is incremental. A harness nobody can afford to run is one whose
         # freshness gate blocks every merge.
-        targets = [
-            n
-            for n in sorted(data["skills"])
-            if old_skills.get(n, {}).get("description_sha") != scores.description_sha(n)
-        ]
+        targets = [n for n in sorted(data["skills"]) if is_stale(n, old_skills.get(n, {}))]
         if not targets:
             print("every score is current — nothing to measure")
             return 0

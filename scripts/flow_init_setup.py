@@ -117,6 +117,7 @@ COPY_FILES = [
     "scripts/check-token-write.sh",
     "scripts/finalize_prerelease.py",
     "scripts/bump_version.py",
+    "scripts/changelog_section.py",
 ]
 
 # What the GATE needs on the host, out of everything this installs: the hook names the

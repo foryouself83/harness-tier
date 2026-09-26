@@ -106,8 +106,9 @@ docs/            internal design records (Korean, never shipped) · reference no
 - **Ask a review agent for a literal `VERDICT: PASS` / `VERDICT: FAIL` line** — an ambiguous
   report reads as a pass, and the marker then records a review that never happened.
 - **Skills are measured** — `tests/skills/` checks the file is well-formed, [`evals/`](evals/)
-  that it is *reached* and, in the outcome arm, *executed*, whose fingerprint covers the body and
-  every fixture input: a body edit costs a re-measure the description check never shows.
+  that it is *reached* (stale when its description or a fixture its cases run in moves) and, in
+  the outcome arm, *executed*, whose fingerprint covers the body and every fixture input: a body
+  edit costs a re-measure the invocation check never shows.
 
 ## Invariants (break these and the gate is silently neutralized)
 

@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v0.4.1 (2026-09-26)
+
+### Features
+
+- **release**: A staging promotion chooses its bump level (auto, continue, patch, minor,
+  major) through a `Release-Level:` trailer; every release template shares one next-version
+  block and a finalize guard that refuses a stable tag that exists or sits below the latest
+  one.
+- **release**: A stable release folds its rc sections into one deduplicated changelog
+  section, published as the GitHub Release notes.
+
+### Bug Fixes
+
+- **license**: Add the third-party notice for ponytail (MIT).
+
+
 ## v0.4.0-rc.1 (2026-09-22)
 
 ### Bug Fixes

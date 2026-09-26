@@ -70,10 +70,11 @@
 5. 렌더링된 워크플로마다 결정함:
    - `wiki-verify.yml`, `doc-style.yml`, `srs-verify.yml` — 스크립트가 없으면 각각
      건너뛰어 초록으로 남지만 아무것도 검증하지 못하고 push 마다 러너를 씀. 지움.
-   - 릴리스 워크플로 — `gitversion`·`jreleaser` 는 가드 없이
-     `.claude/harness-tier/scripts/` 를 불러 릴리스 브랜치 push 에서 실패함;
-     `python-semantic-release` 는 가드가 있음; `cargo-release`·`semantic-release` 는
-     그 경로를 참조하지 않음.
+   - 릴리스 워크플로 — 모든 템플릿이 가드 없이
+     `.claude/harness-tier/scripts/bump_version.py` 로 rc 버전을 계산하므로 staging push 는
+     모두 실패함. stable 브랜치에서는 `gitversion`·`jreleaser`·`semantic-release` 도 실패함;
+     `python-semantic-release` 는 가드가 있어 plain compute 로 넘어감; `cargo-release` 는
+     finalize 가드를 건너뛰고 릴리스함. 워크플로를 지우거나 버전 단계를 손으로 바꿈.
    - `branch-naming.yml`(매 push), `entropy-check.yml`(주간), `api-contract.yml`,
      `unit-test.yml`, `e2e.yml`, `deploy.yml`, `deploy-*.yml` 은 우리 것을 전혀 참조하지
      않아 계속 돌아감. 더는 원치 않으면 지움; `docs/operations/deploy-guide.md` 도

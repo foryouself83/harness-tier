@@ -15,28 +15,37 @@
 인자가 없으면 어느 승격인지 물음. "릴리스 해" 같은 요청도 여기로 옴.
 
 1. **릴리스 모델을 읽음.** `grep -c Release-Level .github/workflows/release.yml` 로 범프
-   레벨을 강제할 수 있는지 답함. `python-semantic-release`·`jreleaser`·`gitversion`·
-   `cargo-release` 템플릿은 트레일러를 읽고, Node `semantic-release` 는 커밋 타입에서 레벨을
-   도출하며 트레일러를 읽지 않음. `release.yml` 이 없으면 멈추고 `/flow-init` 을 안내함.
+   레벨을 강제할 수 있는지 답함. `/flow-init` 이 렌더하는 템플릿은 모두 트레일러를 읽음;
+   0 은 트레일러를 읽지 않는 손으로 쓴 워크플로라는 뜻이고, 레벨 질문을 건너뜀. 두 번째
+   `grep -c next-version` 은 `continue` 이전에 렌더된 워크플로를 가려냄
+   ([새 템플릿 도입](#새-템플릿-도입)). `release.yml` 이 없으면 멈추고 `/flow-init` 을 안내함.
    `workflow_dispatch` 로 레벨을 받는 워크플로는 없으므로 그것을 트리거해도 아무것도
    강제되지 않음.
 2. **Staging** —
+   - staging 에 대기 rc 가 있으면 먼저 staging 을 integration 으로 백머지(fast-forward,
+     안 되면 `--no-ff`) — **재승격**;
    - `origin/<staging>..origin/<integration>` 에 대한 독립 리뷰를 `review_checklist` 기준으로
      수행;
    - 커밋 타입과 `commit_guide` 의 0.x 정책에서 권장 레벨을 계산;
-   - 레벨을 강제할 수 있는 곳에서는 항상 major/minor/patch 를 묻고, `0.x` 에서 `major` 를
-     고르면 `1.0.0` 으로 곧장 뛴다고 경고;
+   - 레벨을 강제할 수 있는 곳에서는 항상 물음 — auto / patch / minor / major, 재승격이면
+     continue / patch / minor / major — 선택지마다 그것이 만드는 버전을 라벨로 붙임
+     ([릴리스 레벨](#릴리스-레벨)). `0.x` 에서 `major` 를 고르면 `1.0.0` 으로 곧장
+     넘어감을 경고함;
    - 릴리스 토큰이 push 할 수 없을 때 경고(best effort, 절대 차단하지 않음);
    - `review`·`bump` 마커 기록.
-3. **Release** — `origin/<staging>` 가 `X.Y.Z-rc.N` 버전을 갖는지 확인하고,
+3. **Release** — `origin/<staging>` 가 대기 중인 `X.Y.Z-rc.N` 버전을 갖는지 확인하고,
    `/security-review` 를 돌리고, `security` 마커를 기록함. 코드 리뷰는 없음 — Dev 와
    Staging 에서 이미 이 diff 를 읽었기 때문.
-4. **머지한 뒤 커밋함.** `git merge --no-ff --no-commit origin/<source>` 다음
-   `/commit` 이 대기 중인 머지를 `Merge <source>: <headline>` 으로 씀. `Release-Level:`
-   트레일러는 Staging 에서만, 워크플로가 그것을 읽을 때만, 그 버전의 첫 승격에서만 붙음 —
-   같은 rc 시리즈를 트레일러와 함께 재승격하면 기준 버전이 다시 올라가고 릴리스를 건너뜀.
-   CI 는 `git log -1` 만 읽으므로 순서가 중요함: 머지 전에 커밋된 트레일러는 한 커밋
-   뒤로 밀려나고 실행은 범프를 자동으로 도출함.
+4. **머지한 뒤 커밋하고 push 함.** `git merge --no-ff --no-commit origin/<source>`; Release
+   에서는 이어서 정식 `CHANGELOG.md` 절을 초안해 접어 넣음 — 이 릴리스가 담는 모든 rc 를
+   중복 없이 요약해 승인받은 뒤 반영함
+   ([정식 changelog 절](#정식-changelog-절)). 그다음 `/commit` 이 대기 중인 머지를
+   `Merge <source>: <headline>` 으로 쓰고, 이어서 push —
+   릴리스 워크플로를 쏘는 것이 그 push 임. Staging 에서 워크플로가 트레일러를 읽으면
+   `Release-Level: <choice>` 를 붙임 — `auto` 포함, 항상 명시. CI 는 `git log -1` 만
+   읽으므로 순서가 중요함: 머지 전에 커밋된 트레일러는 한 커밋 뒤로 밀려나고 실행은
+   `auto` 로 읽음. Staging 은 그 뒤 릴리스 상태를 다시 읽음: `pending:` 이 push 전과
+   다른 rc 를 가리킬 때만 rc 가 실제로 cut 된 것이고, 그 외 결과는 승격 미완료를 뜻함.
 5. **주기를 닫음.** 릴리스 뒤:
    - production → integration 백머지 — 필수임; 아니면 릴리스된 태그가 integration 에서
      도달 불가능해지고 다음 버전이 잘못 계산됨;
@@ -46,12 +55,76 @@
    두 승격 모두 끝나면 자신의 증거 마커를 지움. rc 에서 멈춘 실행도 포함 — `bump.done` 을
    지우는 것은 이것뿐이고, 안 지우면 다음 승격이 이를 자신의 통과 증거로 읽음.
 
+**hotfix 릴리스도 같은 백머지를 요구함.** `/flow` 는 `hotfix/*` 브랜치를 `/release-commit` 에
+넘기고, 그것이 hotfix 를 production 으로 squash 하고(`promotion` 아래서는 PR), 릴리스 CI 의
+정식 태그를 기다린 뒤 위의 두 백머지를 실행함. hotfix 가 staging 에 대기 중인 rc 의 base 나
+그보다 높은 버전을 출시했으면 그 rc 는 더 이상 릴리스할 수 없음: 다음 integration → staging
+승격은 `patch` 이상을 골라야 함.
+
 `wiki` 게이트가 승격 커밋을 막으면
 `python3 .claude/harness-tier/scripts/wiki_graph.py --build` 로 재빌드하고 `graph.yaml`
 을 그 커밋에 스테이징함.
 
 승격은 저장소 전체를 한 버전으로 매김. 승격 머지 메시지에 CI-skip 마커를 절대 넣지 않음 —
 릴리스 잡이 전혀 돌지 않고 아무도 알아채지 못함.
+
+## 릴리스 레벨
+
+staging 승격 커밋은 `Release-Level:` 에 `auto`·`continue`·`patch`·`minor`·`major` 중 하나를
+실음. **대기 rc** 는 같은 `X.Y.Z` 의 정식 태그가 없고 최고 정식 태그보다 높은 최고
+`vX.Y.Z-rc.N` 태그이며, 전체 태그 목록에서 읽음. 이후 릴리스가 뒤에 남긴 rc 는 잇지 않음 —
+그것을 마무리하면 버전이 내려감.
+
+| 선택 | 대기 rc 없음 (마지막 정식 `1.0.3`) | 대기 `1.1.0-rc.2` |
+|---|---|---|
+| `auto` | 릴리스 도구가 커밋에서 도출한 레벨 | 제시하지 않음 |
+| `patch` | `1.0.4-rc.1` | `1.1.1-rc.1` |
+| `minor` | `1.1.0-rc.1` | `1.2.0-rc.1` |
+| `major` | `2.0.0-rc.1` | `2.0.0-rc.1` |
+| `continue` | 제시하지 않음 | `1.1.0-rc.3`, 권장 |
+
+재승격에서 강제 레벨은 `1.1.0` 을 정식 릴리스로 건너뜀. 주의하지 않으면 깨지는 것:
+
+- **오타·빈 값·서로 다른 두 트레일러는 rc 실행을 실패시킴**, 대기 rc 없는 `continue` 도
+  마찬가지. 도출된 범프로 떨어지는 경로는 없음.
+- **gitversion·jreleaser 는 아무것도 도출하지 못함**: `auto` 는 대기 rc 를 잇고, 없으면
+  `patch`.
+- **python-semantic-release, 강제 레벨**: pyproject `[project]` 버전과
+  `.claude-plugin/plugin.json` 만 기록함. 다른 `version_variables` / `version_toml` 대상은
+  `auto` 경로에서만 움직임.
+- **Node semantic-release, 강제 레벨**: rc 는 annotated 태그와 GitHub prerelease 뿐 — npm
+  publish·changelog·버전 커밋 없음. 대기 중인 동안 트레일러 없는 push 는 그 rc 를 잇고,
+  출시될 때까지 커밋 타입의 레벨은 무시됨. squash 승격은 릴리스 커밋에서 그 rc 를 가려,
+  그 릴리스는 semantic-release 가 정함.
+- **hotfix 가 rc 의 base 나 그보다 높은 버전을 먼저 출시하면 릴리스 실행이 실패함**:
+  `vX.Y.Z already exists — a hotfix shipped this base` 또는
+  `vX.Y.Z is below the latest release`. staging 을 `patch` 이상으로 재승격한 뒤 릴리스함.
+
+### 새 템플릿 도입
+
+`/flow-init` 은 이미 렌더된 `release.yml` 을 덮어쓰지 않음. `continue`·`auto` 이전에 렌더된
+것은 `Release-Level: major | minor | patch` 만 읽고 finalize 가드가 없음. `/release-commit`
+은 이를 가려내(`next-version` 개수 0) 경고하고, 첫 승격에서는 patch / minor / major 만
+제시하며, 재승격에서는 트레일러를 쓰지 않음 — 그 워크플로가 rc 를 스스로 이어감.
+`continue`·`auto`·가드를 쓰려면 `.github/workflows/release.yml` 을 지우고 `/flow-init` 을
+다시 실행한 뒤 손으로 고친 부분을 옮겨 옴.
+
+## 정식 changelog 절
+
+Release 에서, production 커밋 전에 `/release-commit` 이 이 릴리스가 담는 모든 rc 절을 읽어
+`CHANGELOG.md` 가 이미 쓰는 방식으로 그룹화한 중복 없는 요약 하나를 초안하고 승인받음.
+승인된 본문은 그 릴리스의 `## vX.Y.Z` 절로 `CHANGELOG.md` 에 접혀 들어가 승격 커밋에
+합류함. 렌더링된 모든 릴리스 템플릿은 그 뒤 stable 브랜치에서 공유 단계를 돌려 GitHub
+Release 의 notes 를 그 절로 바꿔 씀 — fail-open: 정식 절이 없거나 `gh release edit` 이
+실패하면 릴리스 도구가 이미 만든 notes 를 그대로 둠.
+
+hotfix 는 여기서 아무것도 접지 않음 — PSR 자체 hotfix 경로가 정식 절을 직접 쓰고, 이
+단계는 그것을 읽음. `@semantic-release/changelog` 를 돌리는 Node 호스트는 그 플러그인이
+만든 절을 이 절 위에 하나 더 얹고, 이 단계는 그 첫 절을 대신 읽음.
+
+`promotion` PR 모드에서는 이 단계를 건너뜀 — Release PR 은 `origin/<staging>` 자체를
+머지하지, 이 단계가 접어 넣는 로컬 머지를 머지하지 않으므로, 릴리스는 그 도구가 만든
+notes 를 그대로 유지함.
 
 ## PR 워크플로와 브랜치 룰셋
 
@@ -69,9 +142,12 @@
 
 - **`promotion` 은 정확한 치환.** 브랜치마다 방식 하나뿐. 승격 PR 은 "Create a merge
   commit" 으로만 머지함 — rebase 는 `[skip ci]` 릴리스 커밋을 head 로 남겨 릴리스가
-  전혀 돌지 않고, squash 는 릴리스 히스토리를 파괴함. 레벨을 강제할 때는 트레일러를
-  고정함: `gh pr merge "$PR" --merge --subject "Merge <staging>: release X.Y.Z" --body
-  "Release-Level: patch"`.
+  전혀 돌지 않고, squash 는 릴리스 히스토리를 파괴함. 레벨 질문이 고른 트레일러를 고정함:
+
+  ```bash
+  gh pr merge "$PR" --merge --subject "Merge <staging>: release X.Y.Z" --body "Release-Level: patch"
+  ```
+
 - **`daily` 는 부분적.** 룰셋은 대상 브랜치를 겨냥하므로 `feature/*` PR 과 `fix/*` PR 을
   구분하지 못함. "integration 에 머지 커밋 없음"만 보장함. PR 을 넘길 때 방식을 말해 둠:
   `feature/*` 는 "Squash and merge", `fix/*` 는 "Rebase and merge".

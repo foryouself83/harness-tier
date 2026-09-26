@@ -151,18 +151,25 @@ skills:
       it claims every development request; a router that misses one dev ask in five is not
       routing.
     # golden_tier — the deterministic risk-tier the router SHOULD classify each prompt into
-    # (rules/risk-tiers.md is the SSOT: docs | dev | staging | release). Data-only for now:
-    # run.py's cases_for reads only `prompt`/`fixture`, so this key is inert — it is pre-staged
-    # for a future deterministic OUTCOME check (does the emitted tier marker equal golden_tier?),
-    # the one place a router's outcome diverges from mere invocation. A prompt whose tier depends
-    # on an unspecified diff is left unlabelled on purpose — no deterministic golden exists for it.
+    # (rules/risk-tiers.md is the SSOT: docs | dev | staging | release). The scored run ignores
+    # it: run.py's cases_for reads `prompt`/`fixture` alone. What reads it is
+    # evals/outcome_probe.py, which runs every labelled case and compares the tier the session
+    # emitted — so a label added here costs that probe `reps` more sessions per run. A prompt
+    # whose tier depends on an unspecified diff carries no label: no deterministic golden
+    # exists for it.
     happy:
       - prompt: Add a --verbose flag to the CLI.
         golden_tier: dev
       - prompt: Fix the crash when the config file is missing.
         golden_tier: dev
-      # tier depends on the (unspecified) staged diff — no deterministic golden, left unlabelled
-      - Commit these changes.
+      # The one case here with a fixture: in an empty directory "commit these changes" has
+      # nothing to commit, so the session reads the tree and answers instead of routing, and
+      # the miss measures the sandbox rather than the description. The fixture supplies the
+      # pending change — source plus its test — which is what makes the tier `dev` here,
+      # where a bare prompt over an unspecified diff would carry no deterministic golden.
+      - prompt: Commit these changes.
+        fixture: flow-pending-commit
+        golden_tier: dev
       # An ordinary day-to-day dev request, the case release-commit's departure leaves flow to
       # cover alone. Picked for no overlap with any other skill's own vocabulary (not a test/e2e
       # ask, not a docs ask, not commit-message authoring, not a promotion).

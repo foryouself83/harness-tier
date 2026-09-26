@@ -50,8 +50,8 @@ Conventional Commits 타입을 고르고, 50/72 규칙을 확인한 뒤 `git com
 
 - 존재하면 `commit_guide` 를 읽어([설정](configuration.ko.md#commit_guide)) 그 프로젝트
   사실을 우선함.
-- 승격 커밋은 [`/release-commit`](promotion-and-release.ko.md#release-commit--승격-하나를-실행)
-  이 설명하는 경우에만 `Release-Level:` 트레일러를 붙임.
+- staging 승격 커밋은 릴리스 워크플로가 트레일러를 읽는 곳이면 `auto` 를 포함해 항상
+  `Release-Level: <choice>` 를 붙임([릴리스 레벨](promotion-and-release.ko.md#릴리스-레벨)).
 - `--no-verify` 를 절대 쓰지 않고, `git add -A` 를 절대 쓰지 않으며, 메시지에 CI-skip 마커를
   절대 적지 않음 — GitHub 는 head 커밋 어디에서든 그것을 읽으면 워크플로 실행을 만들지 않음.
 

@@ -2,6 +2,19 @@
 # Standard semantic-release (@semantic-release/*). The detailed config lives in the project's .releaserc.
 # Release notes: @semantic-release/github publishes the generated changelog (grouped by
 # type, plumbing filtered) as the GitHub Release body — no extra step needed here.
+# Forced level: a `Release-Level:` trailer on the prerelease push is applied as a `v<next>` tag
+# and a GitHub prerelease, without semantic-release. That tag is annotated with the message
+# `release v<next> (Release-Level)`; semantic-release's own tags are lightweight.
+# While the pending rc carries that marker, a prerelease push with no trailer continues it
+# (`rc.N+1`) the same way, and a stable push merging it finalizes it as a `v<base>` tag and a
+# GitHub Release. Every other push is semantic-release, including the finalize of an rc that
+# semantic-release cut. The tag-only paths run no .releaserc plugin: no npm publish, changelog
+# or version commit.
+# Why the prerelease branch continues a forced rc itself: semantic-release records each
+# release's channel in a git note, and the tags written here carry none, so it reads them as
+# the default channel. A prerelease branch's channel defaults to its own name, so an auto run
+# there would skip a forced rc, bump from the last stable tag, and could compute a version at
+# or below the one already tagged.
 # Prerequisite: repo Settings → Actions → Workflow permissions = "Read and write".
 # Auth: references ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}. By default it runs
 # on the auto-provided GITHUB_TOKEN — RELEASE_TOKEN is OPTIONAL and falls back to GITHUB_TOKEN
@@ -37,8 +50,93 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "20"
+      - name: Compute next version (prerelease)
+        id: nextver
+        if: ${{ github.ref_name == '__HARNESS_PRERELEASE__' }}
+        env:
+          HARNESS_SCRIPTS: .claude/harness-tier/scripts
+          AUTO_LEVEL: ""
+        run: |
+          # >>> next-version (shared by every release workflow; tests/release_level pins it)
+          git fetch --tags --force --quiet origin || true
+          NEXT="$(python3 "$HARNESS_SCRIPTS/bump_version.py" next \
+            --message "$(git log -1 --pretty=%B)" \
+            --tags "$(git tag --list)" \
+            --auto-level "${AUTO_LEVEL:-}")" || exit 1
+          echo "next version: $NEXT"
+          # <<< next-version
+          if [ "$NEXT" = "auto" ]; then
+            rc=0
+            RC_TAG="$(python3 "$HARNESS_SCRIPTS/bump_version.py" finalize-tag --rc \
+              --tags "$(git tag --list)")" || rc=$?
+            if [ "$rc" -gt 1 ]; then exit "$rc"; fi
+            if [ -n "$RC_TAG" ] \
+              && [ "$(git cat-file -t "refs/tags/$RC_TAG")" = "tag" ] \
+              && [ "$(git tag -l --format='%(contents:subject)' "$RC_TAG")" = "release $RC_TAG (Release-Level)" ]; then
+              NEXT="$(python3 "$HARNESS_SCRIPTS/bump_version.py" next \
+                --message "Release-Level: continue" --tags "$(git tag --list)")" || exit 1
+              echo "pending rc $RC_TAG is a forced one: continuing it as $NEXT"
+            fi
+          fi
+          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
+      - name: Apply forced level (prerelease)
+        id: forced
+        if: ${{ github.ref_name == '__HARNESS_PRERELEASE__' && steps.nextver.outputs.version != 'auto' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          NEXT: ${{ steps.nextver.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$NEXT" -m "release v$NEXT (Release-Level)"
+          git push origin "v$NEXT"
+          gh release create "v$NEXT" --title "v$NEXT" --generate-notes --prerelease
+          echo "released=true" >> "$GITHUB_OUTPUT"
+          echo "tag=v$NEXT" >> "$GITHUB_OUTPUT"
+      - name: Finalize pending rc (stable)
+        id: finalize
+        if: ${{ github.ref_name == '__HARNESS_STABLE__' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          HARNESS_SCRIPTS: .claude/harness-tier/scripts
+        run: |
+          git fetch --tags --force --quiet origin || true
+          # Only an rc merged into this push is a candidate: a hotfix must not finalize staging's rc.
+          TAGS="$(git tag --list --merged HEAD)"
+          rc=0
+          STABLE="$(python3 "$HARNESS_SCRIPTS/bump_version.py" finalize-tag \
+            --tags "$TAGS")" || rc=$?
+          if [ "$rc" -gt 1 ]; then exit "$rc"; fi
+          if [ -z "$STABLE" ]; then
+            echo "no pending rc: semantic-release decides this release"
+            exit 0
+          fi
+          RC_TAG="$(python3 "$HARNESS_SCRIPTS/bump_version.py" finalize-tag --rc --tags "$TAGS")"
+          if [ "$(git cat-file -t "refs/tags/$RC_TAG")" != "tag" ] \
+            || [ "$(git tag -l --format='%(contents:subject)' "$RC_TAG")" != "release $RC_TAG (Release-Level)" ]; then
+            echo "pending rc $RC_TAG was cut by semantic-release: it finalizes this release"
+            exit 0
+          fi
+          # >>> finalize-guard (shared by every release workflow; tests/release_level pins it)
+          if git rev-parse -q --verify "refs/tags/v$STABLE" >/dev/null; then
+            echo "::error::v$STABLE already exists — a hotfix shipped this base. Re-promote staging with Release-Level: patch (or higher) before releasing." >&2
+            exit 1
+          fi
+          LATEST_STABLE="$(git tag --list 'v*' | sed -n 's/^v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$/\1/p' | sort -V | tail -n 1)"
+          if [ -n "$LATEST_STABLE" ] && [ "$(printf '%s\n%s\n' "$LATEST_STABLE" "$STABLE" | sort -V | tail -n 1)" != "$STABLE" ]; then
+            echo "::error::v$STABLE is below the latest release v$LATEST_STABLE — a hotfix shipped a higher base, so finalizing would downgrade. Re-promote staging with Release-Level: patch (or higher) before releasing." >&2
+            exit 1
+          fi
+          # <<< finalize-guard
+          # gh creates the tag and the Release in one call, so a failure leaves neither and a
+          # rerun redoes both.
+          gh release create "v$STABLE" --target "$(git rev-parse HEAD)" \
+            --title "v$STABLE" --generate-notes
+          echo "released=true" >> "$GITHUB_OUTPUT"
+          echo "tag=v$STABLE" >> "$GITHUB_OUTPUT"
       - name: Semantic release
         id: sr
+        if: ${{ steps.forced.outputs.released != 'true' && steps.finalize.outputs.released != 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
@@ -49,12 +147,32 @@ jobs:
 
       - name: Expose released tag
         id: exposetag
+        env:
+          TAG: ${{ steps.forced.outputs.tag || steps.finalize.outputs.tag }}
+          SR_RELEASED: ${{ steps.sr.outputs.released }}
         run: |
-          if [ "${{ steps.sr.outputs.released }}" = "true" ]; then
+          if [ -n "$TAG" ]; then
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          elif [ "$SR_RELEASED" = "true" ]; then
             echo "tag=$(git describe --tags --abbrev=0)" >> "$GITHUB_OUTPUT"
           else
             echo "tag=" >> "$GITHUB_OUTPUT"
           fi
+      - name: Stable release notes from CHANGELOG
+        if: ${{ github.ref_name == '__HARNESS_STABLE__' && steps.exposetag.outputs.tag != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          HARNESS_SCRIPTS: .claude/harness-tier/scripts
+          TAG: ${{ steps.exposetag.outputs.tag }}
+        run: |
+          # >>> release-notes (shared by every release workflow; tests/release_level pins it)
+          if python3 "$HARNESS_SCRIPTS/changelog_section.py" extract --version "${TAG#v}" > stable-notes.md; then
+            gh release edit "$TAG" --notes-file stable-notes.md \
+              || echo "::warning::could not replace the $TAG release notes with its CHANGELOG section"
+          else
+            echo "no stable ${TAG} section in CHANGELOG.md — keeping the release notes as created"
+          fi
+          # <<< release-notes
 
   # __HARNESS_DEPLOY_BEGIN__ (managed by /harness-deployments · /flow-init — do not edit inside)
   # __HARNESS_DEPLOY_END__

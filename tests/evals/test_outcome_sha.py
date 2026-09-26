@@ -97,6 +97,7 @@ def test_outcome_sha_moves_when_a_copied_file_changes(tmp_path: Path, monkeypatc
         stand_in.parent.mkdir(parents=True, exist_ok=True)
         stand_in.write_text("original\n", encoding="utf-8")
     monkeypatch.setattr(outcome, "REPO", tmp_path)
+    monkeypatch.setattr(sandbox, "REPO", tmp_path)  # copy_from_repo sources resolve here
 
     base = outcome.outcome_sha("wiki-init", s)
     edited = tmp_path / next(iter(s.copy_from_repo.values()))
@@ -116,6 +117,7 @@ def test_outcome_sha_does_not_depend_on_line_endings(tmp_path: Path, monkeypatch
     skill_md.parent.mkdir(parents=True)
     skill_md.write_text("body\n", encoding="utf-8")
     monkeypatch.setattr(outcome, "REPO", tmp_path)
+    monkeypatch.setattr(sandbox, "REPO", tmp_path)  # copy_from_repo sources resolve here
 
     def _write(newline: str) -> str:
         for src in s.copy_from_repo.values():
@@ -146,6 +148,7 @@ def test_outcome_sha_survives_a_copy_source_that_is_not_there(tmp_path: Path, mo
     skill_md.parent.mkdir(parents=True)
     skill_md.write_text("body\n", encoding="utf-8")
     monkeypatch.setattr(outcome, "REPO", tmp_path)
+    monkeypatch.setattr(sandbox, "REPO", tmp_path)  # copy_from_repo sources resolve here
     assert outcome.outcome_sha("wiki-init", s)
 
 
@@ -192,3 +195,13 @@ def test_outcome_sha_covers_every_scenario_field_without_being_told():
     assert outcome.SHA_EXEMPT == frozenset({"why", "expect", "reject"}), (
         "SHA_EXEMPT grew: every entry must be prose that build() and check_outcome never read"
     )
+
+
+def test_an_unused_optional_field_does_not_move_the_fingerprint():
+    """Adding a field to Scenario must not stale every committed baseline: a scenario that
+    never sets it is the same fixture it was. Setting it still moves the sha."""
+    s = sandbox.BY_NAME["doc-sync-drift"]
+    assert not s.uncommitted
+    base = outcome.outcome_sha("doc-sync", s)
+    assert outcome.outcome_sha("doc-sync", replace(s, uncommitted={})) == base
+    assert outcome.outcome_sha("doc-sync", replace(s, uncommitted={"a.txt": "x\n"})) != base

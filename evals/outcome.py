@@ -20,7 +20,6 @@ import hashlib
 import json
 import sys
 import tempfile
-from dataclasses import asdict
 from datetime import date
 from pathlib import Path
 
@@ -34,29 +33,7 @@ REPO = Path(__file__).resolve().parent.parent
 OUTCOME_SCORES = REPO / "evals/outcome_scores.json"
 
 
-# Scenario fields that describe the run for a human instead of shaping it: the sandbox's
-# prose pass/fail criteria and the rationale behind them. Nothing build() or check_outcome
-# touches, so rewording one must not cost a re-measurement. Everything else is fingerprinted,
-# including fields added later — see outcome_sha.
-SHA_EXEMPT = frozenset({"why", "expect", "reject"})
-
-
-def _copied_file_sha(src: str) -> str:
-    """Digest of one file `copy_from_repo` brings into the fixture.
-
-    Line endings are normalized first. The checkout is CRLF on Windows and LF on the CI
-    runner, so a digest over raw bytes fingerprints the checkout rather than the content, and
-    the two platforms permanently disagree about the same file — every other input reaches
-    the payload through read_text, which already normalizes.
-
-    A path that does not resolve still fingerprints, under its own name: such a scenario is
-    already broken and build() is where that gets said, while outcome_sha is walked
-    field-by-field by the tests, so raising here would turn a fingerprint into a crash."""
-    try:
-        content = (REPO / src).read_bytes()
-    except (OSError, TypeError, ValueError):
-        return "unreadable"
-    return hashlib.sha256(content.replace(b"\r\n", b"\n")).hexdigest()
+SHA_EXEMPT = sandbox.SHA_EXEMPT
 
 
 def outcome_sha(skill: str, scenario: sandbox.Scenario) -> str:
@@ -78,10 +55,7 @@ def outcome_sha(skill: str, scenario: sandbox.Scenario) -> str:
     copied in by path can be rewritten under a baseline that keeps reporting fresh, so the
     digest of each source travels beside its path."""
     body = (REPO / f"skills/{skill}/SKILL.md").read_text(encoding="utf-8")
-    fixture = {k: v for k, v in asdict(scenario).items() if k not in SHA_EXEMPT}
-    fixture["copy_from_repo"] = {
-        dest: [src, _copied_file_sha(src)] for dest, src in scenario.copy_from_repo.items()
-    }
+    fixture = sandbox.fingerprint(scenario)
     payload = body + json.dumps(fixture, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
