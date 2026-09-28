@@ -8,7 +8,9 @@ REPO = Path(__file__).resolve().parent.parent.parent
 SKILLS = sorted(REPO.glob("skills/*/SKILL.md"))
 SKILL_IDS = [p.parent.name for p in SKILLS]
 # rules/ ships to consumers and the SessionStart hook injects it, so its commands run too.
-SHIPPED_RULES = sorted(REPO.glob("rules/*.md"))
+# Recursive: rules/harness-tools/ ships the same way, and a later git example added there must
+# reach the same Invariant 7 pin as a top-level rule.
+SHIPPED_RULES = sorted(REPO.glob("rules/**/*.md"))
 # Korean is allowed only where it is *data* rather than prose: a verbatim quote of a
 # script's real stdout, the input tokens harness-insight parses, and the user phrasings a
 # description lists as triggers. Translating any of them would desync the doc from the code

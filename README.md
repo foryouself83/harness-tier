@@ -114,6 +114,11 @@ pipeline relies on it.
 
 > A public repo, so install and auto-update need no authentication.
 
+**Codex CLI** installs the same plugin under its own marketplace command
+(`codex plugin marketplace add foryouself83/harness-tier`, then `/plugins`), with its own
+project-trust and hook-approval steps and a few behavior differences — see
+[Codex](docs/usage/codex.md).
+
 ### 3. `/harness-init` — generate the project harness
 
 Creates a `CLAUDE.md`, rules, and technical docs tailored to your project. **On a brand-new

@@ -14,6 +14,10 @@
 
 set -uo pipefail
 
+# Which harness sent the payload. No argument is Claude Code, which every existing host is.
+HARNESS=claude
+[ "${1:-}" = "--harness" ] && HARNESS="${2:-claude}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 RULE_FILE="${PLUGIN_ROOT}/rules/risk-tiers.md"
@@ -174,7 +178,8 @@ published_notice() {
 # manifest reads that decide it are cheaper than the timeout they would wait out.
 # An unreadable source announces rather than going quiet: a notice nobody needed beats a
 # feature that silently stopped working.
-notice="$(published_notice)"
+notice=""
+[ "$HARNESS" = claude ] && notice="$(published_notice)"
 if [ -n "$notice" ]; then
   hook_stdin=""
   IFS= read -r -t 1 -d '' hook_stdin 2>/dev/null || true
@@ -197,13 +202,25 @@ fi
 # mandate moves the skills measured invocation rates, and a path is not worth that.
 rule_escaped="$(escape_for_json "$rule_content")"
 rules_dir_escaped="$(escape_for_json "${PLUGIN_ROOT}/rules")"
-session_context="${notice_block}<harness-tier-risk-tiers>\nThis project enforces the harness-tier risk-tiered workflow AT COMMIT TIME. The commit gate is fail-closed: it blocks any commit whose task was not classified by /flow. So before starting ANY code change, feature, fix, or dev request — and at the latest before you commit — your action MUST be to invoke the /flow skill (via the Skill tool). /flow is what classifies the task, confirms the tier, runs the matching gates, and records the marker the commit gate requires. Do NOT judge the tier yourself and skip the skill; without /flow's marker the commit is rejected.\n\n${rule_escaped}\n\nThe files this rule links by bare filename live in ${rules_dir_escaped} — read one there when it sends you to it.\n</harness-tier-risk-tiers>"
+invoke_as="the /flow skill (via the Skill tool)"
+# shellcheck disable=SC2016 # $flow names Codex's slash form and must stay literal, not expand.
+[ "$HARNESS" = codex ] && invoke_as='the $flow skill (open its SKILL.md and follow it in full)'
+session_context="${notice_block}<harness-tier-risk-tiers>\nThis project enforces the harness-tier risk-tiered workflow AT COMMIT TIME. The commit gate is fail-closed: it blocks any commit whose task was not classified by /flow. So before starting ANY code change, feature, fix, or dev request — and at the latest before you commit — your action MUST be to invoke ${invoke_as}. /flow is what classifies the task, confirms the tier, runs the matching gates, and records the marker the commit gate requires. Do NOT judge the tier yourself and skip the skill; without /flow's marker the commit is rejected.\n\n${rule_escaped}\n\nThe files this rule links by bare filename live in ${rules_dir_escaped} — read one there when it sends you to it.\n</harness-tier-risk-tiers>"
 
 # A separate block, after the risk-tiers one: the mandate's neighbourhood is measured, and
 # text added beside it moves the skills' invocation rates. Names no skill — a slash name
 # here would force `hook_assisted` onto it (tests/evals/test_injected_rule.py).
 prose_block="\n\n<harness-tier-prose>\nThe rule below is guidance you apply while writing. Restate it to the user in the user's language whenever you surface it; do not quote it back in English by default.\n\nBefore writing a comment, ask whether the code can raise instead — an assert, a validated bound, a type. If it can, write that and no comment. Only a trap with no runtime moment to fire at earns the box. Never a how-explanation, a revision history, date or author, or a line number; filenames are fine.\n\nThe box keys are literals the checker parses and do not translate:\n  CRITICAL TRAP: / Trigger: / Symptom:\n\nFull rule: ${rules_dir_escaped}/doc-style.md\n</harness-tier-prose>"
 session_context="${session_context}${prose_block}"
+
+if [ "$HARNESS" = codex ]; then
+  tools_file="${PLUGIN_ROOT}/rules/harness-tools/codex.md"
+  if [ -f "$tools_file" ] && tools_content="$(cat "$tools_file" 2>/dev/null)"; then
+    session_context="${session_context}\n\n<harness-tier-codex-tools>\n$(escape_for_json "$tools_content")\n</harness-tier-codex-tools>"
+  fi
+  printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$session_context"
+  exit 0
+fi
 
 if [ -n "${CURSOR_PLUGIN_ROOT:-}" ]; then
   printf '{\n  "additional_context": "%s"\n}\n' "$session_context"

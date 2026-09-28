@@ -8,7 +8,7 @@ description: "Use when a change may have left the documentation drifted or incon
 # `*` is a prefix match — `… --neighbors x && <anything>` would be pre-approved too. The
 # per-node prompt is the cost of not granting that.
 # `--derive-id <paths>` is absent for the same reason — path arguments force a trailing `*`.
-allowed-tools: Bash(mkdir -p .claude/harness-tier/.flow) Bash(touch .claude/harness-tier/.flow/doc-sync.done) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --build) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --verify) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --stale) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --unmapped)
+allowed-tools: Bash(mkdir -p .claude/harness-tier/.flow) Bash(touch .claude/harness-tier/.flow/doc-sync.done) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --build) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --verify) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --stale) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --unmapped) Bash(python3 .claude/harness-tier/scripts/harness/codex/instructions.py render) Bash(python3 .claude/harness-tier/scripts/harness/codex/instructions.py render --check)
 argument-hint: "[preview | what changed and why]"
 # This skill reads a whole doc set to change a few lines of it, so the reading is the cost,
 # and it lands on whoever called the skill rather than on the work. Forking moves it. What
@@ -172,9 +172,9 @@ python3 .claude/harness-tier/scripts/wiki_graph.py --stale
    file — `recorded` and `current` are **working-tree blob hashes** (`git hash-object`),
    so history rewrites (squash/rebase promotions) cannot fake staleness. An entry with a
    `migrated` key carries a legacy commit-sha marker: rewrite `sources[path]` to the
-   `migrated` value — it is the meaning-preserving conversion (`git rev-parse
-   <old>:<path>`), needs no re-reading, and the verify gate accepts it without a body
-   edit. If `migrated` equals `current`, that rewrite is the whole fix; if it differs (or
+   `migrated` value — it is the meaning-preserving conversion
+   (`git rev-parse <old>:<path>`), needs no re-reading, and the verify gate accepts it without
+   a body edit. If `migrated` equals `current`, that rewrite is the whole fix; if it differs (or
    is `null`), the node is also genuinely stale — sync the body, then stamp. An entry
    with `"missing": true` is a different problem: that source **path** no longer exists
    (the file was renamed or deleted). Fix the path — or drop the entry — in the node's
@@ -193,8 +193,8 @@ python3 .claude/harness-tier/scripts/wiki_graph.py --stale
    graph already holds those relations, so this is a lookup, not an estimate.
 
 3. **Update the bodies**, then stamp `sources[path]` with the file's **working-tree blob
-   hash** — the `current` value from step 1's JSON (equivalently `git hash-object --
-   <path>`), never a commit sha — **only for nodes whose body you changed**. A
+   hash** — the `current` value from step 1's JSON (equivalently
+   `git hash-object -- <path>`), never a commit sha — **only for nodes whose body you changed**. A
    stale node you did not touch stays stale and goes in the Report — do not stamp its
    sha. Stamping without reading the code behind it turns the marker into a lie, and the
    gate now enforces this mechanically: a commit whose only change to a node is its
@@ -210,8 +210,8 @@ python3 .claude/harness-tier/scripts/wiki_graph.py --stale
 
 4. **Give any new `.md` under the wiki root its front matter** — get `wiki_id` from one
    derivation call for all the new documents, substituting their real paths (e.g.
-   `python3 .claude/harness-tier/scripts/wiki_graph.py --derive-id docs/auth/jwt.md
-   docs/auth/session.md`; each stdout line is `path<TAB>id`, a failure names its path
+   `python3 .claude/harness-tier/scripts/wiki_graph.py --derive-id docs/auth/jwt.md docs/auth/session.md`;
+   each stdout line is `path<TAB>id`, a failure names its path
    on stderr and the call exits nonzero, though every path that succeeded still prints
    its line — fix that path and re-run; rationale in
    [wiki-init](../wiki-init/SKILL.md) Step 5). No `--root` here, unlike wiki-init's: this mode
@@ -309,8 +309,23 @@ did not touch says nothing either way — the answer comes from comparing agains
 
 Prose itself follows [`doc-style.md`](../../rules/doc-style.md). Half of that rule is
 patterns and half is judgement, so run both over the files this run touched — invoke
-`Skill: prose-review` with those paths. It reports what it would change; apply what
+skill `prose-review` with those paths. It reports what it would change; apply what
 survives review before the marker, since an edit after the marker voids it.
+
+## 1c. Codex's copy of the instructions
+
+Only when `.claude/harness-tier/config/flow-config.yaml` lists `codex` under `harnesses`.
+Codex reads neither `CLAUDE.md` nor `.claude/rules/`, only a block generated from them in the
+root `AGENTS.md`, so after any edit to either, regenerate it and confirm it matches:
+
+```bash
+python3 .claude/harness-tier/scripts/harness/codex/instructions.py render
+python3 .claude/harness-tier/scripts/harness/codex/instructions.py render --check
+```
+
+A non-zero exit from `--check` is a finding: report its line under `[B]`. Never edit the block
+by hand — the next render overwrites it. When the script is absent, the host's copies predate
+this step: skip it, not a finding, and tell the user to re-run `/flow-init`.
 
 ## 2. Gate marker
 

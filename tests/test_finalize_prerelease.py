@@ -77,6 +77,44 @@ def test_set_version_writes_pyproject_and_plugin_json(tmp_path: Path):
     assert plugin_data["version"] == "1.2.0-rc.1"
 
 
+def test_finalize_stamps_codex_plugin_when_present(tmp_path: Path):
+    _seed(tmp_path, "0.2.0-rc.1")
+    codex_dir = tmp_path / ".codex-plugin"
+    codex_dir.mkdir()
+    (codex_dir / "plugin.json").write_text(
+        json.dumps({"name": "x", "version": "0.2.0-rc.1"}) + "\n", encoding="utf-8"
+    )
+    assert finalize(tmp_path) == "0.2.0"
+    codex_data = json.loads((codex_dir / "plugin.json").read_text(encoding="utf-8"))
+    assert codex_data["version"] == "0.2.0"
+
+
+def test_finalize_is_a_noop_on_codex_plugin_when_absent(tmp_path: Path):
+    # A consumer host has no .codex-plugin/plugin.json — finalize() must not crash or create one.
+    _seed(tmp_path, "0.2.0-rc.1")
+    assert finalize(tmp_path) == "0.2.0"
+    assert not (tmp_path / ".codex-plugin").exists()
+
+
+def test_set_version_stamps_codex_plugin_when_present(tmp_path: Path):
+    _seed(tmp_path, "1.0.0")
+    codex_dir = tmp_path / ".codex-plugin"
+    codex_dir.mkdir()
+    (codex_dir / "plugin.json").write_text(
+        json.dumps({"name": "x", "version": "1.0.0"}) + "\n", encoding="utf-8"
+    )
+    set_version(tmp_path, "1.2.0-rc.1")
+    codex_data = json.loads((codex_dir / "plugin.json").read_text(encoding="utf-8"))
+    assert codex_data["version"] == "1.2.0-rc.1"
+
+
+def test_set_version_without_codex_plugin_does_not_crash(tmp_path: Path):
+    # No .codex-plugin/plugin.json (consumer host) — must not crash or create one.
+    _seed(tmp_path, "1.0.0")
+    set_version(tmp_path, "1.2.0-rc.1")
+    assert not (tmp_path / ".codex-plugin").exists()
+
+
 def test_set_version_without_plugin_json_does_not_crash(tmp_path: Path):
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname = "x"\nversion = "1.0.0"\n'

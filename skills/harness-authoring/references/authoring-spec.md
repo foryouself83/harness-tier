@@ -23,9 +23,9 @@ Confirm against the official docs, not model knowledge, as the SSOT:
     callable"). Bare `Bash` therefore grants every command — scope each rule to a command the
     skill runs (`Bash(k6 run *)`), and leave out anything whose prompt is doing real
     work, such as an install or a commit. Tools that never prompt (`Read`, `Grep`, `Glob`,
-    `AskUserQuestion`, `Agent`) add nothing but the false look of a limit. The grant expires at
-    the user's next message, so a multi-turn wizard gets little from it; a session-wide grant
-    belongs in `settings.json` `permissions.allow`.
+    Claude Code's question and subagent tools) add nothing but the false look of a limit.
+    The grant expires at the user's next message, so a multi-turn wizard gets little from it; a
+    session-wide grant belongs in `settings.json` `permissions.allow`.
 - **rule** (`.claude/rules/<name>.md`): frontmatter is **only an optional `paths` (glob list)** —
   do not use `name`/`description` fields (a rule is not a component but CLAUDE.md-family instructions).
   Without `paths` it auto-loads every session (`.claude/CLAUDE.md` priority); with `paths` it loads when working on matching files.

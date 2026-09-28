@@ -14,6 +14,12 @@ allowed-tools: Bash(k6 run *) Bash(lizard *)
 
 ---
 
+**Interaction.** Wherever this skill asks the user something, use the host's blocking question
+tool already in your tool list, matched by capability rather than by a host-specific name; if it
+is listed but not loaded, load it first with the host's tool-discovery primitive; only when no
+such tool is listed, or a question call errors, offer numbered options in chat and end your turn
+to wait for the reply — never answer the question yourself or skip it.
+
 ## 1. Stack Detection
 
 First consume the host documentation; if none exists, fall back to the built-in catalog.
@@ -69,7 +75,7 @@ when a DB is present, regardless of the application language.
 > discovery (§1), the openapi-to-k6 invocation (§2.1), and the report template (§3). Follow it exactly;
 > both the spec paths and the CLI syntax have traps that re-deriving them inline reliably gets wrong.
 
-**Confirm BASE_URL with the user via `AskUserQuestion` before running any load** — `api-load.md` §1
+**Confirm BASE_URL — ask the user (structured choice) — before running any load** — `api-load.md` §1
 gathers candidates from several sources, but a guessed BASE_URL points load at the wrong host.
 
 **MIT fallback (when avoiding AGPL):** `oha`, `autocannon`, `vegeta` — see `references/api-load.md` §2.2.

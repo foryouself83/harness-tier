@@ -108,6 +108,10 @@ python3 -m pip install pyyaml pre-commit
 
 > 공개 저장소라 별도 인증 없이 설치·자동 업데이트 가능.
 
+**Codex CLI** 에는 같은 플러그인을 Codex 자체 마켓플레이스 명령으로 설치함
+(`codex plugin marketplace add foryouself83/harness-tier` 뒤 `/plugins`) — 프로젝트 신뢰·
+훅 승인 절차와 몇 가지 동작 차이가 있음. [Codex 지원](docs/usage/codex.ko.md) 참고.
+
 ### 3. `/harness-init` — 프로젝트 하네스 생성
 
 프로젝트에 맞는 `CLAUDE.md`·규칙·기술 문서를 생성. **아무것도 없는 새 프로젝트라면 여기서부터**

@@ -13,6 +13,16 @@ The script performs the following, idempotently:
   printed report is the single source of truth for which files it copied — relay it verbatim.
 - **Registers** the commit gate in `.claude/settings.json` `hooks.PreToolUse` (skips
   if already present; no `if` field — `precommit-runner.sh` self-filters on stdin).
+- **Registers** the commit gate in `.codex/hooks.json` too when `flow-config.harnesses`
+  names `codex` (Claude is always registered; Codex is opt-in). Copies its wrapper
+  scripts (`harness/codex/gate.sh`/`gate.cmd`) alongside the Claude gate scripts, under
+  the same fail-closed rule — a wrapper that failed to copy withholds `flow-tiers.yaml`
+  exactly like a missing Claude gate script. Relays Codex's own trust notes: whether
+  Codex considers the project trusted (`.codex/` is ignored otherwise), and that the
+  hook still needs approving in Codex's `/hooks` before it runs.
+- **Renders** a managed block into the root `AGENTS.md` when `flow-config.harnesses` names
+  `codex`: Codex reads neither `CLAUDE.md` nor `.claude/rules/`, so the block carries them,
+  generated from those files and never written back to them. Text outside the block is kept.
 - **Registers** the `harness-tier` marketplace in `.claude/settings.json`
   `extraKnownMarketplaces` with `autoUpdate: true` (adds if absent, repairs the flag
   if present). Third-party marketplaces default to *no* auto-update and the author
@@ -70,3 +80,11 @@ The script performs the following, idempotently:
   rendered file running where doc-style's would go quiet. Report the
   `/playwright-scaffold` pointer the step prints when no config exists: the flag renders the
   file, a suite is what makes it mean anything. It blocks nothing.
+
+The same script's `--uninstall` mode (run by [`/flow-uninstall`](../../flow-uninstall/SKILL.md))
+always unregisters the Codex gate from `.codex/hooks.json`, regardless of what
+`flow-config.harnesses` currently lists — a host that dropped `codex` from the list after
+installing it still has the hook file, and uninstall means gone, not "gone unless the config
+forgot to mention it". It removes the `AGENTS.md` block the same way, and the file too when
+nothing else is left in it and every Claude source could be read — a source it cannot read
+may link to `AGENTS.md`, so the emptied file stays.

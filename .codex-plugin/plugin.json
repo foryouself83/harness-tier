@@ -1,0 +1,17 @@
+{
+  "name": "harness-tier",
+  "version": "0.4.1",
+  "description": "harness-tier risk-tiered workflow + Teams notification harness",
+  "author": { "name": "foryouself83" },
+  "homepage": "https://github.com/foryouself83/harness-tier",
+  "repository": "https://github.com/foryouself83/harness-tier",
+  "skills": "./skills/",
+  "hooks": "./hooks/codex/hooks.json",
+  "interface": {
+    "displayName": "harness-tier",
+    "shortDescription": "Risk-tiered workflow with a commit gate",
+    "developerName": "foryouself83",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Read", "Write"]
+  }
+}

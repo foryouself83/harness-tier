@@ -10,9 +10,9 @@ final stage, plus a new blocking rule: a commit whose only change to a node is i
 (no body edit) is rejected — [`doc-sync`](../skills/doc-sync/SKILL.md) Mode W owns that stamp.
 When `flow-config.wiki` is enabled it verifies, read-only, that `graph.yaml` still matches the
 docs' front matter and that no structural rule is broken. It runs on **every tier including
-`docs`** — a docs commit is exactly when the graph drifts. No wiki configured (absent · `enable:
-false` · missing root) → nothing runs, so a repo without a wiki never notices this gate. The
-graph is **built** by `/doc-sync`, by `/wiki-init`, and by hand wherever a step says to run
+`docs`** — a docs commit is exactly when the graph drifts. No wiki configured (absent ·
+`enable: false` · missing root) → nothing runs, so a repo without a wiki never notices this gate.
+The graph is **built** by `/doc-sync`, by `/wiki-init`, and by hand wherever a step says to run
 `--build` ([`/flow`](../skills/flow/SKILL.md) Dev 1b, a blocked promotion
 commit) — never by the hook and never by CI. It is
 built from **git's index** — `git add` is what admits a document to the wiki, so stage new
@@ -53,16 +53,16 @@ error → nothing runs (Invariant #1). Runs on every tier including `docs`.
 ## Host custom checks
 
 Hosts add their own runtime checks by putting extra keys under `flow-config.modules[].checks` —
-a command string (timing defaults by key name: `security` → promotion, else every-commit) or `{
-run, when }` to set timing explicitly (use `when`, not `on` — YAML reads a bare `on` key as a
+a command string (timing defaults by key name: `security` → promotion, else every-commit) or
+`{ run, when }` to set timing explicitly (use `when`, not `on` — YAML reads a bare `on` key as a
 boolean). **Timing is bound to that bucket's gate existing in the tier**: the `docs` tier has
 neither *bucket* gate, so host custom checks never run on a docs commit — the module pre-check
 short-circuits there. (`wiki`·`doc-style` still run on a docs commit; neither is a module check
 and neither enters that path.) `precommit` and `security-scan` are ordinary entries in each
 tier's `flow-tiers.yaml` `gates` list, so **removing one disables that whole bucket** for that
 tier (the gates list is the single on/off switch, not a hardcoded branch). Like all layer-2
-checks these run **only on Claude-session commits** — terminal/CI commits are not gated (add a
-CI safety net if you need hard enforcement).
+checks these run **only on agent-session (Claude Code or Codex) commits** — terminal/CI
+commits are not gated (add a CI safety net if you need hard enforcement).
 
 ## Enforcement properties
 

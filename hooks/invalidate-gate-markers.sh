@@ -18,6 +18,11 @@
 
 set -uo pipefail
 
+# Which harness sent the payload. Named by the hook entry, never guessed from the environment:
+# Codex also sets CLAUDE_PLUGIN_ROOT. No argument is Claude Code, which every existing host is.
+HARNESS=claude
+[ "${1:-}" = "--harness" ] && HARNESS="${2:-claude}"
+
 MARKERS="review.done doc-sync.done"
 EVIDENCE=".claude/harness-tier/.flow"
 CONFIG=".claude/harness-tier/config/flow-config.yaml"
@@ -158,50 +163,100 @@ to_slash() {
   printf '%s' "${s%/}"
 }
 
-path="$(to_slash "$path")"
-case "$path" in
-  */"$EVIDENCE"/*) exit 0 ;;  # the evidence dir writes its own files
-esac
+# Codex reports every edit as `apply_patch`, or as a Bash command when the model runs apply_patch
+# through the shell — never as the file_path/notebook_path shape the block below reads. The
+# prefilter matches on the quoted tool_name value or the patch marker, so it holds regardless of
+# whether the payload's JSON is compact or spaced around the colon. It only decides whether
+# hook_io.py runs at all; what counts as an edit is hook_io.py's answer. Everything else (`git add
+# -A` run as plain Bash) exits before touching any marker — voiding evidence recorded before a
+# commit stages it would let that evidence disappear ahead of the commit that earned it.
+if [ "$HARNESS" = codex ]; then
+  case "$payload" in
+    *'"apply_patch"'* | *'*** Begin Patch'*) ;;
+    *) exit 0 ;;
+  esac
+  hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  # hook_io.py decides what is an edit (its docstring holds the exit statuses): 0 prints the
+  # paths or says "not an edit", anything else is an edit it could not place or a run that failed.
+  unplaced=0
+  edited="$(printf '%s' "$payload" | python3 "$hook_dir/../scripts/harness/codex/hook_io.py" edited-paths 2>/dev/null)" || unplaced=1
+  targets=""
+  while IFS= read -r one; do
+    one="$(to_slash "$one")"
+    case "$one" in */"$EVIDENCE"/*|"") continue ;; esac
+    root="$(root_for "${one%/*}")" || continue
+    case $'\n'"$targets"$'\n' in *$'\n'"$root"$'\n'*) ;; *) targets="${targets:+$targets
+}$root" ;; esac
+  done <<EOF
+$edited
+EOF
+  # An edit hook_io.py could not place, or a hook_io.py that could not run (no python3), voids
+  # the evidence at the payload `cwd`'s root. A payload cut at the 64 KB read cap reaches
+  # hook_io.py as invalid JSON, which it still judges by tool name and surviving command text.
+  # Codex has no CLAUDE_PROJECT_DIR for the Claude path's own fallback below, and `cwd` sits
+  # ahead of `tool_input` in every measured Codex payload, so it survives the cut. Voiding the
+  # whole repo's evidence is the safe direction over voiding none.
+  if [ "$unplaced" -eq 1 ] &&
+    [[ "$payload" =~ \"cwd\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]]; then
+    cap_cwd="${BASH_REMATCH[1]}"
+    cap_cwd="${cap_cwd//\\\\/\\}"  # JSON escapes a path backslash as two; collapse before to_slash
+    cap_cwd="$(to_slash "$cap_cwd")"
+    if root="$(root_for "$cap_cwd")"; then
+      case $'\n'"$targets"$'\n' in
+        *$'\n'"$root"$'\n'*) ;;
+        *) targets="${targets:+$targets
+}$root" ;;
+      esac
+    fi
+  fi
+fi
 
-# Every tree whose gate could judge this edit. The edited file's root is the first; the session's
-# project dir is the second whenever it is another view of the SAME repo, because the gate cannot
-# always name the worktree a commit belongs to — a detached HEAD, a branch matching no worktree
-# entry — and falls back to reading the project dir (Invariant 6, which keeps that uncertainty
-# pointed at main). Voiding both keeps this hook a superset of whichever answer the gate reaches;
-# voiding only one leaves the gate reading a marker no edit ever touched.
-targets=""
-case "$path" in
-  */*)
-    edited="$(root_for "${path%/*}")" || edited=""
-    project="$(to_slash "${CLAUDE_PROJECT_DIR:-}")"
-    if [ -n "$edited" ]; then
-      targets="$edited"
-      if [ -n "$project" ] && [ "$project" != "$edited" ]; then
-        here="$(common_dir "$edited")" || here=""
-        there="$(common_dir "$project")" || there=""
-        # Union unless the two are provably DIFFERENT repos, and ask that of the filesystem
-        # rather than of the strings: a relative `gitdir:`, a `..` left in one, a case-different
-        # spelling of one directory, or a project dir that is not a root at all all compare
-        # unequal as text while naming the same repo. Both must EXIST for the answer to be a
-        # proof — `-ef` is false for a path that names nothing (a worktree whose repo moved,
-        # an external git dir since deleted), and that false is no evidence of anything.
-        # Unproven counts as the same tree: keeping a marker is the direction that lets an
-        # unreviewed commit through.
-        if [ -e "$here" ] && [ -e "$there" ] && [ ! "$here" -ef "$there" ]; then
-          :
-        else
-          targets="$targets
+if [ "$HARNESS" != codex ]; then
+  path="$(to_slash "$path")"
+  case "$path" in
+    */"$EVIDENCE"/*) exit 0 ;;  # the evidence dir writes its own files
+  esac
+
+  # Every tree whose gate could judge this edit. The edited file's root is the first; the session's
+  # project dir is the second whenever it is another view of the SAME repo, because the gate cannot
+  # always name the worktree a commit belongs to — a detached HEAD, a branch matching no worktree
+  # entry — and falls back to reading the project dir (Invariant 6, which keeps that uncertainty
+  # pointed at main). Voiding both keeps this hook a superset of whichever answer the gate reaches;
+  # voiding only one leaves the gate reading a marker no edit ever touched.
+  targets=""
+  case "$path" in
+    */*)
+      edited="$(root_for "${path%/*}")" || edited=""
+      project="$(to_slash "${CLAUDE_PROJECT_DIR:-}")"
+      if [ -n "$edited" ]; then
+        targets="$edited"
+        if [ -n "$project" ] && [ "$project" != "$edited" ]; then
+          here="$(common_dir "$edited")" || here=""
+          there="$(common_dir "$project")" || there=""
+          # Union unless the two are provably DIFFERENT repos, and ask that of the filesystem
+          # rather than of the strings: a relative `gitdir:`, a `..` left in one, a case-different
+          # spelling of one directory, or a project dir that is not a root at all all compare
+          # unequal as text while naming the same repo. Both must EXIST for the answer to be a
+          # proof — `-ef` is false for a path that names nothing (a worktree whose repo moved,
+          # an external git dir since deleted), and that false is no evidence of anything.
+          # Unproven counts as the same tree: keeping a marker is the direction that lets an
+          # unreviewed commit through.
+          if [ -e "$here" ] && [ -e "$there" ] && [ ! "$here" -ef "$there" ]; then
+            :
+          else
+            targets="$targets
 $project"
+          fi
         fi
       fi
-    fi
-    ;;
-  *)
-    # No path, or a bare name this hook cannot place: it cannot tell where the edit landed, and
-    # keeping a marker over an edit nobody has seen is the one direction it may never fail in.
-    targets="$(to_slash "${CLAUDE_PROJECT_DIR:-}")"
-    ;;
-esac
+      ;;
+    *)
+      # No path, or a bare name this hook cannot place: it cannot tell where the edit landed, and
+      # keeping a marker over an edit nobody has seen is the one direction it may never fail in.
+      targets="$(to_slash "${CLAUDE_PROJECT_DIR:-}")"
+      ;;
+  esac
+fi
 [ -n "$targets" ] || exit 0
 
 voided=""

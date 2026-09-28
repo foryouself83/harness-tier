@@ -26,8 +26,8 @@ Branch names refer to `flow-config.branches` keys.
 - Row 2's ✅ names a narrower pattern than its row — enforced for that pattern only; the
   rest is unchecked discipline.
 - Row 1's rebase step: **warned, not blocked** — a stale `origin` ref would false-positive.
-- Scope: **Claude-session merges only**. A terminal merge bypasses it, like every layer-2
-  gate.
+- Scope: **agent-session (Claude Code or Codex) merges only**. A terminal merge bypasses it,
+  like every layer-2 gate.
 
 **`staging → production` = `--no-ff` Merge, never Squash.** semantic-release parses the
 individual conventional commits, and the merge commit's non-`[skip ci]` title is what fires
@@ -39,8 +39,8 @@ release input.)
 Required state: after the rc CI ran and semantic-release committed the `X.Y.Z-rc.N` bump.
 A pre-bump local ref carries no prerelease version into production, so the rc-strip
 finalize has nothing to strip and **falls back to plain compute — the forced bump-level
-override is lost silently** (`0.2.0` shipped where `0.1.2` was intended). `git fetch
-origin` first, merge `origin/<staging>`.
+override is lost silently** (`0.2.0` shipped where `0.1.2` was intended).
+`git fetch origin` first, merge `origin/<staging>`.
 
 ### Merging `feature/*` → integration (integration-test gate)
 

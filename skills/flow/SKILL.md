@@ -28,6 +28,12 @@ Branch names referenced below come from `flow-config.branches`
 (`integration` / `staging` / `production`). Domain-review items come from
 `flow-config.review_checklist` and per-module pre-checks from `flow-config.modules`.
 
+**Interaction.** Wherever this skill asks the user something, use the host's blocking question
+tool already in your tool list, matched by capability rather than by a host-specific name; if it
+is listed but not loaded, load it first with the host's tool-discovery primitive; only when no
+such tool is listed, or a question call errors, offer numbered options in chat and end your turn
+to wait for the reply — never answer the question yourself or skip it.
+
 Four tiers, two axes:
 - **Day-to-day task** (this skill's main job): **Docs** (no code) or
   **Dev** (any code).
@@ -44,7 +50,7 @@ Four tiers, two axes:
 
 **A promotion is not a day-to-day task.** A request to promote a branch, cut a release
 candidate, or release — integration → staging, staging → production — has no tier to
-classify: the target branch decides it. Hand it to `Skill: release-commit` and stop here.
+classify: the target branch decides it. Invoke skill `release-commit` and stop here.
 The rubric below is the wrong instrument for that ask.
 
 The line is simple: **code, or no code.** Inspect the real change, do not guess:
@@ -71,7 +77,7 @@ Output the verdict — tier, reason, gates (from [`flow-tiers.yaml`](../../flow-
 
 ## Phase 2 — Confirm the tier & switch to a work branch (human gate)
 
-Use `AskUserQuestion` to confirm the tier, allowing an override. **Do not start
+Ask the user (structured choice) to confirm the tier, allowing an override. **Do not start
 before confirmation.** When uncertain, default one tier up.
 
 **Then ensure you are on a work branch — before writing the marker.** Day-to-day
@@ -137,7 +143,7 @@ do not go looking for a skill behind either — none exists; the hook runs the c
 2. Invoke the `doc-sync` skill to harmonize the doc set (index `CLAUDE.md` + per-service docs +
    rule dirs from `flow-config.doc_sync`; also reconciles code↔doc drift). On pass
    → `touch .claude/harness-tier/.flow/doc-sync.done`.
-3. Commit through the `commit` skill — invoke `Skill: commit` with the tier and what
+3. Commit through the `commit` skill — invoke skill `commit` with the tier and what
    changed; it stages, picks the type, and applies the 50/72 rule (rule 4). Then merge
    **applying [`merge-strategy.md`](../../rules/merge-strategy.md)** (rule 3 — not a
    plain merge). (The commit
@@ -206,7 +212,7 @@ do not go looking for a skill behind either — none exists; the hook runs the c
      every change.
    - **invoke the `doc-sync` skill** (not part of `superpowers`) →
      `touch .claude/harness-tier/.flow/doc-sync.done`.
-   - **Domain review** — an independent **`general-purpose`** review agent
+   - **Domain review** — dispatch subagent (general) as an independent review agent
      (separate context; it runs shell commands). `git` is the authority on the
      changed-file list — **every** file is reviewed and the count is reported —
      judged against `flow-config.review_checklist` (regression, cross-service
@@ -225,7 +231,7 @@ do not go looking for a skill behind either — none exists; the hook runs the c
      A host that sets `flow-config.gate_evidence.invalidate_on_edit: false`
      turns the hook's deletion off, so in its tree an edit after the pass
      commits unreviewed ([`risk-tiers.md`](../../rules/risk-tiers.md) Step 3).
-5. Commit through the `commit` skill — invoke `Skill: commit` with the tier and what
+5. Commit through the `commit` skill — invoke skill `commit` with the tier and what
    changed (rule 4) → merge **applying
    [`merge-strategy.md`](../../rules/merge-strategy.md)** (rule 3 — not a
    plain merge). (The commit hook blocks until `review.done` and `doc-sync.done`.)
@@ -235,7 +241,7 @@ do not go looking for a skill behind either — none exists; the hook runs the c
    from a `feature/*` branch, **"Rebase and merge"** from `fix/*` (Merge strategy rows 1·2;
    the integration ruleset allows both and cannot tell them apart, so this one is on you) —
    then stop. Without `gh`, print the compare URL and let the user create it — never block.
-   A `hotfix/*` branch merges into production instead: invoke `Skill: release-commit` and run
+   A `hotfix/*` branch merges into production instead: invoke skill `release-commit` and run
    its Hotfix procedure, which owns that merge, the release check and the back-merge after it.
 
 ## Promotion — Staging (integration → staging) / Release (staging → production)
@@ -245,7 +251,7 @@ the branch drives it. Read [`promotion.md`](../../rules/promotion.md) first — 
 injects it. The procedure itself lives in
 [`release-commit`](../release-commit/SKILL.md): which bump-level mechanism the host's release
 CI is on, the gates and their markers, the merge shape each promotion takes, and the end state
-the three branches settle into. Invoke `Skill: release-commit` rather than restating any of it
+the three branches settle into. Invoke skill `release-commit` rather than restating any of it
 here — one fact, one place.
 
 ## Phase 4 — Finalize
@@ -287,7 +293,7 @@ rm -rf .claude/harness-tier/.flow
    hook**: a merge whose flags violate its row is blocked (exit 2) naming the flag it
    wants. That table's **Gate** column says which rows fire — the rest still depend on
    you following them.
-4. **Every commit goes through the `commit` skill** — invoke `Skill: commit`, which
+4. **Every commit goes through the `commit` skill** — invoke skill `commit`, which
    owns staging, the type choice, and the 50/72 rule so this skill does not restate
    them. It inherits the pre-commit gate like any other commit: never `--no-verify`.
 5. **Commit from a git worktree with `git -C <worktree> commit …`** — a single

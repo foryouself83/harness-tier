@@ -35,8 +35,8 @@ Reuse the same `playwright.config.*`/`testDir`/`--reporter=json,junit` conventio
 ## 2. Main-Process Scenarios — human-in-the-loop
 
 IPC handlers, filesystem access, and native OS integration (menus, tray, notifications) are not reachable
-through Playwright. Collect these via `AskUserQuestion`, following the same procedure as
-[`non-web.md`](non-web.md) §2 (scenarios + pass criteria + manual checklist).
+through Playwright. Collect these — ask the user (structured choice) — following the same procedure
+as [`non-web.md`](non-web.md) §2 (scenarios + pass criteria + manual checklist).
 
 ---
 

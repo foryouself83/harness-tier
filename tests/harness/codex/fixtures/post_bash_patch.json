@@ -1,0 +1,1 @@
+{"session_id":"s","turn_id":"t","cwd":"C:\\host\\repo","hook_event_name":"PostToolUse","model":"m","permission_mode":"bypassPermissions","tool_name":"Bash","tool_input":{"command":"apply_patch <<'EOF'\n*** Begin Patch\n*** Update File: 한글/파일.md\n@@\n-a\n+b\n*** End Patch\nEOF"},"tool_response":"Exit code: 0","tool_use_id":"u"}

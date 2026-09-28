@@ -1,25 +1,26 @@
 {
   "skills": {
     "commit": {
-      "description_sha": "868e3c8c36cd",
+      "description_sha": "46ee4245ced1",
       "false_fire": 0.0,
       "false_hits": 0,
       "false_n": 15,
+      "fixture_sha": null,
       "invoke_hits": 3,
       "invoke_n": 15,
       "invoke_rate": 0.2,
       "lost_to": {
         "release-commit": 1
       },
-      "measured_at": "2026-09-22",
+      "measured_at": "2026-09-27",
       "model": "claude-sonnet-5",
       "reps": 3,
-      "restricted": 0.2,
+      "restricted": 0.4,
       "truncated": 0.0,
       "truncated_quiet": 0.0
     },
     "doc-sync": {
-      "description_sha": "fd641814308b",
+      "description_sha": "9871b8ab8c01",
       "false_fire": 0.0,
       "false_hits": 0,
       "false_n": 15,
@@ -28,27 +29,27 @@
       "invoke_n": 15,
       "invoke_rate": 0.8,
       "lost_to": {},
-      "measured_at": "2026-09-12",
+      "measured_at": "2026-09-27",
       "model": "claude-sonnet-5",
       "reps": 3,
-      "restricted": 0.8,
+      "restricted": 0.6,
       "truncated": 0.0,
       "truncated_quiet": 0.0
     },
     "flow": {
-      "description_sha": "b3c4655aa41c",
-      "false_fire": 0.0,
-      "false_hits": 0,
+      "description_sha": "e901b08f029d",
+      "false_fire": 0.04,
+      "false_hits": 1,
       "false_n": 25,
       "fixture_sha": "c7cd782802a6",
-      "invoke_hits": 21,
+      "invoke_hits": 24,
       "invoke_n": 25,
-      "invoke_rate": 0.84,
+      "invoke_rate": 0.96,
       "lost_to": {},
-      "measured_at": "2026-09-23",
+      "measured_at": "2026-09-27",
       "model": "claude-sonnet-5",
       "reps": 5,
-      "restricted": 0.8,
+      "restricted": 1.0,
       "truncated": 0.0,
       "truncated_quiet": 0.0
     },
@@ -160,20 +161,19 @@
       "truncated_quiet": 0.0
     },
     "release-commit": {
-      "description_sha": "de16147dcab4",
+      "description_sha": "292f417dcb64",
       "false_fire": 0.0,
       "false_hits": 0,
       "false_n": 15,
+      "fixture_sha": null,
       "invoke_hits": 13,
       "invoke_n": 15,
       "invoke_rate": 0.87,
-      "lost_to": {
-        "flow": 1
-      },
-      "measured_at": "2026-09-23",
+      "lost_to": {},
+      "measured_at": "2026-09-27",
       "model": "claude-sonnet-5",
       "reps": 3,
-      "restricted": 0.6,
+      "restricted": 1.0,
       "truncated": 0.0,
       "truncated_quiet": 0.0
     }
