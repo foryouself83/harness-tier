@@ -33,12 +33,11 @@ GATE_ENTRY = {"matcher": "Bash", "hooks": [GATE_HOOK]}
 MARKER = ("harness-tier", "harness/codex/gate")
 ALLOWED_TOP = {"description", "hooks"}
 
-# Codex's own matcher grammar (docs/superpowers/reference/claude-code-vs-codex.md §3.1, sourced
-# from codex-rs): a matcher spelled only with [A-Za-z0-9_|] is an exact `|`-separated list of
-# tool names; anything else — including a comma, a hyphen or a space, all valid in Claude Code's
-# own matcher dialect but not this one — is a regular expression this does not evaluate. The two
-# grammars differ: a Claude-style "Bash,Read" is a Codex *regex* that does not match "Bash",
-# not a two-item list.
+# Codex's own matcher grammar (sourced from codex-rs): a matcher spelled only with [A-Za-z0-9_|]
+# is an exact `|`-separated list of tool names; anything else — including a comma, a hyphen or a
+# space, all valid in Claude Code's own matcher dialect but not this one — is a regular expression
+# this does not evaluate. The two grammars differ: a Claude-style "Bash,Read" is a Codex *regex*
+# that does not match "Bash", not a two-item list.
 _EXACT_MATCHER_RE = re.compile(r"[A-Za-z0-9_|]*")
 
 

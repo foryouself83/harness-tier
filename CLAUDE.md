@@ -33,7 +33,7 @@ on the Windows hook runtime, and the CRLF worktree floods ShellCheck with CR err
 - **English in the repo** — docs, commit messages, comments/docstrings, test assertion messages.
   Korean stays only where load-bearing: text the repo quotes rather than authors, the strings a
   test compares against it, and fixtures whose non-ASCII bytes ARE the case — translated, the
-  test stays green and stops exercising anything. Internal `docs/superpowers/` stays Korean.
+  test stays green and stops exercising anything. Untracked `docs/superpowers/` stays Korean.
 - **Write only what the code can't say** — [`rules/doc-style.md`](rules/doc-style.md); for a
   commit body, [`rules/risk-tiers.md`](rules/risk-tiers.md) Commit Discipline; for generated
   harness artifacts, [`rules/harness-rules.md`](rules/harness-rules.md) 5-2.
@@ -72,7 +72,7 @@ github/          consumer workflow templates /flow-init and /wiki-init render; .
 templates/       design-doc templates /flow-init seeds once into the host (host-owned after)
 tests/           pytest over scripts/ and over the shipped skill and rule files
 evals/           skill measurement (invocation, outcome), incl. codex_probe/ — NOT shipped: commit as test:/chore:
-docs/            internal design records (Korean, never shipped) · reference notes · usage/ consumer guide (English + .ko twins, shipped)
+docs/            usage/ consumer guide (English + .ko twins, shipped) · superpowers/ design records and reference notes (Korean, gitignored, local only)
 ```
 
 ## Architecture
@@ -82,7 +82,7 @@ docs/            internal design records (Korean, never shipped) · reference no
   under `.claude/harness-tier/`, except files whose location an external tool forces.
 - **The commit gate is registered in the host's `settings.json`, not the plugin's hooks.json**,
   for deny-enforcement reliability. `settings.json` cannot resolve `${CLAUDE_PLUGIN_ROOT}`, so
-  `/flow-init` copies the gate scripts and policy into the host (Codex: `claude-code-vs-codex.md`).
+  `/flow-init` copies the gate scripts and policy into the host (Codex: `.codex/hooks.json`).
 - **Script propagation is one-way** — SOURCE (`scripts/`, `flow-tiers.yaml`) → cache → host
   copies. **Fix only the SOURCE** — `/flow-init` overwrites a host copy on its next re-sync.
 - **Policy stays environment-free** — `flow-tiers.yaml` is plugin-owned and immutable in a host,
