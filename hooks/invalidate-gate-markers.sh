@@ -286,8 +286,8 @@ while IFS= read -r target; do
   for marker in $MARKERS; do
     [ -e "$flow/$marker" ] || continue
     rm -f "$flow/$marker" 2>/dev/null || continue
-    case " $voided " in
-      *" ${marker%.done} "*) ;;
+    case ", $voided, " in
+      *", ${marker%.done}, "*) ;;
       *) voided="${voided}${voided:+, }${marker%.done}" ;;
     esac
   done
