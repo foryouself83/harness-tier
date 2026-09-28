@@ -68,3 +68,15 @@ def test_codex_mapping_covers_the_hard_cases():
         "$ARGUMENTS",
     ):
         assert needle in text, needle
+
+
+def test_codex_preamble_spells_the_skill_the_codex_way():
+    import os
+
+    env = {**os.environ, "PLUGIN_ROOT": str(REPO), "CLAUDE_PLUGIN_ROOT": str(REPO)}
+    ctx = json.loads(_run("--harness", "codex", env=env).stdout)["hookSpecificOutput"][
+        "additionalContext"
+    ]
+    preamble = ctx.split("<harness-tier-risk-tiers>")[1].split("\n\n")[0]
+    assert "/flow" not in preamble, preamble
+    assert preamble.count("$flow") == 4, preamble

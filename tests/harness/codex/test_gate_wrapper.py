@@ -159,3 +159,31 @@ def test_sh_keeps_the_deny_when_rewording_fails(tmp_path, fake_sed):
     run = subprocess.run([BASH, "-c", script], input=b"{}", capture_output=True)
     assert run.returncode == 0
     assert json.loads(run.stdout.decode().strip()) == DENY
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="cmd wrapper is Windows-only")
+@pytest.mark.parametrize("wrapper", ["gate.cmd", "run-hook.cmd"])
+def test_cmd_finds_git_bash_from_a_mingw64_git(tmp_path, wrapper):
+    # Git for Windows puts git.exe in cmd\ and in mingw64\bin\; the second is two levels below
+    # the install root, so `..\bin\bash.exe` from it names a file that does not exist. The fake
+    # bash is a renamed cmd.exe, which runs `exit 7` from stdin: 7 proves the wrapper chose the
+    # bash beside this git rather than the real install under ProgramFiles.
+    install = tmp_path / "Git"
+    (install / "mingw64" / "bin").mkdir(parents=True)
+    (install / "mingw64" / "bin" / "git.exe").write_bytes(b"")
+    (install / "bin").mkdir()
+    cmd_exe = Path(os.environ["SystemRoot"]) / "System32" / "cmd.exe"
+    shutil.copyfile(cmd_exe, install / "bin" / "bash.exe")
+    source = WRAP_CMD if wrapper == "gate.cmd" else REPO / "hooks" / "codex" / "run-hook.cmd"
+    host = tmp_path / "host"
+    host.mkdir()
+    shutil.copyfile(source, host / wrapper)
+    env = {k: v for k, v in os.environ.items() if k.upper() != "PATH"}
+    env["PATH"] = f"{install / 'mingw64' / 'bin'};{Path(os.environ['SystemRoot']) / 'System32'}"
+    run = subprocess.run(
+        ["cmd", "/d", "/c", str(host / wrapper), "x.sh"],
+        env=env,
+        input=b"exit 7\r\n",
+        capture_output=True,
+    )
+    assert run.returncode == 7, run.stdout

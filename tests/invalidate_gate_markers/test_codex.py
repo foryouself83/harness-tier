@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.invalidate_gate_markers._helpers import BASH, MARKERS, SCRIPT
+from tests.invalidate_gate_markers._helpers import BASH, MARKERS, SCRIPT, repo, worktree_of
 
 pytestmark = pytest.mark.skipif(BASH is None, reason="a repo-visible bash is required")
 
@@ -246,3 +246,34 @@ def test_an_oversized_bash_patch_cut_before_its_end_keeps_evidence(tmp_path):
     command += "\n*** End Patch\nEOF"
     _run_payload(repo, {"tool_name": "Bash", "tool_input": {"command": command}})
     assert not _voided(repo)
+
+
+def test_a_worktree_edit_also_voids_the_session_cwd_view_of_the_same_repo(tmp_path):
+    """The gate falls back to the session's tree when it cannot name a commit's worktree, so an
+    edit in a linked worktree voids the cwd root's evidence too, as the Claude path does."""
+    main = repo(tmp_path / "main")
+    wt = worktree_of(main, tmp_path / "wt")
+    edited = (wt / "a.txt").as_posix()
+    command = f"*** Begin Patch\n*** Update File: {edited}\n*** End Patch"
+    _run_payload(main, {"tool_name": "apply_patch", "tool_input": {"command": command}})
+    assert _voided(wt) and _voided(main)
+
+
+def test_a_worktree_edit_voids_the_repo_of_a_subdirectory_cwd(tmp_path):
+    main = repo(tmp_path / "main")
+    sub = main / "sub" / "deep"
+    sub.mkdir(parents=True)
+    wt = worktree_of(main, tmp_path / "wt")
+    edited = (wt / "a.txt").as_posix()
+    command = f"*** Begin Patch\n*** Update File: {edited}\n*** End Patch"
+    _run_payload(sub, {"tool_name": "apply_patch", "tool_input": {"command": command}})
+    assert _voided(wt) and _voided(main)
+
+
+def test_an_edit_in_another_repo_keeps_the_session_cwd_evidence(tmp_path):
+    main = repo(tmp_path / "main")
+    other = repo(tmp_path / "other")
+    edited = (other / "a.txt").as_posix()
+    command = f"*** Begin Patch\n*** Update File: {edited}\n*** End Patch"
+    _run_payload(main, {"tool_name": "apply_patch", "tool_input": {"command": command}})
+    assert _voided(other) and not _voided(main)

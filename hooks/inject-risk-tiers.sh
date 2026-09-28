@@ -202,10 +202,14 @@ fi
 # mandate moves the skills measured invocation rates, and a path is not worth that.
 rule_escaped="$(escape_for_json "$rule_content")"
 rules_dir_escaped="$(escape_for_json "${PLUGIN_ROOT}/rules")"
+flow="/flow"
 invoke_as="the /flow skill (via the Skill tool)"
-# shellcheck disable=SC2016 # $flow names Codex's slash form and must stay literal, not expand.
-[ "$HARNESS" = codex ] && invoke_as='the $flow skill (open its SKILL.md and follow it in full)'
-session_context="${notice_block}<harness-tier-risk-tiers>\nThis project enforces the harness-tier risk-tiered workflow AT COMMIT TIME. The commit gate is fail-closed: it blocks any commit whose task was not classified by /flow. So before starting ANY code change, feature, fix, or dev request — and at the latest before you commit — your action MUST be to invoke ${invoke_as}. /flow is what classifies the task, confirms the tier, runs the matching gates, and records the marker the commit gate requires. Do NOT judge the tier yourself and skip the skill; without /flow's marker the commit is rejected.\n\n${rule_escaped}\n\nThe files this rule links by bare filename live in ${rules_dir_escaped} — read one there when it sends you to it.\n</harness-tier-risk-tiers>"
+if [ "$HARNESS" = codex ]; then
+  # shellcheck disable=SC2016 # $flow names Codex's slash form and must stay literal, not expand.
+  flow='$flow'
+  invoke_as="the ${flow} skill (open its SKILL.md and follow it in full)"
+fi
+session_context="${notice_block}<harness-tier-risk-tiers>\nThis project enforces the harness-tier risk-tiered workflow AT COMMIT TIME. The commit gate is fail-closed: it blocks any commit whose task was not classified by ${flow}. So before starting ANY code change, feature, fix, or dev request — and at the latest before you commit — your action MUST be to invoke ${invoke_as}. ${flow} is what classifies the task, confirms the tier, runs the matching gates, and records the marker the commit gate requires. Do NOT judge the tier yourself and skip the skill; without ${flow}'s marker the commit is rejected.\n\n${rule_escaped}\n\nThe files this rule links by bare filename live in ${rules_dir_escaped} — read one there when it sends you to it.\n</harness-tier-risk-tiers>"
 
 # A separate block, after the risk-tiers one: the mandate's neighbourhood is measured, and
 # text added beside it moves the skills' invocation rates. Names no skill — a slash name

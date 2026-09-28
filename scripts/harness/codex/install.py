@@ -225,12 +225,32 @@ def hook_remains(host: Path) -> bool:
     )
 
 
+_NO_LITERAL = re.compile(r"['\x00-\x08\x0a-\x1f\x7f]")
+_BASIC_ESCAPED = re.compile(r'[\\"\x00-\x1f\x7f]')
+
+
+def toml_key(key: str) -> str:
+    """`key` spelled so a pasted config.toml parses. A literal string keeps a Windows path's
+    backslashes as written, where a basic one reads `\\W` as an invalid escape and Codex refuses
+    the whole file; a key a literal string cannot hold becomes an escaped basic string."""
+    if not _NO_LITERAL.search(key):
+        return f"'{key}'"
+
+    def escape(m: re.Match) -> str:
+        c = m.group()
+        return "\\" + c if c in '\\"' else f"\\u{ord(c):04x}"
+
+    return '"' + _BASIC_ESCAPED.sub(escape, key) + '"'
+
+
 def trust_notes(host: Path, codex_home: Path | None = None) -> list[str]:
     """Warnings, never failures: both remedies are the user's to apply. Reads, never writes.
 
     A heuristic reader, not a TOML parser (no `tomllib` on 3.8-3.10): any input this cannot
     make sense of — a missing file, a non-UTF-8 config, odd bracket nesting — falls back to
-    "not trusted" rather than raising or guessing trusted.
+    "not trusted" rather than raising or guessing trusted. That includes a basic-string key
+    carrying any escape but `\\\\` and `\\"`, such as the `\\u` spelling `toml_key` gives a
+    control character.
     """
     home = codex_home or Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
     notes = []
@@ -251,7 +271,7 @@ def trust_notes(host: Path, codex_home: Path | None = None) -> list[str]:
     if not trusted:
         notes.append(
             f"  [!] Codex 가 이 프로젝트를 trusted 로 모릅니다 — .codex/ 가 무시됩니다."
-            f' Codex 에서 이 폴더를 신뢰하거나 config.toml 에 [projects."{key}"]'
+            f" Codex 에서 이 폴더를 신뢰하거나 config.toml 에 [projects.{toml_key(key)}]"
             ' trust_level = "trusted"'
         )
     notes.append(

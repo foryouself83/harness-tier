@@ -121,6 +121,28 @@ common_dir() {
   printf '%s' "$line"
 }
 
+# Whether two roots may be views of one repo, asked of the filesystem rather than of the strings:
+# a relative `gitdir:`, a `..` left in one, a case-different spelling of one directory, or a
+# project dir that is not a root at all all compare unequal as text while naming the same repo.
+# Both must EXIST for "different" to be a proof — `-ef` is false for a path that names nothing (a
+# worktree whose repo moved, an external git dir since deleted), and that false is no evidence of
+# anything. Unproven counts as the same repo: keeping a marker is the direction that lets an
+# unreviewed commit through.
+maybe_same_repo() {
+  local here there
+  here="$(common_dir "$1")" || here=""
+  there="$(common_dir "$2")" || there=""
+  ! { [ -e "$here" ] && [ -e "$there" ] && [ ! "$here" -ef "$there" ]; }
+}
+
+add_target() {
+  case $'\n'"$targets"$'\n' in
+    *$'\n'"$1"$'\n'*) ;;
+    *) targets="${targets:+$targets
+}$1" ;;
+  esac
+}
+
 # Read and match in the shell itself. This runs on EVERY edit, and on Windows each process
 # it spawns costs more than the work it does — a repo that never installed the harness paid
 # the whole pipeline to learn it had nothing to delete.
@@ -185,8 +207,7 @@ if [ "$HARNESS" = codex ]; then
     one="$(to_slash "$one")"
     case "$one" in */"$EVIDENCE"/*|"") continue ;; esac
     root="$(root_for "${one%/*}")" || continue
-    case $'\n'"$targets"$'\n' in *$'\n'"$root"$'\n'*) ;; *) targets="${targets:+$targets
-}$root" ;; esac
+    add_target "$root"
   done <<EOF
 $edited
 EOF
@@ -196,17 +217,25 @@ EOF
   # Codex has no CLAUDE_PROJECT_DIR for the Claude path's own fallback below, and `cwd` sits
   # ahead of `tool_input` in every measured Codex payload, so it survives the cut. Voiding the
   # whole repo's evidence is the safe direction over voiding none.
-  if [ "$unplaced" -eq 1 ] &&
-    [[ "$payload" =~ \"cwd\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]]; then
+  #
+  # A placed edit voids the cwd root too whenever the two may be views of one repo: the cwd root
+  # is the session's tree, what CLAUDE_PROJECT_DIR is on the Claude path below, and the gate
+  # falls back to it when it cannot name the worktree a commit belongs to.
+  if [[ "$payload" =~ \"cwd\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]]; then
     cap_cwd="${BASH_REMATCH[1]}"
     cap_cwd="${cap_cwd//\\\\/\\}"  # JSON escapes a path backslash as two; collapse before to_slash
     cap_cwd="$(to_slash "$cap_cwd")"
-    if root="$(root_for "$cap_cwd")"; then
-      case $'\n'"$targets"$'\n' in
-        *$'\n'"$root"$'\n'*) ;;
-        *) targets="${targets:+$targets
-}$root" ;;
-      esac
+    if cwd_root="$(root_for "$cap_cwd")"; then
+      if [ "$unplaced" -eq 1 ]; then
+        add_target "$cwd_root"
+      else
+        while IFS= read -r root; do
+          case "$root" in "" | "$cwd_root") continue ;; esac
+          maybe_same_repo "$root" "$cwd_root" && add_target "$cwd_root"
+        done <<EOF
+$targets
+EOF
+      fi
     fi
   fi
 fi
@@ -230,23 +259,10 @@ if [ "$HARNESS" != codex ]; then
       project="$(to_slash "${CLAUDE_PROJECT_DIR:-}")"
       if [ -n "$edited" ]; then
         targets="$edited"
-        if [ -n "$project" ] && [ "$project" != "$edited" ]; then
-          here="$(common_dir "$edited")" || here=""
-          there="$(common_dir "$project")" || there=""
-          # Union unless the two are provably DIFFERENT repos, and ask that of the filesystem
-          # rather than of the strings: a relative `gitdir:`, a `..` left in one, a case-different
-          # spelling of one directory, or a project dir that is not a root at all all compare
-          # unequal as text while naming the same repo. Both must EXIST for the answer to be a
-          # proof — `-ef` is false for a path that names nothing (a worktree whose repo moved,
-          # an external git dir since deleted), and that false is no evidence of anything.
-          # Unproven counts as the same tree: keeping a marker is the direction that lets an
-          # unreviewed commit through.
-          if [ -e "$here" ] && [ -e "$there" ] && [ ! "$here" -ef "$there" ]; then
-            :
-          else
-            targets="$targets
+        if [ -n "$project" ] && [ "$project" != "$edited" ] &&
+          maybe_same_repo "$edited" "$project"; then
+          targets="$targets
 $project"
-          fi
         fi
       fi
       ;;

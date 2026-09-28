@@ -3,7 +3,9 @@ trust from the user's config.toml."""
 
 import json
 import os
+import re
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -248,3 +250,34 @@ def test_trust_notes_never_raises_on_odd_config(tmp_path):
     (home / "config.toml").write_bytes(b"\xff\xfe not valid utf-8 at all [[[")
     notes = install.trust_notes(host, home)
     assert any("trusted" in n for n in notes)
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        r"C:\Work\llm_ai\x",
+        r"C:\Users\o'x",
+        "/tmp/x\x01",
+        "/tmp/x\x7f",
+        "/tmp/o'x\n\t\x7f",
+        "/tmp/한\U0001f600",
+    ],
+)
+def test_toml_key_parses_on_every_platform(key):
+    pasted = f'[projects.{install.toml_key(key)}]\ntrust_level = "trusted"\n'
+    assert tomllib.loads(pasted) == {"projects": {key: {"trust_level": "trusted"}}}
+
+
+@pytest.mark.parametrize("name", ["Host5", "o'Host"])
+def test_trust_note_remedy_pastes_as_valid_toml(tmp_path, name):
+    home = tmp_path / "codexhome"
+    home.mkdir()
+    host = tmp_path / name
+    host.mkdir()
+    note = next(n for n in install.trust_notes(host, home) if "[!]" in n)
+    header, setting = re.search(r'(\[projects\..+\]) (trust_level = "trusted")', note).groups()
+    pasted = f"{header}\n{setting}\n"
+    key = str(host.resolve())
+    assert tomllib.loads(pasted) == {"projects": {key: {"trust_level": "trusted"}}}
+    (home / "config.toml").write_text(pasted, encoding="utf-8")
+    assert not any("[!]" in n for n in install.trust_notes(host, home))
