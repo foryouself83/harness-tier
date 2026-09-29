@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v0.4.2 (2026-09-29)
+
+### Features
+
+- **codex**: The plugin installs and runs on OpenAI Codex CLI. `/flow-init` registers the
+  commit gate in `.codex/hooks.json` when flow-config `harnesses` names `codex`, injects the
+  risk-tiers rule at Codex SessionStart, voids gate evidence on `apply_patch` edits, and
+  renders CLAUDE.md and `.claude/rules` into a managed block of root `AGENTS.md`. Claude-only
+  hosts keep byte-identical setup output.
+
+### Bug Fixes
+
+- **hooks**: Both hooks reject any argument other than `--harness claude|codex`, and the
+  marker-invalidation notice names each voided gate once.
+
+
 ## v0.4.1 (2026-09-26)
 
 ### Features

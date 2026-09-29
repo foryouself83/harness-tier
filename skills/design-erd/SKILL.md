@@ -3,11 +3,10 @@ name: design-erd
 description: Write the ERD (entity-relationship design) from the SRS, SDS and code, check every id, and render it to .docx.
 disable-model-invocation: true
 model: sonnet
-# design_doc_check.py and design_doc_render.py each run on a fixed subcommand plus this
-# skill's own doc name, so every rule below is the exact command it issues — no trailing
-# `*`, since a trailing `*` is a prefix match and would pre-approve `<command> &&
-# <anything>` too. `pip install …` stays promptable: the user's own yes/no in Step 1
-# decides it.
+# design_doc_check.py and design_doc_render.py each run on a fixed subcommand plus this skill's
+# own doc name, so every rule below is the exact command it issues — no trailing `*`, since a
+# trailing `*` is a prefix match and would pre-approve `<command> && <anything>` too.
+# `pip install …` stays promptable: the user's own yes/no in Step 1 decides it.
 allowed-tools: Bash(python3 .claude/harness-tier/scripts/design_doc_check.py --paths) Bash(python3 .claude/harness-tier/scripts/design_doc_check.py --templates) Bash(python3 .claude/harness-tier/scripts/design_doc_check.py --doc erd) Bash(python3 .claude/harness-tier/scripts/design_doc_check.py --wiki-id erd) Bash(python3 .claude/harness-tier/scripts/design_doc_render.py --check-deps) Bash(python3 .claude/harness-tier/scripts/design_doc_render.py erd) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --build)
 ---
 
@@ -19,6 +18,12 @@ Writes `<docs>/erd.md` against the host's `erd.template.md`, then renders
 **Precondition**: `.claude/harness-tier/scripts/design_doc_check.py` must exist. If it
 doesn't, tell the user to run [`/flow-init`](../flow-init/SKILL.md) and **stop**.
 
+**Interaction.** Wherever this skill asks the user something, use the host's blocking question
+tool already in your tool list, matched by capability rather than by a host-specific name; if it
+is listed but not loaded, load it first with the host's tool-discovery primitive; only when no
+such tool is listed, or a question call errors, offer numbered options in chat and end your turn
+to wait for the reply — never answer the question yourself or skip it.
+
 ## 1. Resolve paths and dependencies
 
 ```bash
@@ -26,7 +31,7 @@ python3 .claude/harness-tier/scripts/design_doc_check.py --paths
 python3 .claude/harness-tier/scripts/design_doc_render.py --check-deps
 ```
 
-When the second prints `missing: ...`, ask via `AskUserQuestion` whether to install them,
+When the second prints `missing: ...`, ask the user (structured choice) whether to install them,
 showing the command. **Yes** → run `python3 -m pip install python-docx markdown-it-py` and
 continue. **No** → stop; the check steps below still run without them if the user asks.
 
@@ -64,7 +69,7 @@ python3 .claude/harness-tier/scripts/design_doc_check.py --doc erd
 
 Fix what it names and run it again, at most three rounds. Relay every violation still
 standing and every `note:` line; do not render over a violation without the user's
-go-ahead via `AskUserQuestion`.
+go-ahead: ask the user (structured choice).
 
 ## 6. Render
 

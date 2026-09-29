@@ -104,9 +104,11 @@ present with nothing after it.
 
 Stack/versions + folder structure + **Mermaid structure diagram (required, at least 1)** + module overview.
 Turn only confirmed facts into nodes (no speculative nodes). Add a data-flow diagram where possible.
-**Module overview**: step each node of the structure diagram down one level into an implementation unit and record `implementation requirements·responsibility (single)·provided interfaces·
-used interfaces·owned data` (architecture = nodes, SDS = the nodes' contracts). **Implementation requirements back-trace to the SRS FRs this module
-satisfies via markdown links** — to the FR anchor in its area file, as
+**Module overview**: step each node of the structure diagram down one level into an implementation
+unit and record
+`implementation requirements·responsibility (single)·provided interfaces·used interfaces·owned data`
+(architecture = nodes, SDS = the nodes' contracts). **Implementation requirements back-trace to the
+SRS FRs this module satisfies via markdown links** — to the FR anchor in its area file, as
 `[FR-<AREA>-xxx](../srs/<area>.md#fr-<area>-xxx)`
 (kept paired with the SRS area file's `<a id="fr-<area>-xxx">` anchor, serving as the standard
 Requirements Matrix). **Infrastructure/cross-cutting modules (logging·config·DB adapters) are left

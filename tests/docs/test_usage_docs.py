@@ -24,6 +24,7 @@ TOPICS = (
     "project-harness",
     "manual-verification",
     "design-docs",
+    "codex",
     "teams",
     "troubleshooting",
     "update-and-removal",

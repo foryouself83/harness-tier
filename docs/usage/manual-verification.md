@@ -45,11 +45,11 @@ catalog (no catalog exists for Go's N+1 patterns specifically).
 - **Static flagging** — language-specific anti-patterns (N+1 queries, bad query plans,
   front-end re-render churn) plus a language-agnostic recursion/complexity pass with `lizard`,
   which always runs.
-- **API load testing**, when a backend exists — confirms `BASE_URL` with you via
-  `AskUserQuestion` before running any load (a guessed URL points load at the wrong host, and
-  the server needs to already be running); reports p50/p95/p99, throughput and error rate
-  against your SLO. The default tool is k6 with `openapi-to-k6`; because both are AGPL, `oha`,
-  `autocannon` and `vegeta` are the MIT-licensed fallback.
+- **API load testing**, when a backend exists — confirms `BASE_URL` with you before running any
+  load (a guessed URL points load at the wrong host, and the server needs to already be
+  running); reports p50/p95/p99, throughput and error rate against your SLO. The default tool
+  is k6 with `openapi-to-k6`; because both are AGPL, `oha`, `autocannon` and `vegeta` are the
+  MIT-licensed fallback.
 
 No tool here is installed automatically — `lizard`, `k6` and `openapi-to-k6` are guided, not
 auto-installed, since fetching them into your environment is your call.

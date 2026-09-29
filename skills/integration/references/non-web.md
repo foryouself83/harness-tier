@@ -26,7 +26,7 @@
 
 ## 2. human-in-the-loop Procedure
 
-When classified as non-web, collect the following via `AskUserQuestion`.
+When classified as non-web, collect the following — ask the user (structured choice).
 
 ### 2.1 Items to Collect
 

@@ -109,7 +109,7 @@ conventions and **free, commercial-OK off-the-shelf solutions** from the web/reg
   (exclude paid. unclear license is "needs confirmation". if none, "N/A")
 ### Integration-verification SSOT
 - web frontend (<stack>): Playwright — testDir/testMatch defaults · `--reporter=json` run · do not fabricate cases when there are 0 (source: URL)
-- non-web (<stack>): human-in-the-loop (AskUserQuestion) + reference OSS Newman/Maestro/Appium (Apache-2.0) (source: URL)
+- non-web (<stack>): human-in-the-loop (ask the user) + reference OSS Newman/Maestro/Appium (Apache-2.0) (source: URL)
   (if none, "N/A")
 ```
 

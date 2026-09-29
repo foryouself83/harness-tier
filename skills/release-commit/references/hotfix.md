@@ -36,7 +36,7 @@ git switch <production> && git merge --ff-only origin/<production>
 git merge --squash hotfix/<name>
 ```
 
-Write it through `Skill: commit` as a `fix:` commit — not a `Merge` subject, and never
+Invoke skill `commit` to write it as a `fix:` commit — not a `Merge` subject, and never
 `[skip ci]`: this commit is what fires the release workflow and what the release tool reads a
 patch from. Then push:
 

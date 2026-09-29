@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import scripts.harness.jsonfile as jf
 from tests.flow_init._helpers import (
     ACCESS_ENTRIES,
     PLUGIN,
@@ -72,13 +73,13 @@ def test_the_temporary_file_is_made_beside_the_file_it_replaces(tmp_path: Path, 
     import scripts.flow_init_setup as fis
 
     seen = []
-    real = fis.tempfile.mkstemp
+    real = jf.tempfile.mkstemp
 
     def spy(*args, **kwargs):
         seen.append(kwargs.get("dir"))
         return real(*args, **kwargs)
 
-    monkeypatch.setattr(fis.tempfile, "mkstemp", spy)
+    monkeypatch.setattr(jf.tempfile, "mkstemp", spy)
     fis.register_gate(tmp_path)
     assert seen == [tmp_path / ".claude"], seen
 
@@ -106,7 +107,7 @@ def test_a_write_that_cannot_make_a_temporary_file_leaves_the_host_alone(
     def refuse(*_args, **_kwargs):
         raise failure
 
-    monkeypatch.setattr(fis.tempfile, "mkstemp", refuse)
+    monkeypatch.setattr(jf.tempfile, "mkstemp", refuse)
     assert fis.register_gate(tmp_path).startswith("  [!]")
     assert settings.read_bytes() == before
     assert not list((tmp_path / ".claude").glob("settings.json.*"))
@@ -169,7 +170,7 @@ def test_the_access_entries_and_owner_are_carried_over(tmp_path: Path, monkeypat
     settings.write_text(json.dumps({"permissions": {"allow": ["Bash"]}}), encoding="utf-8")
     entries = b"entries the host set"
     chowned, xattred = [], []
-    monkeypatch.setattr(fis, "_access_entries", lambda _p: entries)
+    monkeypatch.setattr(jf, "access_entries", lambda _p: entries)
     monkeypatch.setattr(
         fis.os, "setxattr", lambda p, name, value: xattred.append((name, value)), raising=False
     )
@@ -194,7 +195,7 @@ def test_a_marketplace_write_that_fails_is_reported(tmp_path: Path, monkeypatch)
     def refuse(*_args, **_kwargs):
         raise OSError(28, "No space left on device")
 
-    monkeypatch.setattr(fis.tempfile, "mkstemp", refuse)
+    monkeypatch.setattr(jf.tempfile, "mkstemp", refuse)
     assert fis.register_marketplace(tmp_path).startswith("  [!]")
 
 
@@ -441,5 +442,5 @@ def test_an_uninstall_write_that_fails_is_reported(tmp_path: Path, monkeypatch):
     def refuse(*_args, **_kwargs):
         raise OSError(28, "No space left on device")
 
-    monkeypatch.setattr(fis.tempfile, "mkstemp", refuse)
+    monkeypatch.setattr(jf.tempfile, "mkstemp", refuse)
     assert fis.unregister_gate(tmp_path).startswith("  [!]")

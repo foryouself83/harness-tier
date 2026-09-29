@@ -17,8 +17,8 @@ Authoring principles:
 2. State the **boundary conditions** that are similar but should not trigger.
 3. Make it trigger on abbreviations and casual phrasing too — include implicit expressions like "the xlsx in my downloads folder".
 
-Good example: `"All PDF work — reading, extracting, merging, splitting, OCR, and more. Must be used whenever a .pdf is
-mentioned or a PDF output is requested. Especially when conversion, editing, or analysis is needed rather than simple viewing."`
+Good example:
+`"All PDF work — reading, extracting, merging, splitting, OCR, and more. Must be used whenever a .pdf is mentioned or a PDF output is requested. Especially when conversion, editing, or analysis is needed rather than simple viewing."`
 
 Bad example: `"A skill that processes data"` (vague), `"PDF-related work"` (does not describe action or trigger).
 

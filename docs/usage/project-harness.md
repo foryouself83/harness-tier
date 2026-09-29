@@ -15,9 +15,9 @@ skipping it also means `/flow-init` has no `docs/code-style/` to draft `modules[
 `/commit`, `/integration` and `/performance` to read.
 
 1. **Interview** — before research, it fixes the scope so nothing downstream guesses:
-   - clarifies every ambiguous or blank requirement via `AskUserQuestion` when generating an SRS,
-     for greenfield and brownfield alike (a brownfield SRS still gets only a skeleton, with
-     unresolved slots marked "needs confirmation");
+   - clarifies every ambiguous or blank requirement when generating an SRS, for greenfield and
+     brownfield alike (a brownfield SRS still gets only a skeleton, with unresolved slots marked
+     "needs confirmation");
    - always confirms the primary development language, even when detected, and maps it per layer
      (frontend/backend/other) when they differ;
    - confirms the detected framework and version;
@@ -87,7 +87,7 @@ It ends by setting `flow-config.wiki.enable: true` and running
 `wiki_graph.py --build` then `--verify`. If verify does not pass in the same session, it sets
 `enable` back to `false` before finishing, rather than leave every commit in the repo blocked on
 a graph nobody fixed. Once verify passes, it offers `wiki-verify.yml`
-([CI workflows](ci-workflows.md)) — declining it leaves graph drift from outside a Claude session
+([CI workflows](ci-workflows.md)) — declining it leaves graph drift from outside an agent session
 uncaught until someone's next session commit.
 
 Once built, [`/doc-sync`](daily-work.md#doc-sync--keep-the-docs-in-step) keeps the graph and each

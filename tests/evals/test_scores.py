@@ -130,7 +130,8 @@ def test_a_programmatic_reach_claim_names_a_real_caller(name: str):
     callers = [
         p.parent.name
         for p in REPO.glob("skills/*/SKILL.md")
-        if p.parent.name != name and f"Skill: {name}" in p.read_text(encoding="utf-8")
+        if p.parent.name != name
+        and f"invoke skill `{name}`" in " ".join(p.read_text(encoding="utf-8").split()).lower()
     ]
     assert callers, (
         f"{name}: cases.yaml declares reached_programmatically, but no shipped skill "

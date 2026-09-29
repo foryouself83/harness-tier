@@ -280,3 +280,8 @@ design_docs:
   renderer: https://kroki.io
   base_docx: null                      # a company .docx whose styles the output uses
   gitignore_output: false              # true → /flow-init adds `output` to .gitignore
+
+# Agent harnesses the commit gate is installed into. Claude Code is always included, so
+# [claude] and an absent key are the same host. /flow-init adds codex when it runs inside
+# Codex CLI: [claude, codex] also registers the gate in .codex/hooks.json.
+harnesses: [claude]

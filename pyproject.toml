@@ -1,6 +1,6 @@
 [project]
 name = "harness-tier"
-version = "0.4.1"
+version = "0.4.2-rc.1"
 license = "Apache-2.0"
 # Environment floor for the plugin's own development/testing (ruff·pytest). The gate
 # scripts deployed to the host require python 3.8+ at runtime (walrus) — unrelated to this line, so don't confuse them.
@@ -23,7 +23,7 @@ pythonpath = ["."]
 
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
-version_variables = [".claude-plugin/plugin.json:version"]
+version_variables = [".claude-plugin/plugin.json:version", ".codex-plugin/plugin.json:version"]
 commit_message = "chore(release): {version} [skip ci]"
 tag_format = "v{version}"
 commit_parser = "conventional"

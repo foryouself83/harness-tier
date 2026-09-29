@@ -12,10 +12,12 @@
 # Prerelease branch pushes read a `Release-Level: auto|continue|patch|minor|major` commit
 # trailer; no trailer means auto (semantic-release derives the level), and any other value is
 # applied deterministically as the version bump_version.py computes.
-# A forced level stamps only pyproject [project] version + plugin.json (finalize_prerelease.py
-# --set); other version_variables/version_toml targets are stamped by PSR itself, auto-path only.
+# A forced level stamps pyproject [project] version, plugin.json, and .codex-plugin/plugin.json
+# when present (finalize_prerelease.py --set); other version_variables/version_toml targets are
+# stamped by PSR itself, auto-path only.
 # Stable branch pushes rc-strip via the shipped .claude/harness-tier/scripts/finalize_prerelease.py, which targets
-# pyproject.toml + plugin.json; other stacks fall back to plain compute on the stable branch.
+# pyproject.toml, plugin.json and .codex-plugin/plugin.json when present; other stacks fall back
+# to plain compute on the stable branch.
 name: release
 
 on:
@@ -79,6 +81,7 @@ jobs:
             python "$HARNESS_SCRIPTS/finalize_prerelease.py" --set "$NEXT"
             git add pyproject.toml
             [ -f .claude-plugin/plugin.json ] && git add .claude-plugin/plugin.json
+            [ -f .codex-plugin/plugin.json ] && git add .codex-plugin/plugin.json
             git commit -m "chore(release): $NEXT [skip ci]"
             git tag "v$NEXT"
             semantic-release changelog || true
@@ -114,6 +117,7 @@ jobs:
             # <<< finalize-guard
             python "$FINALIZE"
             git add pyproject.toml .claude-plugin/plugin.json 2>/dev/null || git add -A
+            [ -f .codex-plugin/plugin.json ] && git add .codex-plugin/plugin.json
             git commit -m "chore(release): $STABLE [skip ci]"
             git tag "v$STABLE"; git push origin HEAD:__HARNESS_STABLE__; git push origin "v$STABLE"
           else

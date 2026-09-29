@@ -28,13 +28,8 @@ Each function takes paths as arguments and returns its result, making it unit-te
 from __future__ import annotations
 
 import argparse
-import copy
-import json
-import os
-import re
+import os  # noqa: F401 — `fis.os` is the monkeypatch target the jsonfile helpers share
 import shutil
-import stat
-import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -65,6 +60,34 @@ except ImportError:
         host_root,
         plugin_root,
     )
+
+# _ACCESS_ENTRIES·_access_entries·_write_json are unused in this module's own body — their
+# caller is scripts/harness/claude/install.py — and re-exported so `flow_init_setup.<name>`
+# stays a valid attribute path for its tests.
+try:
+    from harness.jsonfile import ACCESS_ENTRIES as _ACCESS_ENTRIES  # noqa: F401
+    from harness.jsonfile import access_entries as _access_entries  # noqa: F401
+    from harness.jsonfile import why as _why
+    from harness.jsonfile import write_json as _write_json  # noqa: F401
+except ImportError:
+    from scripts.harness.jsonfile import ACCESS_ENTRIES as _ACCESS_ENTRIES  # noqa: F401
+    from scripts.harness.jsonfile import access_entries as _access_entries  # noqa: F401
+    from scripts.harness.jsonfile import why as _why
+    from scripts.harness.jsonfile import write_json as _write_json  # noqa: F401
+
+# The Claude settings.json gate/marketplace code lives in scripts/harness/claude/install.py,
+# re-exported below under this module's names for its callers and tests.
+try:
+    from harness.claude import install as _claude
+except ImportError:
+    from scripts.harness.claude import install as _claude
+
+# The registry of every harness this plugin knows how to gate (scripts/harness/__init__.py) —
+# `load_harnesses`/`register_gates`/`_gate_problems` dispatch to it for every non-Claude name.
+try:
+    import harness
+except ImportError:
+    from scripts import harness
 
 WORKFLOW_TEMPLATE = "github/api-contract.workflow.example.yml"  # SOURCE (plugin-owned)
 WORKFLOW_DEST = ".github/workflows/api-contract.yml"  # host (GitHub-forced — HARNESS_DIR exception)
@@ -137,9 +160,46 @@ GATE_FILES = (
     (f"{CONFIG_DIR}/{TIERS_FILENAME}", TIERS_FILENAME),
 )
 
-# The same tuple minus the policy: what the policy may not land without. Derived rather than
-# spelled again, so a file added to GATE_FILES is covered here by default.
-GATE_SCRIPT_SOURCES = tuple(source for _, source in GATE_FILES if source != TIERS_FILENAME)
+# Per-harness gate scripts, beyond the Claude set above (SOURCE paths under scripts/, same
+# SOURCE→HOST convention as COPY_FILES). A harness whose gate the plugin does not run through
+# settings.json runs it through its own wrapper instead — for Codex, gate.sh/gate.cmd are what
+# its hook invokes directly, so they are gate scripts in every sense GATE_FILES already covers.
+HARNESS_GATE_FILES: dict[str, list[str]] = {
+    "codex": ["scripts/harness/codex/gate.sh", "scripts/harness/codex/gate.cmd"],
+}
+# Everything a harness copies: its gate scripts, plus tools no gate runs (Codex's AGENTS.md
+# renderer and the modules it imports), so a missing one never withholds the policy.
+HARNESS_COPY_FILES: dict[str, list[str]] = {
+    "codex": [
+        *HARNESS_GATE_FILES["codex"],
+        "scripts/harness/__init__.py",
+        "scripts/harness/instructions.py",
+        "scripts/harness/codex/__init__.py",
+        "scripts/harness/codex/instructions.py",
+    ],
+}
+
+
+def _dest_rel(rel: str) -> Path:
+    """Where a SOURCE path under scripts/ lands under the host scripts dir.
+
+    A flat COPY_FILES entry lands at its basename (`scripts/foo.py` -> `foo.py`);
+    a per-harness entry keeps its subpath instead (`scripts/harness/codex/gate.sh` ->
+    `harness/codex/gate.sh`), so two harnesses may ship a same-named file without collision.
+    """
+    parts = Path(rel).parts
+    return Path(*parts[1:]) if parts and parts[0] == "scripts" else Path(Path(rel).name)
+
+
+def gate_files(harnesses) -> tuple[tuple[str, str], ...]:
+    """GATE_FILES, plus the enabled harnesses' own gate scripts (what their hooks run)."""
+    extra = tuple(
+        (f"{SCRIPTS_DIR}/{_dest_rel(rel).as_posix()}", rel)
+        for name in harnesses
+        for rel in HARNESS_GATE_FILES.get(name, [])
+    )
+    return GATE_FILES + extra
+
 
 # Lines to add to .gitignore. The personal webhook is kept as a **bare pattern** (matches at any
 # depth) — narrowing the path would be a security footgun that leaves root-residual files not yet
@@ -156,50 +216,37 @@ GITIGNORE_LINES = [
 # longer matches the current path, so the drift is reported.
 OWNED_HOOK_ID = "teams-notify-push"
 
-# The commit gate to register in settings.json (runs the HOST copy via the host path). The `if`
-# field is not included — precommit-runner.sh self-filters via stdin (avoiding per-build diffs).
-# What makes a hook command the gate's own. The script name alone is not enough — a host
-# with its own `tools/precommit-runner.sh` hook had it rewritten to this one's path, and
-# moved out of its entry, as if this plugin had written it. Both words together keep the
-# match independent of where under the host the scripts sit.
-GATE_MARKER = ("harness-tier", "precommit-runner.sh")
-GATE_COMMAND = f'bash "${{CLAUDE_PROJECT_DIR:-.}}/{SCRIPTS_DIR}/precommit-runner.sh"'
-GATE_STATUS = "harness-tier: flow 게이트 + 테스트 검사 중…"  # register_gate fixes this up on rename
-GATE_ENTRY = {
-    "matcher": "Bash",
-    "hooks": [
-        {
-            "type": "command",
-            "shell": "bash",
-            "command": GATE_COMMAND,
-            "timeout": 600,
-            "statusMessage": GATE_STATUS,
-        }
-    ],
-}
-
 # Markers of the Teams management block in the host CLAUDE.md (inserted by /flow-init Step 3).
 # uninstall removes everything between these markers (inclusive).
 CLAUDE_MD_BEGIN = "<!-- harness-tier:teams BEGIN"
 CLAUDE_MD_END = "<!-- harness-tier:teams END"
 
-# Register the harness-tier marketplace in the host settings.json extraKnownMarketplaces with
-# autoUpdate=true. Because a distributor cannot force auto-update via marketplace.json (a security
-# boundary that prevents a third party from auto-fetching+running code without consent), this path
-# — the host explicitly enabling it — is the only one. Once committed to the host repo, all
-# teammates get the marketplace registered with auto-update on. source is set to `github`+repo
-# (`git`+url has low auto-update reliability — the standard/recommended form, matching plugin.json).
-MARKETPLACE_NAME = "harness-tier"
-MARKETPLACE_REPO = "foryouself83/harness-tier"
-MARKETPLACE_ENTRY = {
-    "source": {"source": "github", "repo": MARKETPLACE_REPO},
-    "autoUpdate": True,
-}
+# Re-exported from scripts/harness/claude/install.py (see the import above), where the
+# settings.json gate/marketplace constants and functions live — one harness package per
+# agent this plugin installs into.
+GATE_MARKER = _claude.GATE_MARKER
+GATE_COMMAND = _claude.GATE_COMMAND
+GATE_STATUS = _claude.GATE_STATUS
+GATE_ENTRY = _claude.GATE_ENTRY
+MARKETPLACE_NAME = _claude.MARKETPLACE_NAME
+MARKETPLACE_REPO = _claude.MARKETPLACE_REPO
+MARKETPLACE_ENTRY = _claude.MARKETPLACE_ENTRY
+_load_settings = _claude.load_settings
+_is_gate_hook = _claude.is_gate_hook
+_covers_bash = _claude.covers_bash
+register_gate = _claude.register
+unregister_gate = _claude.unregister
+register_marketplace = _claude.register_marketplace
+unregister_marketplace = _claude.unregister_marketplace
+_strip_gate_hooks = _claude._strip_gate_hooks
+_is_own_empty_entry = _claude._is_own_empty_entry
+_gate_hook_remains = _claude.hook_remains
 
 
-def copy_artifacts(plugin: Path, host: Path) -> list[str]:
+def copy_artifacts(plugin: Path, host: Path, harnesses=("claude",)) -> list[str]:
     """Copy deployment artifacts (always overwrite — SOURCE is the SSOT). Gate scripts go to
-    scripts/, and the plugin policy flow-tiers.yaml goes to config/ (same place as flow-config)."""
+    scripts/ (a flat file at its basename, a per-harness file under its subpath — `_dest_rel`),
+    and the plugin policy flow-tiers.yaml goes to config/ (same place as flow-config)."""
     dest_dir = host / SCRIPTS_DIR
     try:
         dest_dir.mkdir(parents=True, exist_ok=True)
@@ -209,20 +256,25 @@ def copy_artifacts(plugin: Path, host: Path) -> list[str]:
         return [f"  [!] {SCRIPTS_DIR} 를 만들지 못했습니다({_why(exc)}) — 수동 확인 필요"]
     report: list[str] = []
     missed: set[str] = set()
-    for rel in COPY_FILES:
+    rels = [*COPY_FILES, *(rel for name in harnesses for rel in HARNESS_COPY_FILES.get(name, []))]
+    for rel in rels:
         src = plugin / rel
+        dest_rel = _dest_rel(rel)
+        dest_name = dest_rel.as_posix()  # flat file: its basename, same as the pre-harness report
         if not src.is_file():
             report.append(f"  [!] 소스 없음, skip: {rel}")
             missed.add(rel)
             continue
         try:
-            shutil.copyfile(src, dest_dir / Path(rel).name)
+            dest_path = dest_dir / dest_rel
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, dest_path)
         except OSError as exc:
             # One file the host holds open or keeps read-only is one file, not the whole run.
-            report.append(f"  [!] 복사 실패({_why(exc)}): {Path(rel).name}")
+            report.append(f"  [!] 복사 실패({_why(exc)}): {dest_name}")
             missed.add(rel)
             continue
-        report.append(f"  [+] 복사: {Path(rel).name}")
+        report.append(f"  [+] 복사: {dest_name}")
     # The policy file goes to config/ (a host-owned dir, but this file alone is plugin-owned·SSOT).
     tiers_src = plugin / TIERS_FILENAME
     try:
@@ -234,8 +286,11 @@ def copy_artifacts(plugin: Path, host: Path) -> list[str]:
         # policy over an older module is the one pairing that fails CLOSED: the check asks for
         # evidence the module cannot produce and every commit in every tier is denied, with a
         # reason no `/flow` step satisfies (Invariant 1). The reverse pairing only under-gates,
-        # and the next `/flow-init` repairs it.
-        if missed & set(GATE_SCRIPT_SOURCES):
+        # and the next `/flow-init` repairs it. gate_files(harnesses) folds in each enabled
+        # harness's own gate scripts (e.g. Codex's gate.sh/gate.cmd, which its hook runs
+        # directly) — a copy that drops one is exactly as fail-closed as dropping a Claude one.
+        gate_sources = {source for _, source in gate_files(harnesses) if source != TIERS_FILENAME}
+        if missed & gate_sources:
             report.append(f"  [!] 게이트 스크립트가 빠져 {TIERS_FILENAME} 보류 — 재실행 필요")
             return report
         if not tiers_src.is_file():
@@ -301,50 +356,6 @@ def seed_design_templates(plugin: Path, host: Path) -> list[str]:
     return report
 
 
-def _load_settings(host: Path) -> tuple[Path, dict | None, str | None]:
-    """Return the settings.json path·parse result. On parse failure, (path, None, error message)."""
-    settings = host / ".claude" / "settings.json"
-    try:
-        settings.parent.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        return settings, None, f"  [!] .claude 를 만들지 못했습니다({_why(exc)}) — 수동 확인 필요"
-    try:
-        exists = settings.is_file()
-    except OSError as exc:  # a `.claude` the host closed; `is_file` does not swallow this
-        return (
-            settings,
-            None,
-            f"  [!] settings.json 을 읽지 못했습니다({_why(exc)}) — 수동 확인 필요",
-        )
-    if not exists:
-        return settings, {}, None
-    try:
-        data = json.loads(settings.read_text(encoding="utf-8-sig"))
-    except UnicodeDecodeError:
-        return settings, None, "  [!] settings.json 이 UTF-8 이 아닙니다 — 수동 확인 필요"
-    except (json.JSONDecodeError, RecursionError):
-        return settings, None, "  [!] settings.json 파싱 실패 — 수동 확인 필요"
-    except OSError as exc:
-        return (
-            settings,
-            None,
-            f"  [!] settings.json 을 읽지 못했습니다({_why(exc)}) — 수동 확인 필요",
-        )
-    # `null` is what a host's own tooling writes for "nothing set yet". Every other value that
-    # happens to be falsy — `0`, `[]`, an empty string — is data, and reading it as an empty
-    # object overwrote it while reporting a clean registration.
-    if data is None:
-        data = {}
-    if not isinstance(data, dict):
-        return settings, None, "  [!] settings.json 이 객체가 아닙니다 — 수동 확인 필요"
-    return settings, data, None
-
-
-def _why(exc: BaseException) -> str:
-    """What to put in a report line. An OSError raised without an errno has no `strerror`."""
-    return getattr(exc, "strerror", None) or str(exc) or type(exc).__name__
-
-
 def _installed(host: Path, plugin: Path, rel: str, source: str) -> bool:
     """Whether the host carries the file this installs, byte for byte.
 
@@ -363,267 +374,6 @@ def _installed(host: Path, plugin: Path, rel: str, source: str) -> bool:
         return (host / rel).read_bytes() == want
     except OSError:
         return False
-
-
-_ACCESS_ENTRIES = "system.posix_acl_access"
-
-
-def _access_entries(path: Path) -> bytes | None:
-    """The file's POSIX access entries, where the host has any. Read before the rename,
-    because after it the inode they belong to is gone."""
-    try:
-        return os.getxattr(path, _ACCESS_ENTRIES)
-    except (AttributeError, OSError):
-        return None
-
-
-def _default_mode(tmp: Path) -> None:
-    """What a file this CREATES should be. `mkstemp` makes one only its owner can read,
-    and a rename carries that: on a build machine where the session runs as another uid,
-    a settings.json installed at 0600 is a gate that never loads."""
-    try:
-        mask = os.umask(0)
-        os.umask(mask)
-        os.chmod(tmp, 0o666 & ~mask)
-    except OSError:
-        pass
-
-
-def _carry_over(before: os.stat_result, acl: bytes | None, tmp: Path) -> None:
-    """Put back on `tmp` what a rename does not carry. Best effort: a host whose filesystem
-    holds none of this, or a process not allowed to give a file away, keeps what it had."""
-    try:
-        os.chmod(tmp, stat.S_IMODE(before.st_mode))
-    except OSError:
-        pass
-    if acl is not None:
-        try:
-            os.setxattr(tmp, _ACCESS_ENTRIES, acl)
-        except (AttributeError, OSError):
-            pass
-    try:
-        if before.st_uid != os.getuid() or before.st_gid != os.getgid():
-            os.chown(tmp, before.st_uid, before.st_gid)
-    except (AttributeError, OSError):
-        pass
-
-
-def _write_json(path: Path, data: dict) -> str | None:
-    """Write, or return the line to report instead.
-
-    Through a temporary file and one rename, because opening for writing truncates first: a
-    full disk, a dropped share or a lone surrogate in the host's own data would otherwise
-    leave their settings a fragment that no longer parses — and this runs partway through a
-    setup whose remaining steps are unguarded. Every way the write can fail is caught, not
-    the ones that have been seen: the encode raises ValueError, the rest raise OSError.
-
-    A rename replaces the NAME, so a settings.json a host keeps as a symlink into their
-    dotfiles came back a plain file while their managed copy kept the old content — and the
-    next sync put a gate-less settings back. The rename lands on what the link points AT for
-    that reason. The temporary file is unique because a fixed name beside it was a file of
-    the host's own that this silently consumed.
-
-    What a rename does not carry is the file it replaces. Its mode, its owner and its access
-    entries all come from the temporary file, which is the writer's alone: a `sudo /flow-init`
-    left the host's settings owned by root, and `st_mode` reports the ACL MASK in its group
-    bits, so putting that back as a plain mode gave group write to a file whose owner had
-    granted one named user. All three come across, the entries before the mode would reset
-    their mask. A file the host locked read-only is refused — except to root, whom the write
-    bit does not stop. What a new inode cannot keep is kept by nobody: a second hard link,
-    the timestamps, a `user.*` attribute, and the setuid bit where the owner has to be given
-    back. The link a dotfiles manager makes is a symlink, and that one survives.
-    """
-    target = Path(os.path.realpath(path)) if path.is_symlink() else path
-    if target.is_file() and not os.access(target, os.W_OK):
-        return f"  [!] {path.name} 이 쓰기 금지 상태입니다 — 수동 확인 필요"
-    payload = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-    try:
-        before = target.stat() if target.is_file() else None
-    except OSError:  # gone between the question and the answer
-        before = None
-    acl = _access_entries(target) if before is not None else None
-    tmp = None
-    try:
-        fd, name = tempfile.mkstemp(dir=target.parent, prefix=target.name + ".", suffix=".new")
-        tmp = Path(name)  # named before the descriptor closes: the cleanup reads `tmp`
-        os.close(fd)
-        tmp.write_text(payload, encoding="utf-8")
-        if before is not None:
-            _carry_over(before, acl, tmp)
-        else:
-            _default_mode(tmp)
-        os.replace(tmp, target)
-        tmp = None
-    except (OSError, ValueError) as exc:
-        return f"  [!] {path.name} 을 쓰지 못했습니다({_why(exc)}) — 수동 확인 필요"
-    finally:
-        # Not only the two the write raises: an interrupt through here leaves the file
-        # in the host's `.claude/`, which is ground they track.
-        if tmp is not None:
-            try:
-                tmp.unlink()
-            except OSError:
-                pass
-    return None
-
-
-def _is_gate_hook(hook: object) -> bool:
-    """Whether this is one of the gate's own hooks. A `command` the host wrote as something
-    other than a string is not one, and asking `in` of it raises."""
-    if not isinstance(hook, dict) or not isinstance(hook.get("command"), str):
-        return False
-    return all(word in hook["command"] for word in GATE_MARKER)
-
-
-# The alphabet that keeps a matcher a name rather than a pattern, per the hooks reference.
-# Inside it the two dialects agree — `|` alternates in both and everything else is literal —
-# so the same string can be read both ways and the answers compared.
-_EXACT_MATCHER_RE = re.compile(r"[A-Za-z0-9_\- ,|]*")
-
-
-def _covers_bash(matcher: object) -> bool | None:
-    """Whether a PreToolUse matcher fires on Bash — the only tool a commit arrives through.
-    True, False, or None where this script cannot say.
-
-    Three readings, as the hooks reference defines them: `*`, an empty matcher and an absent
-    one are every tool; a matcher spelled only with the name alphabet is one tool name or a
-    `|`/`,` list of them; anything else is a JavaScript regular expression. Only the first two
-    can be decided here — Python's dialect is not JavaScript's, `(?i)` and `\\Z` being Python's
-    alone — and the comma separator and the whitespace around a name are newer than the oldest
-    host this runs on, where the same text is read as a pattern instead. Both go undecided.
-
-    Undecided is not "does not fire": acted on as one, a `^Bash$` the host anchored on purpose
-    has the gate hook pulled out from under it and the report says the entry never fired, which
-    is false. Undecided keeps the entry and its matcher and adds an entry of the gate's own, so
-    the gate exists either way; a gate hook inside it is still brought to the current path,
-    which is the one thing in that entry this plugin wrote.
-    """
-    if matcher is None or matcher in ("", "*"):
-        return True
-    if not isinstance(matcher, str):
-        return None
-    if not _EXACT_MATCHER_RE.fullmatch(matcher):
-        return None
-    as_list = GATE_ENTRY["matcher"] in [name.strip() for name in re.split(r"[|,]", matcher)]
-    as_pattern = re.search(matcher, GATE_ENTRY["matcher"]) is not None
-    return as_list if as_list == as_pattern else None
-
-
-def register_gate(host: Path) -> str:
-    """Register the commit gate in .claude/settings.json. Skip if already present; if the registered
-    command/statusMessage differs from the current value, fix it up (for plugin updates)."""
-    settings, data, err = _load_settings(host)
-    if data is None:
-        return err
-    if not isinstance(data.get("hooks", {}), dict):
-        return "  [!] settings.json hooks 형식 비정상 — 게이트 미등록(수동 확인)"
-    pre = data.setdefault("hooks", {}).setdefault("PreToolUse", [])
-    if not isinstance(pre, list):
-        return "  [!] hooks.PreToolUse 형식 비정상 — 게이트 미등록(수동 확인)"
-    entries = [e for e in pre if isinstance(e, dict)]
-    # The matcher decides whether a hook fires at all, so a gate hook under one that misses Bash
-    # is not the gate — counting it as one leaves the host reporting a gate it does not have.
-    # The entry around it is the HOST's, though: it may carry the host's own hooks, and its
-    # matcher may already name Bash among several tools. So the gate hook moves out of an entry
-    # that does not fire and everything else about that entry stays — its matcher, the keys
-    # beside `hooks`, and the entry itself once emptied. Rewriting or dropping it would take
-    # configuration this plugin never wrote.
-    moved = undecided = 0
-    for entry in entries:
-        hooks = entry.get("hooks")
-        if not isinstance(hooks, list):
-            continue
-        covers = _covers_bash(entry.get("matcher"))
-        if covers is None:
-            undecided += sum(1 for h in hooks if _is_gate_hook(h))
-        elif not covers:
-            kept = [h for h in hooks if not _is_gate_hook(h)]
-            moved += len(hooks) - len(kept)
-            entry["hooks"] = kept
-    gate_hooks = [
-        h
-        for e in entries
-        if isinstance(e.get("hooks"), list)
-        for h in e["hooks"]
-        if _is_gate_hook(h)
-    ]
-    # Only a hook under a matcher known to fire is the gate. One under a matcher this script
-    # cannot decide may be doing the job already, which is why it is left alone — and may not
-    # be, which is why it does not count as the gate.
-    firing = [
-        h
-        for e in entries
-        if isinstance(e.get("hooks"), list) and _covers_bash(e.get("matcher"))
-        for h in e["hooks"]
-        if _is_gate_hook(h)
-    ]
-    added = not firing
-    if added:
-        pre.append(copy.deepcopy(GATE_ENTRY))
-    # Already registered — a plugin update may have changed command/statusMessage, so fix up
-    # **every** entry that diverges from the current value (fixing only the first would leave a
-    # duplicate stale entry pointing at a deleted path forever).
-    # Anything but the hook this plugin writes is repaired to it. The command and the status
-    # line drift on a plugin update, but the fields that matter are ones the host can add: an
-    # `if` on the gate hook suppresses it per build (Invariant 4), `async` puts it where it
-    # cannot deny, and a `type` other than `command` runs something else — each of them a gate
-    # reported as registered and firing on nothing.
-    stock = GATE_ENTRY["hooks"][0]
-    stale = [h for h in gate_hooks if h != stock]
-    note = ""
-    if data.get("disableAllHooks") is True:
-        note += ", settings.json 의 disableAllHooks 로 훅이 전혀 실행되지 않습니다"
-    if len(firing) > 1:
-        note += f", 발화하는 게이트 훅 {len(firing)}개 — 커밋마다 그만큼 실행됩니다"
-    if undecided:
-        note += (
-            f", 판정할 수 없는 matcher 아래 게이트 훅 {undecided}개"
-            " — 발화한다면 그만큼 더 실행됩니다"
-        )
-    if not added and not stale and not moved:
-        return f"  [=] 커밋 게이트 이미 등록됨 (skip{note})"
-    for hook in stale:
-        hook.clear()
-        hook.update(copy.deepcopy(stock))
-    failed = _write_json(settings, data)
-    if failed:
-        return failed
-    if added and moved:
-        return (
-            "  [+] 커밋 게이트 등록 (settings.json, Bash 에 발화하지 않는 항목에서 "
-            f"{moved}건 이동{note})"
-        )
-    if added:
-        return f"  [+] 커밋 게이트 등록 (settings.json{note})"
-    return (
-        f"  [+] 커밋 게이트 보정 (settings.json, {len(stale) + moved}건 — 게이트 훅은"
-        f" 플러그인 원형으로 교체{note})"
-    )
-
-
-def register_marketplace(host: Path) -> str:
-    """Register the harness-tier marketplace in .claude/settings.json extraKnownMarketplaces with
-    autoUpdate=true (add if absent, fix only autoUpdate if present, skip if already true).
-    Source is preserved."""
-    settings, data, err = _load_settings(host)
-    if data is None:
-        return err
-    mkts = data.setdefault("extraKnownMarketplaces", {})
-    if not isinstance(mkts, dict):
-        return "  [!] extraKnownMarketplaces 형식 비정상 — 마켓 미등록(수동 확인)"
-    existing = mkts.get(MARKETPLACE_NAME)
-    if isinstance(existing, dict):
-        if existing.get("autoUpdate") is True:
-            return "  [=] harness-tier 마켓 autoUpdate 이미 켜짐 (skip)"
-        existing["autoUpdate"] = True  # preserve the source, fix only autoUpdate
-        msg = "  [+] harness-tier 마켓 autoUpdate=true 보정"
-    else:
-        mkts[MARKETPLACE_NAME] = dict(MARKETPLACE_ENTRY)
-        msg = "  [+] harness-tier 마켓 등록 + autoUpdate=true"
-    failed = _write_json(settings, data)
-    if failed:
-        return failed
-    return msg
 
 
 def design_gitignore_lines(host: Path) -> list[str]:
@@ -725,63 +475,6 @@ def check_precommit(plugin: Path, host: Path) -> list[str]:
 
 
 # ── uninstall (cleanup) — the inverse of setup ─────────────────────────────────
-
-
-def _strip_gate_hooks(entry: object) -> int:
-    """Remove the gate's own hooks from one entry; returns how many. The entry stays.
-
-    `register_gate` leaves the gate hook inside a host entry whenever that entry already fires
-    on Bash, so an entry holding the gate may hold the host's hooks beside it — taking the
-    entry would take those with it.
-    """
-    if not isinstance(entry, dict) or not isinstance(entry.get("hooks"), list):
-        return 0
-    hooks = entry["hooks"]
-    entry["hooks"] = [h for h in hooks if not _is_gate_hook(h)]
-    return len(hooks) - len(entry["hooks"])
-
-
-def _is_own_empty_entry(entry: object) -> bool:
-    """An entry this plugin wrote and has emptied — nothing of the host's is in it."""
-    return (
-        isinstance(entry, dict)
-        and set(entry) == set(GATE_ENTRY)
-        and entry.get("matcher") == GATE_ENTRY["matcher"]
-        and entry.get("hooks") == []
-    )
-
-
-def unregister_gate(host: Path) -> str:
-    """Remove the commit gate hook from settings.json (skip if absent)."""
-    settings, data, err = _load_settings(host)
-    if data is None:
-        return err
-    hooks = data.get("hooks") if isinstance(data, dict) else None
-    pre = hooks.get("PreToolUse") if isinstance(hooks, dict) else None
-    if not isinstance(pre, list):
-        return "  [=] 게이트 훅 없음 (skip)"
-    if not sum(_strip_gate_hooks(entry) for entry in pre):
-        return "  [=] 게이트 훅 없음 (skip)"
-    hooks["PreToolUse"] = [e for e in pre if not _is_own_empty_entry(e)]
-    failed = _write_json(settings, data)
-    if failed:
-        return failed
-    return "  [-] 커밋 게이트 해제 (settings.json)"
-
-
-def unregister_marketplace(host: Path) -> str:
-    """Remove the harness-tier marketplace from settings.json (skip if absent)."""
-    settings, data, err = _load_settings(host)
-    if data is None:
-        return err
-    mkts = data.get("extraKnownMarketplaces")
-    if not isinstance(mkts, dict) or MARKETPLACE_NAME not in mkts:
-        return "  [=] harness-tier 마켓 등록 없음 (skip)"
-    del mkts[MARKETPLACE_NAME]
-    failed = _write_json(settings, data)
-    if failed:
-        return failed
-    return "  [-] harness-tier 마켓 등록 해제 (settings.json)"
 
 
 def remove_gitignore_lines(host: Path) -> str:
@@ -1554,7 +1247,97 @@ def render_e2e_workflow(host: Path, plugin: Path) -> list[str]:
     return out
 
 
-def _gate_problems(host: Path, plugin: Path) -> list[str]:
+def load_harnesses(host: Path) -> tuple[list[str], list[str], bool]:
+    """The harnesses this host installs the gate into. Claude is always one: the plugin is a
+    Claude Code plugin first, and an absent `harnesses` key is every host installed before
+    Codex existed here — the same host, unchanged.
+
+    The third element is `reliable`: False only when the raw `harnesses:` value itself could
+    not be read as a list, so `names` is a guess rather than the host's real configured set.
+    An unrecognized or unsupported single entry does not touch it — the rest of the list is
+    still real, and `names` reflects it correctly; only the caller-visible `[!]`/`[=]` line
+    is a guess-free fact about that one entry. Reporting this explicitly, rather than making
+    a caller re-derive it by scanning the returned lines for `[!]`, keeps an unrelated `[!]`
+    (an unknown name in an otherwise valid list) from reading as "the list itself is unknown."
+    """
+    cfg = _load_yaml_safe(config_path(host))
+    raw = cfg.get("harnesses")
+    names = ["claude"]
+    lines: list[str] = []
+    reliable = True
+    if raw is None:
+        entries: list = []
+    elif isinstance(raw, list):
+        entries = raw
+    else:
+        # A present-but-wrong-shaped value (a bare string, a mapping, …) is a typo, not the
+        # same thing as an absent key — silently reading it as "no harnesses configured"
+        # would tell a host who wrote `harnesses: codex` that Claude-only was ever a choice
+        # they made, instead of the mistake it is.
+        lines.append(
+            "  [!] harnesses: 목록이어야 합니다(예: [claude, codex])"
+            " — 무시하고 claude 만 사용합니다"
+        )
+        entries = []
+        reliable = False
+    for name in entries:
+        if name == "claude" or name in names:
+            continue
+        if name in harness.SUPPORTED:
+            names.append(name)
+        elif name in harness.KNOWN:
+            lines.append(f"  [=] harnesses: {name} 는 아직 지원하지 않습니다 (skip)")
+        else:
+            lines.append(f"  [!] harnesses: 알 수 없는 이름 '{name}' (skip)")
+    return names, lines, reliable
+
+
+def register_gates(host: Path, harnesses: list[str]) -> list[str]:
+    """Register the commit gate in every enabled harness. Claude's own registration is
+    settings.json's `register_gate`; every other enabled name runs through the shared
+    registry (`harness.installer`) — its own hook file, plus any read-only warnings it wants
+    relayed (Codex: whether the project is Codex-trusted, and that /hooks approval is still
+    needed)."""
+    out = [register_gate(host)]
+    for name in harnesses:
+        if name == "claude":
+            continue
+        mod = harness.installer(name)
+        out.append(mod.register(host))
+        if name == "codex":
+            out.extend(mod.trust_notes(host))
+    return out
+
+
+def codex_leftovers(host: Path, harnesses: list[str]) -> list[str]:
+    """A host that dropped codex from `harnesses` keeps what it installed — reported, never
+    removed, since the list alone does not say the user wants the Codex gate gone."""
+    if "codex" in harnesses:
+        return []
+    left = []
+    try:
+        # The marker text, not `hook_remains`: that answers "may remain" for a file it cannot
+        # parse, and a Claude-only host's own broken hooks.json is not ours to report.
+        hooks = (host / ".codex" / "hooks.json").read_text(encoding="utf-8")
+        if all(word in hooks for word in harness.installer("codex").MARKER):
+            left.append(".codex/hooks.json 게이트 훅")
+    except Exception:  # noqa: BLE001 — a note, never a reason to lose the step
+        pass
+    try:
+        agents = host / "AGENTS.md"
+        if agents.is_file() and _codex_instructions()._spans(agents.read_bytes().decode("utf-8")):
+            left.append("AGENTS.md 지침 블록")
+    except Exception:  # noqa: BLE001 — same
+        pass
+    if not left:
+        return []
+    return [
+        f"  [i] harnesses 에 codex 가 없지만 {' · '.join(left)} 이(가) 남아 있습니다 — 지우려면"
+        " /flow-uninstall, 계속 쓰려면 harnesses 에 codex 를 다시 추가하세요"
+    ]
+
+
+def _gate_problems(host: Path, plugin: Path, harnesses=("claude",)) -> list[str]:
     """Why the commit gate would not run in this host, read back from what the run left.
 
     Asked of the line `register_gate` printed, the question answers itself: a write that
@@ -1571,7 +1354,9 @@ def _gate_problems(host: Path, plugin: Path) -> list[str]:
     """
     problems = []
     missing = [
-        Path(rel).name for rel, source in GATE_FILES if not _installed(host, plugin, rel, source)
+        Path(rel).name
+        for rel, source in gate_files(harnesses)
+        if not _installed(host, plugin, rel, source)
     ]
     if missing:
         problems.append(
@@ -1580,56 +1365,20 @@ def _gate_problems(host: Path, plugin: Path) -> list[str]:
             + ") — 훅이 등록되어 있어도 아무 커밋도 막지 못합니다."
             " 위 [!] 를 해결한 뒤 /flow-init 를 다시 실행하세요."
         )
-    _settings, data, _err = _load_settings(host)
-    if data is None:
-        problems.append(
-            "settings.json 을 읽지 못해 커밋 게이트를 확인할 수 없습니다 — 위 [!] 를"
-            " 해결한 뒤 /flow-init 를 다시 실행하세요."
-        )
-        return problems
-    hooks = data.get("hooks")
-    pre = hooks.get("PreToolUse") if isinstance(hooks, dict) else None
-    # The hook has to be the one this plugin writes, not merely one of its own: the repair
-    # that takes an `if` back off lands only when the write does, and a matcher this
-    # cannot decide is not one that fails to fire — a host who anchored `^Bash$` has a
-    # gate, and saying otherwise sends them to fix what is not broken.
-    firing = any(
-        _covers_bash(entry.get("matcher")) is not False
-        and any(h == GATE_ENTRY["hooks"][0] for h in entry["hooks"])
-        for entry in (pre if isinstance(pre, list) else [])
-        if isinstance(entry, dict) and isinstance(entry.get("hooks"), list)
-    )
-    if not firing:
-        problems.append(
-            "커밋 게이트가 settings.json 에 없습니다 — 위 [!] 를 해결한 뒤 /flow-init 를"
-            " 다시 실행하세요."
-        )
-    if data.get("disableAllHooks") is True:
-        problems.append(
-            "settings.json 의 disableAllHooks 가 켜져 있어 커밋 게이트를 포함한 모든"
-            " 훅이 실행되지 않습니다 — 끄세요."
-        )
+    problems.extend(_claude.problems(host))
+    if "codex" in harnesses:
+        problems.extend(harness.installer("codex").problems(host))
     return problems
 
 
-def _gate_hook_remains(host: Path) -> bool:
-    """Whether a gate hook may still be in the host's settings.json.
-
-    A file this cannot read is one it cannot clear either, and the run has already deleted
-    the scripts the hook names — so unreadable counts as left behind. Answering no there
-    put `정리 완료.` over a hook pointing at nothing, which is the lie this exists to stop.
-    """
-    _settings, data, _err = _load_settings(host)
-    if data is None:
-        return True
-    hooks = data.get("hooks")
-    pre = hooks.get("PreToolUse") if isinstance(hooks, dict) else None
-    return any(
-        _is_gate_hook(h)
-        for entry in (pre if isinstance(pre, list) else [])
-        if isinstance(entry, dict) and isinstance(entry.get("hooks"), list)
-        for h in entry["hooks"]
-    )
+def _codex_instructions():
+    """The Codex AGENTS.md renderer, resolved when a step runs so a packaging failure costs
+    only that step."""
+    try:
+        from harness.codex import instructions
+    except ImportError:
+        from scripts.harness.codex import instructions
+    return instructions
 
 
 def _step(title: str, produce: Callable[[], list[str]]) -> bool:
@@ -1666,10 +1415,30 @@ def run_setup(host: Path, plugin: Path) -> bool:
     A step that cannot finish at all is the same case, not a worse one: it reports a
     line and the run goes on, because the verdict is what the caller came for.
     """
+    try:
+        names, cfg_lines, harnesses_readable = load_harnesses(host)
+    except Exception as exc:  # noqa: BLE001 — a closed `.claude/` must still reach the verdict
+        names = ["claude"]
+        cfg_lines = [f"  [!] harnesses 를 읽지 못했습니다({_why(exc)}) — claude 만 사용합니다"]
+        harnesses_readable = False
+    # `codex_leftovers` reports "codex is not in harnesses" as though that were known — but
+    # `harnesses_readable=False` means it is not: the `except` above, or `load_harnesses`'s
+    # own not-a-list guard, both leave `names == ["claude"]` while the real config may still
+    # list codex. Telling that host to /flow-uninstall its own configured gate is the wrong
+    # direction. Read from the explicit flag rather than scanning `cfg_lines` for `[!]` —
+    # an unrecognized single entry in an otherwise valid list also prints `[!]` there, and
+    # that case leaves `names` fully trustworthy.
     print(f"flow-init 기계적 셋업 — host={host}")
     finished = [
-        _step("[복사]", lambda: copy_artifacts(plugin, host)),
-        _step("[커밋 게이트]", lambda: [register_gate(host)]),
+        _step("[복사]", lambda: copy_artifacts(plugin, host, names)),
+        _step(
+            "[커밋 게이트]",
+            lambda: (
+                cfg_lines
+                + register_gates(host, names)
+                + (codex_leftovers(host, names) if harnesses_readable else [])
+            ),
+        ),
         _step("[마켓 자동 업데이트]", lambda: [register_marketplace(host)]),
         _step("[pre-commit 점검]", lambda: check_precommit(plugin, host)),
         _step("[설계 산출물 템플릿]", lambda: seed_design_templates(plugin, host)),
@@ -1682,7 +1451,9 @@ def run_setup(host: Path, plugin: Path) -> bool:
         _step("[배포 워크플로우]", lambda: render_deploy_workflows(host, plugin)),
         _step("[config 슬롯 점검]", lambda: report_missing_config_slots(host, plugin)),
     ]
-    problems = _gate_problems(host, plugin)
+    if "codex" in names:
+        finished.append(_step("[Codex 지침 렌더]", lambda: _codex_instructions().render(host)))
+    problems = _gate_problems(host, plugin, names)
     if problems:
         for line in problems:
             print(line)
@@ -1694,6 +1465,35 @@ def run_setup(host: Path, plugin: Path) -> bool:
         return True
     print("기계적 셋업 완료.")
     return True
+
+
+def _codex_hook_status(host: Path) -> str:
+    """Where the Codex gate hook stands in `.codex/hooks.json`: "gone", "left", "unconfirmed"
+    (the check could not run on a file that may hold the hook), or "foreign" (a file that
+    does not parse, or parses into a shape other than a `PreToolUse` list, and carries no gate
+    marker — the host's own, which harness-tier never wrote to).
+
+    Resolved here rather than at import time, so a Codex packaging failure (the module
+    cannot be imported) does not read as proof the hook is gone — but "cannot check" is not
+    "gone" either, so it answers "unconfirmed", and only when there is a file that could be
+    holding one: a host with no `.codex/hooks.json` at all had nothing to register.
+    """
+    path = host / ".codex" / "hooks.json"
+    try:
+        if not path.exists():
+            return "gone"
+        mod = harness.installer("codex")
+        data, _err = mod.load_json_object(path, ".codex/hooks.json")
+        if data is not None:
+            if not mod.hook_remains(host):
+                return "gone"
+            hooks = data.get("hooks", {})
+            if isinstance(hooks, dict) and isinstance(hooks.get("PreToolUse", []), list):
+                return "left"
+        raw = path.read_bytes().decode("utf-8", "replace")
+        return "unconfirmed" if all(word in raw for word in mod.MARKER) else "foreign"
+    except Exception:  # noqa: BLE001 — a check that could not run is not a "no", see above
+        return "unconfirmed"
 
 
 def run_uninstall(host: Path) -> bool:
@@ -1708,9 +1508,19 @@ def run_uninstall(host: Path) -> bool:
     print(f"harness-tier 정리(uninstall) — host={host}")
     finished = [
         _step("[커밋 게이트 해제]", lambda: [unregister_gate(host)]),
+        # Always — regardless of what flow-config.yaml's `harnesses` currently says. A host
+        # that dropped codex from the list after installing it still has the hook file, and
+        # config is not asked here for the same reason `remove_harness_dir` below is not:
+        # uninstall means gone, not "gone unless the config forgot to mention it". Resolved
+        # INSIDE the step (not once above) so a Codex packaging failure costs only this one
+        # step — not, uncaught, every host's Claude gate removal along with it.
+        _step("[Codex 게이트 해제]", lambda: [harness.installer("codex").unregister(host)]),
         _step("[마켓 등록 해제]", lambda: [unregister_marketplace(host)]),
         _step("[gitignore 정리]", lambda: [remove_gitignore_lines(host)]),
         _step("[CLAUDE.md teams 블록 제거]", lambda: [remove_claude_md_block(host)]),
+        # Always, like the gate step above; only a block whose BEGIN line carries our marker
+        # prefix and closes on our END line is cut.
+        _step("[Codex 지침 블록 제거]", lambda: [_codex_instructions().remove(host)]),
         _step("[harness-tier 디렉터리 삭제]", lambda: [remove_harness_dir(host)]),
     ]
     print("[남는 항목 — 수동 처리 안내]")
@@ -1728,11 +1538,32 @@ def run_uninstall(host: Path) -> bool:
     print("      pre-commit uninstall --hook-type pre-commit --hook-type commit-msg \\")
     print("        --hook-type pre-push")
     print("  - .claude/harness-tier/ 의 git 추적 파일 삭제는 커밋해야 반영됩니다.")
-    if _gate_hook_remains(host):
+    # Named separately, not one shared line: settings.json and .codex/hooks.json are
+    # different files a different step failed to clear, and a host whose Codex hook is the
+    # only thing left must not be sent to settings.json, which holds nothing by then.
+    claude_left = _gate_hook_remains(host)
+    codex_state = _codex_hook_status(host)
+    if codex_state == "foreign":
         print(
-            "커밋 게이트 훅이 settings.json 에 남았습니다 — 방금 삭제된 스크립트를"
-            " 가리키므로 직접 지우세요."
+            "  [i] .codex/hooks.json 을 해석하지 못했지만 harness-tier 게이트 표식이 없어"
+            " 건드리지 않았습니다."
         )
+    if claude_left or codex_state in ("left", "unconfirmed"):
+        if claude_left:
+            print(
+                "커밋 게이트 훅이 settings.json 에 남았습니다 — 방금 삭제된 스크립트를"
+                " 가리키므로 직접 지우세요."
+            )
+        if codex_state == "left":
+            print(
+                "Codex 커밋 게이트 훅이 .codex/hooks.json 에 남았습니다 — 방금 삭제된"
+                " 스크립트를 가리키므로 직접 지우세요."
+            )
+        if codex_state == "unconfirmed":
+            print(
+                ".codex/hooks.json 을 해석하지 못해 Codex 커밋 게이트 훅이 지워졌는지 확인하지"
+                " 못했습니다 — 남았다면 방금 삭제된 스크립트를 가리키므로 직접 확인하세요."
+            )
         return False
     if not all(finished):
         # The hook is gone, which is what the answer is about — but a step that could

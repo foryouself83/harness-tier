@@ -17,6 +17,12 @@ PAT. `deploy.yml` resolves the real tag once and calls each target component `de
 `--render-deploy` / `/flow-init`) fills this wiring idempotently into release.yml's managed block.
 Trigger and wiring therefore belong to the script; §2 and §3 say what that leaves you.
 
+**Interaction.** Wherever this skill asks the user something, use the host's blocking question
+tool already in your tool list, matched by capability rather than by a host-specific name; if it
+is listed but not loaded, load it first with the host's tool-discovery primitive; only when no
+such tool is listed, or a question call errors, offer numbered options in chat and end your turn
+to wait for the reply — never answer the question yourself or skip it.
+
 ## Path conventions
 - Reads (templates/reference): `${CLAUDE_PLUGIN_ROOT}/...`
 - Host writes: `${CLAUDE_PROJECT_DIR}/.github/workflows/`, `.../.claude/harness-tier/config/flow-config.yaml`, `.../docs/`
@@ -37,7 +43,9 @@ Trigger and wiring therefore belong to the script; §2 and §3 say what that lea
 - Existing deployment: publish/deploy steps already in `.github/workflows/*` (Grep).
 - Secrets: where possible, check already-registered registry/signing secrets with `gh secret list` (for reference in the report step).
 
-### 2. Q&A (AskUserQuestion, adaptive) — ask only what cannot be derived
+### 2. Q&A (adaptive) — ask only what cannot be derived
+Ask the user (structured choice) for each item below; for deployment targets, ask the user
+(multi-select).
 - Present the detected candidates and let the user pick deployment targets ("Dockerfile found → GHCR? pyproject → PyPI?").
 - Per-target `auth` (`oidc` | `token` — not detectable from the repo. Default to the per-target recommendation, mostly oidc).
 - Deployment `order` (omitted → all parallel — ask only when ordering between targets is needed).
@@ -60,8 +68,8 @@ Trigger and wiring therefore belong to the script; §2 and §3 say what that lea
   write the skill-detected `build_tool`.
 - **Component generation — 3-tier fallback** (in order of confidence):
   a. **Mapped target** (registry/image — `pypi`/`npm`/`nuget`/`cratesio`/`ghcr`/`dockerhub`, plus
-     `maven-central`+`build_tool=maven|gradle`) → call `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/flow_init_setup.py"
-     --render-deploy` to render the static template (**call the plugin SOURCE path directly** — `flow_init_setup.py`
+     `maven-central`+`build_tool=maven|gradle`) → call
+     `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/flow_init_setup.py" --render-deploy` to render the static template (**call the plugin SOURCE path directly** — `flow_init_setup.py`
      is not in `COPY_FILES` and so is never copied to the host; run it from `${CLAUDE_PLUGIN_ROOT}`, not the
      host copy under `${CLAUDE_PROJECT_DIR}/.claude/harness-tier/scripts/`).
   b. **custom/app-deploy that has references** (ssh·kubernetes·cloud-run·ecs) or **sbt**

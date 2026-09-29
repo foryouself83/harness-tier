@@ -17,9 +17,15 @@ doesn't, tell the user to run [`/flow-init`](../flow-init/SKILL.md) first and
 Re-running is incremental. Documents that already carry a `wiki_id` are left
 untouched.
 
+**Interaction.** Wherever this skill asks the user something, use the host's blocking question
+tool already in your tool list, matched by capability rather than by a host-specific name; if it
+is listed but not loaded, load it first with the host's tool-discovery primitive; only when no
+such tool is listed, or a question call errors, offer numbered options in chat and end your turn
+to wait for the reply — never answer the question yourself or skip it.
+
 ## 1. Confirm the wiki root
 
-Confirm via `AskUserQuestion`. Default is `docs/` — keeping it in the same tree as
+Confirm — ask the user (structured choice). Default is `docs/` — keeping it in the same tree as
 `/harness-init`'s output keeps the doc set unified.
 
 ## 2. Scan
@@ -74,17 +80,16 @@ Branch on the H2 count recorded in Step 2:
 `wiki_id` is derived mechanically from the path **relative to the wiki root** — never
 pick one by hand, and never derive it by hand either: run
 [`wiki_graph.py`](../../scripts/wiki_graph.py) `--derive-id`, one call for all the
-selected documents, substituting their real paths and the root confirmed in Step 1 (e.g.
-`python3 .claude/harness-tier/scripts/wiki_graph.py --root docs --derive-id
-docs/code-style/python.md docs/api_spec.md`). Pass `--root` even when it is `docs`:
-nothing has written `wiki.root` to flow-config yet — Step 7 does that — so a call without
-it derives against the default instead of the chosen root, and `website/docs` comes back
-as `website.docs.auth.jwt`. Such an id is well-formed and unique, so `--verify` is green
-on it forever, and a `wiki_id` is immutable once written. Each stdout line is
+selected documents, substituting their real paths and the root confirmed in Step 1, for example
+`python3 .claude/harness-tier/scripts/wiki_graph.py --root docs --derive-id docs/a/b.md docs/a.b.md`
+— with `--root` even when it is `docs`, because nothing has written `wiki.root` to flow-config yet
+(Step 7 does that), so a call without it derives against the default instead of the chosen root,
+and `website/docs` comes back as `website.docs.auth.jwt`. Such an id is well-formed and unique, so
+`--verify` is green on it forever, and a `wiki_id` is immutable once written. Each stdout line is
 `path<TAB>id`. A path that cannot produce an id — a segment with no `[a-z0-9]` left after
-sanitizing, e.g. a Korean-only filename — is named on stderr with the reason and the call
-exits nonzero, though every path that succeeded still prints its line: rename only the
-named file(s) and re-run.
+sanitizing, e.g. a Korean-only filename — is named on stderr with the reason and the call exits
+nonzero, though every path that succeeded still prints its line: rename only the named file(s) and
+re-run.
 `derive_wiki_id` owns the mechanics; this table is parity-tested against it
 (`tests/test_wiki_graph.py`), so adding a row here adds a test case:
 
@@ -230,14 +235,14 @@ Only once Step 8's `--verify` passes. If you had to set Step 7's `enable` back t
 skip this step entirely — a workflow verifying a graph that does not verify turns every push
 red, and the fix for that is the front matter, not CI.
 
-Ask via `AskUserQuestion` whether to render `.github/workflows/wiki-verify.yml`. **The
+Ask the user (structured choice) whether to render `.github/workflows/wiki-verify.yml`. **The
 option descriptions have to carry what declining costs**, because the gap it leaves is
-invisible from inside a Claude session: the commit-time wiki gate runs on
-**Claude-session commits only**. A terminal commit, a CI commit, and a merge performed in
-GitHub's web UI all reach the branch without it ever looking. Graph drift arriving that way
-surfaces at somebody's next session commit, or at a promotion — long after the commit that
-caused it, and against a diff that does not contain it. This workflow is the only thing that
-reads the graph on every push.
+invisible from inside an agent session: the commit-time wiki gate runs on
+**agent-session (Claude Code or Codex) commits only**. A terminal commit, a CI commit, and a
+merge performed in GitHub's web UI all reach the branch without it ever looking. Graph drift
+arriving that way surfaces at somebody's next session commit, or at a promotion — long after
+the commit that caused it, and against a diff that does not contain it. This workflow is the
+only thing that reads the graph on every push.
 
 On **yes**:
 
@@ -253,7 +258,7 @@ Relay its line. An existing `wiki-verify.yml` is reported and never overwritten,
 that already has one — from a build that rendered it at `/flow-init` time — is unchanged.
 `git add` the rendered file with the rest of Step 8's staging.
 
-On **no**, say plainly that graph drift from outside a Claude session now has nothing
+On **no**, say plainly that graph drift from outside an agent session now has nothing
 checking it, and that re-running `/wiki-init` offers this again.
 
 ## 10. Report

@@ -9,6 +9,12 @@ disable-model-invocation: true
 Generates a Claude Code harness tailored to the target project using multiple agents. The output is **.md by default**, and real configuration (security scanners, CI, folder scaffolding, etc.) is applied **only after asking and receiving consent**. **No commands are generated.**
 **Discipline SSOT**: [harness-rules.md](../../rules/harness-rules.md) — read and follow it (no duplication).
 
+**Interaction.** Wherever this skill asks the user something, use the host's blocking question
+tool already in your tool list, matched by capability rather than by a host-specific name; if it
+is listed but not loaded, load it first with the host's tool-discovery primitive; only when no
+such tool is listed, or a question call errors, offer numbered options in chat and end your turn
+to wait for the reply — never answer the question yourself or skip it.
+
 ## Paths
 ```bash
 ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
@@ -27,10 +33,10 @@ python3 "${PLUGIN}/scripts/harness_scaffold.py" detect --root "${ROOT}"
 Show the result (state/frameworks/existing) to the user **as a table**. Also report whether flow is installed
 (.claude/harness-tier/config/flow-config.yaml).
 
-## Step 1 — Interview (AskUserQuestion, keep it minimal but scope it clearly)
+## Step 1 — Interview (ask the user, keep it minimal but scope it clearly)
 0. **Clarify the development scope (SRS scope-clarification gate — no guessing)**: whenever an SRS
    artifact is selected, parse the received prompt to fix the development scope **before Step 2 research and Step 4 SRS
-   authoring** — greenfield and brownfield alike. Ask **all blank required SRS slots plus every ambiguous item** via `AskUserQuestion` — **ambiguous = not
+   authoring** — greenfield and brownfield alike. Ask **all blank required SRS slots plus every ambiguous item** — ask the user (structured choice) — **ambiguous = not
    measurable, multiple interpretations, or unclear scope** (e.g., "quickly", "user-friendly"). Keep asking **until each
    is measurable and single-interpretation**, but do not re-ask what is already clear (no over-generation, no
    interrogation). Required slots = purpose · goals/non-goals (YAGNI boundary) · core functional requirements · target
@@ -46,13 +52,13 @@ Show the result (state/frameworks/existing) to the user **as a table**. Also rep
    - **Brownfield goes through this gate too** — it still gets only a skeleton, with unresolved slots marked "needs
      confirmation", never a full write. Code-analyzer's analysis is an input to scope, never a source of requirements
      (harness-rules 8-1): ask only about the intent the code cannot resolve (goals/non-goals, etc.).
-1. **Fix the primary development language (hard gate)**: Always fix the primary development language via
-   `AskUserQuestion` (ask regardless of the detected value). If a language was detected, offer it as the first option
+1. **Fix the primary development language (hard gate)**: Always fix the primary development language — ask
+   the user (structured choice) (ask regardless of the detected value). If a language was detected, offer it as the first option
    (recommended); if multiple/none were detected, list candidates. If the detected value and the user's choice differ,
    **the user's choice wins**. **Primary language ≠ the same language across every layer** — split the project into layers
    (frontend/backend/other) and, for each layer, present the **more production-ready, standard-conforming stack as the top
    recommendation** (with research backing where possible), then **confirm "same across all layers vs. per-layer split"
-   via `AskUserQuestion`**. The result = a **per-layer language/stack map** (provisional — reconciled and **frozen** with
+   — ask the user (structured choice)**. The result = a **per-layer language/stack map** (provisional — reconciled and **frozen** with
    research findings in Step 2.5; user sign-off is Step 6; single downstream source). Do not guess and fill in a stack that
    has not yet surfaced (infrastructure especially — locking in early without knowing leads to omissions; fill it in during
    reconcile after research, harness-rules 10-1).
@@ -64,8 +70,8 @@ Show the result (state/frameworks/existing) to the user **as a table**. Also rep
 5. Brownfield conflicts (existing), per item: skip / user's choice.
 
 ## Step 2 — Research (sub-agent fan-out, isolated)
-**Standard**: Using `Agent` (`Task` is an alias), **dispatch as parallel sub-agents** `harness-researcher` (web conventions, best practices, anti-patterns, free off-the-shelf solutions) plus, if brownfield,
-`harness-code-analyzer` (the codebase's actual conventions, anti-patterns, hand-rolled code).
+**Standard**: **dispatch as parallel sub-agents** — dispatch subagent `harness-researcher` (web conventions, best practices, anti-patterns, free off-the-shelf solutions) plus, if brownfield,
+dispatch subagent `harness-code-analyzer` (the codebase's actual conventions, anti-patterns, hand-rolled code).
 The sub-agents **return** their findings as their final message; the **leader owns the fan-in
 write** — it assigns each a **unique topic** and persists the returned output to
 `.harness/research/<agent>_<topic>.md`, then reads them back to synthesize (and for Step 4
@@ -82,7 +88,7 @@ a filename and the read-only code-analyzer needs no write access (harness-rules 
   token-free by running `python3 "${PLUGIN}/scripts/harness_scaffold.py" scan <path> <stack>` (not a hand LLM read) to get its
   3-state classification (`state`: none / `"flat"` legacy / `"lens"` doc, plus the `present` lens list) and tally the present
   lenses. `gap = applicable lenses − present` (applicable lenses = a lightweight, stack-nature judgment — not research). **Before
-  research**, use `AskUserQuestion` to
+  research**, ask the user (multi-select) to
   confirm what to fill: flat legacy is confirmed **per stack** (migrate all applicable lenses), lens docs **per lens** (add what's
   missing). Only the confirmed `(stack, lens)` set is sent to research dispatch → applied via the `lens_upsert` action (flat =
   `migrate:true` section replace / lens doc = additive). The replace/migration safety net is **git diff + preview→confirm** (no edit
@@ -91,9 +97,9 @@ a filename and the read-only code-analyzer needs no write access (harness-rules 
 - **Performance/integration dimension injection**: after the stack is fixed by the Step 2.5 reconcile, when re-dispatching harness-researcher,
   pass the finalized `stack_map` as well and instruct it to research `harness-researcher` procedure 9 (performance SSOT, integration-verification SSOT).
   Save the findings to `.harness/research/` and consume them in Step 4 authoring.
-- **Cross-talk (optional)**: cross-talk via `SendMessage` is only possible on builds where the Agent Teams experimental feature (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`)
-  is enabled (code-analyzer "found hand-rolled X" → researcher "research a free replacement"). Without it,
-  operate as parallel dispatch → fan-in with no cross-talk (do not use deprecated tools such as `TeamCreate`/`TaskCreate`).
+- **Cross-talk (optional)**: on Claude Code with agent teams enabled (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`), a team may run them
+  instead and cross-talk (code-analyzer "found hand-rolled X" → researcher "research a free replacement"). Without it,
+  operate as parallel dispatch → fan-in with no cross-talk (never emulate a team with tools the build does not offer).
 - **Partial fan-in check**: after fan-in, verify each expected output is present and non-empty;
   mark any missing/empty area **"needs confirmation"** (distinguish a legitimate code-analyzer
   "insufficient sample" from a lost dispatch — do not read absence as "no conventions"). FAIL-OPEN
@@ -128,7 +134,7 @@ ambiguous, ask (Karpathy, rule 4).
 ## Step 4 — Generation (authoring skill + scaffold)
 The convention targets are the **entire stack set finalized by the Step 2.5 reconcile** (including promoted infrastructure) — not the initial stack_map.
 Per the 9-3 split, fill each stack's structure/detailed conventions into both the rules and `docs/code-style/<stack>.md`.
-1. Use `Skill: harness-authoring` to fill templates/ from research + rationale + references.
+1. Invoke skill `harness-authoring` to fill templates/ from research + rationale + references.
    - Inject the 5 required rule blocks (`references/karpathy-principles.md` · `rule-dry-constants.md` ·
      `rule-version-pinning.md` · `security-rule.md` · `rule-reuse-first.md`) into the CLAUDE.md `harness:baseline`
      block (preserve each rule's anchor `<!-- rule:<key> -->`).
@@ -165,7 +171,7 @@ Per the 9-3 split, fill each stack's structure/detailed conventions into both th
 
 ## Step 6 — Preview/Confirm
 Show the `plan` (generate/skip/conflict) + `rationale` + `critic-report` to the user and get confirmation (no writing before confirmation).
-For **operational axes whose applicability is uncertain**, confirm "whether to include" here via `AskUserQuestion` (9-2), and expose greenfield
+For **operational axes whose applicability is uncertain**, confirm "whether to include" here — ask the user (structured choice) (9-2) — and expose greenfield
 auto-adopted standards as "recommended default (changeable)" for confirmation.
 
 ## Step 7 — apply (scaffold)
@@ -183,6 +189,16 @@ Remove only the merged copies such as `.harness/research/`, and preserve the evi
 `critic-report.json` · `rationale.md`) (for audit/re-run). **Link guard**: if docs reference
 `.harness/research`, defer removal and report it via `link_warnings` (to prevent broken links).
 FAIL-OPEN — a cleanup failure does not block the flow. If there are `link_warnings`, surface them in the report.
+
+## Step 7.6 — Codex instructions
+Only when `.claude/harness-tier/config/flow-config.yaml` lists `codex` under `harnesses`.
+Codex reads neither `CLAUDE.md` nor `.claude/rules/`, only a block generated from them in the
+root `AGENTS.md`, so regenerate it after apply:
+```bash
+python3 "${ROOT}/.claude/harness-tier/scripts/harness/codex/instructions.py" render --host "${ROOT}"
+```
+Relay its lines in the report. A missing script means `/flow-init` has not run since `codex` was
+listed — tell the user to re-run it. Never edit the block by hand.
 
 ## Step 8 — Report
 Summarize **as a table**: generated/skipped/deferred-by-user + source URLs + critic results (including `version-compat`) + cleanup results (removed/preserved) +

@@ -96,6 +96,7 @@ jobs:
             python "$HARNESS_SCRIPTS/finalize_prerelease.py" --set "$NEXT"
             git add pyproject.toml
             [ -f .claude-plugin/plugin.json ] && git add .claude-plugin/plugin.json
+            [ -f .codex-plugin/plugin.json ] && git add .codex-plugin/plugin.json
             git commit -m "chore(release): $NEXT [skip ci]"
             git tag "v$NEXT"
             semantic-release changelog || true
@@ -131,6 +132,7 @@ jobs:
             echo "finalizing prerelease -> $STABLE (deterministic rc-strip)"
             python scripts/finalize_prerelease.py
             git add pyproject.toml .claude-plugin/plugin.json
+            [ -f .codex-plugin/plugin.json ] && git add .codex-plugin/plugin.json
             git commit -m "chore(release): $STABLE [skip ci]"
             git tag "v$STABLE"
             git push origin HEAD:main

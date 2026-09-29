@@ -3,7 +3,7 @@
 **English** · [한국어](troubleshooting.ko.md) · [Usage guide](../../USAGE.md)
 
 The gate's messages are printed in Korean; each heading below quotes the start of one. Every
-block described here is layer 2 — a Claude-session commit or merge
+block described here is layer 2 — an agent-session (Claude Code or Codex) commit or merge
 ([what the gate sees](tiers-and-gates.md#what-the-gate-sees)).
 
 ## Blocked — "python3 / PyYAML required"
@@ -46,9 +46,9 @@ Message: `머지 전략 위반 — '<source>' → '<target>' 는 <flag> 가 필�
 `… 에는 <flag> 를 쓰지 않습니다.`
 
 The `git merge` flags break its branch flow's rule. Use the flag the message names; the table is
-in [merge strategy](tiers-and-gates.md#merge-strategy). A `[경고] 머지 전략: … rebase 선행이
-요구됩니다` line is a warning only — rebase the feature branch first, or ignore it when your
-`origin` ref is stale.
+in [merge strategy](tiers-and-gates.md#merge-strategy).
+A `[경고] 머지 전략: … rebase 선행이 요구됩니다` line is a warning only — rebase the feature
+branch first, or ignore it when your `origin` ref is stale.
 
 ## Blocked — module pre-check failed
 
@@ -128,5 +128,22 @@ Commits that should be blocked go through. Causes, in the order to check them:
    commits through by design; `/flow-init` restores it.
 4. **A `tier` marker from another branch.** A marker written on a different branch neither
    classifies nor blocks the current one, so the commit passes; run `/flow` on this branch.
-5. **The commit ran outside a Claude session.** Terminal, CI and GitHub commits never reach
+5. **The commit ran outside an agent session.** Terminal, CI and GitHub commits never reach
    layer 2.
+
+## Codex
+
+The messages above are shared — Codex's wrapper runs the same script, reworded for Codex's own
+names (a skill named `/flow…` above reads `$flow…`; `settings.json` reads `.codex/hooks.json`),
+and posts it as deny JSON instead of an exit code. Three differences:
+
+- **An unapproved hook never fires.** The risk-tiers injection, the marker invalidation and
+  the commit gate all skip in silence until `/hooks` approves them
+  ([hook approval](codex.md#approve-the-hooks-in-hooks)).
+- **An untrusted project silently drops the commit gate.** `.codex/hooks.json` is ignored
+  wholesale when the project is untrusted, while the plugin's own SessionStart hook still
+  injects the rules — the session reads that commits are gated, and they are not
+  ([project trust](codex.md#trust-the-project)).
+- **Windows without Git Bash is blocked, not skipped.** The gate's Windows wrapper denies
+  every commit and merge when it cannot find Git's bundled `bash.exe`, rather than the no-op
+  under "missing shell tools" [above](#the-gate-does-nothing).
