@@ -279,32 +279,42 @@ def test_an_edit_in_another_repo_keeps_the_session_cwd_evidence(tmp_path):
     assert _voided(other) and not _voided(main)
 
 
-@pytest.mark.parametrize("args", [("--harness", "Codex"), ("--harness", "cdx"), ("--harness",)])
-def test_an_unknown_harness_fails_loudly_instead_of_taking_the_claude_path(tmp_path, args):
+BAD_ARGS = [("--harness", "Codex"), ("--harness", "cdx"), ("--harness",), ("--harness", "codex", "x")]
+
+
+def _run_bad(args: tuple, payload: dict, env: dict | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [BASH, SCRIPT.as_posix(), *args],
+        input=json.dumps(payload).encode(),
+        capture_output=True,
+        env={"PATH": os.environ["PATH"], **(env or {})},
+    )
+
+
+@pytest.mark.parametrize("args", BAD_ARGS)
+def test_an_unknown_harness_voids_the_cwd_tree_and_fails_loudly(tmp_path, args):
     """Read as Claude, a Codex payload carries no file_path, so every edit would keep the evidence
-    in silence. The hook names the bad value and, like any failure of it, leaves the markers."""
+    in silence. A mistyped entry cannot place an edit, so the session's tree loses its evidence
+    and the exit 2 puts the bad value in front of the agent."""
     repo = _repo(tmp_path)
     command = "*** Begin Patch\n*** Update File: a.txt\n*** End Patch"
-    run = subprocess.run(
-        [BASH, SCRIPT.as_posix(), *args],
-        input=json.dumps(
-            {"cwd": str(repo), "tool_name": "apply_patch", "tool_input": {"command": command}}
-        ).encode(),
-        capture_output=True,
-        env={"PATH": os.environ["PATH"]},
+    run = _run_bad(
+        args, {"cwd": str(repo), "tool_name": "apply_patch", "tool_input": {"command": command}}
     )
-    assert run.returncode == 1, run.stderr
-    assert b"--harness" in run.stderr
-    assert not _voided(repo)
+    assert run.returncode == 2, run.stderr
+    assert b"--harness" in run.stderr and b"voided: review, doc-sync" in run.stderr
+    assert _voided(repo)
 
 
-def test_a_trailing_argument_after_a_known_harness_fails_loudly(tmp_path):
+def test_an_unknown_harness_voids_the_project_dir_without_a_cwd(tmp_path):
     repo = _repo(tmp_path)
-    run = subprocess.run(
-        [BASH, SCRIPT.as_posix(), "--harness", "codex", "extra"],
-        input=json.dumps({"cwd": str(repo), "tool_name": "Bash"}).encode(),
-        capture_output=True,
-        env={"PATH": os.environ["PATH"]},
-    )
-    assert run.returncode == 1, run.stderr
-    assert not _voided(repo)
+    payload = {"tool_name": "Edit", "tool_input": {"file_path": "/nowhere/a.txt"}}
+    run = _run_bad(("--harness", "cdx"), payload, {"CLAUDE_PROJECT_DIR": repo.as_posix()})
+    assert run.returncode == 2, run.stderr
+    assert _voided(repo)
+
+
+def test_an_unknown_harness_with_no_tree_to_void_still_fails_loudly(tmp_path):
+    run = _run_bad(("--harness", "cdx"), {"cwd": str(tmp_path), "tool_name": "Bash"})
+    assert run.returncode == 2, run.stderr
+    assert b"--harness" in run.stderr and b"voided: nothing" in run.stderr
