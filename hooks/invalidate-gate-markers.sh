@@ -20,8 +20,17 @@ set -uo pipefail
 
 # Which harness sent the payload. Named by the hook entry, never guessed from the environment:
 # Codex also sets CLAUDE_PLUGIN_ROOT. No argument is Claude Code, which every existing host is.
+# Any other argument is a mistyped hook entry: read as Claude, it takes the wrong path silently.
 HARNESS=claude
-[ "${1:-}" = "--harness" ] && HARNESS="${2:-claude}"
+if [ "$#" -gt 0 ]; then
+  case "$#:$1:${2:-}" in
+    2:--harness:claude | 2:--harness:codex) HARNESS=$2 ;;
+    *)
+      printf '%s: unknown arguments "%s" (expected --harness claude|codex)\n' "${0##*/}" "$*" >&2
+      exit 1
+      ;;
+  esac
+fi
 
 MARKERS="review.done doc-sync.done"
 EVIDENCE=".claude/harness-tier/.flow"

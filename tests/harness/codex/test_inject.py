@@ -9,6 +9,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from tests.test_inject_risk_tiers import BASH, SCRIPT, STARTUP
 
 REPO = Path(__file__).resolve().parents[3]
@@ -80,3 +82,25 @@ def test_codex_preamble_spells_the_skill_the_codex_way():
     preamble = ctx.split("<harness-tier-risk-tiers>")[1].split("\n\n")[0]
     assert "/flow" not in preamble, preamble
     assert preamble.count("$flow") == 4, preamble
+
+
+@pytest.mark.parametrize(
+    "args",
+    [("--harness", "Codex"), ("--harness", "cdx"), ("--harness",), ("--harness", "codex", "extra")],
+)
+def test_an_unknown_harness_fails_loudly_instead_of_taking_the_claude_path(args):
+    """A mistyped hook entry otherwise injects Claude-shaped context into a Codex session and no
+    one sees why the preamble names the wrong invocation."""
+    import os
+
+    run = _run(*args, env={**os.environ, "CLAUDE_PLUGIN_ROOT": str(REPO)})
+    assert run.returncode == 1, run.stdout
+    assert run.stdout == b""
+    assert b"--harness" in run.stderr
+
+
+def test_an_explicit_claude_harness_matches_no_argument():
+    import os
+
+    env = {**os.environ, "CLAUDE_PLUGIN_ROOT": str(REPO)}
+    assert _run("--harness", "claude", env=env).stdout == _run(env=env).stdout

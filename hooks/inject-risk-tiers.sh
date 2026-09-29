@@ -15,8 +15,17 @@
 set -uo pipefail
 
 # Which harness sent the payload. No argument is Claude Code, which every existing host is.
+# Any other argument is a mistyped hook entry: read as Claude, it takes the wrong path silently.
 HARNESS=claude
-[ "${1:-}" = "--harness" ] && HARNESS="${2:-claude}"
+if [ "$#" -gt 0 ]; then
+  case "$#:$1:${2:-}" in
+    2:--harness:claude | 2:--harness:codex) HARNESS=$2 ;;
+    *)
+      printf '%s: unknown arguments "%s" (expected --harness claude|codex)\n' "${0##*/}" "$*" >&2
+      exit 1
+      ;;
+  esac
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
