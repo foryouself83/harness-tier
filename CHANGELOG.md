@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v0.4.2-rc.1 (2026-09-29)
+
+### Bug Fixes
+
+- **codex**: Close four hook and install gaps
+  ([`9e287de`](https://github.com/foryouself83/harness-tier/commit/9e287dea4e15305ecb689422ef9029f0681235f5))
+
+- **hooks**: Name each voided gate once
+  ([`dab39a6`](https://github.com/foryouself83/harness-tier/commit/dab39a640a4a540a7d34a6acbbed3c19a7f5f60c))
+
+- **hooks**: Reject an unknown --harness value
+  ([`85297d4`](https://github.com/foryouself83/harness-tier/commit/85297d4d7362afa9b93a57c265fa96d3e6b6eb6a))
+
+### Features
+
+- **codex**: Support OpenAI Codex CLI
+  ([`4055b9a`](https://github.com/foryouself83/harness-tier/commit/4055b9a51943f1e44c4dfd8c8f86e09143886332))
+
+
 ## v0.4.1 (2026-09-26)
 
 ### Features
