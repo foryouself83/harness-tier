@@ -44,6 +44,8 @@ It removes:
 - the `harness-tier` entry from `extraKnownMarketplaces`;
 - the two harness-tier lines from `.gitignore`;
 - the `harness-tier:teams` block from `CLAUDE.md`;
+- the Codex gate from `.codex/hooks.json` and the managed instructions block from `AGENTS.md`
+  — whether or not `codex` is still listed under `harnesses`;
 - `.claude/harness-tier/` — scripts, config, evidence, and both webhook files, the team-shared
   `teams-webhooks.json` included.
 
@@ -56,14 +58,27 @@ It leaves, and tells you to handle:
 - the deletion itself — `.claude/harness-tier/` was tracked, so commit it.
 
 When it ends on `커밋 게이트 훅이 settings.json 에 남았습니다`, the hook it could not remove points
-at a script that no longer exists. Delete that hook by hand (step 2 below).
+at a script that no longer exists — delete it by hand (step 2 below, which covers both files).
+Its Codex counterpart, `Codex 커밋 게이트 훅이 .codex/hooks.json 에 남았습니다`, names the same
+problem in that file instead. A `.codex/hooks.json` it cannot interpret — one that does
+not parse, or whose `hooks.PreToolUse` is not a list — ends on
+`.codex/hooks.json 을 해석하지 못해 Codex 커밋 게이트 훅이 지워졌는지 확인하지 못했습니다`
+only when the file still contains the gate's marker text (`harness-tier` and
+`harness/codex/gate`); check it by hand against step 2 before trusting the hook is gone. Without
+that text the file is your own: uninstall prints
+`[i] .codex/hooks.json 을 해석하지 못했지만 harness-tier 게이트 표식이 없어 건드리지 않았습니다.`,
+leaves it untouched, and still ends on `정리 완료.`
 
 ## Manual cleanup after the plugin is gone
 
 1. Delete `.claude/harness-tier/`.
 2. In `.claude/settings.json`, remove the `hooks.PreToolUse` hook whose command is
    `bash "${CLAUDE_PROJECT_DIR:-.}/.claude/harness-tier/scripts/precommit-runner.sh"` — only
-   that hook — and `extraKnownMarketplaces.harness-tier`.
+   that hook — and `extraKnownMarketplaces.harness-tier`. In `.codex/hooks.json`, remove the
+   `PreToolUse` hook whose `command` contains both `harness-tier` and `harness/codex/gate` —
+   only that hook. Drop its `PreToolUse` entry only if that emptied the entry's `hooks` list
+   and the entry holds nothing but `matcher` and `hooks`. Delete the file only if `hooks` is
+   then empty and the file has no other top-level key; any other hook stays.
 3. Remove `.teams-webhooks.local.json` and `.claude/harness-tier/.flow/` from `.gitignore`.
 4. Remove the `harness-tier:teams` block from `CLAUDE.md`.
 5. Decide on each rendered workflow:

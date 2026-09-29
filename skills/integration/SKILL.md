@@ -13,6 +13,12 @@ allowed-tools: Bash(npx playwright test *)
 
 ---
 
+**Interaction.** Wherever this skill asks the user something, use the host's blocking question
+tool already in your tool list, matched by capability rather than by a host-specific name; if it
+is listed but not loaded, load it first with the host's tool-discovery primitive; only when no
+such tool is listed, or a question call errors, offer numbered options in chat and end your turn
+to wait for the reply — never answer the question yourself or skip it.
+
 ## 1. Consume Host Documentation First
 
 ```bash
@@ -192,8 +198,8 @@ Electron is a **distinct third verdict**, not folded into Non-web — it gets **
    `--reporter=json,junit` run, same defensive result parsing from §3.4) — see `references/electron.md` §1
    for the Electron-specific Playwright launch (`_electron.launch()`, not a plain `chromium` channel).
 2. For main-process scenarios (IPC handlers, filesystem access, native menus), use the same human-in-the-loop
-   procedure as `## 5. If Non-web` below — collect scenarios via `AskUserQuestion` and produce a manual
-   checklist.
+   procedure as `## 5. If Non-web` below — ask the user (structured choice) to collect scenarios, and
+   produce a manual checklist.
 3. Report both results together: a Playwright PASS/FAIL table for the renderer + a manual checklist for the
    main process (see `references/electron.md` §3 for the combined report template).
 
@@ -205,7 +211,7 @@ Electron is a **distinct third verdict**, not folded into Non-web — it gets **
 
 Do not enforce automated integration testing. Determine the specific non-web type from the §2 signal that
 matched (CLI / React Native / Flutter / Go / generic — do not fall back to a generic list if a specific
-signal matched), then collect scenarios and pass criteria via `AskUserQuestion` using that type:
+signal matched), then ask the user (structured choice) for that type's scenarios and pass criteria:
 
 ```
 This project was detected as non-web (<type>).

@@ -56,7 +56,7 @@
    **Every document cites its reference sources as links.**
 8-1. **SRS scope-clarification gate (no guessing)**: for SRS deliverables, parse the received prompt
    **before** research and SRS writing to fix the development scope. For the SRS's mandatory slots (purpose · goals/non-goals · core functional
-   requirements · target users/scenarios · key constraints), ask about **every blank + ambiguous item** via `AskUserQuestion` —
+   requirements · target users/scenarios · key constraints), ask about **every blank + ambiguous item** — ask the user (structured choice) —
    **ambiguous = unmeasurable · multiply interpretable · scope unclear** (e.g. "fast" · "user-friendly"). Keep asking **until it is measurable
    and single-interpretation**, but do not re-ask what is already clear (ambiguity is a sign of incomplete requirements analysis —
    resolve it at the SRS stage). Fix as well what the **classification axes** are (domain etc. as primary; user roles/subdomains etc. as secondary) and the **depth
@@ -130,9 +130,9 @@
    `<!-- ops-conventions -->` rule section and the lens references it.
 
 ## Multi-agent / critique
-10. **Research fans out via `Agent` subagents** (`Task` is an alias for it) (researcher + code-analyzer for brownfield), dispatched in parallel and fanned in.
-    Cross-talk happens via `SendMessage` only when the Agent Teams experimental feature (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) is on (optional).
-    Deprecated tools (`TeamCreate`·`TaskCreate`, etc.) are forbidden. Network/dispatch failures are FAIL-OPEN (warn + selection), not fabricated.
+10. **Research fans out as subagents** — Dispatch subagent `harness-researcher` (+ `harness-code-analyzer` for brownfield), dispatched in parallel and fanned in.
+    On Claude Code with agent teams enabled (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`), a team may run them instead, with cross-talk (optional).
+    Never emulate a team with tools the build does not offer. Network/dispatch failures are FAIL-OPEN (warn + selection), not fabricated.
     **Fan-in write ownership** — sub-agents **return** their findings as their final message; the
     **leader** persists each to `.harness/research/<agent>_<topic>.md` under a **leader-assigned
     unique topic** (sub-agents do not write these files — parallel dispatch cannot collide on a

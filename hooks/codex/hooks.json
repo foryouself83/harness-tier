@@ -1,0 +1,32 @@
+{
+  "description": "harness-tier for Codex: inject the risk-tiers rule, void gate evidence on edits.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${PLUGIN_ROOT}/hooks/inject-risk-tiers.sh\" --harness codex",
+            "commandWindows": "& \"${PLUGIN_ROOT}/hooks/codex/run-hook.cmd\" inject-risk-tiers.sh --harness codex",
+            "timeout": 30,
+            "additionalContextLimit": 0
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "apply_patch|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${PLUGIN_ROOT}/hooks/invalidate-gate-markers.sh\" --harness codex",
+            "commandWindows": "& \"${PLUGIN_ROOT}/hooks/codex/run-hook.cmd\" invalidate-gate-markers.sh --harness codex",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

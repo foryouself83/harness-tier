@@ -17,6 +17,12 @@ scenarios** (that is the job of a human or codegen).
 
 ---
 
+**Interaction.** Wherever this skill asks the user something, use the host's blocking question
+tool already in your tool list, matched by capability rather than by a host-specific name; if it
+is listed but not loaded, load it first with the host's tool-discovery primitive; only when no
+such tool is listed, or a question call errors, offer numbered options in chat and end your turn
+to wait for the reply — never answer the question yourself or skip it.
+
 ## Step 1 — Detect baseURL (in order, with user confirmation at the end)
 
 1. **`use.baseURL` in playwright.config**:
@@ -36,7 +42,7 @@ scenarios** (that is the job of a human or codegen).
    grep -niE '^EXPOSE\s+[0-9]+' Dockerfile* 2>/dev/null
    ```
    - If the scan comes up empty, use framework default ports as candidates: Vite=5173, Next/CRA/Nuxt=3000, Angular=4200.
-3. **User confirmation (required)**: present the collected candidates via `AskUserQuestion` and finalize the baseURL
+3. **User confirmation (required)**: present the collected candidates — ask the user (structured choice) — and finalize the baseURL
    (offer them as choices if there are several; ask for direct input if none was found). Do not assert a guess as fact.
 
 ---

@@ -33,7 +33,7 @@
 
 ## `unit_test` — CI 안전망
 
-로컬 flow 게이트는 Claude 세션 커밋에서만 유닛 테스트를 돌림; `enable: true` 는
+로컬 flow 게이트는 에이전트(Claude Code·Codex) 세션 커밋에서만 유닛 테스트를 돌림; `enable: true` 는
 `unit-test.yml` 을 렌더링해 CI 에서도 돌게 함. `jobs[]` 는 `modules[]` 와 독립적으로
 선언됨 — 로컬 게이트와 CI 는 다른 실행 맥락이기 때문 — 언어/모듈마다 하나씩
 (`name`/`language`/`version`/`setup`/`test`), `strategy.matrix.include` 로 렌더링됨.

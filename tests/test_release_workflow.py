@@ -45,6 +45,24 @@ def test_consumer_template_has_force_and_finalize():
     assert "__HARNESS_STABLE__" in tmpl and "__HARNESS_PRERELEASE__" in tmpl
 
 
+def test_every_stamp_of_the_codex_manifest_is_staged():
+    """finalize_prerelease.py stamps .codex-plugin/plugin.json in both of its modes; a stamp no
+    `git add` follows leaves the manifest modified and out of the release commit."""
+    add = "[ -f .codex-plugin/plugin.json ] && git add .codex-plugin/plugin.json"
+    tmpl = (ROOT / "github" / "release.python-semantic-release.workflow.example.yml").read_text(
+        encoding="utf-8"
+    )
+    for text in (_release_text(), tmpl):
+        stamps = [
+            line
+            for line in text.splitlines()
+            if re.search(r'^\s*python "?\S*(finalize_prerelease\.py|\$FINALIZE)"?(\s|$)', line)
+            and "--print-only" not in line
+        ]
+        assert len(stamps) == 2, stamps
+        assert text.count(add) == 2
+
+
 def test_consumer_templates_fall_back_to_github_token():
     """Both consumer release templates auth via `RELEASE_TOKEN || GITHUB_TOKEN`, so a repo
     that never sets RELEASE_TOKEN still releases on the auto-provided GITHUB_TOKEN (the PAT

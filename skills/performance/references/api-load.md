@@ -25,7 +25,7 @@ grep -nhE '^(PORT|BASE_URL)=' .env .env.* 2>/dev/null
 #    FastAPI/Django=8000, Spring Boot=8080, ASP.NET=5000/7000, Rails/Express=3000
 ```
 
-**User confirmation (required)**: present the collected candidates via `AskUserQuestion` and finalize
+**User confirmation (required)**: present the collected candidates — ask the user (structured choice) — and finalize
 `BASE_URL` (offer them as choices if there are several; ask for direct input if none was found). Do not
 assert a guess as fact — this mirrors `playwright-scaffold`'s Step 1 exactly.
 
@@ -137,8 +137,9 @@ echo "generated client: ${CLIENT_FILE}"
 
 > **Client shape**: the generated file exports a single **class** (e.g. `TestAPIClient` for a spec titled
 > "Test API") — **not** top-level functions. Each spec `operationId` becomes a class **method** of the
-> exact same name (verified against real `openapi-to-k6 0.4.1` output), returning `{ response, data,
-> operationId }`. Instantiate the class once with `{ baseUrl }`, then call one method per operation.
+> exact same name (verified against real `openapi-to-k6 0.4.1` output), returning
+> `{ response, data, operationId }`. Instantiate the class once with `{ baseUrl }`, then call
+> one method per operation.
 
 > **Executor choice matters**: `shared-iterations` treats `iterations` as a TOTAL shared across all `vus`
 > (exactly "100 per endpoint"). `per-vu-iterations` instead runs `iterations` **per VU**, i.e. `vus * iterations`

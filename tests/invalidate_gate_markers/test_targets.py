@@ -304,6 +304,15 @@ def test_it_says_so_only_when_it_actually_voided_something(project: Path):
     assert second.stdout.strip() == "", "spoke again with no marker left to void"
 
 
+def test_voiding_two_trees_names_each_gate_once(tmp_path: Path):
+    main = repo(tmp_path / "main")
+    wt = worktree_of(main, tmp_path / "wt")
+    out = run(main, payload(str(wt / "a.txt")))
+    assert not any((flow(t) / m).exists() for t in (main, wt) for m in MARKERS)
+    context = json.loads(out.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "voided the review, doc-sync gate evidence" in context, context
+
+
 HOOKS_JSON = REPO / "hooks" / "hooks.json"
 
 EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")

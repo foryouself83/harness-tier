@@ -19,6 +19,7 @@
 | [프로젝트 하네스](docs/usage/project-harness.ko.md) | `/harness-init`(언어표 포함) · `/wiki-init` · `harness-insight` |
 | [수동 검증](docs/usage/manual-verification.ko.md) | `/integration` · `/performance` · `playwright-scaffold` |
 | [설계 산출물](docs/usage/design-docs.ko.md) | `/design-srs` · `/design-sds` · `/design-architecture` · `/design-api` · `/design-erd` · `/design-table` |
+| [Codex](docs/usage/codex.ko.md) | Codex 에서 플러그인 설치·신뢰, 훅 승인, Claude Code 와 다른 점 |
 | [Teams](docs/usage/teams.ko.md) | 웹훅 설정, 채널별 발송 시점 |
 | [문제 해결](docs/usage/troubleshooting.ko.md) | 차단 메시지별 의미, 게이트 무반응 |
 | [갱신과 제거](docs/usage/update-and-removal.ko.md) | `/flow-init` 재실행, `/flow-uninstall`, 수동 정리 |

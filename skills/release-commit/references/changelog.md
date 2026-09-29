@@ -44,8 +44,8 @@ git log --no-merges --format='- %h %s%n%b' vA.B.C..origin/<staging>
 - The fact in force, in the language the changelog is already written in. No heading line:
   the script writes it.
 
-**3. Show the draft to the user** — `AskUserQuestion`: use it, or edit it. Consumers read this
-text; nothing is written before the answer.
+**3. Show the draft to the user** — ask the user (structured choice): use it, or edit it.
+Consumers read this text; nothing is written before the answer.
 
 **4. Fold it in.** Write the approved body to `.claude/harness-tier/.flow/release-notes.md`,
 then, with `X.Y.Z` the base of Step 2 item 1's `pending:` rc:

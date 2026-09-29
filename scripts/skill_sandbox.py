@@ -719,12 +719,14 @@ SCENARIOS: list[Scenario] = [
             "no H2 at all, splitting it would be wrong."
         ),
         # /wiki-init is disable-model-invocation, so the slash command IS the prompt — there
-        # is no description for the model to match on. The two clauses stand in for the
-        # answers Steps 3 and 5 ask a human for; the judgement they gate (what to split, how
-        # ids derive, which relations to write) stays the agent's.
+        # is no description for the model to match on, and a headless session cannot answer
+        # the blocking question tool the Interaction rule sends Step 1's confirmation through.
+        # The three clauses stand in for the answers Steps 1, 3 and 5 ask a human for; the
+        # judgement they gate (what to split, how ids derive, which relations to write) stays
+        # the agent's.
         prompt=(
-            "/wiki-init — migrate every candidate document, and go with the relationships "
-            "you propose rather than waiting on me to confirm them."
+            "/wiki-init — the wiki root is docs/, migrate every candidate document, and go "
+            "with the relationships you propose rather than waiting on me to confirm them."
         ),
         expect=[
             "splits docs/backend.md by its two H2s and leaves a link in each section's place",

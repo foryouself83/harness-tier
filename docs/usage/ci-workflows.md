@@ -34,13 +34,13 @@ setup to avoid a stale-tool surprise in CI. `schema`, `base_url` and `server`
 
 ## `unit_test` — CI safety net
 
-The local flow gate runs unit tests only on Claude-session commits; `enable: true` renders
-`unit-test.yml` so they also run in CI. `jobs[]` is declared independently of `modules[]` — the
-local gate and CI run in different contexts — one entry per language/module
+The local flow gate runs unit tests only on agent-session (Claude Code or Codex) commits;
+`enable: true` renders `unit-test.yml` so they also run in CI. `jobs[]` is declared independently
+of `modules[]` — the local gate and CI run in different contexts — one entry per language/module
 (`name`/`language`/`version`/`setup`/`test`), rendered into a `strategy.matrix.include`. A
 `language` of python/node/java/go/rust uses that language's official setup action; anything else
-relies on your own `setup` command. The match is case-sensitive — a capitalized `Python` skips
-the setup action silently. `timeout_minutes` caps every matrix job, default 10.
+relies on your own `setup` command. The match is case-sensitive — a capitalized `Python` skips the
+setup action silently. `timeout_minutes` caps every matrix job, default 10.
 
 ## E2E safety net
 

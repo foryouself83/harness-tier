@@ -15,12 +15,18 @@ host); everything flow-init wrote **into** the host repo stays unless removed he
 > so uninstalling the plugin first strands the host files this skill exists to remove.
 > Order is the whole point of the skill.
 
+**Interaction.** Wherever this skill asks the user something, use the host's blocking question
+tool already in your tool list, matched by capability rather than by a host-specific name; if it
+is listed but not loaded, load it first with the host's tool-discovery primitive; only when no
+such tool is listed, or a question call errors, offer numbered options in chat and end your turn
+to wait for the reply — never answer the question yourself or skip it.
+
 ## Execution
 
 1. **Confirm (destructive)** — deleting `.claude/harness-tier/` removes host-owned
    files too: `flow-config.yaml`, **webhooks**
    (`teams-webhooks.json` is git-tracked/team-shared), and gate evidence. List what
-   will be removed and use `AskUserQuestion` to confirm (default: **no**). Stop if
+   will be removed and ask the user (structured choice) to confirm (default: **no**). Stop if
    declined.
 
 2. **Run the cleanup** (idempotent — match-then-skip, the inverse of `/flow-init`):
@@ -60,7 +66,7 @@ host); everything flow-init wrote **into** the host repo stays unless removed he
 ## Critical rules
 
 1. **Confirm before destroying** — never delete `.claude/harness-tier/` without explicit
-   `AskUserQuestion` approval; it contains host-owned config/credentials/webhooks.
+   approval — ask the user (structured choice); it contains host-owned config/credentials/webhooks.
 2. **Order matters** — run before `/plugin uninstall` (the cleanup script lives in
    the plugin).
 3. **Leave user-owned tool config alone** — `.pre-commit-config.yaml` and installed

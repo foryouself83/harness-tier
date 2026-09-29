@@ -53,19 +53,19 @@ exactly for the promotion rows, partially for integration (caveat under the tabl
 > row 6, `staging → integration`) ends in the same `git push origin <integration>`, rejected
 > the same way, and needs the same bypass actor.
 >
-> The `promotion` ruleset's `merge`-only rule on production also governs `hotfix/* →
-> production` (table row 5, Squash) — and allowed merge methods hang off **"Require a pull
-> request before merging"** (see the bypass warning below), which **rejects a direct push to
-> production**. So the documented local path — `git switch <production>` ·
-> `git merge --squash hotfix/x` · `git commit` · `git push origin <production>` — is
-> rejected *during the incident*, and the release-automation bypass actor does not rescue it
-> (that identity is the `github-actions` app or the `RELEASE_TOKEN` owner, not the maintainer
-> running the hotfix). **Under `promotion` PR mode a hotfix therefore goes through a PR too**,
-> merged with "Create a merge commit". The merge commit is harmless — its title is not
-> `[skip ci]`, so the release workflow still fires, no rc is pending to strip, and
-> semantic-release computes the release from the `fix:` commit inside it. (A team that would
-> rather keep the local squash must instead add a **maintainer** bypass actor to the
-> production ruleset — and then nothing enforces the merge method on that path at all.)
+> The `promotion` ruleset's `merge`-only rule on production also governs `hotfix/* → production`
+> (table row 5, Squash) — and allowed merge methods hang off **"Require a pull request before
+> merging"** (see the bypass warning below), which **rejects a direct push to production**. So
+> the documented local path — `git switch <production>` · `git merge --squash hotfix/x` ·
+> `git commit` · `git push origin <production>` — is rejected *during the incident*, and the
+> release-automation bypass actor does not rescue it (that identity is the `github-actions` app
+> or the `RELEASE_TOKEN` owner, not the maintainer running the hotfix). **Under `promotion` PR
+> mode a hotfix therefore goes through a PR too**, merged with "Create a merge commit". The merge
+> commit is harmless — its title is not `[skip ci]`, so the release workflow still fires, no rc
+> is pending to strip, and semantic-release computes the release from the `fix:` commit inside
+> it. (A team that would rather keep the local squash must instead add a **maintainer**
+> bypass actor to the production ruleset — and then nothing enforces the merge method on that
+> path at all.)
 >
 > The same ruleset on staging rejects the direct push of the **production → staging
 > back-merge** (table row 8), and that one needs no fix: a rejected push is the documented
@@ -254,7 +254,7 @@ A forced level is applied deterministically; only `auto` is left to the tool:
 
 | Tool | `auto` | A forced level |
 |---|---|---|
-| python-semantic-release | `semantic-release version` | the computed version, committed and tagged; stamps pyproject `[project]` version and `.claude-plugin/plugin.json` only — other `version_variables` / `version_toml` targets move on the `auto` path alone |
+| python-semantic-release | `semantic-release version` | the computed version, committed and tagged; stamps pyproject `[project]` version, `.claude-plugin/plugin.json`, and `.codex-plugin/plugin.json` when present — other `version_variables` / `version_toml` targets move on the `auto` path alone |
 | Node semantic-release | `npx semantic-release` | an annotated tag `release vX (Release-Level)` and a GitHub prerelease, no `.releaserc` plugins (no npm publish, changelog or version commit) |
 | gitversion · jreleaser | continue the pending rc, else `patch` | the computed version |
 | cargo-release | `cargo release rc` | `cargo release <version>` |

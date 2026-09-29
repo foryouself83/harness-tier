@@ -3,7 +3,7 @@
 [English](troubleshooting.md) · **한국어** · [사용 설명서](../../USAGE.ko.md)
 
 게이트 메시지는 한국어로 출력되며, 아래 각 제목은 그 메시지의 시작을 인용함. 여기서
-설명하는 모든 차단은 2층 — Claude 세션의 커밋이나 머지
+설명하는 모든 차단은 2층 — 에이전트(Claude Code·Codex) 세션의 커밋이나 머지
 ([게이트가 보는 것](tiers-and-gates.ko.md#게이트가-보는-것)) — 에서 일어남.
 
 ## 막혀요 — "python3 / PyYAML 필요"
@@ -46,9 +46,9 @@ bash .claude/harness-tier/scripts/check-deps.sh    # 무엇이 빠졌는지 나�
 `… 에는 <flag> 를 쓰지 않습니다.`
 
 `git merge` 의 플래그가 그 브랜치 흐름의 규칙을 어김. 메시지가 말하는 플래그를 씀 —
-표는 [머지 전략](tiers-and-gates.ko.md#머지-전략) 참고. `[경고] 머지 전략: … rebase
-선행이 요구됩니다` 는 경고일 뿐임 — feature 브랜치를 먼저 rebase 하거나, `origin`
-참조가 낡았다면 무시함.
+표는 [머지 전략](tiers-and-gates.ko.md#머지-전략) 참고.
+`[경고] 머지 전략: … rebase 선행이 요구됩니다` 는 경고일 뿐임 — feature 브랜치를 먼저
+rebase 하거나, `origin` 참조가 낡았다면 무시함.
 
 ## 막혀요 — 모듈 사전검사 실패
 
@@ -128,4 +128,21 @@ bash .claude/harness-tier/scripts/check-deps.sh    # 무엇이 빠졌는지 나�
    통과시킴; `/flow-init` 이 복구함.
 4. **다른 브랜치의 `tier` 마커.** 다른 브랜치에서 쓰인 마커는 현재 브랜치를 분류하지도
    막지도 않아 통과함; 이 브랜치에서 `/flow` 를 실행함.
-5. **Claude 세션 밖에서 실행된 커밋.** 터미널·CI·GitHub 커밋은 2층에 전혀 닿지 않음.
+5. **에이전트 세션 밖에서 실행된 커밋.** 터미널·CI·GitHub 커밋은 2층에 전혀 닿지 않음.
+
+## Codex
+
+위 메시지는 공유됨 — Codex 의 래퍼가 같은 스크립트를 돌리되 Codex 고유 표기로 바꿔서(위의
+`/flow…` 스킬은 `$flow…` 로, `settings.json` 은 `.codex/hooks.json` 으로) exit 코드 대신 거부
+JSON 으로 냄. 다른 점 세 가지:
+
+- **승인 안 된 훅은 아예 안 걸림.** risk-tiers 주입, 마커 무효화, 커밋 게이트 모두
+  `/hooks` 가 승인할 때까지 조용히 건너뜀
+  ([훅 승인](codex.ko.md#hooks-에서-훅-승인)).
+- **신뢰 안 된 프로젝트는 커밋 게이트만 조용히 빠짐.** 프로젝트가 신뢰 안 되면
+  `.codex/hooks.json` 전체가 무시되지만, 플러그인 자체의 SessionStart 훅은 여전히
+  규칙을 주입함 — 세션은 커밋이 막힌다고 읽지만 실제로는 막히지 않음
+  ([프로젝트 신뢰](codex.ko.md#프로젝트-신뢰)).
+- **Windows 에서 Git Bash 가 없으면 통과가 아니라 차단.** 게이트의 Windows 래퍼는 Git
+  이 번들한 `bash.exe` 를 못 찾으면, [위](#게이트가-아무-반응이-없어요) "셸 도구 부족"
+  아래의 통과 대신 모든 커밋과 머지를 막음.

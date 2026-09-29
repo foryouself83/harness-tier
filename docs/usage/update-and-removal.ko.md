@@ -43,6 +43,8 @@
 - `extraKnownMarketplaces` 의 `harness-tier` 항목;
 - `.gitignore` 의 harness-tier 두 줄;
 - `CLAUDE.md` 의 `harness-tier:teams` 블록;
+- `.codex/hooks.json` 의 Codex 게이트와 `AGENTS.md` 의 관리 지침 블록 — `harnesses` 에
+  `codex` 가 아직 남아있는지와 무관함;
 - `.claude/harness-tier/` — 스크립트, 설정, 증거, 팀 공유 `teams-webhooks.json` 포함
   두 웹훅 파일 전부.
 
@@ -54,8 +56,13 @@
 - `.github/workflows/` — 각각 어떻게 될지는 아래 수동 정리 5단계 참고;
 - 삭제 자체 — `.claude/harness-tier/` 는 추적 대상이었으므로 커밋해야 반영됨.
 
-`커밋 게이트 훅이 settings.json 에 남았습니다` 로 끝나면, 지우지 못한 훅이 이제 없는
-스크립트를 가리킴. 아래 2단계로 직접 지움.
+`커밋 게이트 훅이 settings.json 에 남았습니다` 로 끝나면, 지우지 못한 훅이 이제 없는 스크립트를 가리킴 — 아래 2단계(두 파일 다 다룸)로 직접 지움.
+`Codex 커밋 게이트 훅이 .codex/hooks.json 에 남았습니다` 는 같은 문제를 그 파일에서 가리킴. 해석하지 못하는 `.codex/hooks.json` —
+파싱되지 않거나 `hooks.PreToolUse` 가 목록이 아닌 파일 — 은 게이트 표식 문자열(`harness-tier` 와 `harness/codex/gate`)이 파일에
+남아 있을 때만 `.codex/hooks.json 을 해석하지 못해 Codex 커밋 게이트 훅이 지워졌는지 확인하지 못했습니다` 로 끝남 — 지워졌다고 믿기 전에 2단계와 대조해
+파일을 직접 확인함. 그 문자열이 없으면 사용자 자신의 파일로 보고
+`[i] .codex/hooks.json 을 해석하지 못했지만 harness-tier 게이트 표식이 없어 건드리지 않았습니다.` 를 출력한 뒤 파일을 건드리지 않고
+`정리 완료.` 로 끝남.
 
 ## 플러그인을 이미 지운 뒤의 수동 정리
 
@@ -63,7 +70,10 @@
 2. `.claude/settings.json` 에서 명령이
    `bash "${CLAUDE_PROJECT_DIR:-.}/.claude/harness-tier/scripts/precommit-runner.sh"` 인
    `hooks.PreToolUse` 훅만 — 그것만 — 지우고, `extraKnownMarketplaces.harness-tier` 도
-   지움.
+   지움. `.codex/hooks.json` 에서는 `command` 에 `harness-tier` 와 `harness/codex/gate` 를
+   둘 다 담은 `PreToolUse` 훅만 — 그것만 — 지움. 그 결과 항목의 `hooks` 목록이 비고 항목에
+   `matcher` 와 `hooks` 외의 것이 없을 때만 그 `PreToolUse` 항목을 지움. 그 뒤 `hooks` 가
+   비고 파일에 다른 최상위 키가 없을 때만 파일 자체를 지움 — 다른 훅은 그대로 둠.
 3. `.gitignore` 에서 `.teams-webhooks.local.json` 과 `.claude/harness-tier/.flow/` 를
    지움.
 4. `CLAUDE.md` 에서 `harness-tier:teams` 블록을 지움.
@@ -79,8 +89,9 @@
      `unit-test.yml`, `e2e.yml`, `deploy.yml`, `deploy-*.yml` 은 우리 것을 전혀 참조하지
      않아 계속 돌아감. 더는 원치 않으면 지움; `docs/operations/deploy-guide.md` 도
      배포 워크플로와 함께 지움.
-6. `pre-commit uninstall --hook-type pre-commit --hook-type commit-msg --hook-type
-   pre-push` 를 실행하거나, `.pre-commit-config.yaml` 에서 `teams-notify-push` 훅을
+6. 다음 명령
+   `pre-commit uninstall --hook-type pre-commit --hook-type commit-msg --hook-type pre-push` 를
+   실행하거나, `.pre-commit-config.yaml` 에서 `teams-notify-push` 훅을
    지움 — 그 항목은 1단계에서 지운
    `.claude/harness-tier/scripts/notify-push.sh` 를 가리킴.
 7. 결과를 커밋함.

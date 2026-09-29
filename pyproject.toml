@@ -23,7 +23,7 @@ pythonpath = ["."]
 
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
-version_variables = [".claude-plugin/plugin.json:version"]
+version_variables = [".claude-plugin/plugin.json:version", ".codex-plugin/plugin.json:version"]
 commit_message = "chore(release): {version} [skip ci]"
 tag_format = "v{version}"
 commit_parser = "conventional"

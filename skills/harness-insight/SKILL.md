@@ -14,6 +14,12 @@ the target project's `rules/`/`docs/` and consolidates memory (this is not a rep
 consolidation — a different nature). Project-agnostic — it works in any repository (command groups, hotspots,
 memory paths, and document formats are derived from the data / target project).
 
+**Interaction.** Wherever this skill asks the user something, use the host's blocking question
+tool already in your tool list, matched by capability rather than by a host-specific name; if it
+is listed but not loaded, load it first with the host's tool-discovery primitive; only when no
+such tool is listed, or a question call errors, offer numbered options in chat and end your turn
+to wait for the reply — never answer the question yourself or skip it.
+
 ## Paths
 ```bash
 ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
@@ -81,7 +87,7 @@ Execution summary (details in the reference):
   reference knowledge → always-apply discipline to `rules/`, reference material to `docs/`) · **keep** (cross-project/
   personal-habit user/feedback — leave untouched).
 - Present a **proposal table** (`memory | classification | target SSOT | rationale`) into the conversation first, and get
-  approval via `AskUserQuestion`. **No pruning/migration without approval** (partial approval supported).
+  approval — ask the user (structured choice). **No pruning/migration without approval** (partial approval supported).
 - Promotion checks the target project's **existing document format/language** and keeps only the essentials, concisely,
   **preferring to merge into existing documents** (no duplication). After applying, delete the original memory + leave only the kept items in `MEMORY.md`.
 

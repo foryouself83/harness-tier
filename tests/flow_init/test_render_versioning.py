@@ -216,6 +216,7 @@ def test_reads_the_trailer_rejects_computation_without_consumption():
         '            python "$HARNESS_SCRIPTS/finalize_prerelease.py" --set "$NEXT"\n'
         "            git add pyproject.toml\n"
         "            [ -f .claude-plugin/plugin.json ] && git add .claude-plugin/plugin.json\n"
+        "            [ -f .codex-plugin/plugin.json ] && git add .codex-plugin/plugin.json\n"
         '            git commit -m "chore(release): $NEXT [skip ci]"\n'
         '            git tag "v$NEXT"\n'
         "            semantic-release changelog || true\n"

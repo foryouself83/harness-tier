@@ -79,12 +79,12 @@ violation). If writes are not needed, always restrict.
 ## 5. Skill ↔ Agent Distinction / Linkage
 
 - **Skill** = "how it is done" (procedure + tool bundle, `.claude/skills/`). **Agent** = "who does it" (persona, `.claude/agents/`).
-- Linkage: if highly reusable, **call the Skill tool**; if short and dedicated, **inline it**; if large or conditional, **load a reference**.
+- Linkage: if highly reusable, **invoke it as a skill**; if short and dedicated, **inline it**; if large or conditional, **load a reference**.
 
 ## 6. Parallel Fan-out Default
 
-With two or more agents, **parallel dispatch of `Agent` subagents (fan-out/fan-in, generate-verify) is the default**
-(`Task` is an alias for it).
-Only when inter-agent communication improves quality, and only on builds where the Agent Teams experimental feature (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`)
-is enabled, use `SendMessage` cross-talk as an **option** (the deprecated `TeamCreate`/`TaskCreate`, etc. are forbidden).
+With two or more agents, **parallel subagent dispatch — Dispatch subagent `<role>` per agent (fan-out/fan-in, generate-verify) — is
+the default**.
+Only when inter-agent communication improves quality, and only on Claude Code with agent teams enabled (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`),
+a team may run them instead, with cross-talk as an **option** (never emulate a team with tools the build does not offer).
 Fill in the team communication protocol section only when cross-talk is possible.

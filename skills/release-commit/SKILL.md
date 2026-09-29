@@ -37,6 +37,12 @@ gate list the commit hook enforces — read it, nothing injects it.
 
 Branch names come from `flow-config.branches` (`integration` / `staging` / `production`).
 
+**Interaction.** Wherever this skill asks the user something, use the host's blocking question
+tool already in your tool list, matched by capability rather than by a host-specific name; if it
+is listed but not loaded, load it first with the host's tool-discovery primitive; only when no
+such tool is listed, or a question call errors, offer numbered options in chat and end your turn
+to wait for the reply — never answer the question yourself or skip it.
+
 ## Input
 
 - **$ARGUMENTS** — `staging` (integration → staging) or `release` (staging → production). With
@@ -128,8 +134,8 @@ git push origin <integration>
 
 No pending rc skips the back-merge.
 
-**1. Regression review.** An independent **`general-purpose`** agent (separate context, runs
-its own shell commands), judged against `flow-config.review_checklist` plus the callers of
+**1. Regression review.** Dispatch subagent (general) — an independent agent (separate context,
+runs its own shell commands), judged against `flow-config.review_checklist` plus the callers of
 every changed public symbol. A promotion starts on a clean working tree, so the file list
 comes from this promotion's own pair rather than from the workspace:
 
@@ -147,9 +153,9 @@ is the only promotion that reviews at all.
 derives its own bump, `semantic-release version --print` shows its pick, best effort), under
 the host guide's 0.x policy: `major_on_zero=false`, `1.0.0` only by an explicit decision.
 
-**3. Ask the user — where Step 0 answered `count >= 1`.** `AskUserQuestion`, every option
-labelled with the version the release-state block printed for it. The recommendation never
-stands in for the answer: **always ask.**
+**3. Ask the user — where Step 0 answered `count >= 1`.** Ask the user (structured choice),
+every option labelled with the version the release-state block printed for it. The
+recommendation never stands in for the answer: **always ask.**
 
 - **No pending rc** — **auto / patch / minor / major**, defaulting to the recommendation.
   `auto` leaves the level to the release tool: label it "commit-derived", with the level item 2
@@ -177,7 +183,7 @@ the gate is fail-closed on that file, and the recommendation is what the promoti
 available:
 
 ```bash
-.claude/harness-tier/scripts/check-token-write.sh
+bash .claude/harness-tier/scripts/check-token-write.sh
 ```
 
 Exit 10 → warn, with the Settings/PAT how-to. Exit 20, or no tool at all → skip silently.
@@ -199,7 +205,7 @@ git switch <staging> && git merge --ff-only origin/<staging>
 git merge --no-ff --no-commit origin/<integration>
 ```
 
-**7. Write that pending merge** through `Skill: commit`, **passing the chosen level in the
+**7. Write that pending merge** — invoke skill `commit`, **passing the chosen level in the
 arguments** where item 3 asked for one. That is the only channel it has: `bump.done` is an
 empty marker and nothing on disk carries the level. The commit skill appends
 `Release-Level: <choice>` — every choice written out, `auto` included: an absent trailer runs
@@ -286,7 +292,7 @@ git merge --no-ff --no-commit origin/<staging>
 [`references/changelog.md`](references/changelog.md): a deduplicated summary of every rc this
 release folds in, approved by the user, which the release CI publishes as the release notes.
 
-**6. Write that pending merge** through `Skill: commit` — **no level here.** Finalize is
+**6. Write that pending merge** — invoke skill `commit`; **no level here.** Finalize is
 deterministic: it strips the rc token off the version staging already carries. Same subject
 form as Staging (`Merge <staging>: <headline>`), and the same fixed order, for the same
 reason: HEAD is the only commit CI reads. Then push — this is what fires finalize:

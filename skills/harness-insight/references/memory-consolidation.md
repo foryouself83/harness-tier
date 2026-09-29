@@ -58,7 +58,7 @@ Project-agnostic — derive the memory path, document format, and language **fro
 
 1. **Present a proposal table into the conversation** — columns: `memory | classification (prune/promote/keep) | target SSOT | rationale`.
    Include keep items in the table as "keep" too, stating why they are not promoted.
-2. **Apply only after approval** — after confirming via `AskUserQuestion` or similar:
+2. **Apply only after approval** — after confirming — ask the user (structured choice):
    - (a) promote: write to the target rules/docs per the §4 discipline (**prefer merging** into existing documents).
    - (b) prune: remove prune items + the original memory files whose promotion is complete.
    - (c) update the `MEMORY.md` index — remove pruned/promoted lines, leaving **only kept items**.

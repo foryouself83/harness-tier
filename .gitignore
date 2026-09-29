@@ -9,3 +9,6 @@ flow-config.yaml
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 /graft/
+
+# Internal design records (superpowers plans/specs/reference) — local only, never shipped.
+docs/superpowers/

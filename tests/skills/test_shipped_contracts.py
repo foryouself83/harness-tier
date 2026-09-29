@@ -196,3 +196,29 @@ def test_the_review_checklist_is_one_list_in_three_files():
     assert len(items) == 5, f"expected the five risk-tiers categories, got {len(items)}"
     for word in ("queue routing", "API error conventions"):
         assert word in tiers, f"risk-tiers no longer names {word!r}"
+
+
+def _rerun_items() -> list[str]:
+    text = body(REPO / "skills/flow-init/SKILL.md")
+    rerun = text.split("- **Re-run (config present)**", 1)[1].split("\n\n", 1)[0]
+    return re.split(r"\n  \d+\. ", rerun)[1:]
+
+
+def test_a_flow_init_rerun_from_codex_adds_codex_before_the_resync():
+    """A host set up from Claude Code that re-runs /flow-init inside Codex reaches the Codex
+    gate only if `codex` is in `harnesses` when the setup script runs — the re-sync is the
+    only script run a re-run makes without a question, and nothing else writes the key."""
+    items = _rerun_items()
+    resync = next(i for i, item in enumerate(items) if item.startswith("**Re-sync"))
+    codex = [i for i, item in enumerate(items) if "Codex CLI" in item and "`codex`" in item]
+    assert codex and codex[0] < resync, "the Codex-session edit must precede the re-sync"
+    assert "asks" not in items[codex[0]] and "non-interactive" in items[codex[0]]
+
+
+def test_a_flow_init_reconfigure_that_changes_harnesses_reruns_the_script():
+    """Reconfigure runs after the re-sync, so a `harnesses` edit made there registers
+    nothing unless the script runs once more."""
+    rerender = next(item for item in _rerun_items() if item.startswith("**Re-render"))
+    condition = rerender.split("\n", 1)[0]
+    assert "`harnesses`" in condition, f"the re-run condition omits harnesses: {condition}"
+    assert "`flow_init_setup.py` once more" in rerender
