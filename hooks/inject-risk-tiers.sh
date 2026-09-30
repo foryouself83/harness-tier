@@ -15,17 +15,22 @@
 set -uo pipefail
 
 # Which harness sent the payload. No argument is Claude Code, which every existing host is.
-# Any other argument is a mistyped hook entry: read as Claude, it takes the wrong path silently.
+# Any other argument is a mistyped hook entry. The session still gets the Claude-shaped rule —
+# no rule at all is worse than the wrong invocation form — and a block naming the bad entry, so
+# it is seen at session start rather than at the first blocked commit.
 HARNESS=claude
 if [ "$#" -gt 0 ]; then
   case "$#:$1:${2:-}" in
     2:--harness:claude | 2:--harness:codex) HARNESS=$2 ;;
     *)
+      HARNESS=unknown
       printf '%s: unknown arguments "%s" (expected --harness claude|codex)\n' "${0##*/}" "$*" >&2
-      exit 1
       ;;
   esac
 fi
+# Printable ASCII only: escape_for_json passes other control bytes and invalid UTF-8 through,
+# and either one makes the whole injection unparseable.
+ARGS="$(LC_ALL=C; a="$*"; printf '%s' "${a//[![:print:]]/?}")"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
@@ -188,7 +193,7 @@ published_notice() {
 # An unreadable source announces rather than going quiet: a notice nobody needed beats a
 # feature that silently stopped working.
 notice=""
-[ "$HARNESS" = claude ] && notice="$(published_notice)"
+[ "$HARNESS" != codex ] && notice="$(published_notice)"
 if [ -n "$notice" ]; then
   hook_stdin=""
   IFS= read -r -t 1 -d '' hook_stdin 2>/dev/null || true
@@ -225,6 +230,11 @@ session_context="${notice_block}<harness-tier-risk-tiers>\nThis project enforces
 # here would force `hook_assisted` onto it (tests/evals/test_injected_rule.py).
 prose_block="\n\n<harness-tier-prose>\nThe rule below is guidance you apply while writing. Restate it to the user in the user's language whenever you surface it; do not quote it back in English by default.\n\nBefore writing a comment, ask whether the code can raise instead — an assert, a validated bound, a type. If it can, write that and no comment. Only a trap with no runtime moment to fire at earns the box. Never a how-explanation, a revision history, date or author, or a line number; filenames are fine.\n\nThe box keys are literals the checker parses and do not translate:\n  CRITICAL TRAP: / Trigger: / Symptom:\n\nFull rule: ${rules_dir_escaped}/doc-style.md\n</harness-tier-prose>"
 session_context="${session_context}${prose_block}"
+
+# Last, for the same reason the prose block sits apart: nothing new beside the mandate.
+if [ "$HARNESS" = unknown ]; then
+  session_context="${session_context}\n\n<harness-tier-hook-error>\nRelay this to the user before doing anything else: the harness-tier SessionStart hook entry passed unknown arguments \\\"$(escape_for_json "$ARGS")\\\" (expected --harness claude|codex), so the rule above is in its Claude Code form. Fix the hook entry.\n</harness-tier-hook-error>"
+fi
 
 if [ "$HARNESS" = codex ]; then
   tools_file="${PLUGIN_ROOT}/rules/harness-tools/codex.md"

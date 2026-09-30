@@ -88,15 +88,47 @@ def test_codex_preamble_spells_the_skill_the_codex_way():
     "args",
     [("--harness", "Codex"), ("--harness", "cdx"), ("--harness",), ("--harness", "codex", "extra")],
 )
-def test_an_unknown_harness_fails_loudly_instead_of_taking_the_claude_path(args):
-    """A mistyped hook entry otherwise injects Claude-shaped context into a Codex session and no
-    one sees why the preamble names the wrong invocation."""
+def test_an_unknown_harness_injects_the_rule_and_names_the_bad_entry(args):
+    """A mistyped hook entry still gets the rule, in its Claude form, and a block after it naming
+    the bad arguments, so the session sees why the preamble may name the wrong invocation."""
     import os
 
-    run = _run(*args, env={**os.environ, "CLAUDE_PLUGIN_ROOT": str(REPO)})
-    assert run.returncode == 1, run.stdout
-    assert run.stdout == b""
+    env = {**os.environ, "CLAUDE_PLUGIN_ROOT": str(REPO)}
+    run = _run(*args, env=env)
+    assert run.returncode == 0, run.stderr
     assert b"--harness" in run.stderr
+    ctx = json.loads(run.stdout)["hookSpecificOutput"]["additionalContext"]
+    clean = json.loads(_run(env=env).stdout)["hookSpecificOutput"]["additionalContext"]
+    assert ctx.startswith(clean), "the rule must reach the session unchanged, the error after it"
+    error = ctx[len(clean) :]
+    assert "<harness-tier-hook-error>" in error and " ".join(args) in error
+
+
+def test_an_unknown_harness_argument_is_json_escaped():
+    import os
+
+    # Through the environment: Windows argv quoting mangles a `"` before bash ever sees it.
+    run = subprocess.run(
+        [BASH, "-c", 'exec bash "$0" --harness "$BAD"', SCRIPT.as_posix()],
+        input=STARTUP.encode(),
+        capture_output=True,
+        env={**os.environ, "CLAUDE_PLUGIN_ROOT": str(REPO), "BAD": 'a"b\\c'},
+    )
+    ctx = json.loads(run.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert '--harness a"b\\c' in ctx
+
+
+def test_an_unknown_harness_argument_with_control_or_invalid_bytes_keeps_the_json_valid():
+    import os
+
+    run = subprocess.run(
+        [BASH, "-c", """exec bash "$0" --harness "$(printf 'a\\001\\014\\377b')" """, SCRIPT.as_posix()],
+        input=STARTUP.encode(),
+        capture_output=True,
+        env={**os.environ, "CLAUDE_PLUGIN_ROOT": str(REPO)},
+    )
+    ctx = json.loads(run.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "--harness a???b" in ctx
 
 
 def test_an_explicit_claude_harness_matches_no_argument():

@@ -37,6 +37,7 @@ bad_args() {
   exit 2
 }
 ARGS="$*"
+voided=""  # bad_args reads it before the loop sets it; an exported value must not leak in
 
 MARKERS="review.done doc-sync.done"
 EVIDENCE=".claude/harness-tier/.flow"
@@ -306,7 +307,6 @@ fi
 [ -n "$targets" ] || bad_args
 [ -n "$targets" ] || exit 0
 
-voided=""
 while IFS= read -r target; do
   [ -n "$target" ] || continue
   # This tree turned the switch off: its markers outlive an edit, as they did before. Another

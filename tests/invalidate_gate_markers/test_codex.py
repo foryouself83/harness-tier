@@ -318,3 +318,9 @@ def test_an_unknown_harness_with_no_tree_to_void_still_fails_loudly(tmp_path):
     run = _run_bad(("--harness", "cdx"), {"cwd": str(tmp_path), "tool_name": "Bash"})
     assert run.returncode == 2, run.stderr
     assert b"--harness" in run.stderr and b"voided: nothing" in run.stderr
+
+
+def test_an_exported_voided_does_not_leak_into_the_bad_args_report(tmp_path):
+    run = _run_bad(("--harness", "cdx"), {"cwd": str(tmp_path)}, {"voided": "review"})
+    assert run.returncode == 2, run.stderr
+    assert b"voided: nothing" in run.stderr
