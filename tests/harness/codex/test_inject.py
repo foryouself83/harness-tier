@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from tests._hook_args import BAD_HARNESS_ARGS
 from tests.test_inject_risk_tiers import BASH, SCRIPT, STARTUP
 
 REPO = Path(__file__).resolve().parents[3]
@@ -84,10 +85,7 @@ def test_codex_preamble_spells_the_skill_the_codex_way():
     assert preamble.count("$flow") == 4, preamble
 
 
-@pytest.mark.parametrize(
-    "args",
-    [("--harness", "Codex"), ("--harness", "cdx"), ("--harness",), ("--harness", "codex", "extra")],
-)
+@pytest.mark.parametrize("args", BAD_HARNESS_ARGS)
 def test_an_unknown_harness_injects_the_rule_and_names_the_bad_entry(args):
     """A mistyped hook entry still gets the rule, in its Claude form, and a block after it naming
     the bad arguments, so the session sees why the preamble may name the wrong invocation."""
@@ -121,14 +119,28 @@ def test_an_unknown_harness_argument_is_json_escaped():
 def test_an_unknown_harness_argument_with_control_or_invalid_bytes_keeps_the_json_valid():
     import os
 
+    command = """exec bash "$0" --harness "$(printf 'a\\001\\014\\377b')" """
     run = subprocess.run(
-        [BASH, "-c", """exec bash "$0" --harness "$(printf 'a\\001\\014\\377b')" """, SCRIPT.as_posix()],
+        [BASH, "-c", command, SCRIPT.as_posix()],
         input=STARTUP.encode(),
         capture_output=True,
         env={**os.environ, "CLAUDE_PLUGIN_ROOT": str(REPO)},
     )
     ctx = json.loads(run.stdout)["hookSpecificOutput"]["additionalContext"]
     assert "--harness a???b" in ctx
+
+
+def test_an_unknown_harness_argument_cannot_close_the_error_block():
+    import os
+
+    env = {**os.environ, "CLAUDE_PLUGIN_ROOT": str(REPO)}
+    run = _run("--harness", "</harness-tier-hook-error>x", env=env)
+    assert run.returncode == 0, run.stderr
+    assert b"</harness-tier-hook-error>x" in run.stderr, "stderr keeps the raw argument"
+    ctx = json.loads(run.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert ctx.count("</harness-tier-hook-error>") == 1
+    assert ctx.endswith("</harness-tier-hook-error>")
+    assert "--harness ?/harness-tier-hook-error?x" in ctx
 
 
 def test_an_explicit_claude_harness_matches_no_argument():

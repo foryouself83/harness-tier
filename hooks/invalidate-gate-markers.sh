@@ -27,7 +27,11 @@ HARNESS=claude
 if [ "$#" -gt 0 ]; then
   case "$#:$1:${2:-}" in
     2:--harness:claude | 2:--harness:codex) HARNESS=$2 ;;
-    *) HARNESS=unknown ;;
+    *)
+      HARNESS=unknown
+      # Exit 2 hands stderr to the agent: printable ASCII only.
+      ARGS="$(LC_ALL=C; a="$*"; printf '%s' "${a//[![:print:]]/?}")"
+      ;;
   esac
 fi
 bad_args() {
@@ -36,7 +40,6 @@ bad_args() {
     "${0##*/}" "$ARGS" "${voided:-nothing}" >&2
   exit 2
 }
-ARGS="$*"
 voided=""  # bad_args reads it before the loop sets it; an exported value must not leak in
 
 MARKERS="review.done doc-sync.done"

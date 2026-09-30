@@ -25,12 +25,13 @@ if [ "$#" -gt 0 ]; then
     *)
       HARNESS=unknown
       printf '%s: unknown arguments "%s" (expected --harness claude|codex)\n' "${0##*/}" "$*" >&2
+      # Printable ASCII only: escape_for_json passes other control bytes and invalid UTF-8
+      # through, and either one makes the whole injection unparseable. No `<` or `>` either, so
+      # the arguments cannot close the block they are quoted in.
+      ARGS="$(LC_ALL=C; a="$*"; a="${a//[![:print:]]/?}"; printf '%s' "${a//[<>]/?}")"
       ;;
   esac
 fi
-# Printable ASCII only: escape_for_json passes other control bytes and invalid UTF-8 through,
-# and either one makes the whole injection unparseable.
-ARGS="$(LC_ALL=C; a="$*"; printf '%s' "${a//[![:print:]]/?}")"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
