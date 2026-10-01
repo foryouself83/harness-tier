@@ -68,10 +68,11 @@ macOS is read from Codex's source, not measured; Windows is measured.
 - **Project instructions render into `AGENTS.md`.** Codex never reads `CLAUDE.md` or
   `.claude/rules/` directly — only the session directory and its ancestors, and only one
   instructions file per directory. `/flow-init`, `/doc-sync` and `/harness-init` keep one
-  managed block in the root `AGENTS.md`, rendered from your `CLAUDE.md`, `.claude/rules/` and
-  each module's own `CLAUDE.md`; edit those sources, never the block — the next render
-  overwrites it. The rendered file is capped at 32 KiB; past that, a rule's full text is
-  replaced by an index entry pointing at the file to read.
+  managed block in the root `AGENTS.md`, rendered from your `CLAUDE.md`, `.claude/rules/`
+  (except `.claude/rules/harness-tier/`, the plugin's own copied rules — the SessionStart hook
+  injection already covers those) and each module's own `CLAUDE.md`; edit those sources, never
+  the block — the next render overwrites it. The rendered file is capped at 32 KiB; past that,
+  a rule's full text is replaced by an index entry pointing at the file to read.
 
 ## Remove
 

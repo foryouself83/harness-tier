@@ -411,7 +411,8 @@ def test_stdin_that_never_closes_does_not_hang(tmp_path):
 
 
 def _prose_block(tmp_path) -> str:
-    context = _context(_run(_plugins_root(tmp_path, published=None)))
+    plugin = _plugins_root(tmp_path, published=None)
+    context = _context(_run(plugin, extra_env={"CLAUDE_PROJECT_DIR": str(tmp_path)}))
     assert "<harness-tier-prose>" in context, "the prose summary never reached the session"
     return context.split("<harness-tier-prose>", 1)[1].split("</harness-tier-prose>", 1)[0]
 
@@ -441,6 +442,40 @@ def test_the_prose_block_keeps_the_box_keys_untranslated(tmp_path):
     block = _prose_block(tmp_path)
     for key in ("CRITICAL TRAP:", "Trigger:", "Symptom:"):
         assert key in block
+
+
+def _host(tmp_path, with_rule: bool) -> dict:
+    host = tmp_path / "host"
+    if with_rule:
+        rules = host / ".claude" / "rules" / "harness-tier"
+        rules.mkdir(parents=True)
+        (rules / "doc-style.md").write_text("# copied rule\n", encoding="utf-8")
+    host.mkdir(exist_ok=True)
+    return {"CLAUDE_PROJECT_DIR": str(host)}
+
+
+@pytest.mark.parametrize("harness", [[], ["--harness", "codex"]])
+def test_the_prose_block_is_dropped_only_where_claude_loads_the_copied_rule(tmp_path, harness):
+    """/flow-init copies doc-style.md into .claude/rules/harness-tier/, which Claude Code loads
+    itself; injecting the summary beside it is the same rule twice. Codex reads no .claude/rules/,
+    so it keeps the block — as does a host that has not re-run /flow-init since the upgrade."""
+    plugin = _plugins_root(tmp_path, published=None)
+    env = _host(tmp_path, with_rule=True)
+    result = subprocess.run(
+        [BASH, str(SCRIPT), *harness], input=STARTUP, text=True, capture_output=True,
+        env={"PATH": os.environ.get("PATH", ""), "SYSTEMROOT": os.environ.get("SYSTEMROOT", ""),
+             "CLAUDE_PLUGIN_ROOT": str(plugin), **env},
+        timeout=30,
+    )
+    context = _context(result)
+    assert ("<harness-tier-prose>" in context) is bool(harness)
+    assert "the body the hook must actually read" in context
+
+
+def test_the_prose_block_stays_where_the_host_has_no_copied_rule(tmp_path):
+    plugin = _plugins_root(tmp_path, published=None)
+    context = _context(_run(plugin, extra_env=_host(tmp_path, with_rule=False)))
+    assert "<harness-tier-prose>" in context
 
 
 def test_a_nested_name_before_the_version_does_not_shadow_the_top_level_one(tmp_path):

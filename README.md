@@ -161,10 +161,11 @@ Then start day-to-day work with **`/flow <task description>`**.
 | Skills | `/design-srs` · `/design-sds` · `/design-architecture` · `/design-api` · `/design-erd` · `/design-table` | Requirement and design documents → `.docx` deliverables, ids and cross-references machine-checked (user-invoked only) |
 | Skill | `harness-authoring` | Generation engine `/harness-init` invokes internally — not called directly |
 | Agents | `harness-researcher` · `harness-code-analyzer` · `harness-critic` | Research / code analysis / output verification for harness generation |
-| Rule | `risk-tiers` | The single source of truth for risk classification + commit discipline — injected every session |
-| Rule | `doc-style` | The single source of truth for prose discipline in docs, comments, and docstrings |
+| Rule | `risk-tiers` | The single source of truth for risk classification and the per-tier workflow — injected every session |
+| Rule | `doc-style` | The single source of truth for prose discipline in docs, comments, and docstrings — `/flow-init` copies it into `.claude/rules/harness-tier/` |
+| Rule | `commit-discipline` | Commit message format and the type → version table — `/commit` reads it |
 | Rules | `gate-mechanics` · `merge-strategy` · `promotion` · `harness-rules` | Per-gate mechanism, branch-flow merge rules, promotion procedure, generation conventions — read on demand |
-| Hooks | SessionStart · Notification · PostToolUse(edit) | Risk-tiers rule + prose-discipline summary injection, plus a stale-build warning · Teams alerts · voids the review/doc-sync evidence an edit outdated |
+| Hooks | SessionStart · Notification · PostToolUse(edit) | Risk-tiers rule injection (+ a prose-discipline summary where the host has no copied `doc-style`), plus a stale-build warning · Teams alerts · voids the review/doc-sync evidence an edit outdated |
 | Host-registered gate | `PreToolUse`(commit·merge) | `/flow-init` writes this into the **host's** `.claude/settings.json` — not a plugin hook — for deny-enforcement reliability |
 
 > **Release CI token** — the rendered release workflow runs on the default `GITHUB_TOKEN` out of

@@ -47,7 +47,8 @@ It removes:
 - the Codex gate from `.codex/hooks.json` and the managed instructions block from `AGENTS.md`
   — whether or not `codex` is still listed under `harnesses`;
 - `.claude/harness-tier/` — scripts, config, evidence, and both webhook files, the team-shared
-  `teams-webhooks.json` included.
+  `teams-webhooks.json` included;
+- `.claude/rules/harness-tier/` — the rules `/flow-init` copied in; the host's own rules stay.
 
 It leaves, and tells you to handle:
 
@@ -55,7 +56,8 @@ It leaves, and tells you to handle:
 - the installed git hooks —
   `pre-commit uninstall --hook-type pre-commit --hook-type commit-msg --hook-type pre-push`;
 - `.github/workflows/` — see step 5 of the manual cleanup for what each one does next;
-- the deletion itself — `.claude/harness-tier/` was tracked, so commit it.
+- the deletion itself — `.claude/harness-tier/` and `.claude/rules/harness-tier/` were tracked,
+  so commit it.
 
 When it ends on `커밋 게이트 훅이 settings.json 에 남았습니다`, the hook it could not remove points
 at a script that no longer exists — delete it by hand (step 2 below, which covers both files).
@@ -71,7 +73,8 @@ leaves it untouched, and still ends on `정리 완료.`
 
 ## Manual cleanup after the plugin is gone
 
-1. Delete `.claude/harness-tier/`.
+1. Delete `.claude/harness-tier/` and `.claude/rules/harness-tier/`. The rule left behind loads
+   every session and points at a checker step 1 deleted.
 2. In `.claude/settings.json`, remove the `hooks.PreToolUse` hook whose command is
    `bash "${CLAUDE_PROJECT_DIR:-.}/.claude/harness-tier/scripts/precommit-runner.sh"` — only
    that hook — and `extraKnownMarketplaces.harness-tier`. In `.codex/hooks.json`, remove the

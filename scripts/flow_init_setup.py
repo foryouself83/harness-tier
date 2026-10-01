@@ -304,6 +304,44 @@ def copy_artifacts(plugin: Path, host: Path, harnesses=("claude",)) -> list[str]
     return report
 
 
+# Shipped rules a Claude session loads from the host (Claude Code-forced location — HARNESS_DIR
+# exception). Their own subdirectory, so a host rule of the same name is never overwritten.
+# The SessionStart hook reads this path to skip injecting the same text: keep the two in step.
+RULES_DEST = ".claude/rules/harness-tier"
+RULE_FILES = ("rules/doc-style.md",)
+
+
+def copy_rules(plugin: Path, host: Path, harnesses=("claude",)) -> list[str]:
+    """Copy the shipped rules into the host's .claude/rules/ (always overwrite — SOURCE is the
+    SSOT). Claude only: Codex reads no .claude/rules/ and keeps the hook's injected block."""
+    if "claude" not in harnesses:
+        return ["  [=] claude 하네스 아님 — 규칙 복사 skip"]
+    dest_dir = host / RULES_DEST
+    report: list[str] = []
+    for rel in RULE_FILES:
+        src = plugin / rel
+        if not src.is_file():
+            report.append(f"  [!] 소스 없음, skip: {rel}")
+            continue
+        try:
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, dest_dir / src.name)
+        except OSError as exc:
+            report.append(f"  [!] 복사 실패({_why(exc)}): {RULES_DEST}/{src.name}")
+            continue
+        report.append(f"  [+] 복사: {RULES_DEST}/{src.name}")
+    return report
+
+
+def remove_rules(host: Path) -> str:
+    """Delete the copied rules directory (only ours — RULES_DEST is harness-tier's own)."""
+    d = host / RULES_DEST
+    if not d.is_dir():
+        return f"  [=] {RULES_DEST}/ 없음 (skip)"
+    shutil.rmtree(d)
+    return f"  [-] {RULES_DEST}/ 삭제"
+
+
 DESIGN_TEMPLATES_SOURCE = "templates/design-docs"  # plugin SOURCE, seeding only
 
 
@@ -1439,6 +1477,7 @@ def run_setup(host: Path, plugin: Path) -> bool:
                 + (codex_leftovers(host, names) if harnesses_readable else [])
             ),
         ),
+        _step("[규칙 복사]", lambda: copy_rules(plugin, host, names)),
         _step("[마켓 자동 업데이트]", lambda: [register_marketplace(host)]),
         _step("[pre-commit 점검]", lambda: check_precommit(plugin, host)),
         _step("[설계 산출물 템플릿]", lambda: seed_design_templates(plugin, host)),
@@ -1522,6 +1561,7 @@ def run_uninstall(host: Path) -> bool:
         # prefix and closes on our END line is cut.
         _step("[Codex 지침 블록 제거]", lambda: [_codex_instructions().remove(host)]),
         _step("[harness-tier 디렉터리 삭제]", lambda: [remove_harness_dir(host)]),
+        _step("[규칙 삭제]", lambda: [remove_rules(host)]),
     ]
     print("[남는 항목 — 수동 처리 안내]")
     print("  - .pre-commit-config.yaml 의 teams-notify-push 훅/정적분석 훅은 자동 제거하지")

@@ -288,7 +288,7 @@ rm -rf .claude/harness-tier/.flow
    branch-flow row in [`merge-strategy.md`](../../rules/merge-strategy.md)
    and follow it exactly — the required strategy varies by flow (rebase / squash /
    `--no-ff` merge). Commit types & the 50/72 rule live in
-   [`risk-tiers.md`](../../rules/risk-tiers.md) Commit Discipline. Several of
+   [`commit-discipline.md`](../../rules/commit-discipline.md). Several of
    [`merge-strategy.md`](../../rules/merge-strategy.md)'s rows are **enforced by the
    hook**: a merge whose flags violate its row is blocked (exit 2) naming the flag it
    wants. That table's **Gate** column says which rows fire — the rest still depend on

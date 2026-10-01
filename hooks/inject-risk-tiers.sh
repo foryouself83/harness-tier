@@ -229,7 +229,13 @@ session_context="${notice_block}<harness-tier-risk-tiers>\nThis project enforces
 # A separate block, after the risk-tiers one: the mandate's neighbourhood is measured, and
 # text added beside it moves the skills' invocation rates. Names no skill — a slash name
 # here would force `hook_assisted` onto it (tests/evals/test_injected_rule.py).
-prose_block="\n\n<harness-tier-prose>\nThe rule below is guidance you apply while writing. Restate it to the user in the user's language whenever you surface it; do not quote it back in English by default.\n\nBefore writing a comment, ask whether the code can raise instead — an assert, a validated bound, a type. If it can, write that and no comment. Only a trap with no runtime moment to fire at earns the box. Never a how-explanation, a revision history, date or author, or a line number; filenames are fine.\n\nThe box keys are literals the checker parses and do not translate:\n  CRITICAL TRAP: / Trigger: / Symptom:\n\nFull rule: ${rules_dir_escaped}/doc-style.md\n</harness-tier-prose>"
+# Skipped where /flow-init copied the full rule into the host's .claude/rules/ (RULES_DEST in
+# flow_init_setup.py), which Claude Code loads itself. Codex reads no .claude/rules/.
+prose_block=""
+host_rule="${CLAUDE_PROJECT_DIR:-.}/.claude/rules/harness-tier/doc-style.md"
+if [ "$HARNESS" = codex ] || [ ! -f "$host_rule" ]; then
+  prose_block="\n\n<harness-tier-prose>\nThe rule below is guidance you apply while writing. Restate it to the user in the user's language whenever you surface it; do not quote it back in English by default.\n\nBefore writing a comment, ask whether the code can raise instead — an assert, a validated bound, a type. If it can, write that and no comment. Only a trap with no runtime moment to fire at earns the box. Never a how-explanation, a revision history, date or author, or a line number; filenames are fine.\n\nThe box keys are literals the checker parses and do not translate:\n  CRITICAL TRAP: / Trigger: / Symptom:\n\nFull rule: ${rules_dir_escaped}/doc-style.md\n</harness-tier-prose>"
+fi
 session_context="${session_context}${prose_block}"
 
 # Last, for the same reason the prose block sits apart: nothing new beside the mandate.

@@ -46,7 +46,8 @@
 - `.codex/hooks.json` 의 Codex 게이트와 `AGENTS.md` 의 관리 지침 블록 — `harnesses` 에
   `codex` 가 아직 남아있는지와 무관함;
 - `.claude/harness-tier/` — 스크립트, 설정, 증거, 팀 공유 `teams-webhooks.json` 포함
-  두 웹훅 파일 전부.
+  두 웹훅 파일 전부;
+- `.claude/rules/harness-tier/` — `/flow-init` 이 복사한 규칙. 호스트 자체 규칙은 유지됨.
 
 남기고 안내하는 것:
 
@@ -54,7 +55,8 @@
 - 설치된 git 훅 —
   `pre-commit uninstall --hook-type pre-commit --hook-type commit-msg --hook-type pre-push`;
 - `.github/workflows/` — 각각 어떻게 될지는 아래 수동 정리 5단계 참고;
-- 삭제 자체 — `.claude/harness-tier/` 는 추적 대상이었으므로 커밋해야 반영됨.
+- 삭제 자체 — `.claude/harness-tier/` 와 `.claude/rules/harness-tier/` 는 추적 대상이었으므로
+  커밋해야 반영됨.
 
 `커밋 게이트 훅이 settings.json 에 남았습니다` 로 끝나면, 지우지 못한 훅이 이제 없는 스크립트를 가리킴 — 아래 2단계(두 파일 다 다룸)로 직접 지움.
 `Codex 커밋 게이트 훅이 .codex/hooks.json 에 남았습니다` 는 같은 문제를 그 파일에서 가리킴. 해석하지 못하는 `.codex/hooks.json` —
@@ -66,7 +68,8 @@
 
 ## 플러그인을 이미 지운 뒤의 수동 정리
 
-1. `.claude/harness-tier/` 를 삭제함.
+1. `.claude/harness-tier/` 와 `.claude/rules/harness-tier/` 를 삭제함. 남은 규칙은 매 세션
+   로드되며, 1단계에서 지운 검사기를 가리킴.
 2. `.claude/settings.json` 에서 명령이
    `bash "${CLAUDE_PROJECT_DIR:-.}/.claude/harness-tier/scripts/precommit-runner.sh"` 인
    `hooks.PreToolUse` 훅만 — 그것만 — 지우고, `extraKnownMarketplaces.harness-tier` 도

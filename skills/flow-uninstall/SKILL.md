@@ -38,7 +38,8 @@ to wait for the reply — never answer the question yourself or skip it.
      `.claude/settings.json` (preserves any other hooks).
    - **Strips** the harness-tier `.gitignore` lines and the `CLAUDE.md` `harness-tier:teams`
      managed block.
-   - **Deletes** `.claude/harness-tier/` (scripts, config, evidence, webhooks).
+   - **Deletes** `.claude/harness-tier/` (scripts, config, evidence, webhooks) and
+     `.claude/rules/harness-tier/` (the copied rules — the host's own rules stay).
 
 3. **Relay the manual follow-ups** the script prints (it does **not** do these —
    they're destructive to user-owned files):

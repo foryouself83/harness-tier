@@ -6,10 +6,10 @@ argument-hint: "[tier · bump level · what changed]"
 
 # Commit — author and issue one commit
 
-**Source of truth**: [`risk-tiers.md`](../../rules/risk-tiers.md) Commit Discipline owns the
-message format, the type-to-version table, and the language rule. It is already in context —
-the SessionStart hook injects it. This skill does not restate it; it is the procedure that
-applies it to one concrete commit.
+**Source of truth**: [`commit-discipline.md`](../../rules/commit-discipline.md) owns the
+message format, the type-to-version table, and the language rule. Nothing injects it — read it
+before Step 1. This skill does not restate it; it is the procedure that applies it to one
+concrete commit.
 
 ## Input
 
@@ -36,7 +36,7 @@ if [ -n "$guide" ] && [ -f "$guide" ]; then cat "$guide"; else echo "no host gui
 ```
 
 No config, no slot, or no such file → `no host guide`, which is a normal answer, not a
-failure: `risk-tiers.md` alone then governs. The `if` is what makes it one — a `&&` chain
+failure: `commit-discipline.md` alone then governs. The `if` is what makes it one — a `&&` chain
 exits 1 on the common no-config path and reads as a broken step. The host guide never
 relaxes the format either way: the 50/72 rule and the type table stay as written there.
 
@@ -56,8 +56,8 @@ already staged the whole merged set, `git add` only adds to that, and git refuse
 
 ## Step 2 — Pick the type
 
-The type-to-version table in `risk-tiers.md` decides. Two traps it calls out that cost a
-release when missed:
+The type-to-version table in `commit-discipline.md` decides. Two traps cost a release when
+missed:
 
 - **A consumer-facing `.md` change is `feat` or `fix`, never `docs`.** `docs` and `chore` do not
   bump the version, so they never propagate to a consumer. Only developer-only docs stay `docs`.
