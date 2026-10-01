@@ -2,6 +2,31 @@
 
 <!-- version list -->
 
+## v0.4.3-rc.1 (2026-10-01)
+
+### Bug Fixes
+
+- **hooks**: Escape the rule in the C locale
+  ([`030a12d`](https://github.com/foryouself83/harness-tier/commit/030a12de5c0869c88c72d02fce8c1d2b20b58966))
+
+- **hooks**: Inject the rule on a bad --harness
+  ([`f3cd058`](https://github.com/foryouself83/harness-tier/commit/f3cd058f8b5e6794f61a8696091eb38347d59837))
+
+- **hooks**: Start sessions without forking
+  ([`202cf82`](https://github.com/foryouself83/harness-tier/commit/202cf824f12d933cded1fbf96563091908af97c0))
+
+- **hooks**: Stop bad arguments breaking output
+  ([`5fdf4ab`](https://github.com/foryouself83/harness-tier/commit/5fdf4ab798744733cd28f9781861768e69e8524f))
+
+- **hooks**: Void evidence on an unknown --harness
+  ([`68c4cc5`](https://github.com/foryouself83/harness-tier/commit/68c4cc5af7befe6f662d048dddbaa104bf91a687))
+
+### Features
+
+- **rules**: Split doc-style and commit rules out
+  ([`5c5f702`](https://github.com/foryouself83/harness-tier/commit/5c5f702c74fafccadad0fd7f50b6cd0a7259da8e))
+
+
 ## v0.4.2 (2026-09-29)
 
 ### Features
