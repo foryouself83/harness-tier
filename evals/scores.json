@@ -1,16 +1,16 @@
 {
   "skills": {
     "commit": {
-      "description_sha": "ee313681e264",
+      "description_sha": "58e31923dbae",
       "false_fire": 0.0,
       "false_hits": 0,
       "false_n": 15,
       "fixture_sha": null,
-      "invoke_hits": 4,
+      "invoke_hits": 5,
       "invoke_n": 15,
-      "invoke_rate": 0.27,
+      "invoke_rate": 0.33,
       "lost_to": {
-        "release-commit": 2
+        "release-commit": 3
       },
       "measured_at": "2026-10-01",
       "model": "claude-sonnet-5",
@@ -20,9 +20,9 @@
       "truncated_quiet": 0.0
     },
     "doc-sync": {
-      "description_sha": "8d17098085b1",
-      "false_fire": 0.0,
-      "false_hits": 0,
+      "description_sha": "0b7f7561abca",
+      "false_fire": 0.07,
+      "false_hits": 1,
       "false_n": 15,
       "fixture_sha": "9c6a91ccedfd",
       "invoke_hits": 12,
@@ -37,19 +37,19 @@
       "truncated_quiet": 0.0
     },
     "flow": {
-      "description_sha": "697071b56a8d",
-      "false_fire": 0.08,
-      "false_hits": 2,
+      "description_sha": "744f8b9f5ae0",
+      "false_fire": 0.04,
+      "false_hits": 1,
       "false_n": 25,
       "fixture_sha": "c7cd782802a6",
-      "invoke_hits": 23,
+      "invoke_hits": 18,
       "invoke_n": 25,
-      "invoke_rate": 0.92,
+      "invoke_rate": 0.72,
       "lost_to": {},
       "measured_at": "2026-10-01",
       "model": "claude-sonnet-5",
       "reps": 5,
-      "restricted": 0.6,
+      "restricted": 0.8,
       "truncated": 0.0,
       "truncated_quiet": 0.0
     },
@@ -161,21 +161,19 @@
       "truncated_quiet": 0.0
     },
     "release-commit": {
-      "description_sha": "7bf82f7bc81b",
+      "description_sha": "b3dca77ee307",
       "false_fire": 0.0,
       "false_hits": 0,
       "false_n": 15,
       "fixture_sha": null,
-      "invoke_hits": 14,
+      "invoke_hits": 13,
       "invoke_n": 15,
-      "invoke_rate": 0.93,
-      "lost_to": {
-        "flow": 1
-      },
+      "invoke_rate": 0.87,
+      "lost_to": {},
       "measured_at": "2026-10-01",
       "model": "claude-sonnet-5",
       "reps": 3,
-      "restricted": 0.8,
+      "restricted": 1.0,
       "truncated": 0.0,
       "truncated_quiet": 0.0
     }
