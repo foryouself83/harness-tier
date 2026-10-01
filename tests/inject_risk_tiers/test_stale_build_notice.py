@@ -1,149 +1,27 @@
-"""The SessionStart hook: rule injection plus the out-of-date-plugin notice.
-
-The notice is for CONSUMERS: it compares the build this session loaded against the version the
-marketplace publishes and speaks only when the marketplace is ahead. Everything about it is
-FAIL-OPEN — every uncertain case stays silent and exits 0, because this hook runs before the
-session does anything and must never delay or break session start.
-
-Both versions come from local files (the loaded plugin's own manifest, and the marketplace clone
-Claude Code keeps beside the install cache), so the check costs no network and a stale or absent
-clone means no notice. It travels in the same injected context as the rule, under its own
-tag: headless runs show that a hook's `systemMessage` reaches no observable channel.
-"""
+"""The out-of-date-plugin notice: semver order, hostile input, and FAIL-OPEN silence."""
 
 import json
 import os
-import shutil
 import subprocess
 import threading
-import time
-from pathlib import Path
 
 import pytest
 
-REPO = Path(__file__).resolve().parent.parent
-SCRIPT = REPO / "hooks" / "inject-risk-tiers.sh"
-# Windows resolves a bare "bash" via System32 first (the WSL stub), which cannot see C:/… paths.
-# shutil.which() walks PATH in order, so it picks Git Bash; plain "bash" covers Linux CI.
-BASH = shutil.which("bash") or "bash"
-
-STARTUP = json.dumps({"hook_event_name": "SessionStart", "source": "startup"})
-# Larger than a pipe buffer on purpose: the hook writes the whole rule to stdout, and a test
-# that waits on the process without draining it would deadlock against that write rather
-# than measure what it meant to.
-RULE_BODY = "# rule\nthe body the hook must actually read\n" + "filler line\n" * 8000
-
-NOTICE_OPEN = "<harness-tier-stale-build>"
-NOTICE_CLOSE = "</harness-tier-stale-build>"
-RELAY = "Relay this to the user before doing anything else:"
-
-# Each output branch: the env that selects it, and where the injected context lands.
-BRANCHES = {
-    "claude": ({}, ("hookSpecificOutput", "additionalContext")),
-    "cursor": ({"CURSOR_PLUGIN_ROOT": "x"}, ("additional_context",)),
-    "sdk": ({"COPILOT_CLI": "1"}, ("additionalContext",)),
-}
-
-
-def _manifest(where: Path, name: str, version: str | None, indent: int | None = 2) -> None:
-    """A `.claude-plugin/plugin.json`, with `author.name` after the top-level one — the real
-    layout, and the one a last-match read would get backwards.
-
-    Pretty-printed by default because the shipped manifests are: on one line a regex takes the
-    leftmost match anyway, so a single-line fixture cannot tell first-match from last-match.
-    """
-    where.mkdir(parents=True, exist_ok=True)
-    body: dict[str, object] = {"name": name}
-    if version is not None:
-        body["version"] = version
-    body["author"] = {"name": "someone-else"}
-    (where / "plugin.json").write_text(
-        json.dumps(body, indent=indent), encoding="utf-8", newline=""
-    )
-
-
-def _plugins_root(
-    tmp_path: Path,
-    loaded: str | None = "1.0.0",
-    published: str | None = "2.0.0",
-    name: str = "harness-tier",
-    market_name: str | None = None,
-    market: str = "mkt",
-) -> Path:
-    """Claude Code's plugins directory: an install cache holding the loaded build, and the
-    marketplace clones it keeps beside it. Returns the loaded plugin's root."""
-    root = tmp_path / "plugins"
-    plugin_root = root / "cache" / "owner" / name / (loaded or "0")
-    if loaded is not None:
-        _manifest(plugin_root / ".claude-plugin", name, loaded)
-    (plugin_root / "rules").mkdir(parents=True, exist_ok=True)
-    # newline="" stops Windows from rewriting the line endings, so the bytes the hook reads are
-    # the bytes asserted on.
-    (plugin_root / "rules" / "risk-tiers.md").write_text(RULE_BODY, encoding="utf-8", newline="")
-    if published is not None:
-        _manifest(root / "marketplaces" / market / ".claude-plugin", market_name or name, published)
-    return plugin_root
-
-
-def _market(plugin_root: Path) -> Path:
-    """The marketplace clone's manifest directory, from the loaded plugin's root."""
-    return plugin_root.parents[3] / "marketplaces" / "mkt" / ".claude-plugin"
-
-
-def _run(plugin_root: Path, stdin: str = STARTUP, extra_env=None):
-    env = {
-        "PATH": os.environ.get("PATH", ""),
-        "SYSTEMROOT": os.environ.get("SYSTEMROOT", ""),
-        "CLAUDE_PLUGIN_ROOT": str(plugin_root),
-    }
-    env.update(extra_env or {})
-    return subprocess.run(
-        [BASH, str(SCRIPT)], input=stdin, text=True, capture_output=True, env=env, timeout=30
-    )
-
-
-def _out(result) -> dict:
-    assert result.returncode == 0, (
-        f"hook must always exit 0, got {result.returncode}: {result.stderr}"
-    )
-    return json.loads(result.stdout)
-
-
-def _context(result, branch: str = "claude") -> str:
-    node = _out(result)
-    for key in BRANCHES[branch][1]:
-        node = node[key]
-    assert isinstance(node, str), f"expected a context string, got {type(node).__name__}"
-    return node
-
-
-def _extract(context: str) -> str | None:
-    """The notice rides inside the injected context under its own tag, which is what makes a
-    silent run distinguishable from the rule text that is always present."""
-    if NOTICE_OPEN not in context:
-        return None
-    return context.split(NOTICE_OPEN, 1)[1].split(NOTICE_CLOSE, 1)[0]
-
-
-def _notice(result, branch: str = "claude") -> str | None:
-    return _extract(_context(result, branch))
-
-
-def test_rule_body_is_injected(tmp_path):
-    """Regression: assert the rule FILE reaches the context, not the wrapper tag that names it —
-    the tag is a constant and would pass with the rule content gone."""
-    assert "the body the hook must actually read" in _context(
-        _run(_plugins_root(tmp_path, published=None))
-    )
-
-
-def test_rule_body_with_json_specials_survives(tmp_path):
-    """The rule is interpolated into a JSON string by hand, so its escaping has to hold."""
-    plugin = _plugins_root(tmp_path, published=None)
-    tricky = 'a "quote", a \\backslash, a\ttab\nand a second line\n'
-    (plugin / "rules" / "risk-tiers.md").write_text(tricky, encoding="utf-8", newline="")
-    context = _context(_run(plugin))  # would raise on malformed JSON
-    assert 'a "quote", a \\backslash, a\ttab\nand a second line' in context
+from tests.inject_risk_tiers._helpers import (
+    BASH,
+    BRANCHES,
+    NOTICE_CLOSE,
+    NOTICE_OPEN,
+    RELAY,
+    SCRIPT,
+    _context,
+    _extract,
+    _manifest,
+    _market,
+    _notice,
+    _plugins_root,
+    _run,
+)
 
 
 @pytest.mark.parametrize("branch", list(BRANCHES))
@@ -409,108 +287,6 @@ def test_stdin_that_never_closes_does_not_hang(tmp_path):
                 pipe.close()
     assert proc.returncode == 0
     assert _extract(json.loads(stdout)["hookSpecificOutput"]["additionalContext"]) is not None
-
-
-def _prose_block(tmp_path) -> str:
-    plugin = _plugins_root(tmp_path, published=None)
-    context = _context(_run(plugin, extra_env={"CLAUDE_PROJECT_DIR": str(tmp_path)}))
-    assert "<harness-tier-prose>" in context, "the prose summary never reached the session"
-    return context.split("<harness-tier-prose>", 1)[1].split("</harness-tier-prose>", 1)[0]
-
-
-def test_the_prose_block_follows_the_risk_tiers_block(tmp_path):
-    """Text beside the mandate moves measured invocation rates, so the summary lives in its
-    own block after the closing tag, never inside it."""
-    context = _context(_run(_plugins_root(tmp_path, published=None)))
-    assert context.index("</harness-tier-risk-tiers>") < context.index("<harness-tier-prose>")
-
-
-@pytest.mark.parametrize("name", ["flow", "commit", "doc-sync", "release-commit", "prose-review"])
-def test_the_prose_block_names_no_skill(tmp_path, name):
-    """A skill named here would be forced to declare hook_assisted, folding this hook into its
-    description_sha — see tests/evals/test_injected_rule.py. The path `/doc-style.md` in the
-    block is why this asks about skill names rather than about any slash-word."""
-    assert f"/{name}" not in _prose_block(tmp_path)
-
-
-def test_the_prose_block_asks_for_the_users_language(tmp_path):
-    assert "user's language" in _prose_block(tmp_path)
-
-
-def test_the_prose_block_keeps_the_box_keys_untranslated(tmp_path):
-    """The three keys are what the TRAP rule parses; a localized key is that rule switched
-    off for that language."""
-    block = _prose_block(tmp_path)
-    for key in ("CRITICAL TRAP:", "Trigger:", "Symptom:"):
-        assert key in block
-
-
-NON_ASCII_LINE = '- **규칙** — "인용" \\ 백슬래시\tтаб é 漢字 → 화살표\n'
-
-
-def _non_ascii_plugin(tmp_path: Path) -> Path:
-    plugin = _plugins_root(tmp_path, published=None)
-    body = NON_ASCII_LINE * (100 * 1024 // len(NON_ASCII_LINE.encode()))
-    (plugin / "rules" / "risk-tiers.md").write_text(body, encoding="utf-8", newline="")
-    return plugin
-
-
-def test_a_utf8_locale_does_not_make_escaping_quadratic(tmp_path):
-    """bash pattern substitution under a multibyte locale rescans the string per match, so a
-    non-ASCII rule escaped there grows quadratically: 100 KB took 2951 ms against 25 ms in the C
-    locale on Linux bash 5.2. Judged as a ratio on the same machine, because Git Bash spends
-    seconds on this input in either locale."""
-    plugin = _non_ascii_plugin(tmp_path)
-    elapsed = {}
-    for loc in ("C", "C.UTF-8"):
-        start = time.perf_counter()
-        assert "규칙" in _context(_run(plugin, extra_env={"LC_ALL": loc}))
-        elapsed[loc] = time.perf_counter() - start
-    assert elapsed["C.UTF-8"] < 3 * elapsed["C"] + 1, elapsed
-
-
-@pytest.mark.parametrize("locale", ["C.UTF-8", "C"])
-def test_a_non_ascii_rule_round_trips_through_the_escaping(tmp_path, locale):
-    """The escaping is byte-wise in every locale. The escapes are ASCII and no UTF-8
-    continuation byte is, so decoding the JSON gives back the rule exactly; `$(cat)` drops
-    its trailing newline."""
-    plugin = _non_ascii_plugin(tmp_path)
-    body = (plugin / "rules" / "risk-tiers.md").read_text(encoding="utf-8")
-    assert body.rstrip("\n") in _context(_run(plugin, extra_env={"LC_ALL": locale}))
-
-
-def _host(tmp_path, with_rule: bool) -> dict:
-    host = tmp_path / "host"
-    if with_rule:
-        rules = host / ".claude" / "rules" / "harness-tier"
-        rules.mkdir(parents=True)
-        (rules / "doc-style.md").write_text("# copied rule\n", encoding="utf-8")
-    host.mkdir(exist_ok=True)
-    return {"CLAUDE_PROJECT_DIR": str(host)}
-
-
-@pytest.mark.parametrize("harness", [[], ["--harness", "codex"]])
-def test_the_prose_block_is_dropped_only_where_claude_loads_the_copied_rule(tmp_path, harness):
-    """/flow-init copies doc-style.md into .claude/rules/harness-tier/, which Claude Code loads
-    itself; injecting the summary beside it is the same rule twice. Codex reads no .claude/rules/,
-    so it keeps the block — as does a host that has not re-run /flow-init since the upgrade."""
-    plugin = _plugins_root(tmp_path, published=None)
-    env = _host(tmp_path, with_rule=True)
-    result = subprocess.run(
-        [BASH, str(SCRIPT), *harness], input=STARTUP, text=True, capture_output=True,
-        env={"PATH": os.environ.get("PATH", ""), "SYSTEMROOT": os.environ.get("SYSTEMROOT", ""),
-             "CLAUDE_PLUGIN_ROOT": str(plugin), **env},
-        timeout=30,
-    )
-    context = _context(result)
-    assert ("<harness-tier-prose>" in context) is bool(harness)
-    assert "the body the hook must actually read" in context
-
-
-def test_the_prose_block_stays_where_the_host_has_no_copied_rule(tmp_path):
-    plugin = _plugins_root(tmp_path, published=None)
-    context = _context(_run(plugin, extra_env=_host(tmp_path, with_rule=False)))
-    assert "<harness-tier-prose>" in context
 
 
 def test_a_nested_name_before_the_version_does_not_shadow_the_top_level_one(tmp_path):

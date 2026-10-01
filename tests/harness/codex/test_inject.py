@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from tests._hook_args import BAD_HARNESS_ARGS
-from tests.test_inject_risk_tiers import BASH, SCRIPT, STARTUP
+from tests.inject_risk_tiers._helpers import BASH, SCRIPT, STARTUP
 
 REPO = Path(__file__).resolve().parents[3]
 
