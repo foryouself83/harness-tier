@@ -9,9 +9,9 @@
 # undocumented — so the only stable state is "both recorded, nothing edited since".
 #
 # Deleting is the safe direction: a marker that should have survived costs a re-run, one that
-# should have gone lets an unreviewed commit through. Hence every undecidable case deletes, and
-# every failure of this hook leaves the markers alone (FAIL-OPEN — the gate keeps the stricter
-# answer it already had).
+# should have gone lets an unreviewed commit through. Hence every undecidable case deletes, a
+# mistyped hook entry included, and every failure of this hook leaves the markers alone
+# (FAIL-OPEN — the gate keeps the stricter answer it already had).
 #
 # bump and security are deliberately not here: they record a promotion-time decision taken on a
 # clean tree, where no edit follows to invalidate anything.
@@ -21,16 +21,26 @@ set -uo pipefail
 # Which harness sent the payload. Named by the hook entry, never guessed from the environment:
 # Codex also sets CLAUDE_PLUGIN_ROOT. No argument is Claude Code, which every existing host is.
 # Any other argument is a mistyped hook entry: read as Claude, it takes the wrong path silently.
+# It cannot say where an edit landed either, so it voids the session's tree and exits 2, which
+# puts the bad entry in front of the agent on every call until someone fixes it.
 HARNESS=claude
 if [ "$#" -gt 0 ]; then
   case "$#:$1:${2:-}" in
     2:--harness:claude | 2:--harness:codex) HARNESS=$2 ;;
     *)
-      printf '%s: unknown arguments "%s" (expected --harness claude|codex)\n' "${0##*/}" "$*" >&2
-      exit 1
+      HARNESS=unknown
+      # Exit 2 hands stderr to the agent: printable ASCII only.
+      ARGS="$(LC_ALL=C; a="$*"; printf '%s' "${a//[![:print:]]/?}")"
       ;;
   esac
 fi
+bad_args() {
+  [ "$HARNESS" = unknown ] || return 0
+  printf '%s: unknown arguments "%s" (expected --harness claude|codex); voided: %s\n' \
+    "${0##*/}" "$ARGS" "${voided:-nothing}" >&2
+  exit 2
+}
+voided=""  # bad_args reads it before the loop sets it; an exported value must not leak in
 
 MARKERS="review.done doc-sync.done"
 EVIDENCE=".claude/harness-tier/.flow"
@@ -194,6 +204,15 @@ to_slash() {
   printf '%s' "${s%/}"
 }
 
+# The repo root of the payload's `cwd`, the session's own tree.
+payload_cwd_root() {
+  local cwd
+  [[ "$payload" =~ \"cwd\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]] || return 1
+  cwd="${BASH_REMATCH[1]}"
+  cwd="${cwd//\\\\/\\}"  # JSON escapes a path backslash as two; collapse before to_slash
+  root_for "$(to_slash "$cwd")"
+}
+
 # Codex reports every edit as `apply_patch`, or as a Bash command when the model runs apply_patch
 # through the shell — never as the file_path/notebook_path shape the block below reads. The
 # prefilter matches on the quoted tool_name value or the patch marker, so it holds regardless of
@@ -230,26 +249,32 @@ EOF
   # A placed edit voids the cwd root too whenever the two may be views of one repo: the cwd root
   # is the session's tree, what CLAUDE_PROJECT_DIR is on the Claude path below, and the gate
   # falls back to it when it cannot name the worktree a commit belongs to.
-  if [[ "$payload" =~ \"cwd\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]]; then
-    cap_cwd="${BASH_REMATCH[1]}"
-    cap_cwd="${cap_cwd//\\\\/\\}"  # JSON escapes a path backslash as two; collapse before to_slash
-    cap_cwd="$(to_slash "$cap_cwd")"
-    if cwd_root="$(root_for "$cap_cwd")"; then
-      if [ "$unplaced" -eq 1 ]; then
-        add_target "$cwd_root"
-      else
-        while IFS= read -r root; do
-          case "$root" in "" | "$cwd_root") continue ;; esac
-          maybe_same_repo "$root" "$cwd_root" && add_target "$cwd_root"
-        done <<EOF
+  if cwd_root="$(payload_cwd_root)"; then
+    if [ "$unplaced" -eq 1 ]; then
+      add_target "$cwd_root"
+    else
+      while IFS= read -r root; do
+        case "$root" in "" | "$cwd_root") continue ;; esac
+        maybe_same_repo "$root" "$cwd_root" && add_target "$cwd_root"
+      done <<EOF
 $targets
 EOF
-      fi
     fi
   fi
 fi
 
-if [ "$HARNESS" != codex ]; then
+# A mistyped hook entry cannot place the edit on either harness's terms: both trees a session may
+# be judged from go, whatever shape the payload has.
+if [ "$HARNESS" = unknown ]; then
+  targets=""
+  project="$(to_slash "${CLAUDE_PROJECT_DIR:-}")"
+  [ -z "$project" ] || add_target "$project"
+  if cwd_root="$(payload_cwd_root)"; then
+    add_target "$cwd_root"
+  fi
+fi
+
+if [ "$HARNESS" = claude ]; then
   path="$(to_slash "$path")"
   case "$path" in
     */"$EVIDENCE"/*) exit 0 ;;  # the evidence dir writes its own files
@@ -282,9 +307,9 @@ $project"
       ;;
   esac
 fi
+[ -n "$targets" ] || bad_args
 [ -n "$targets" ] || exit 0
 
-voided=""
 while IFS= read -r target; do
   [ -n "$target" ] || continue
   # This tree turned the switch off: its markers outlive an edit, as they did before. Another
@@ -303,6 +328,7 @@ while IFS= read -r target; do
 done <<EOF
 $targets
 EOF
+bad_args
 [ -n "$voided" ] || exit 0
 
 # Only when something was voided: on every edit this is noise, on none the agent

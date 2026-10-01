@@ -26,11 +26,12 @@ One promotion end to end: the gates it records, the commit that carries the bump
 merge the release CI needs, and the back-merge that closes the cycle.
 
 **Source of truth**: [`merge-strategy.md`](../../rules/merge-strategy.md) owns Merge
-strategy; [`risk-tiers.md`](../../rules/risk-tiers.md) owns Commit
-Discipline and the gate glossary, and the SessionStart hook injects it, so that half is already
-in context. PR workflow, Merge commit messages and Back-merge after release sit in
-[`promotion.md`](../../rules/promotion.md), which **nothing injects — read it before running a
-promotion**. This skill is the procedure that applies both and does not restate them. Where a
+strategy; [`commit-discipline.md`](../../rules/commit-discipline.md) owns the message format;
+[`risk-tiers.md`](../../rules/risk-tiers.md) owns the gate glossary, and the SessionStart hook
+injects it, so that one is already in context. PR workflow, Merge commit messages and
+Back-merge after release sit in [`promotion.md`](../../rules/promotion.md), which **nothing
+injects — read it and `commit-discipline.md` before running a promotion**. This skill is the
+procedure that applies them and does not restate them. Where a
 rule file and this skill disagree, follow the rule file and tell the user this skill has
 drifted. [`flow-tiers.yaml`](../../flow-tiers.yaml) carries the per-tier
 gate list the commit hook enforces — read it, nothing injects it.
@@ -149,8 +150,9 @@ dots, not three: a commit on staging alone still surfaces, inverted, as a deleti
 is the only promotion that reviews at all.
 
 **2. Compute a recommended level** from the commit types over the promoted range
-([`risk-tiers.md`](../../rules/risk-tiers.md) Commit type → version impact; where the tool
-derives its own bump, `semantic-release version --print` shows its pick, best effort), under
+([`commit-discipline.md`](../../rules/commit-discipline.md) Commit type → version impact;
+where the tool derives its own bump, `semantic-release version --print` shows its pick, best
+effort), under
 the host guide's 0.x policy: `major_on_zero=false`, `1.0.0` only by an explicit decision.
 
 **3. Ask the user — where Step 0 answered `count >= 1`.** Ask the user (structured choice),

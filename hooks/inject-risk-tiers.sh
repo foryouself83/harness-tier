@@ -13,37 +13,85 @@
 # heredoc has a hang issue on bash 5.3+, so we output via printf.
 
 set -uo pipefail
+# Byte-wise throughout: every pattern here is ASCII and every output a byte copy. Under a
+# multibyte locale bash's `${s//…}` rescans the string per match, quadratic on a non-ASCII
+# rule. Set once: a `local LC_ALL` per call reloads the caller's locale on every return.
+LC_ALL=C
 
 # Which harness sent the payload. No argument is Claude Code, which every existing host is.
-# Any other argument is a mistyped hook entry: read as Claude, it takes the wrong path silently.
+# Any other argument is a mistyped hook entry. The session still gets the Claude-shaped rule —
+# no rule at all is worse than the wrong invocation form — and a block naming the bad entry, so
+# it is seen at session start rather than at the first blocked commit.
 HARNESS=claude
 if [ "$#" -gt 0 ]; then
   case "$#:$1:${2:-}" in
     2:--harness:claude | 2:--harness:codex) HARNESS=$2 ;;
     *)
+      HARNESS=unknown
       printf '%s: unknown arguments "%s" (expected --harness claude|codex)\n' "${0##*/}" "$*" >&2
-      exit 1
+      # Printable ASCII only: escape_for_json passes other control bytes and invalid UTF-8
+      # through, and either one makes the whole injection unparseable. No `<` or `>` either, so
+      # the arguments cannot close the block they are quoted in.
+      ARGS="$(LC_ALL=C; a="$*"; a="${a//[![:print:]]/?}"; printf '%s' "${a//[<>]/?}")"
       ;;
   esac
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-}"
+[ -n "$PLUGIN_ROOT" ] || PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RULE_FILE="${PLUGIN_ROOT}/rules/risk-tiers.md"
 
+# Every helper below returns through the variable its caller names, never through `$(...)`:
+# each command substitution is a fork. Git Bash 5.2 on the shipped rule, median of 7: 1050 ms
+# per session start with ten of them, 126 ms with none, 105 ms for a bare `bash -c :`.
+
+# The helpers' `printf -v` targets, declared where ShellCheck can see them assigned.
+rule_escaped="" rules_dir_escaped="" notice_escaped="" args_escaped="" tools_escaped=""
+
 # If the rule file is absent there is nothing to inject, so exit quietly (FAIL-OPEN).
+# `$(<file)` is read in the shell itself from bash 5.2 on, where `read -d ''` costs a syscall
+# per byte on msys.
 [ -f "$RULE_FILE" ] || exit 0
-rule_content="$(cat "$RULE_FILE" 2>/dev/null)" || exit 0
+{ rule_content="$(<"$RULE_FILE")"; } 2>/dev/null || exit 0
+
+# The same escaping, one awk process instead of five substitutions, for bash 3 (macOS
+# /bin/bash), which copies the whole string per match. Whole hook on the shipped rule, bash
+# 3.2.57 self-built in WSL on a native filesystem, median of 15: 290 ms with the substitutions,
+# 11 ms with awk. On bash 4.4 the two paths measured within noise of each other, so bash 4 and
+# later keep the substitutions, and Git Bash (5.2) spends no fork on them.
+# The trailing x keeps a final newline from being read as the end of the last record.
+# shellcheck disable=SC2016 # awk's own program text: nothing in it is for the shell to expand.
+json_escape_awk='{
+  if (NR > 1) printf "%s", "\\n"
+  n = length($0); out = ""
+  for (i = 1; i <= n; i++) {
+    c = substr($0, i, 1)
+    if (c == "\\") c = "\\\\"
+    else if (c == "\"") c = "\\\""
+    else if (c == "\r") c = "\\r"
+    else if (c == "\t") c = "\\t"
+    out = out c
+  }
+  printf "%s", out
+}'
 
 # Escape the JSON string via bash parameter substitution (faster than a per-character loop).
-escape_for_json() {
-  local s="$1"
-  s="${s//\\/\\\\}"
-  s="${s//\"/\\\"}"
-  s="${s//$'\n'/\\n}"
-  s="${s//$'\r'/\\r}"
-  s="${s//$'\t'/\\t}"
-  printf '%s' "$s"
+# Every escape is ASCII and no UTF-8 continuation byte is, so the C locale's byte-wise pass
+# writes what a character-wise one would. An awk that fails leaves the bash path.
+escape_for_json() {  # <var> <value>
+  local _s
+  if [ "${BASH_VERSINFO[0]}" -lt 4 ] &&
+     _s="$(printf '%sx' "$2" | LC_ALL=C awk "$json_escape_awk")"; then
+    printf -v "$1" '%s' "${_s%x}"
+    return 0
+  fi
+  _s="$2"
+  _s="${_s//\\/\\\\}"
+  _s="${_s//\"/\\\"}"
+  _s="${_s//$'\n'/\\n}"
+  _s="${_s//$'\r'/\\r}"
+  _s="${_s//$'\t'/\\t}"
+  printf -v "$1" '%s' "$_s"
 }
 
 # --- out-of-date plugin notice -----------------------------------------------
@@ -54,31 +102,33 @@ escape_for_json() {
 # absent clone means no notice. Every uncertain branch stays silent: FAIL-OPEN, because a
 # hook that runs before the session does must never delay or break it.
 
-manifest_pair() {  # <file> -> "<name>\t<version>", the FIRST of each, read without a subprocess
+manifest_pair() {  # <file> -> manifest_name, manifest_version: the FIRST of each
   # Fork-free: this runs at session start, and a grep|head|sed pipeline per key costs more than
   # the whole rest of the hook. First match wins, so a nested `author.name` after the top-level
   # one does not shadow it — which is the real manifest's layout.
-  local line name="" version=""
+  local line
+  manifest_name="" manifest_version=""
   while IFS= read -r line || [ -n "$line" ]; do
-    if [ -z "$name" ] && [[ $line =~ \"name\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]]; then
-      name="${BASH_REMATCH[1]}"
+    if [ -z "$manifest_name" ] &&
+       [[ $line =~ \"name\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]]; then
+      manifest_name="${BASH_REMATCH[1]}"
     fi
-    if [ -z "$version" ] && [[ $line =~ \"version\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]]; then
-      version="${BASH_REMATCH[1]}"
+    if [ -z "$manifest_version" ] &&
+       [[ $line =~ \"version\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]]; then
+      manifest_version="${BASH_REMATCH[1]}"
     fi
-    [ -n "$name" ] && [ -n "$version" ] && break
+    [ -n "$manifest_name" ] && [ -n "$manifest_version" ] && break
   done < "$1"
-  printf '%s\t%s' "$name" "$version"
 }
 
-safe_token() {  # <value> -> the value, or nothing when it holds anything but a name/version char
+safe_token() {  # <var> <value>: the value, or nothing when it holds anything but a name/version char
   # A marketplace clone is fetched, not authored here, so its values are untrusted input and are
   # dropped rather than escaped. A raw control byte would make escape_for_json emit JSON the host
   # cannot parse — taking the rule injection down with it — and `<`/`>` would let a value close
   # the notice's own tag and write into the context.
-  case "$1" in
-    "" | *[!A-Za-z0-9._+-]*) return 0 ;;
-    *) printf '%s' "$1" ;;
+  case "$2" in
+    "" | *[!A-Za-z0-9._+-]*) printf -v "$1" '%s' "" ;;
+    *) printf -v "$1" '%s' "$2" ;;
   esac
 }
 
@@ -134,40 +184,42 @@ version_gt() {  # <a> <b> -> 0 when a has higher semver precedence than b, 1 oth
   return 1
 }
 
-plugins_root() {  # the directory holding both `cache/` and `marketplaces/`, or nothing
+plugins_root() {  # -> plugins_dir: the directory holding both `cache/` and `marketplaces/`, or ""
   # Derived by walking up from the loaded build rather than assuming ~/.claude/plugins, which
   # CLAUDE_CONFIG_DIR can relocate. A plugin loaded from a source tree finds no marketplaces
   # sibling and the feature does not apply.
   local at="$PLUGIN_ROOT" _
+  plugins_dir=""
   for _ in 1 2 3 4 5 6; do
     # Substitution, not `dirname`: six forks is most of what this hook costs, and it runs
     # on the critical path of every session start. Both separators, since the variable is
     # whatever the host set.
     at="${at%[/\\]}"
     case "$at" in *[/\\]*) at="${at%[/\\]*}" ;; *) return 0 ;; esac
-    [ -d "$at/marketplaces" ] && printf '%s' "$at" && return 0
+    [ -d "$at/marketplaces" ] && plugins_dir="$at" && return 0
   done
 }
 
-published_notice() {
-  local root loaded pair name version pub_version market
+published_notice() {  # -> notice: the stale-build line, or ""
+  local loaded name version pub_version market
+  notice=""
   loaded="${PLUGIN_ROOT}/.claude-plugin/plugin.json"
   # `-f` is also what stops a FIFO on either path from blocking the hook forever — the read below
   # has no timeout and nothing downstream does either.
   [ -f "$loaded" ] || return 0
-  pair="$(manifest_pair "$loaded")"
-  name="$(safe_token "${pair%%$'\t'*}")"
-  version="$(safe_token "${pair##*$'\t'}")"
+  manifest_pair "$loaded"
+  safe_token name "$manifest_name"
+  safe_token version "$manifest_version"
   { [ -n "$name" ] && [ -n "$version" ]; } || return 0
-  root="$(plugins_root)"
-  [ -n "$root" ] || return 0
-  for market in "$root"/marketplaces/*/.claude-plugin/plugin.json; do
+  plugins_root
+  [ -n "$plugins_dir" ] || return 0
+  for market in "$plugins_dir"/marketplaces/*/.claude-plugin/plugin.json; do
     [ -f "$market" ] || continue
-    pair="$(manifest_pair "$market")"
+    manifest_pair "$market"
     # A marketplace that publishes several plugins carries no root manifest, and one that
     # publishes a different plugin is not this plugin's publisher.
-    [ "${pair%%$'\t'*}" = "$name" ] || continue
-    pub_version="$(safe_token "${pair##*$'\t'}")"
+    [ "$manifest_name" = "$name" ] || continue
+    safe_token pub_version "$manifest_version"
     [ -n "$pub_version" ] || continue
     # Announce only when the marketplace is AHEAD. A maintainer running a release candidate
     # is ahead of what is published, and telling them to update would name a remedy that
@@ -175,7 +227,7 @@ published_notice() {
     # answer for every clone: `continue`, or whichever directory sorts first decides, and one
     # stale clone hides the update the next one publishes.
     version_gt "$pub_version" "$version" || continue
-    printf '[%s] 설치된 버전은 %s 인데 마켓플레이스는 %s 를 게시하고 있습니다. /plugin 에서 업데이트하세요.' \
+    printf -v notice '[%s] 설치된 버전은 %s 인데 마켓플레이스는 %s 를 게시하고 있습니다. /plugin 에서 업데이트하세요.' \
       "$name" "$version" "$pub_version"
     return 0
   done
@@ -188,7 +240,7 @@ published_notice() {
 # An unreadable source announces rather than going quiet: a notice nobody needed beats a
 # feature that silently stopped working.
 notice=""
-[ "$HARNESS" = claude ] && notice="$(published_notice)"
+[ "$HARNESS" != codex ] && published_notice
 if [ -n "$notice" ]; then
   hook_stdin=""
   IFS= read -r -t 1 -d '' hook_stdin 2>/dev/null || true
@@ -202,15 +254,16 @@ fi
 # travels in the injected context under its own tag, with the instruction to pass it on.
 notice_block=""
 if [ -n "$notice" ]; then
-  notice_block="<harness-tier-stale-build>\nRelay this to the user before doing anything else:\n$(escape_for_json "$notice")\n</harness-tier-stale-build>\n\n"
+  escape_for_json notice_escaped "$notice"
+  notice_block="<harness-tier-stale-build>\nRelay this to the user before doing anything else:\n${notice_escaped}\n</harness-tier-stale-build>\n\n"
 fi
 
 # The rule links its siblings by bare filename ("[merge-strategy.md](merge-strategy.md)"),
 # which reaches a session with no directory to resolve against — the plugin lives in a
 # versioned cache. The base path is named AFTER the rule, never before it: text beside the
 # mandate moves the skills measured invocation rates, and a path is not worth that.
-rule_escaped="$(escape_for_json "$rule_content")"
-rules_dir_escaped="$(escape_for_json "${PLUGIN_ROOT}/rules")"
+escape_for_json rule_escaped "$rule_content"
+escape_for_json rules_dir_escaped "${PLUGIN_ROOT}/rules"
 flow="/flow"
 invoke_as="the /flow skill (via the Skill tool)"
 if [ "$HARNESS" = codex ]; then
@@ -223,13 +276,26 @@ session_context="${notice_block}<harness-tier-risk-tiers>\nThis project enforces
 # A separate block, after the risk-tiers one: the mandate's neighbourhood is measured, and
 # text added beside it moves the skills' invocation rates. Names no skill — a slash name
 # here would force `hook_assisted` onto it (tests/evals/test_injected_rule.py).
-prose_block="\n\n<harness-tier-prose>\nThe rule below is guidance you apply while writing. Restate it to the user in the user's language whenever you surface it; do not quote it back in English by default.\n\nBefore writing a comment, ask whether the code can raise instead — an assert, a validated bound, a type. If it can, write that and no comment. Only a trap with no runtime moment to fire at earns the box. Never a how-explanation, a revision history, date or author, or a line number; filenames are fine.\n\nThe box keys are literals the checker parses and do not translate:\n  CRITICAL TRAP: / Trigger: / Symptom:\n\nFull rule: ${rules_dir_escaped}/doc-style.md\n</harness-tier-prose>"
+# Skipped where /flow-init copied the full rule into the host's .claude/rules/ (RULES_DEST in
+# flow_init_setup.py), which Claude Code loads itself. Codex reads no .claude/rules/.
+prose_block=""
+host_rule="${CLAUDE_PROJECT_DIR:-.}/.claude/rules/harness-tier/doc-style.md"
+if [ "$HARNESS" = codex ] || [ ! -f "$host_rule" ]; then
+  prose_block="\n\n<harness-tier-prose>\nThe rule below is guidance you apply while writing. Restate it to the user in the user's language whenever you surface it; do not quote it back in English by default.\n\nBefore writing a comment, ask whether the code can raise instead — an assert, a validated bound, a type. If it can, write that and no comment. Only a trap with no runtime moment to fire at earns the box. Never a how-explanation, a revision history, date or author, or a line number; filenames are fine.\n\nThe box keys are literals the checker parses and do not translate:\n  CRITICAL TRAP: / Trigger: / Symptom:\n\nFull rule: ${rules_dir_escaped}/doc-style.md\n</harness-tier-prose>"
+fi
 session_context="${session_context}${prose_block}"
+
+# Last, for the same reason the prose block sits apart: nothing new beside the mandate.
+if [ "$HARNESS" = unknown ]; then
+  escape_for_json args_escaped "$ARGS"
+  session_context="${session_context}\n\n<harness-tier-hook-error>\nRelay this to the user before doing anything else: the harness-tier SessionStart hook entry passed unknown arguments \\\"${args_escaped}\\\" (expected --harness claude|codex), so the rule above is in its Claude Code form. Fix the hook entry.\n</harness-tier-hook-error>"
+fi
 
 if [ "$HARNESS" = codex ]; then
   tools_file="${PLUGIN_ROOT}/rules/harness-tools/codex.md"
-  if [ -f "$tools_file" ] && tools_content="$(cat "$tools_file" 2>/dev/null)"; then
-    session_context="${session_context}\n\n<harness-tier-codex-tools>\n$(escape_for_json "$tools_content")\n</harness-tier-codex-tools>"
+  if [ -f "$tools_file" ] && { tools_content="$(<"$tools_file")"; } 2>/dev/null; then
+    escape_for_json tools_escaped "$tools_content"
+    session_context="${session_context}\n\n<harness-tier-codex-tools>\n${tools_escaped}\n</harness-tier-codex-tools>"
   fi
   printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$session_context"
   exit 0

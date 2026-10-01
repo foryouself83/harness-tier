@@ -111,8 +111,8 @@ def register(host: Path) -> str:
         if _is_gate(h)
     ]
     # Only a hook under a matcher known to fire counts as the registered gate. One under a
-    # matcher this cannot decide may already be doing the job — left alone, and not counted as
-    # missing either, so it is neither repaired nor duplicated on a guess.
+    # matcher this cannot decide stays where it is, and the known-firing entry is appended
+    # beside it; like every gate hook, it is still rewritten when stale.
     firing = [
         h
         for e in entries

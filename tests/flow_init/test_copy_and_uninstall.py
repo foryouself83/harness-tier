@@ -10,12 +10,15 @@ from scripts.flow_init_setup import (
     GITIGNORE_LINES,
     append_gitignore,
     check_precommit,
+    RULES_DEST,
     copy_artifacts,
+    copy_rules,
     register_gate,
     register_marketplace,
     remove_claude_md_block,
     remove_gitignore_lines,
     remove_harness_dir,
+    remove_rules,
     run_setup,
     run_uninstall,
     unregister_gate,
@@ -308,3 +311,39 @@ def test_srs_check_and_its_import_land_together(tmp_path: Path):
     dest = tmp_path / ".claude" / "harness-tier" / "scripts"
     assert (dest / "srs_check.py").is_file()
     assert (dest / "_md_anchors.py").is_file()
+
+
+def test_copy_rules_lands_the_shipped_rule_byte_for_byte_beside_the_hosts_own(tmp_path: Path):
+    """Claude Code loads .claude/rules/ itself, and the SessionStart hook drops its prose block
+    once this file exists. The subdirectory is what keeps a host rule of the same name intact."""
+    own = tmp_path / ".claude" / "rules" / "doc-style.md"
+    own.parent.mkdir(parents=True)
+    own.write_text("host's own", encoding="utf-8")
+    for _ in range(2):  # Invariant 5: a re-run overwrites, never duplicates or fails
+        assert any("[+]" in line for line in copy_rules(PLUGIN, tmp_path))
+    copied = tmp_path / RULES_DEST / "doc-style.md"
+    assert copied.read_bytes() == (PLUGIN / "rules" / "doc-style.md").read_bytes()
+    assert own.read_text(encoding="utf-8") == "host's own"
+
+
+def test_copy_rules_skips_a_host_without_claude(tmp_path: Path):
+    """Codex reads no .claude/rules/; it keeps the hook's injected block instead."""
+    copy_rules(PLUGIN, tmp_path, ("codex",))
+    assert not (tmp_path / RULES_DEST).exists()
+
+
+def test_setup_copies_the_rules_and_uninstall_removes_only_them(tmp_path: Path):
+    assert "skip" in remove_rules(tmp_path)
+    run_setup(tmp_path, PLUGIN)
+    assert (tmp_path / RULES_DEST / "doc-style.md").is_file()
+    own = tmp_path / ".claude" / "rules" / "mine.md"
+    own.write_text("x", encoding="utf-8")
+    run_uninstall(tmp_path)
+    assert not (tmp_path / RULES_DEST).exists()
+    assert own.is_file()
+
+
+def test_the_hook_looks_for_the_rule_where_setup_copies_it():
+    """Two literals, one path: if they drift, Claude gets the copied rule AND the injected block."""
+    hook = (PLUGIN / "hooks" / "inject-risk-tiers.sh").read_text(encoding="utf-8")
+    assert f"{RULES_DEST}/doc-style.md" in hook

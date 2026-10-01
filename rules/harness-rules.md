@@ -27,7 +27,7 @@
      content, not ornament.
    - **Never restate what the next line already says.**
    - **No change history, migration note, or before-and-after narration** — the commit owns that
-     ([risk-tiers.md](risk-tiers.md) Commit Discipline).
+     ([commit-discipline.md](commit-discipline.md)).
    - **Rule files** (`CLAUDE.md`, `.claude/rules/**`) carry the rule in force, never the one it replaced.
    - **Markdown**: terse lists over prose; one fact in one place and a link everywhere else (rule 7).
 6. **The five mandatory rules are always injected**: Karpathy's 4 principles + DRY/constants + `==` version pinning + security + **reuse-first**
@@ -192,7 +192,8 @@
     - The detected stack's release-tool config (version files · changelog · CI hook — "needs confirmation" if the stack is undecided)
     - **0.x projects** recommendation: `major_on_zero=false` + annotated tags (prevent accidental 1.0.0 promotion)
     - Version-check commands (e.g. `git describe --tags`, per-tool dry-run commands)
-    - **The tier and commit discipline themselves defer to [risk-tiers.md](risk-tiers.md)** — do not emit them directly here.
+    - **The tier itself defers to [risk-tiers.md](risk-tiers.md), the message format to
+      [commit-discipline.md](commit-discipline.md)** — do not emit either directly here.
     Document sources link to `docs/research/` (do not reference `.harness/` paths, harness-rules 4-1·8).
 13-2. **Opt-in branching (whether flow is detected)**:
     - **flow not detected** — propose the release-tool config (CI workflow · hooks, etc.) as opt-in
@@ -202,8 +203,10 @@
       regardless of whether flow is detected (it is within the code-style + convention doc scope — not a rule 14 defer target).
 
 ## flow coexistence
-14. **When flow is detected (.claude/harness-tier/config/flow-config.yaml)**, process · commit · merge · PR discipline
-    defer to [risk-tiers.md](risk-tiers.md). The harness emits only code-style + framework conventions.
+14. **When flow is detected (.claude/harness-tier/config/flow-config.yaml)**, process · merge · PR
+    discipline defer to [risk-tiers.md](risk-tiers.md), commit message discipline to
+    [commit-discipline.md](commit-discipline.md). The harness emits only code-style + framework
+    conventions.
 14-1. **Pre-check tools and folder structure are an SSOT guide (enforcement is flow's job)**: the harness records, in the `docs/code-style/<stack>.md`
     toolchain-config section, a per-language/stack list of pre-check tools (lint/format/typecheck/import_lint/security/test runner) and
     the tests/ folder structure as SSOT — `/flow-init` references this when drafting `flow-config.modules[].checks`.

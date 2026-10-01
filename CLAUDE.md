@@ -35,7 +35,7 @@ on the Windows hook runtime, and the CRLF worktree floods ShellCheck with CR err
   test compares against it, and fixtures whose non-ASCII bytes ARE the case — translated, the
   test stays green and stops exercising anything. Untracked `docs/superpowers/` stays Korean.
 - **Write only what the code can't say** — [`rules/doc-style.md`](rules/doc-style.md); for a
-  commit body, [`rules/risk-tiers.md`](rules/risk-tiers.md) Commit Discipline; for generated
+  commit body, [`rules/commit-discipline.md`](rules/commit-discipline.md); for generated
   harness artifacts, [`rules/harness-rules.md`](rules/harness-rules.md) 5-2.
 - **Dogfood new CI** — a workflow-rendering feature also lands in this repo's own
   `.github/workflows/`, every job with a tight `timeout-minutes`. Exempt: a template whose
@@ -67,7 +67,7 @@ agents/          subagents the skills dispatch
 hooks/           SessionStart · PostToolUse · Notification hooks — the commit gate is not one; codex/ registers the same pair for Codex
 skills/          one directory per slash command
 rules/           shipped SSOTs: tier discipline (+ on-demand parts), harness generation, prose
-scripts/         gate + setup scripts; the host copy list is flow_init_setup.py COPY_FILES; harness/<name>/ holds each harness's own installer
+scripts/         gate + setup scripts; the host copy lists are flow_init_setup.py COPY_FILES/RULE_FILES; harness/<name>/ holds each harness's own installer
 github/          consumer workflow templates /flow-init and /wiki-init render; .github/ is this repo's own CI
 templates/       design-doc templates /flow-init seeds once into the host (host-owned after)
 tests/           pytest over scripts/ and over the shipped skill and rule files
@@ -90,7 +90,8 @@ docs/            usage/ consumer guide (English + .ko twins, shipped) · superpo
 - **A consumer-facing `.md` change (rules, skills) commits as `feat`/`fix`** — `docs`/`chore`
   trigger no release, and only a `plugin.json` version bump reaches a consumer.
 - **[`rules/risk-tiers.md`](rules/risk-tiers.md) is the tier-discipline SSOT**, injected at
-  SessionStart beside a `doc-style.md` summary; the split-out files are read on demand. Editing
+  SessionStart beside a `doc-style.md` summary (skipped once `/flow-init` has copied the rule
+  into the host); the split-out files are read on demand. Editing
   it or the hook that injects it costs every `hook_assisted` skill a live re-measure. A rate
   moves with *where* text sits beside `## Principle`'s mandate, not with how much, even on a
   byte-identical description: leave that section alone, move whole sections, and leave no

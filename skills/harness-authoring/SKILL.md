@@ -53,7 +53,7 @@ The generation engine of `/harness-init`. It fills `templates/` (skeletons) with
    output as per-lens sub-sections (tech-doc-guide code-style · harness-rules 9-7 · 9-8), not one flat list. If you generate a skill, add companion folders (references/examples) per the
    `skill-writing-guide.md` discipline. Generate `commit-versioning-guide` under `docs/operations/` using the
    `tech-doc-guide.md` operations section (harness-rules 13-1 · 13-2 — regardless of whether flow is detected;
-   defer tier/commit discipline to risk-tiers).
+   defer tier to risk-tiers, commit message discipline to commit-discipline.md).
 5. **Operational directive/standard separation (9-3 · 9-4)**: take the research operational-axes section, place a
    `<!-- ops-conventions -->` anchor in the rule `<framework>-conventions.md`, and under it write per-axis directives at
    **≤ 3 lines each** (a category instruction + a `docs/code-style/<stack>.md#<axis>` link). Concrete standard names,

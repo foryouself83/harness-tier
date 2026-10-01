@@ -96,7 +96,7 @@ Dev `review` 게이트가 변경된 모든 파일을 판단하는 기준. 위 �
 
 `/harness-init` 이 생성하는 자신의 커밋·버전 관리 문서. `/commit` 은 이 문서의 프로젝트별
 사실(scope 어휘, 0.x 정책, 릴리스 도구가 `Release-Level` 트레일러를 읽는지)을 우선함. 파일이
-없으면 `/commit` 은 `risk-tiers.md` 만으로 동작함.
+없으면 `/commit` 은 `commit-discipline.md` 만으로 동작함.
 
 ### `gate_evidence.invalidate_on_edit`
 

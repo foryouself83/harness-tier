@@ -193,7 +193,8 @@ location `docs/research/` — never put the gitignored evidence `.harness/` path
 ## onboarding — onboarding/README.md (last)
 
 Run/debug + a **"key doc links for newcomers"** section (links to SRS·SDS·code-style·research).
-When flow is detected, defer commit·PR discipline to risk-tiers (no duplication here). Write it last, after all other docs are done.
+When flow is detected, defer commit discipline to commit-discipline.md and PR discipline to
+risk-tiers (no duplication here). Write it last, after all other docs are done.
 
 ## performance — docs/verification/performance.md
 
@@ -232,10 +233,11 @@ break after cleanup.
    the key types (`feat` MINOR · `fix` PATCH · `BREAKING CHANGE` MAJOR ·
    `chore`/`docs`/`ci` no impact), and the official link
    (<https://www.conventionalcommits.org>, required). Message body: emit the `Body` and
-   `No history narration` bullets of [risk-tiers.md](../../../rules/risk-tiers.md) Commit
-   Discipline, which owns them (harness-rules 7 — no restating). They are body *format*, so
-   a flow-less host still gets them; when flow **is** detected they defer with the rest of
-   the commit discipline (see 5 below) and this doc emits nothing.
+   `No history narration` bullets of
+   [commit-discipline.md](../../../rules/commit-discipline.md), which owns them
+   (harness-rules 7 — no restating). They are body *format*, so a flow-less host still
+   gets them; when flow **is** detected they defer with the rest of the commit discipline
+   (see 5 below) and this doc emits nothing.
 2. **SemVer policy** — what `MAJOR.MINOR.PATCH` means (<https://semver.org>) plus the
    recommendation for a 0.x project: `major_on_zero=false` so a `BREAKING CHANGE` commit
    stays on 0.x, annotated tags (`git tag -a v0.x.y -m "release v0.x.y"`, friendlier to
@@ -296,11 +298,12 @@ break after cleanup.
    `jreleaser full-release --dry-run` java-kotlin /
    `dotnet-gitversion /showvariable SemVer` c#, which reports only and does not drive the
    release / `sbt "release with-defaults"` scala, which has no dry-run flag and no CI template).
-6. **Guidance when flow is detected** — defer the tier and commit discipline, including the
-   message-body list from 1, to [risk-tiers.md](../../../rules/risk-tiers.md); this doc then
-   describes only the version and release *mechanism* and duplicates no process discipline
-   (approval, merge, PR). When flow is **not** detected, propose the actual release-tool setup
-   (CI workflows, hooks) as opt-in, generated only with user consent.
+6. **Guidance when flow is detected** — defer the tier to [risk-tiers.md](../../../rules/risk-tiers.md)
+   and the commit discipline, including the message-body list from 1, to
+   [commit-discipline.md](../../../rules/commit-discipline.md); this doc then describes only
+   the version and release *mechanism* and duplicates no process discipline (approval, merge,
+   PR). When flow is **not** detected, propose the actual release-tool setup (CI workflows,
+   hooks) as opt-in, generated only with user consent.
 
 ### Authoring rules
 
@@ -308,7 +311,8 @@ break after cleanup.
   release tool's own docs.
 - **State the 0.x policy** whenever the project is 0.x: `major_on_zero=false` and annotated tags.
 - **Do not emit tier or commit discipline** — for approval flow, branching strategy and PR
-  discipline keep only the risk-tiers defer wording.
+  discipline keep only the risk-tiers defer wording; for message format, only the
+  commit-discipline defer wording.
 - **Do not duplicate what `/flow-init` renders** — no CI workflow or release-hook files here
   when flow is detected.
 - **An unconfirmed stack reads "needs confirmation"** — never fabricated (harness-rules 4).
