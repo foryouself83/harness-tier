@@ -42,8 +42,11 @@ RULE_FILE="${PLUGIN_ROOT}/rules/risk-tiers.md"
 rule_content="$(cat "$RULE_FILE" 2>/dev/null)" || exit 0
 
 # Escape the JSON string via bash parameter substitution (faster than a per-character loop).
+# LC_ALL is local and C: under a multibyte locale each substitution rescans the string per
+# match, quadratic on a non-ASCII rule. Every escape is ASCII and no UTF-8 continuation byte
+# is, so a byte-wise pass writes the same output.
 escape_for_json() {
-  local s="$1"
+  local LC_ALL=C s="$1"
   s="${s//\\/\\\\}"
   s="${s//\"/\\\"}"
   s="${s//$'\n'/\\n}"

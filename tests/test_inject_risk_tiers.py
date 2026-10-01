@@ -16,6 +16,7 @@ import os
 import shutil
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -442,6 +443,40 @@ def test_the_prose_block_keeps_the_box_keys_untranslated(tmp_path):
     block = _prose_block(tmp_path)
     for key in ("CRITICAL TRAP:", "Trigger:", "Symptom:"):
         assert key in block
+
+
+NON_ASCII_LINE = '- **규칙** — "인용" \\ 백슬래시\tтаб é 漢字 → 화살표\n'
+
+
+def _non_ascii_plugin(tmp_path: Path) -> Path:
+    plugin = _plugins_root(tmp_path, published=None)
+    body = NON_ASCII_LINE * (100 * 1024 // len(NON_ASCII_LINE.encode()))
+    (plugin / "rules" / "risk-tiers.md").write_text(body, encoding="utf-8", newline="")
+    return plugin
+
+
+def test_a_utf8_locale_does_not_make_escaping_quadratic(tmp_path):
+    """bash pattern substitution under a multibyte locale rescans the string per match, so a
+    non-ASCII rule escaped there grows quadratically: 100 KB took 2951 ms against 25 ms in the C
+    locale on Linux bash 5.2. Judged as a ratio on the same machine, because Git Bash spends
+    seconds on this input in either locale."""
+    plugin = _non_ascii_plugin(tmp_path)
+    elapsed = {}
+    for loc in ("C", "C.UTF-8"):
+        start = time.perf_counter()
+        assert "규칙" in _context(_run(plugin, extra_env={"LC_ALL": loc}))
+        elapsed[loc] = time.perf_counter() - start
+    assert elapsed["C.UTF-8"] < 3 * elapsed["C"] + 1, elapsed
+
+
+@pytest.mark.parametrize("locale", ["C.UTF-8", "C"])
+def test_a_non_ascii_rule_round_trips_through_the_escaping(tmp_path, locale):
+    """The escaping is byte-wise in every locale. The escapes are ASCII and no UTF-8
+    continuation byte is, so decoding the JSON gives back the rule exactly; `$(cat)` drops
+    its trailing newline."""
+    plugin = _non_ascii_plugin(tmp_path)
+    body = (plugin / "rules" / "risk-tiers.md").read_text(encoding="utf-8")
+    assert body.rstrip("\n") in _context(_run(plugin, extra_env={"LC_ALL": locale}))
 
 
 def _host(tmp_path, with_rule: bool) -> dict:
