@@ -95,7 +95,7 @@ The categories the Dev `review` gate judges every changed file against. The five
 
 Your own commit and versioning document, which `/harness-init` generates. `/commit` prefers its
 project facts — scope vocabulary, 0.x policy, whether the release tool reads a `Release-Level`
-trailer. A missing file leaves `/commit` on `risk-tiers.md` alone.
+trailer. A missing file leaves `/commit` on `commit-discipline.md` alone.
 
 ### `gate_evidence.invalidate_on_edit`
 

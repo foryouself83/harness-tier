@@ -160,3 +160,14 @@ def test_dot_claude_claude_md_is_a_root_source_after_the_root_file(tmp_path):
         ("root", "CLAUDE.md", ""),
         ("root", ".claude/CLAUDE.md", ""),
     ]
+
+
+def test_the_plugins_own_copied_rules_stay_out_of_the_model(tmp_path):
+    """Codex gets doc-style from the SessionStart hook; rendering the copy too spends the
+    AGENTS.md budget on a duplicate, which can push the host's own rule bodies out."""
+    from scripts.flow_init_setup import RULES_DEST
+
+    assert ir.PLUGIN_RULES_DIR == RULES_DEST
+    _write(tmp_path, ".claude/rules/mine.md", "host rule\n")
+    _write(tmp_path, f"{RULES_DEST}/doc-style.md", "plugin rule\n")
+    assert [d.source for d in ir.collect(tmp_path)] == [".claude/rules/mine.md"]

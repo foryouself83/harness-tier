@@ -209,7 +209,7 @@ Docs and Dev here; the promotion tiers' steps are in
 
 1. Make the edit directly (`superpowers` OFF).
 2. Run `/doc-sync` (Gate glossary) → record `doc-sync`.
-3. Commit via `/commit` (it applies Commit Discipline below)
+3. Commit via `/commit`
    → merge per [`merge-strategy.md`](merge-strategy.md), or open a PR when
    `merge_workflow.pull_request` includes `daily` (PR workflow in
    [`promotion.md`](promotion.md)).
@@ -339,82 +339,11 @@ Docs and Dev here; the promotion tiers' steps are in
    `merge_workflow.pull_request` includes `daily` (PR workflow in
    [`promotion.md`](promotion.md)).
 
-## Commit Discipline
-
-Always apply before every `git commit -m` and every merge. `/commit` carries out
-the mechanics — staging, the type choice, the length check — and defers here for
-every rule it applies.
-
-### Message format (Conventional Commits)
-
-```
-<type>[(scope)][!]: <description>
-                                   ← blank line
-[body]
-                                   ← blank line
-[footer(s)]
-```
-
-- **Subject** — `type(scope): description`; ≤50 chars (non-ASCII = 1
-  each); lowercase, imperative; no trailing period. Over 50 →
-  **REWRITE**, no exceptions.
-- **Body** — what & why as `-` bullets, **one sentence each**, not
-  prose; each line ≤72, wrap at word boundaries. Fragments over
-  sentences (noun phrases + `cause → effect`). Never prefix a bullet
-  with `feat:`/`fix:` — the subject owns the type. Drop anything that
-  restates another bullet, and anything the reader need not know.
-- **No history narration in the body** — no before-and-after, no
-  migration note, no account of what an earlier round of the same
-  work did. The commit *is* the history entry.
-- **Footer** — `BREAKING CHANGE: …`, `Refs: #123`; same ≤72.
-
-Subject/body limits (the **50/72 rule**) + no-trailing-period are
-lint-enforced; bullets, fragments, and terseness are soft style.
-
-Example:
-
-```
-feat(auth): rotate refresh tokens per use
-
-- Old tokens: 15-min re-login churn.
-- Per-use rotation → replayed tokens rejected.
-
-BREAKING CHANGE: refresh tokens now single-use.
-Refs: #421
-```
-
-### Language
-
-`type`/`scope`/`BREAKING CHANGE` keywords stay English (spec format —
-`semantic-release`/`gitlint` parse them). The `<description>` and body
-follow the host's configured response language (e.g. a `CLAUDE.md`
-language directive); default to English if unset.
-
-### Commit type → version impact
-
-| Type | Version | When |
-|------|---------|------|
-| `feat` | MINOR | New feature |
-| `fix` / `perf` | PATCH | Bug fix / perf improvement |
-| `docs` / `chore` / `refactor` / `test` / `style` / `ci` / `build` | none | No release |
-| `BREAKING CHANGE:` in footer | MAJOR | Incompatible change |
-
-**Squash** merges pick the **highest-priority type** among bundled
-commits.
-
-> **Plugin propagation discipline** — harness-tier ships as a tightly coupled release (plugin.json
-> `version`). `docs`/`chore` do not trigger a version bump, so they **do not propagate to
-> consumers**. Any `.md` change that affects consumer behavior (rules, skills, etc.) **must be
-> committed as `feat`/`fix`** so it rides along in a release and propagates. Leave only purely
-> internal docs (developer-only, irrelevant to consumers) as `docs`.
-
-### When asked "is this commit compliant?"
-
-Re-measure subject char count and each body line length yourself.
-Don't trust your earlier write.
-
 ## Repo conventions baked in
 
+- **Every commit goes through `/commit`**, which applies
+  [`commit-discipline.md`](commit-discipline.md). A consumer-facing `.md` change is
+  `feat`/`fix`, never `docs`/`chore` — those cut no release and never reach a consumer.
 - **Never bypass the layer-1 hook with `--no-verify`** — the host's
   `.pre-commit-config.yaml` chain is git-native and runs on every commit,
   tier or no tier. The tier-driven check is a different thing: the

@@ -1,14 +1,13 @@
 import json
-import shutil
 from pathlib import Path
 
 from scripts.flow_init_setup import _is_gate_hook
 
+# Probed, not a bare `shutil.which`: never the System32 WSL stub.
+from tests.invalidate_gate_markers._helpers import BASH as BASH
+
 PLUGIN = Path(__file__).resolve().parent.parent.parent  # repo root == plugin root
 ACCESS_ENTRIES = "system.posix_acl_access"
-# Same resolution as tests/merge_ruleset/: a bare "bash" hits the System32
-# WSL stub first on Windows, which mangles backslash paths.
-BASH = shutil.which("bash") or "bash"
 
 
 def _is_gate(command: str) -> bool:

@@ -11,6 +11,10 @@ The script performs the following, idempotently:
   so a host `settings.json` hook can run the scripts by `${CLAUDE_PROJECT_DIR}` path; the
   gate resolves `flow-tiers.yaml` from its sibling `config/` directory). The script's
   printed report is the single source of truth for which files it copied — relay it verbatim.
+- **Copies** `rules/doc-style.md` into `.claude/rules/harness-tier/` when `harnesses` names
+  `claude` (overwritten on every run; its own subdirectory, so a host rule of the same name
+  stays). Claude Code loads it every session, and the SessionStart hook stops injecting its
+  prose summary once the file exists.
 - **Registers** the commit gate in `.claude/settings.json` `hooks.PreToolUse` (skips
   if already present; no `if` field — `precommit-runner.sh` self-filters on stdin).
 - **Registers** the commit gate in `.codex/hooks.json` too when `flow-config.harnesses`
@@ -21,8 +25,10 @@ The script performs the following, idempotently:
   Codex considers the project trusted (`.codex/` is ignored otherwise), and that the
   hook still needs approving in Codex's `/hooks` before it runs.
 - **Renders** a managed block into the root `AGENTS.md` when `flow-config.harnesses` names
-  `codex`: Codex reads neither `CLAUDE.md` nor `.claude/rules/`, so the block carries them,
-  generated from those files and never written back to them. Text outside the block is kept.
+  `codex`: Codex reads neither `CLAUDE.md` nor `.claude/rules/`, so the block carries them —
+  except `.claude/rules/harness-tier/` from the bullet above, which the SessionStart hook
+  injection already covers and would otherwise duplicate. Generated from those files and never
+  written back to them. Text outside the block is kept.
 - **Registers** the `harness-tier` marketplace in `.claude/settings.json`
   `extraKnownMarketplaces` with `autoUpdate: true` (adds if absent, repairs the flag
   if present). Third-party marketplaces default to *no* auto-update and the author

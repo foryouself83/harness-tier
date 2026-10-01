@@ -159,12 +159,22 @@ def collect(host: Path, keep_imports=frozenset()) -> list[InstructionDoc]:
     return [_doc(kind, path, host, keep) for kind, path in sources(host)]
 
 
+# The plugin's own rules, copied in by /flow-init (RULES_DEST in flow_init_setup.py). Codex gets
+# them from the SessionStart hook instead, so rendering them too would spend the AGENTS.md
+# budget on a duplicate and could push the host's own rule bodies out of it.
+PLUGIN_RULES_DIR = ".claude/rules/harness-tier"
+
+
 def sources(host: Path) -> list[tuple[str, Path]]:
     """(kind, path) of every file `collect` reads, in its order, found without reading any."""
     host = host.resolve()
     out = [("root", host / rel) for rel in ROOT_FILES if (host / rel).is_file()]
     rules_dir = host / ".claude" / "rules"
-    rules = sorted(rules_dir.rglob("*.md"), key=lambda p: p.relative_to(host).as_posix())
+    plugin_rules = host / PLUGIN_RULES_DIR
+    rules = sorted(
+        (p for p in rules_dir.rglob("*.md") if plugin_rules not in p.parents),
+        key=lambda p: p.relative_to(host).as_posix(),
+    )
     out.extend(("rule", p) for p in rules if p.is_file())
     modules = sorted(_modules(host), key=lambda p: p.relative_to(host).as_posix())
     out.extend(("module", p) for p in modules)

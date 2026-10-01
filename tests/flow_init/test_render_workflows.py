@@ -3,6 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import yaml as _yaml
 
 from scripts.flow_init_setup import (
@@ -116,6 +117,7 @@ def _wiki_verify_step(host: Path) -> str:
     return next(s["run"] for s in steps if s.get("name") == "Verify wiki graph")
 
 
+@pytest.mark.skipif(BASH is None, reason="a repo-visible bash is required")
 def test_wiki_verify_step_is_green_without_the_script(tmp_path: Path):
     # The unconditional render reaches repos that gitignore .claude/, where the checkout holds
     # no script and an unguarded python3 exits 2 — a red push for a repo that never opted into

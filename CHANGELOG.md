@@ -2,6 +2,27 @@
 
 <!-- version list -->
 
+## v0.4.3 (2026-10-01)
+
+### Features
+
+- **rules**: Commit message format moves to `rules/commit-discipline.md`, read by `/commit`,
+  so `risk-tiers.md` and every session's injected context shrink. `/flow-init` copies
+  `doc-style.md` into `.claude/rules/harness-tier/`, where Claude Code loads it, and the
+  SessionStart hook drops its prose summary there; Codex keeps the hook summary.
+  `/flow-uninstall` deletes the copied rules, never the host's own.
+
+### Bug Fixes
+
+- **hooks**: An unknown `--harness` value injects the Claude-form rule plus a block naming the
+  bad arguments, and the marker hook voids the review and doc-sync evidence and exits 2. Bad
+  arguments are cut to printable ASCII with `<` and `>` replaced, so they cannot break the
+  injected JSON or the block they are quoted in.
+- **hooks**: Session start is faster: the rule is escaped in the C locale and without
+  subshell forks (Git Bash 962 → 118 ms, median of n=7; macOS bash 3 escapes
+  through one awk call). Output is byte-identical.
+
+
 ## v0.4.2 (2026-09-29)
 
 ### Features

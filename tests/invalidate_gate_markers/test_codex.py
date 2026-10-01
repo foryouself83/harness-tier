@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from tests._hook_args import BAD_HARNESS_ARGS
 from tests.invalidate_gate_markers._helpers import BASH, MARKERS, SCRIPT, repo, worktree_of
 
 pytestmark = pytest.mark.skipif(BASH is None, reason="a repo-visible bash is required")
@@ -279,32 +280,58 @@ def test_an_edit_in_another_repo_keeps_the_session_cwd_evidence(tmp_path):
     assert _voided(other) and not _voided(main)
 
 
-@pytest.mark.parametrize("args", [("--harness", "Codex"), ("--harness", "cdx"), ("--harness",)])
-def test_an_unknown_harness_fails_loudly_instead_of_taking_the_claude_path(tmp_path, args):
+def _run_bad(args: tuple, payload: dict, env: dict | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [BASH, SCRIPT.as_posix(), *args],
+        input=json.dumps(payload).encode(),
+        capture_output=True,
+        env={"PATH": os.environ["PATH"], **(env or {})},
+    )
+
+
+@pytest.mark.parametrize("args", BAD_HARNESS_ARGS)
+def test_an_unknown_harness_voids_the_cwd_tree_and_fails_loudly(tmp_path, args):
     """Read as Claude, a Codex payload carries no file_path, so every edit would keep the evidence
-    in silence. The hook names the bad value and, like any failure of it, leaves the markers."""
+    in silence. A mistyped entry cannot place an edit, so the session's tree loses its evidence
+    and the exit 2 puts the bad value in front of the agent."""
     repo = _repo(tmp_path)
     command = "*** Begin Patch\n*** Update File: a.txt\n*** End Patch"
-    run = subprocess.run(
-        [BASH, SCRIPT.as_posix(), *args],
-        input=json.dumps(
-            {"cwd": str(repo), "tool_name": "apply_patch", "tool_input": {"command": command}}
-        ).encode(),
-        capture_output=True,
-        env={"PATH": os.environ["PATH"]},
+    run = _run_bad(
+        args, {"cwd": str(repo), "tool_name": "apply_patch", "tool_input": {"command": command}}
     )
-    assert run.returncode == 1, run.stderr
-    assert b"--harness" in run.stderr
-    assert not _voided(repo)
+    assert run.returncode == 2, run.stderr
+    assert b"--harness" in run.stderr and b"voided: review, doc-sync" in run.stderr
+    assert _voided(repo)
 
 
-def test_a_trailing_argument_after_a_known_harness_fails_loudly(tmp_path):
+def test_an_unknown_harness_voids_the_project_dir_without_a_cwd(tmp_path):
     repo = _repo(tmp_path)
+    payload = {"tool_name": "Edit", "tool_input": {"file_path": "/nowhere/a.txt"}}
+    run = _run_bad(("--harness", "cdx"), payload, {"CLAUDE_PROJECT_DIR": repo.as_posix()})
+    assert run.returncode == 2, run.stderr
+    assert _voided(repo)
+
+
+def test_an_unknown_harness_with_no_tree_to_void_still_fails_loudly(tmp_path):
+    run = _run_bad(("--harness", "cdx"), {"cwd": str(tmp_path), "tool_name": "Bash"})
+    assert run.returncode == 2, run.stderr
+    assert b"--harness" in run.stderr and b"voided: nothing" in run.stderr
+
+
+def test_an_exported_voided_does_not_leak_into_the_bad_args_report(tmp_path):
+    run = _run_bad(("--harness", "cdx"), {"cwd": str(tmp_path)}, {"voided": "review"})
+    assert run.returncode == 2, run.stderr
+    assert b"voided: nothing" in run.stderr
+
+
+def test_the_bad_args_report_reaches_the_agent_as_printable_ascii(tmp_path):
+    """Exit 2 hands stderr to the agent; a control byte in the hook entry must not reach it."""
+    command = """exec bash "$0" --harness "$(printf 'a\\033b')" """
     run = subprocess.run(
-        [BASH, SCRIPT.as_posix(), "--harness", "codex", "extra"],
-        input=json.dumps({"cwd": str(repo), "tool_name": "Bash"}).encode(),
+        [BASH, "-c", command, SCRIPT.as_posix()],
+        input=json.dumps({"cwd": str(tmp_path)}).encode(),
         capture_output=True,
         env={"PATH": os.environ["PATH"]},
     )
-    assert run.returncode == 1, run.stderr
-    assert not _voided(repo)
+    assert run.returncode == 2, run.stderr
+    assert b"--harness a?b" in run.stderr and b"\x1b" not in run.stderr

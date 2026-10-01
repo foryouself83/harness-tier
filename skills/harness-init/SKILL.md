@@ -212,5 +212,6 @@ re-run `/flow-init` afterward, which then offers the `srs-verify` workflow.
 2. No writing before preview/confirmation.
 3. The host is `${CLAUDE_PROJECT_DIR}`; read the plugin from `${CLAUDE_PLUGIN_ROOT}`.
 4. No commands generated — do not create any artifact under `.claude/commands/`.
-5. Defer commit/merge/PR discipline to risk-tiers (when flow is detected).
+5. When flow is detected, defer merge/PR discipline to risk-tiers and commit message discipline
+   to commit-discipline.md.
 6. Team/network failures are FAIL-OPEN (warn + offer a choice); do not fabricate. When ambiguous, ask (Karpathy).
