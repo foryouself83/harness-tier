@@ -243,13 +243,37 @@ _is_own_empty_entry = _claude._is_own_empty_entry
 _gate_hook_remains = _claude.hook_remains
 
 
+def _confine(host: Path, path: Path) -> Path:
+    """`path`, refused when it resolves outside the host, every symlink on the way followed."""
+    root = os.path.normcase(os.path.realpath(host))
+    real = os.path.normcase(os.path.realpath(path))
+    try:
+        inside = os.path.commonpath([root, real]) == root
+    except ValueError:  # another drive
+        inside = False
+    if not inside:
+        raise OSError(f"호스트 밖을 가리킴: {path}")
+    return path
+
+
+def _host_target(host: Path, dest: Path) -> Path:
+    """`dest`, made safe to write. The repo is untrusted input: a symlink it commits where this
+    writes would carry plugin text over any file the user owns. So a directory resolving outside
+    the host is refused, and a link standing at `dest` itself is removed for the write to
+    replace."""
+    _confine(host, dest.parent)
+    if dest.is_symlink():
+        dest.unlink()
+    return dest
+
+
 def copy_artifacts(plugin: Path, host: Path, harnesses=("claude",)) -> list[str]:
     """Copy deployment artifacts (always overwrite — SOURCE is the SSOT). Gate scripts go to
     scripts/ (a flat file at its basename, a per-harness file under its subpath — `_dest_rel`),
     and the plugin policy flow-tiers.yaml goes to config/ (same place as flow-config)."""
     dest_dir = host / SCRIPTS_DIR
     try:
-        dest_dir.mkdir(parents=True, exist_ok=True)
+        _confine(host, dest_dir).mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         # First of the steps, and unguarded it took every later one down with it — the
         # workflows and the .gitignore are worth having even where this is not.
@@ -266,7 +290,7 @@ def copy_artifacts(plugin: Path, host: Path, harnesses=("claude",)) -> list[str]
             missed.add(rel)
             continue
         try:
-            dest_path = dest_dir / dest_rel
+            dest_path = _host_target(host, dest_dir / dest_rel)
             dest_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(src, dest_path)
         except OSError as exc:
@@ -280,7 +304,7 @@ def copy_artifacts(plugin: Path, host: Path, harnesses=("claude",)) -> list[str]
     try:
         # The directory is made either way: `/flow-init` puts the host's own flow-config
         # beside this file, and a missing SOURCE is no reason to withhold the place for it.
-        cfg_dir = host / CONFIG_DIR
+        cfg_dir = _confine(host, host / CONFIG_DIR)
         cfg_dir.mkdir(parents=True, exist_ok=True)
         # The policy names the gates the scripts beside it must know how to run, so a new
         # policy over an older module is the one pairing that fails CLOSED: the check asks for
@@ -296,7 +320,7 @@ def copy_artifacts(plugin: Path, host: Path, harnesses=("claude",)) -> list[str]
         if not tiers_src.is_file():
             report.append(f"  [!] 소스 없음, skip: {TIERS_FILENAME}")
             return report
-        shutil.copyfile(tiers_src, cfg_dir / TIERS_FILENAME)
+        shutil.copyfile(tiers_src, _host_target(host, cfg_dir / TIERS_FILENAME))
     except OSError as exc:
         report.append(f"  [!] {TIERS_FILENAME} 복사 실패({_why(exc)}) — 수동 확인 필요")
         return report
@@ -324,8 +348,9 @@ def copy_rules(plugin: Path, host: Path, harnesses=("claude",)) -> list[str]:
             report.append(f"  [!] 소스 없음, skip: {rel}")
             continue
         try:
+            dest = _host_target(host, dest_dir / src.name)
             dest_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(src, dest_dir / src.name)
+            shutil.copyfile(src, dest)
         except OSError as exc:
             report.append(f"  [!] 복사 실패({_why(exc)}): {RULES_DEST}/{src.name}")
             continue
@@ -376,7 +401,7 @@ def seed_design_templates(plugin: Path, host: Path) -> list[str]:
     )
     dest = host / rel
     try:
-        dest.mkdir(parents=True, exist_ok=True)
+        _confine(host, dest).mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         return [f"  [!] {rel} 을 만들지 못했습니다({_why(exc)}) — 수동 확인 필요"]
     report: list[str] = []
@@ -386,7 +411,7 @@ def seed_design_templates(plugin: Path, host: Path) -> list[str]:
             report.append(f"  [=] 템플릿 유지: {f.name}")
             continue
         try:
-            shutil.copyfile(f, target)
+            shutil.copyfile(f, _host_target(host, target))
         except OSError as exc:
             report.append(f"  [!] 템플릿 시딩 실패({_why(exc)}): {f.name}")
             continue
@@ -470,7 +495,7 @@ def check_precommit(plugin: Path, host: Path) -> list[str]:
     if not example.is_file():
         return ["  [!] pre-commit-hooks.example.yaml 없음 — skip"]
     if not dest.is_file():
-        shutil.copyfile(example, dest)
+        shutil.copyfile(example, _host_target(host, dest))
         return ["  [+] .pre-commit-config.yaml 생성 (예시 복사 — local 훅은 팀 언어로 교체)"]
     try:
         ex = yaml.safe_load(example.read_text(encoding="utf-8")) or {}
@@ -678,7 +703,7 @@ def render_workflow(host: Path, plugin: Path) -> list[str]:
         text = template.read_text(encoding="utf-8")
         for token, value in replacements.items():
             text = text.replace(token, value)
-        dest.parent.mkdir(parents=True, exist_ok=True)
+        _host_target(host, dest).parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(text, encoding="utf-8")
     except OSError as exc:
         return [f"  [!] 워크플로우 렌더링 실패(수동 확인): {exc}"]
@@ -722,7 +747,9 @@ _RELEASE_TEMPLATES = {
 }
 
 
-def _render_one(src: Path, dest: Path, subs: dict, label: str = "versioning 렌더") -> list[str]:
+def _render_one(
+    host: Path, src: Path, dest: Path, subs: dict, label: str = "versioning 렌더"
+) -> list[str]:
     if not src.exists():
         return [f"  [!] 템플릿 없음: {src.name} — skip"]
     if dest.exists():
@@ -730,8 +757,11 @@ def _render_one(src: Path, dest: Path, subs: dict, label: str = "versioning 렌�
     text = src.read_text(encoding="utf-8")
     for k, val in subs.items():
         text = text.replace(k, val)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(text, encoding="utf-8")
+    try:
+        _host_target(host, dest).parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(text, encoding="utf-8")
+    except OSError as exc:
+        return [f"  [!] {dest.name} 렌더링 실패({_why(exc)}) — 수동 확인 필요"]
     return [f"  [+] .github/workflows/{dest.name} 생성 ({label})"]
 
 
@@ -759,13 +789,14 @@ def render_versioning_workflows(host: Path, plugin: Path) -> list[str]:
     tool = str(v.get("release_tool", ""))
     tmpl = _RELEASE_TEMPLATES.get(tool.strip().lower())
     if tmpl:
-        out += _render_one(plugin / tmpl, wf_dir / "release.yml", subs)
+        out += _render_one(host, plugin / tmpl, wf_dir / "release.yml", subs)
     else:
         out.append(f"  [!] 알 수 없는 release_tool={tool!r} — release.yml skip")
 
     # branch-naming
     if (v.get("branch_naming", {}) or {}).get("enable", False):
         out += _render_one(
+            host,
             plugin / "github/branch-naming.workflow.example.yml",
             wf_dir / "branch-naming.yml",
             subs,
@@ -778,6 +809,7 @@ def render_versioning_workflows(host: Path, plugin: Path) -> list[str]:
         esub["__HARNESS_ENTROPY_SCHEDULE__"] = str(ent.get("schedule", "0 0 * * 5"))
         esub["__HARNESS_ENTROPY_PATHS__"] = " ".join(str(p) for p in (ent.get("paths") or ["src/"]))
         out += _render_one(
+            host,
             plugin / "github/entropy-check.workflow.example.yml",
             wf_dir / "entropy-check.yml",
             esub,
@@ -895,14 +927,17 @@ def render_deploy_workflows(host: Path, plugin: Path) -> list[str]:
             "__HARNESS_DOCKERFILE__": dockerfile,
             "__HARNESS_PUBLISH__": publish,
         }
-        out += _render_one(plugin / tmpl, wf_dir / f"deploy-{name}.yml", subs)
+        out += _render_one(host, plugin / tmpl, wf_dir / f"deploy-{name}.yml", subs)
 
     orch_targets = [t for t in (d.get("targets", []) or []) if _deploy_target_wired(t)]
     if orch_targets:
-        orch = wf_dir / "deploy.yml"
-        orch.parent.mkdir(parents=True, exist_ok=True)
-        orch.write_text(_orchestrator_yaml(orch_targets, d.get("order")), encoding="utf-8")
-        out.append("  [+] .github/workflows/deploy.yml 생성(오케스트레이터, 재생성)")
+        try:
+            orch = _host_target(host, wf_dir / "deploy.yml")
+            orch.parent.mkdir(parents=True, exist_ok=True)
+            orch.write_text(_orchestrator_yaml(orch_targets, d.get("order")), encoding="utf-8")
+            out.append("  [+] .github/workflows/deploy.yml 생성(오케스트레이터, 재생성)")
+        except OSError as exc:
+            out.append(f"  [!] deploy.yml 렌더링 실패({_why(exc)}) — 수동 확인 필요")
     out += integrate_release_deploy(host, plugin)
     return out
 
@@ -1197,7 +1232,7 @@ def render_unit_test_workflow(host: Path, plugin: Path) -> list[str]:
         text = template.read_text(encoding="utf-8")
         for token, value in replacements.items():
             text = text.replace(token, value)
-        dest.parent.mkdir(parents=True, exist_ok=True)
+        _host_target(host, dest).parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(text, encoding="utf-8")
     except OSError as exc:
         return [f"  [!] unit-test 워크플로우 렌더링 실패(수동 확인): {exc}"]
@@ -1217,7 +1252,7 @@ def render_wiki_verify_workflow(host: Path, plugin: Path) -> list[str]:
     host that took the earlier unconditional render keeps the file it already has.
     """
     return _render_one(
-        plugin / WIKI_VERIFY_TEMPLATE, host / WIKI_VERIFY_DEST, {}, "wiki-verify 렌더"
+        host, plugin / WIKI_VERIFY_TEMPLATE, host / WIKI_VERIFY_DEST, {}, "wiki-verify 렌더"
     )
 
 
@@ -1230,7 +1265,9 @@ def render_srs_verify_workflow(host: Path, plugin: Path) -> list[str]:
 
     Idempotent·non-destructive (existing dest → report only), like every render here.
     """
-    return _render_one(plugin / SRS_VERIFY_TEMPLATE, host / SRS_VERIFY_DEST, {}, "srs-verify 렌더")
+    return _render_one(
+        host, plugin / SRS_VERIFY_TEMPLATE, host / SRS_VERIFY_DEST, {}, "srs-verify 렌더"
+    )
 
 
 def render_doc_style_workflow(host: Path, plugin: Path) -> list[str]:
@@ -1253,7 +1290,9 @@ def render_doc_style_workflow(host: Path, plugin: Path) -> list[str]:
         return ["  [=] doc_style 미설정 — 워크플로 skip"]
     if not ds.get("enable"):
         return ["  [=] doc_style.enable=false — 워크플로 미설치"]
-    return _render_one(plugin / DOC_STYLE_TEMPLATE, host / DOC_STYLE_DEST, {}, "doc-style 렌더")
+    return _render_one(
+        host, plugin / DOC_STYLE_TEMPLATE, host / DOC_STYLE_DEST, {}, "doc-style 렌더"
+    )
 
 
 def render_e2e_workflow(host: Path, plugin: Path) -> list[str]:
@@ -1271,7 +1310,7 @@ def render_e2e_workflow(host: Path, plugin: Path) -> list[str]:
         return ["  [=] e2e 미설정 — 워크플로 skip"]
     if not cfg.get("enable"):
         return ["  [=] e2e.enable=false — 워크플로 미설치"]
-    out = _render_one(plugin / E2E_TEMPLATE, host / E2E_DEST, {}, "e2e 렌더")
+    out = _render_one(host, plugin / E2E_TEMPLATE, host / E2E_DEST, {}, "e2e 렌더")
     # Delivery is a human trigger (D8 = the scaffold owns playwright.config.*), so the one
     # state the boolean cannot prevent is "workflow rendered, no suite anywhere". The
     # template's detect step keeps that green; this line is how it stops being permanent.
