@@ -45,8 +45,9 @@ the listed gates through `/flow` (Docs, Dev) or `/release-commit` (Staging, Rele
 Message: `머지 전략 위반 — '<source>' → '<target>' 는 <flag> 가 필요합니다.` or
 `… 에는 <flag> 를 쓰지 않습니다.`
 
-The `git merge` flags break its branch flow's rule. Use the flag the message names; the table is
-in [merge strategy](tiers-and-gates.md#merge-strategy).
+The `git merge` flags (or, for a branch-naming, non-rebasing `git pull`, the merge flags it
+stands in for) break its branch flow's rule. Use the flag the message names; the table is in
+[merge strategy](tiers-and-gates.md#merge-strategy).
 A `[경고] 머지 전략: … rebase 선행이 요구됩니다` line is a warning only — rebase the feature
 branch first, or ignore it when your `origin` ref is stale.
 

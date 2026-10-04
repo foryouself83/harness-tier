@@ -121,11 +121,12 @@ Preserve these in `scripts/*` and `hooks/*.sh`; code, tests and skills cite them
      marker exists, and the config names the branch neither staging nor production →
      `flow_gate_check` blocks the **unclassified commit**. A missing or broken policy, or a broken
      config, fails open: the test is "works reliably", not "the file exists".
-   - **Exception 3**: a `git merge` whose flags violate its flow's `merge_strategy` row — a
-     missing `require` flag or a present `forbid` flag, nothing else — is blocked, decided from
-     the command string alone, so no internal error can misfire it. Anything uncertain fails
-     open, as does a command whose merges all run elsewhere; one merge naming no directory
-     beside one that does keeps the whole command judged, behind a `cd` a deliberate over-block.
+   - **Exception 3**: a `git merge`, or a `git pull` that names a branch without rebasing,
+     whose flags violate its flow's `merge_strategy` row — a missing `require` flag or a
+     present `forbid` flag, nothing else — is blocked, decided from the command string alone,
+     so no internal error can misfire it. Anything uncertain fails open, as does a command
+     whose merges all run elsewhere; one merge naming no directory beside one that does keeps
+     the whole command judged, behind a `cd` a deliberate over-block.
 2. **Windows encoding** — the hook's Python runs in a cp949 locale, where a Korean `print()` or a
    UTF-8 `open()` can FAIL-OPEN and let a commit that should be blocked through. Keep the
    `PYTHONUTF8=1` · `force_utf8_io()` · `encoding="utf-8"` defenses.
@@ -151,5 +152,5 @@ Preserve these in `scripts/*` and `hooks/*.sh`; code, tests and skills cite them
    text and heredoc bodies are data only until something runs them: any exemption from reading
    them as a command must err toward over-gating, and `git` never earns one. A missed commit is
    the one direction this may never fail in; `tests/skills/` pins real invocations **and** mere
-   mentions. Skills spell `git commit` and `git merge` flags **literally** — the hook reads them
-   unexpanded. Exemption and heredoc rules: `scripts/_harness_paths.py`.
+   mentions. Skills spell `git commit`, `git merge` and `git pull` flags **literally** — the
+   hook reads them unexpanded. Exemption and heredoc rules: `scripts/_harness_paths.py`.

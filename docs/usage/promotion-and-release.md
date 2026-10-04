@@ -133,8 +133,9 @@ generated instead.
 With `merge_workflow.pull_request` listing a flow
 ([configuration](configuration.md#merge_workflowpull_request)), that flow's merge becomes a pull
 request. Commits are still made locally, so gitlint and the tier gates fire as before. The
-[merge strategy](tiers-and-gates.md#merge-strategy) check never sees a `git merge` for that flow,
-so enforcement moves to a GitHub branch ruleset's allowed merge methods:
+[merge strategy](tiers-and-gates.md#merge-strategy) check never sees a `git merge` or a
+branch-naming, non-rebasing `git pull` for that flow, so enforcement moves to a GitHub
+branch ruleset's allowed merge methods:
 
 | Target branch | Allowed methods |
 |---------------|-----------------|

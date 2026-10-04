@@ -76,7 +76,8 @@ fi
 # Coarse pre-filter. The ONLY thing decided here is whether to spawn the gate at all — what the
 # command IS gets decided once, in flow_gate_check.py --classify below.
 # It must never be narrower than that grammar, which requires the literal `git` and the
-# word `commit`/`merge`: a command holding neither cannot be an invocation,
+# word `commit`/`merge`/`pull` (a pull naming a branch merges it): a command holding neither
+# cannot be an invocation,
 # and everything else is passed on to be judged. So it states no opinion about quoting —
 # a second grammar has to agree with the first, and the spellings only one of them accepts
 # are the gate off in silence rather than a narrower gate. Over-matching costs one python
@@ -99,7 +100,7 @@ esac
 # runs with its quoting rubbed out, where a quote becomes the separator — so `eval 'git'commit`
 # is an invocation to the gate while a blank-anchored filter drops it, and a filter narrower
 # than the grammar is the gate off in silence.
-_word_re='(commit|merge)($|[^[:alnum:]_-])'
+_word_re='(commit|merge|pull)($|[^[:alnum:]_-])'
 [[ "$_cmd" =~ $_word_re ]] || exit 0
 
 ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}"

@@ -4,8 +4,9 @@ Loaded by [`/flow-init`](../SKILL.md) Step 2.7. Everything the step does is here
 skill keeps only the condition that decides whether to read it.
 
 Applies only when `flow-config.merge_workflow.pull_request` is non-empty. Under PR mode the
-local `git merge` disappears, so `flow-tiers.yaml`'s `merge_strategy` gate never fires — a
-GitHub Ruleset has to carry that enforcement instead. **The block below detects the
+local `git merge` (or a branch-naming, non-rebasing `git pull`) disappears, so
+`flow-tiers.yaml`'s `merge_strategy` gate never fires — a GitHub Ruleset has to carry that
+enforcement instead. **The block below detects the
 not-applicable case itself**: on the shipped `[]` default (or a config that predates the
 slot) it prints a skip line and exits 0, so running it is always safe and never reads as a
 config defect.

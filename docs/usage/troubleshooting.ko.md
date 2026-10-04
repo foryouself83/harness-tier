@@ -45,7 +45,8 @@ bash .claude/harness-tier/scripts/check-deps.sh    # 무엇이 빠졌는지 나�
 메시지: `머지 전략 위반 — '<source>' → '<target>' 는 <flag> 가 필요합니다.` 또는
 `… 에는 <flag> 를 쓰지 않습니다.`
 
-`git merge` 의 플래그가 그 브랜치 흐름의 규칙을 어김. 메시지가 말하는 플래그를 씀 —
+`git merge` 의 플래그(또는 브랜치를 명시하고 rebase 하지 않는 `git pull` 이라면, 그것이
+대신하는 머지 플래그)가 그 브랜치 흐름의 규칙을 어김. 메시지가 말하는 플래그를 씀 —
 표는 [머지 전략](tiers-and-gates.ko.md#머지-전략) 참고.
 `[경고] 머지 전략: … rebase 선행이 요구됩니다` 는 경고일 뿐임 — feature 브랜치를 먼저
 rebase 하거나, `origin` 참조가 낡았다면 무시함.

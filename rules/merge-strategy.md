@@ -17,8 +17,14 @@ Branch names refer to `flow-config.branches` keys.
 | production → staging (after a release or hotfix) | **FF only** (back-merge; refused → skip) | — |
 
 **Gate column** — `flow-tiers.yaml`'s `merge_strategy`, checked by the PreToolUse hook on
-`git merge`. ✅ = exit 2 on a violating flag, `require` and `forbid` alike. `—` = no
-`merge_strategy` entry.
+`git merge` and on a `git pull` that names a branch without rebasing. ✅ = exit 2 on a
+violating flag, `require` and `forbid` alike. `—` = no `merge_strategy` entry.
+
+- Flags are read as git reads them: an abbreviation (`--no-f`), the last of two opposing
+  options, and a `-c merge.ff=…` (for a pull, `-c pull.ff=…` over it) on the command line
+  all count.
+- Read from the command alone: a `merge.ff`, `pull.ff`, `branch.<name>.mergeoptions` or
+  `pull.rebase` set in git config is not seen.
 
 - Rows 6 and 7: a choice ("or") — nothing to enforce.
 - Row 8: a refused fast-forward needs a **skip**, and `require: --ff-only` would block the

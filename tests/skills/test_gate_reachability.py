@@ -158,7 +158,7 @@ def assert_git_commands_reach_the_gate(label: str, commands: list[str]) -> None:
     for cmd in commands:
         if not re.match(r"git(\s|$)", cmd):
             continue
-        for word in ("commit", "merge"):
+        for word in ("commit", "merge", "pull"):
             if re.search(rf"(?<![\w-]){word}(?![\w-])", cmd) and not reads_as_an_invocation(
                 cmd, word
             ):

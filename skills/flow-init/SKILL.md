@@ -295,8 +295,9 @@ later. If the user chooses to skip, write `modules:` as an empty array (`[]`) an
 ### Step 2.7 — Merge ruleset check (PR mode only, skippable)
 
 Applies only when `flow-config.merge_workflow.pull_request` is non-empty. Under PR mode the
-local `git merge` disappears, so `flow-tiers.yaml`'s `merge_strategy` gate never fires — a
-GitHub Ruleset has to carry that enforcement instead.
+local `git merge` (or a branch-naming, non-rebasing `git pull`) disappears, so
+`flow-tiers.yaml`'s `merge_strategy` gate never fires — a GitHub Ruleset has to carry that
+enforcement instead.
 
 Follow [`references/merge-ruleset-check.md`](references/merge-ruleset-check.md) — it holds
 the block to run and why each guard is written the way it is. Run it unconditionally: the

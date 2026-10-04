@@ -163,4 +163,5 @@ lasts until the next plugin update. There is no lasting way to change it from a 
 enforcement altogether, run [`/flow-uninstall`](update-and-removal.md#flow-uninstall--remove-host-side-wiring).
 
 It holds two things: which gates each tier requires, and `merge_strategy`, the flags each branch
-flow's `git merge` must carry. Both are described in [tiers and gates](tiers-and-gates.md).
+flow's `git merge` (or a branch-naming, non-rebasing `git pull`) must carry. Both are
+described in [tiers and gates](tiers-and-gates.md).

@@ -28,8 +28,9 @@ Three layers check your work, and each sees a different set of commits:
 1. **pre-commit** — `.pre-commit-config.yaml`: commit-message lint and file checks, on every
    `git commit` in a repo where `pre-commit install` ran.
 2. **The flow gate** — the `PreToolUse` hook `/flow-init` registers in `.claude/settings.json`.
-   It sees only the `git commit` and `git merge` commands **Claude runs in a session**. A commit
-   or merge from your own terminal, from CI, or on GitHub bypasses it.
+   It sees only `git commit`, `git merge`, and branch-naming, non-rebasing `git pull`
+   commands **Claude runs in a session**. A commit or merge from your own terminal, from CI,
+   or on GitHub bypasses it.
 3. **CI** — the workflows `/flow-init` renders, which run on every push and close the gap
    layer 2 leaves ([CI workflows](ci-workflows.md)).
 
@@ -108,8 +109,12 @@ leaves its markers for whatever runs next, on any branch.
 
 ## Merge strategy
 
-`flow-tiers.yaml`'s `merge_strategy` checks the flags of a `git merge` against its branch flow.
-Branch names resolve from `flow-config.branches`.
+`flow-tiers.yaml`'s `merge_strategy` checks the flags of a `git merge`, and of a `git pull`
+that names a branch without rebasing, against its branch flow. Flags are read as git reads
+them: an abbreviation, the last of two opposing options, and a `-c merge.ff=…` (for a pull,
+`-c pull.ff=…` over it) on the command line all count; a `merge.ff`, `pull.ff`,
+`branch.<name>.mergeoptions` or `pull.rebase` set in git config is not seen. Branch names
+resolve from `flow-config.branches`.
 
 | Merge | Enforced |
 |-------|----------|

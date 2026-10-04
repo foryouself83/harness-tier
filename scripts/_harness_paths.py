@@ -1118,6 +1118,87 @@ def is_invocation(command: str, word: str) -> bool:
     return False
 
 
+# git's global options that take the next word as their value.
+_GIT_GLOBAL_WITH_ARG = frozenset(
+    ("-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env")
+)
+
+
+def invocation_words(command: str, word: str) -> list[tuple[int, str | None, list[str], list[str]]]:
+    """(where it starts, its `-C` value, global options, operands) of every ``git … <word>``
+    the command runs.
+
+    Read off the mask, as every other reader here is. A pipeline stage the mask shows no such
+    invocation in but :func:`is_invocation` does — a subcommand split by quoting, `git mer''ge`
+    — is split once more by shlex, which joins the pieces the way bash does. Heredoc bodies and
+    comments are blanked first, since a commit message that says `git merge feature/x` is text
+    there exactly as it is on the mask; a stage shlex cannot split, or one that names git only
+    inside a quoted script, adds nothing. Such an invocation starts where its stage does.
+    """
+    pattern = git_subcommand_re(word)
+    masked = mask_literals(command)
+    out = [
+        (
+            m.start(),
+            dash_c_value(command, masked, m.start(1), m.end(1)),
+            operand_words(command, masked, m.start(1), m.end(1)),
+            operand_words(command, masked, m.end(), operand_end(command, masked, m.end())),
+        )
+        for m in pattern.finditer(masked)
+    ]
+    text = list(command)
+    for a, b, kind in _shell_regions(command):
+        if kind in ("comment", "heredoc"):
+            text[a:b] = " " * (b - a)
+    code = "".join(text)
+    for a, b in _list_elements(command, masked):
+        for sa, sb in _pipeline_stages(masked, a, b):
+            if pattern.search(masked[sa:sb]) or not is_invocation(command[sa:sb], word):
+                continue
+            for global_opts, operands in _split_invocations(code[sa:sb], word):
+                dirs = [v for f, v in zip(global_opts, global_opts[1:]) if f == "-C"]
+                out.append((sa, dirs[-1] if dirs else None, global_opts, operands))
+    return sorted(out, key=lambda inv: inv[0])
+
+
+def _pipeline_stages(masked: str, a: int, b: int) -> list[tuple[int, int]]:
+    """The stages of the pipeline `masked[a:b]`, split on each `|` the mask leaves standing."""
+    cuts = [m.start() for m in re.finditer(r"(?<!\|)\|(?!\|)", masked[a:b])]
+    bounds = [a, *(a + c for c in cuts), b]
+    return [(s + (1 if i else 0), e) for i, (s, e) in enumerate(zip(bounds, bounds[1:]))]
+
+
+def _split_invocations(text: str, word: str) -> list[tuple[list[str], list[str]]]:
+    """Every ``git [global options] <word> operands…`` in `text`, split the way the shell does.
+    An operator glued to a word (`--no-ff|cat`, `x>log`) is a word of its own."""
+    import shlex
+
+    lexer = shlex.shlex(text, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        tokens = list(lexer)
+    except ValueError:
+        return []
+    out = []
+    for i, tok in enumerate(tokens):
+        if re.split(r"[/\\]", tok)[-1] not in ("git", "git.exe"):
+            continue
+        j = i + 1
+        while j < len(tokens) and tokens[j].startswith("-"):
+            j += 2 if tokens[j] in _GIT_GLOBAL_WITH_ARG else 1
+        if j < len(tokens) and tokens[j] == word:
+            end = next(
+                (
+                    k
+                    for k in range(j + 1, len(tokens))
+                    if tokens[k] and set(tokens[k]) <= set(";&|<>()")
+                ),
+                len(tokens),
+            )
+            out.append((tokens[i + 1 : j], tokens[j + 1 : end]))
+    return out
+
+
 def operand_words(command: str, masked: str, start: int, end: int) -> list[str]:
     """The words `command[start:end]` holds, read the way the shell splits them.
 

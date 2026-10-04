@@ -162,5 +162,6 @@ Dev `review` 게이트가 변경된 모든 파일을 판단하는 기준. 위 �
 호스트에서 지속적으로 바꿀 방법은 없음 — 강제를 아예 끄려면
 [`/flow-uninstall`](update-and-removal.ko.md#flow-uninstall--호스트-배선-제거) 을 실행.
 
-두 가지를 담음: 등급별 필수 게이트, 그리고 `merge_strategy`(브랜치 흐름별 `git merge` 가
-가져야 할 플래그). 둘 다 [등급과 게이트](tiers-and-gates.ko.md) 에서 다룸.
+두 가지를 담음: 등급별 필수 게이트, 그리고 `merge_strategy`(브랜치 흐름별 `git merge`,
+또는 브랜치를 명시하고 rebase 하지 않는 `git pull` 이 가져야 할 플래그). 둘 다
+[등급과 게이트](tiers-and-gates.ko.md) 에서 다룸.

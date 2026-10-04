@@ -26,8 +26,8 @@
 1. **pre-commit** — `.pre-commit-config.yaml`: `pre-commit install` 이 실행된 저장소의
    모든 `git commit` 에서 커밋 메시지 검사와 파일 점검을 함.
 2. **flow 게이트** — `/flow-init` 이 `.claude/settings.json` 에 등록하는 `PreToolUse` 훅. **Claude
-   세션에서 실행한** `git commit`·`git merge` 명령만 봄. 터미널·CI·GitHub 상의 커밋이나 머지는
-   이 층을 건너뜀.
+   세션에서 실행한** `git commit`·`git merge`, 그리고 브랜치를 명시하고 rebase 하지 않는
+   `git pull` 명령만 봄. 터미널·CI·GitHub 상의 커밋이나 머지는 이 층을 건너뜀.
 3. **CI** — `/flow-init` 이 렌더링하는 워크플로들, 모든 push 에서 돌아 2층이 남기는 공백을
    메움([CI 워크플로](ci-workflows.ko.md)).
 
@@ -104,8 +104,12 @@ flow 게이트는 SRS 를 전혀 읽지 않음. `docs/srs/` 가 생기면 `/flow
 
 ## 머지 전략
 
-`flow-tiers.yaml` 의 `merge_strategy` 는 `git merge` 의 플래그를 그 브랜치 흐름과 대조함.
-브랜치명은 `flow-config.branches` 에서 옴.
+`flow-tiers.yaml` 의 `merge_strategy` 는 `git merge`, 그리고 브랜치를 명시하고 rebase 하지
+않는 `git pull` 의 플래그를 그 브랜치 흐름과 대조함. 플래그는 git 이 읽는 그대로 읽음 —
+축약형, 서로 반대되는 두 옵션 중 마지막, 명령줄의 `-c merge.ff=…`(pull 이면 그보다 우선하는
+`-c pull.ff=…`)가 모두 셈에 들어가고, git config 에 설정된 `merge.ff`·`pull.ff`·
+`branch.<name>.mergeoptions`·`pull.rebase` 는 보지 않음. 브랜치명은 `flow-config.branches`
+에서 옴.
 
 | 머지 | 강제 |
 |------|------|

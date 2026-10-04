@@ -31,15 +31,14 @@ try:
         TIERS_FILENAME,
         commit_tree_unresolved,
         config_path,
-        dash_c_value,
         flow_dir,
         force_utf8_io,
         git_subcommand_re,
         host_root,
+        invocation_words,
         is_invocation,
         mask_literals,
         operand_end,
-        operand_words,
         working_root,
     )
 except ImportError:
@@ -53,15 +52,14 @@ except ImportError:
         TIERS_FILENAME,
         commit_tree_unresolved,
         config_path,
-        dash_c_value,
         flow_dir,
         force_utf8_io,
         git_subcommand_re,
         host_root,
+        invocation_words,
         is_invocation,
         mask_literals,
         operand_end,
-        operand_words,
         working_root,
     )
 
@@ -205,8 +203,8 @@ def _merge_dirs(command: str) -> list[str | None]:
     merge y` claim the whole command belongs to another worktree, which is one appended token
     away from turning merge-strategy enforcement off.
     """
-    masked = mask_literals(command)
-    return [dash_c_value(command, masked, m.start(1), m.end(1)) for m in _MERGE_RE.finditer(masked)]
+    invocations = [*invocation_words(command, "merge"), *invocation_words(command, "pull")]
+    return [d for _start, d, _g, _o in sorted(invocations, key=lambda inv: inv[0])]
 
 
 # A leading `cd <dir>` before the merge — the merge path's own separator variant of
@@ -244,37 +242,223 @@ def parse_merge_commands(command: str) -> list[tuple[set[str], str]]:
     the policy accepts sitting in front of another left everything after it unjudged —
     and the strategy verdict is one of the three this gate may never fail open on.
     """
-    if not command:
-        return []
-    masked = mask_literals(command)
-    out: list[tuple[set[str], str]] = []
-    for m in _MERGE_RE.finditer(masked):
-        flags, source = _merge_operands(
-            operand_words(command, masked, m.end(), operand_end(command, masked, m.end()))
-        )
+    return [(flags, source) for _start, flags, source in _merges(command)]
+
+
+def _merges(command: str) -> list[tuple[int, set[str], str]]:
+    """(where it starts, flags, source) of every `git merge` naming a source."""
+    out = []
+    for start, _dir, global_opts, operands in invocation_words(command or "", "merge"):
+        flags, source = _merge_operands(operands, global_opts)
         if source:
-            out.append((flags, source))
+            out.append((start, flags, source))
     return out
 
 
-def _merge_operands(tokens: list[str]) -> tuple[set[str], str | None]:
-    """(flags, source) from the words after one `merge`."""
+# The options a strategy row can name, as their own pairs: the last of a pair wins in git.
+_SQUASH_FLAGS = ("--squash", "--no-squash")
+_FF_FLAGS = ("--ff", "--no-ff", "--ff-only")
+# Long options that take the next word, abbreviable like any other.
+_LONG_WITH_ARG = (
+    "--message",
+    "--file",
+    "--strategy",
+    "--strategy-option",
+    "--into-name",
+    "--cleanup",
+)
+
+
+def _resolve(name: str, choices: tuple[str, ...]) -> str | None:
+    """The one of `choices` a long option `name` spells, exactly or as an abbreviation.
+
+    git takes any unambiguous prefix of a long option. A prefix of one of these that git
+    accepts can only mean that one, since a second option sharing the prefix would make git
+    refuse it; a prefix git refuses runs no merge, so reading it either way blocks nothing
+    that would have merged."""
+    if name in choices:
+        return name
+    if len(name) <= 2 or not name.startswith("--"):
+        return None
+    hits = [c for c in choices if c.startswith(name)]
+    return hits[0] if len(hits) == 1 else None
+
+
+_FALSE_WORDS = ("false", "no", "off")
+_TRUE_WORDS = ("true", "yes", "on", "")
+
+
+def _config_bool(val: str) -> bool | None:
+    """A config value read as git reads a boolean — untrimmed, case-folded, an integer by its
+    value — or None for anything git would not take as one."""
+    if val in _FALSE_WORDS:
+        return False
+    if val in _TRUE_WORDS:
+        return True
+    if re.fullmatch(r"[+-]?\d+", val):
+        return int(val) != 0
+    return None
+
+
+def _config_values(global_opts: list[str], key: str) -> list[str]:
+    """Every value a `-c <key>=<value>` among git's global options sets, in order, case-folded
+    and untrimmed as git leaves it. A bare `-c <key>` sets true."""
+    values = []
+    for flag, value in zip(global_opts, global_opts[1:]):
+        if flag != "-c":
+            continue
+        name, _eq, val = value.partition("=")
+        if name.lower() == key:
+            values.append(val.lower())
+    return values
+
+
+def _config_ff(global_opts: list[str], keys: tuple[str, ...] = ("merge.ff",)) -> str | None:
+    """The fast-forward mode `-c <key>=…` sets, as the flag it stands in for. A later key in
+    `keys` outranks an earlier one, as `pull.ff` outranks `merge.ff` for a pull."""
+    mode = None
+    for key in keys:
+        for val in _config_values(global_opts, key):
+            setting = _config_bool(val)
+            if val == "only":
+                mode = "--ff-only"
+            elif setting is not None:
+                mode = "--ff" if setting else "--no-ff"
+    return mode
+
+
+def _merge_operands(
+    tokens: list[str],
+    global_opts: list[str] | None = None,
+    ff_keys: tuple[str, ...] = ("merge.ff",),
+    takes_values: bool = True,
+) -> tuple[set[str], str | None]:
+    """(flags, source) from the words after one `merge` — the flags as git reads them: an
+    abbreviation is the option it spells, the last of `--squash`/`--no-squash` and of the
+    fast-forward modes wins, and a `-c merge.ff` stands in for a mode no flag sets.
+    `takes_values=False` reads flag words whose values a caller already removed."""
     flags: set[str] = set()
     source: str | None = None
+    squash = False
+    ff = _config_ff(global_opts or [], ff_keys)
     skip_next = False
     for tok in tokens:
         if skip_next:
             skip_next = False
             continue
         if tok.startswith("-"):
-            if tok in _MERGE_FLAGS_WITH_ARG:
+            name = tok.split("=", 1)[0]
+            if takes_values and (
+                tok in _MERGE_FLAGS_WITH_ARG or ("=" not in tok and _resolve(name, _LONG_WITH_ARG))
+            ):
                 skip_next = True
                 continue
-            flags.add(tok.split("=", 1)[0])
+            if resolved := _resolve(name, _SQUASH_FLAGS):
+                squash = resolved == "--squash"
+            elif resolved := _resolve(name, _FF_FLAGS):
+                ff = resolved
+            else:
+                flags.add(name)
             continue
         if source is None:
             source = tok
+    if squash:
+        flags.add("--squash")
+    if ff:
+        flags.add(ff)
     return flags, source
+
+
+# Options of `git pull` that take the next word (its fetch half included); `-j`/`--jobs` take
+# theirs attached only. Short ones open a bundle whose rest is their value.
+_PULL_SHORT_WITH_ARG = "sXo"
+_PULL_LONG_WITH_ARG = (
+    "--strategy",
+    "--strategy-option",
+    "--server-option",
+    "--depth",
+    "--deepen",
+    "--shallow-since",
+    "--shallow-exclude",
+    "--upload-pack",
+    "--negotiation-tip",
+    "--refmap",
+    "--cleanup",
+)
+_PULL_RE = git_subcommand_re("pull")
+
+
+def _rebase_setting(tok: str) -> bool | None:
+    """Whether a `git pull` option turns rebasing on (True) or off (False); None for any other.
+    A short bundle is read letter by letter: `-r` anywhere in it rebases, its attached rest
+    being the mode, unless an option taking a value comes first and owns the rest."""
+    if not tok.startswith("--"):
+        for i, letter in enumerate(tok[1:], 1):
+            # `-S` and `-j` take an optional value attached, so they own the rest as well
+            if letter in _PULL_SHORT_WITH_ARG or letter in "Sj":
+                return None
+            if letter == "r":
+                return _config_bool(tok[i + 1 :].lower()) is not False
+        return None
+    name, eq, val = tok.partition("=")
+    resolved = _resolve(name, ("--rebase", "--no-rebase"))
+    if resolved == "--rebase":
+        return not eq or _config_bool(val.lower()) is not False
+    if resolved == "--no-rebase":
+        return False
+    return None
+
+
+def _takes_pull_value(tok: str) -> bool:
+    """Whether this `git pull` option word is followed by its value as the next word."""
+    if tok.startswith("--"):
+        return "=" not in tok and _resolve(tok, _PULL_LONG_WITH_ARG) is not None
+    return len(tok) == 2 and tok[1] in _PULL_SHORT_WITH_ARG
+
+
+def _pull_merges(command: str) -> list[tuple[int, set[str], str]]:
+    """(where it starts, flags, source) for every branch a `git pull` merges by name."""
+    out = []
+    for start, _dir, global_opts, operands in invocation_words(command or "", "pull"):
+        rebase = False
+        for val in _config_values(global_opts, "pull.rebase"):
+            rebase = _config_bool(val) is not False
+        flag_words: list[str] = []
+        positional: list[str] = []
+        skip_next = False
+        for tok in operands:
+            if skip_next:
+                skip_next = False
+                continue
+            if tok.startswith("-"):
+                if _takes_pull_value(tok):
+                    skip_next = True
+                elif (setting := _rebase_setting(tok)) is not None:
+                    rebase = setting
+                else:
+                    flag_words.append(tok)
+                continue
+            positional.append(tok)
+        if rebase:
+            continue
+        flags, _ = _merge_operands(
+            flag_words, global_opts, ff_keys=("merge.ff", "pull.ff"), takes_values=False
+        )
+        for spec in positional[1:]:
+            source = spec.lstrip("+").split(":", 1)[0]
+            if source:
+                out.append((start, flags, source))
+    return out
+
+
+def parse_pull_commands(command: str) -> list[tuple[set[str], str]]:
+    """(flags, source) for every branch a `git pull` merges by name.
+
+    A pull that names no branch merges an upstream the command does not spell, and one that
+    rebases merges nothing: neither is judged. A `pull.rebase` or `pull.ff` set in the
+    repository is not read either (Exception 3 decides from the command alone), so a pull that
+    config turns into a rebase is judged as the merge it spells."""
+    return [(flags, source) for _start, flags, source in _pull_merges(command)]
 
 
 def _switch_operand(operands: str) -> str | None:
@@ -302,8 +486,9 @@ def _switch_operand(operands: str) -> str | None:
     return branch
 
 
-def _target_from_command(command: str) -> str | None:
-    """Branch a preceding `git switch`/`git checkout` moves onto — the merge's real target.
+def _target_from_command(command: str, head_end: int | None = None) -> str | None:
+    """Branch a `git switch`/`git checkout` before `head_end` moves onto — the real target of
+    the merge starting there (the first merge's, when no position is given).
 
     `git switch dev && git merge feature/x` merges INTO dev, but at hook time HEAD is still
     feature/x. The command states the target explicitly, so it wins over the hook-time branch.
@@ -323,8 +508,9 @@ def _target_from_command(command: str) -> str | None:
     # judges the merge against a flow nobody ran. Operands are sliced from the raw string, so
     # _switch_operand still sees their quotes.
     masked = mask_literals(command)
-    merge = _MERGE_RE.search(masked)
-    head_end = merge.end(1) if merge else len(command)
+    if head_end is None:
+        merge = _MERGE_RE.search(masked)
+        head_end = merge.end(1) if merge else len(command)
     target: str | None = None
     for m in _MERGE_SWITCH_RE.finditer(masked, 0, head_end):
         branch = _switch_operand(command[m.end() : operand_end(command, masked, m.end(), head_end)])
@@ -371,17 +557,24 @@ def _points_elsewhere(command: str, root: Path) -> bool:
         return True
 
 
+# What a branch name can carry in front of it and still name that branch: its full ref, a
+# remote-tracking ref (the remote is the segment after `remotes/`), or `origin/`. A `-` or a sha
+# names no branch the command spells, so it matches no rule.
+_REF_PREFIX_RE = re.compile(r"^(?:refs/heads/|heads/|(?:refs/)?remotes/[^/]+/|origin/)")
+
+
 def _branch_matches(pattern: str, branch: str, branches: dict) -> bool:
     """Whether a branch matches a merge_strategy source/target pattern.
 
     A pattern containing `/` is a branch-prefix glob (`feature/*` → startswith `feature/`);
-    otherwise it is a flow-config.branches key compared against that key's value. The
-    `origin/` prefix is stripped from the branch first, so `git merge origin/stage` matches
-    the `staging` key. An unknown key never matches (FAIL-OPEN — no rule applies).
+    otherwise it is a flow-config.branches key compared against that key's value. A ref
+    prefix (`_REF_PREFIX_RE`) is stripped from the branch first, so `git merge origin/stage`
+    and `refs/heads/stage` match the `staging` key. An unknown key never matches (FAIL-OPEN
+    — no rule applies).
     """
     if not pattern or not branch:
         return False
-    name = branch[len("origin/") :] if branch.startswith("origin/") else branch
+    name = _REF_PREFIX_RE.sub("", branch)
     if "/" in pattern:
         return name.startswith(pattern.rstrip("*"))
     configured = branches.get(pattern)
@@ -434,18 +627,19 @@ def merge_check_output() -> None:
     except Exception:
         sys.exit(0)
     command = (payload.get("tool_input") or {}).get("command") or ""
-    merges = parse_merge_commands(command)
+    merges = sorted(_merges(command) + _pull_merges(command), key=lambda m: m[0])
     if not merges:
         sys.exit(0)
 
     root = host_root()
-    target = _target_from_command(command)
-    if not target:
+    # Each merge's target is the switch before IT: a switch after a merge moves nothing that
+    # merge lands in, and one between a pull and a later merge decides only the later one.
+    targets = [_target_from_command(command, start) for start, _f, _s in merges]
+    if not all(targets):
         if _points_elsewhere(command, root):  # target unknowable from here → FAIL-OPEN
             sys.exit(0)
-        target = _current_branch(root)
-    if not target:  # detached HEAD → FAIL-OPEN
-        sys.exit(0)
+        head = _current_branch(root)
+        targets = [t or head for t in targets]
 
     try:
         import yaml
@@ -458,7 +652,9 @@ def merge_check_output() -> None:
     strategy = load_merge_strategy(tiers_path(root))
     # Every merge the command runs, not only the first: one the policy accepts in front
     # of another left the rest unjudged, and this verdict may not fail open.
-    for flags, source in merges:
+    for (_start, flags, source), target in zip(merges, targets):
+        if not target:  # detached HEAD → FAIL-OPEN
+            continue
         rule = match_merge_rule(strategy, source, target, branches)
         if rule is None:
             continue
@@ -1012,7 +1208,7 @@ def classify_output() -> None:
         return
     try:
         is_commit = is_invocation(command, "commit")
-        is_merge = is_invocation(command, "merge")
+        is_merge = is_invocation(command, "merge") or bool(parse_pull_commands(command))
     except Exception:
         return  # FAIL-OPEN
     print("ok=1")
