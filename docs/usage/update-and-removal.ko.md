@@ -26,7 +26,9 @@
 보고만 되고 그대로 남음 — 새 플러그인의 템플릿 수정이 닿지 않으므로, 새 템플릿을
 받으려면 파일을 지우고 `/flow-init` 을 다시 돌림. `.pre-commit-config.yaml` 도
 마찬가지로 빠진 훅을 보고만 함. 예외는 `deploy.yml` 오케스트레이터와 `release.yml`
-안의 관리 배포 블록 — 이 둘은 매 실행마다 다시 생성됨.
+안의 관리 배포 블록 — 이 둘은 매 실행마다 다시 생성됨. 생성 헤더로 시작하지 않는
+`deploy.yml` 은 호스트가 직접 쓴 것으로 보고, 보고만 하고 그대로 두며, `release.yml` 배선도
+함께 보류함 — 호출 잡이 넘기는 `tag` 입력을 손으로 쓴 `deploy.yml` 이 받지 않을 수 있음.
 
 ## `/flow-uninstall` — 호스트 배선 제거
 
@@ -41,7 +43,7 @@
 
 - `.claude/settings.json` `hooks.PreToolUse` 의 커밋 게이트 — 다른 훅은 그대로 둠;
 - `extraKnownMarketplaces` 의 `harness-tier` 항목;
-- `.gitignore` 의 harness-tier 두 줄;
+- `.gitignore` 의 harness-tier 세 줄;
 - `CLAUDE.md` 의 `harness-tier:teams` 블록;
 - `.codex/hooks.json` 의 Codex 게이트와 `AGENTS.md` 의 관리 지침 블록 — `harnesses` 에
   `codex` 가 아직 남아있는지와 무관함;
@@ -78,8 +80,8 @@
    둘 다 담은 `PreToolUse` 훅만 — 그것만 — 지움. 그 결과 항목의 `hooks` 목록이 비고 항목에
    `matcher` 와 `hooks` 외의 것이 없을 때만 그 `PreToolUse` 항목을 지움. 그 뒤 `hooks` 가
    비고 파일에 다른 최상위 키가 없을 때만 파일 자체를 지움 — 다른 훅은 그대로 둠.
-3. `.gitignore` 에서 `.teams-webhooks.local.json` 과 `.claude/harness-tier/.flow/` 를
-   지움.
+3. `.gitignore` 에서 `.teams-webhooks.local.json`, `.claude/harness-tier/.flow/`,
+   `.claude/harness-tier/scripts/**/__pycache__/` 를 지움.
 4. `CLAUDE.md` 에서 `harness-tier:teams` 블록을 지움.
 5. 렌더링된 워크플로마다 결정함:
    - `wiki-verify.yml`, `doc-style.yml`, `srs-verify.yml` — 스크립트가 없으면 각각

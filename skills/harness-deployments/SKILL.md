@@ -84,28 +84,36 @@ Ask the user (structured choice) for each item below; for deployment targets, as
   `timeout-minutes` on the running job + its own `permissions:`. Declare it in config as `target: custom`
   + `workflow`/`permissions`/`with` so the orchestrator wraps it uniformly as a `uses:` job.
 - The **orchestrator** (`deploy.yml`) is generated dynamically from targets by `--render-deploy` (it is not
-  a static template) — no separate skill work needed.
+  a static template) — no separate skill work needed. A file already at that path that does not open with
+  the generated header is the host's own: `--render-deploy` reports it and leaves it untouched rather than
+  overwriting it — guide the user to delete it or merge it by hand, then re-run.
 - **The script owns release wiring**: `--render-deploy` (and a `/flow-init` re-run) fills release.yml's
   `# __HARNESS_DEPLOY_BEGIN/END__` managed block with the deploy-call job idempotently via
   `integrate_release_deploy` (union permissions auto-recomputed, re-synced on a flow-init re-run too).
-  **The skill does not edit release.yml** — the sole exception is when the script prints a `[!]` refusal
-  because the managed block is absent (legacy-ours or truly-foreign). In that case the skill:
-  - **Path A (regenerate)**: guide regenerating release.yml from the latest template → the script wires it
-    automatically (simple, but customisations need review).
-  - **Path B (semantic patch — the only path where the skill edits release.yml)**: read the release job and
-    insert `outputs.tag` + the `# __HARNESS_DEPLOY_BEGIN/END__` markers + the deploy-call job **after the
-    point where the released signal is produced** (a per-tool semantic judgement the script cannot make, so
-    the skill makes it) — apply **only after showing the diff and getting user confirmation** (preserves
-    customisations).
-  - Whichever path is taken, **in the meantime** the components and `deploy.yml` are already generated and
-    can be run manually via `workflow_dispatch` (tag input) — deployment is not blocked, only the automatic
+  **The skill does not edit release.yml** — the exceptions are both a script `[!]` refusal, for different
+  reasons needing different fixes:
+  - **The managed block is absent** (legacy-ours or truly-foreign release.yml). In that case the skill:
+    - **Path A (regenerate)**: guide regenerating release.yml from the latest template → the script wires it
+      automatically (simple, but customisations need review).
+    - **Path B (semantic patch — the only path where the skill edits release.yml)**: read the release job and
+      insert `outputs.tag` + the `# __HARNESS_DEPLOY_BEGIN/END__` markers + the deploy-call job **after the
+      point where the released signal is produced** (a per-tool semantic judgement the script cannot make, so
+      the skill makes it) — apply **only after showing the diff and getting user confirmation** (preserves
+      customisations).
+  - **`deploy.yml` is not the generated orchestrator** (the refusal above). The managed block can be present
+    and well-formed, but the call job it would add names a `tag` input a hand-written `deploy.yml` may not
+    declare, so wiring stays withheld until that file is the generated one — guide the user to delete or
+    merge `deploy.yml`, then re-run; there is no diff to confirm, since release.yml does not change until then.
+  - Whichever path is taken, **in the meantime** the components, and any `deploy.yml` already generated, can
+    be run manually via `workflow_dispatch` (tag input) — deployment is not blocked, only the automatic
     wiring is deferred.
 - Write/update `docs/operations/deploy-guide.md` — see the content below.
 
 ### 4. Report
 - Summarise the created/changed files, the secrets the repo admin must set (including the JVM signing-key
   format caution in the deploy-guide section below), whether release.yml changed (wired automatically / or
-  there was a `[!]` consultation because it was legacy·foreign), and any conflicts found.
+  there was a `[!]` consultation because it, or `deploy.yml` itself, was legacy·foreign), and any conflicts
+  found.
 
 ## `docs/operations/deploy-guide.md` content
 - The secrets to set (per target — see `references/registry-publish/*.md`·`references/container-image/*.md`).

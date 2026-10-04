@@ -54,13 +54,17 @@
 | `.claude/harness-tier/.flow/` | 런타임 | gitignore | 게이트 증거: `tier` 마커와 `<gate>.done` 파일 |
 | `.claude/settings.json` | 공유 | 추적 | `PreToolUse` 커밋 게이트와 `harness-tier` 마켓 항목 |
 | `.pre-commit-config.yaml` | 사용자 | 추적 | 없으면 예시에서 생성, 있으면 점검만 |
-| `.gitignore` | 사용자 | 추적 | 두 줄: `.teams-webhooks.local.json` 과 `.claude/harness-tier/.flow/` |
+| `.gitignore` | 사용자 | 추적 | `.teams-webhooks.local.json`, `.claude/harness-tier/.flow/`, `.claude/harness-tier/scripts/**/__pycache__/` |
 | `CLAUDE.md` | 사용자 | 추적 | Teams 채널 설정 시 `harness-tier:teams` 블록 |
 | `.github/workflows/` | 사용자 | 추적 | 설정이 켠 워크플로([CI 워크플로](ci-workflows.ko.md)) |
 
 `scripts/` 는 커밋 상태로 유지. `wiki-verify.yml`·`doc-style.yml`·`srs-verify.yml` 은 스크립트가
 체크아웃에 없으면 건너뛰어 아무것도 검증하지 못하고, `gitversion`·`jreleaser` 릴리스 워크플로는
 가드 없이 `bump_version.py` 를 불러 실패함.
+
+`/flow-init` 은 저장소 밖을 가리키는 symlink 를 통해 쓰지 않음. dotfiles 디렉터리로 연결된
+`.claude/settings.json` 은 거부되어 게이트가 등록되지 않음 — 일반 파일로 두거나 저장소 안의
+파일로 연결함.
 
 `tier` 마커는 작성된 브랜치에 묶임. `<gate>.done` 파일은 그렇지 않음 —
 [게이트 증거](tiers-and-gates.ko.md#게이트-증거) 참고.

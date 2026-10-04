@@ -182,7 +182,7 @@ def register(host: Path) -> str:
     for hook in stale:
         hook.clear()
         hook.update(copy.deepcopy(stock))
-    failed = write_json(settings, data)
+    failed = write_json(settings, data, host)
     if failed:
         return failed
     if added and moved:
@@ -217,7 +217,7 @@ def register_marketplace(host: Path) -> str:
     else:
         mkts[MARKETPLACE_NAME] = dict(MARKETPLACE_ENTRY)
         msg = "  [+] harness-tier 마켓 등록 + autoUpdate=true"
-    failed = write_json(settings, data)
+    failed = write_json(settings, data, host)
     if failed:
         return failed
     return msg
@@ -259,7 +259,7 @@ def unregister(host: Path) -> str:
     if not sum(_strip_gate_hooks(entry) for entry in pre):
         return "  [=] 게이트 훅 없음 (skip)"
     hooks["PreToolUse"] = [e for e in pre if not _is_own_empty_entry(e)]
-    failed = write_json(settings, data)
+    failed = write_json(settings, data, host)
     if failed:
         return failed
     return "  [-] 커밋 게이트 해제 (settings.json)"
@@ -274,7 +274,7 @@ def unregister_marketplace(host: Path) -> str:
     if not isinstance(mkts, dict) or MARKETPLACE_NAME not in mkts:
         return "  [=] harness-tier 마켓 등록 없음 (skip)"
     del mkts[MARKETPLACE_NAME]
-    failed = write_json(settings, data)
+    failed = write_json(settings, data, host)
     if failed:
         return failed
     return "  [-] harness-tier 마켓 등록 해제 (settings.json)"

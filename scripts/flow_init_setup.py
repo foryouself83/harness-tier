@@ -67,11 +67,13 @@ except ImportError:
 try:
     from harness.jsonfile import ACCESS_ENTRIES as _ACCESS_ENTRIES  # noqa: F401
     from harness.jsonfile import access_entries as _access_entries  # noqa: F401
+    from harness.jsonfile import confine as _confine
     from harness.jsonfile import why as _why
     from harness.jsonfile import write_json as _write_json  # noqa: F401
 except ImportError:
     from scripts.harness.jsonfile import ACCESS_ENTRIES as _ACCESS_ENTRIES  # noqa: F401
     from scripts.harness.jsonfile import access_entries as _access_entries  # noqa: F401
+    from scripts.harness.jsonfile import confine as _confine
     from scripts.harness.jsonfile import why as _why
     from scripts.harness.jsonfile import write_json as _write_json  # noqa: F401
 
@@ -209,6 +211,9 @@ def gate_files(harnesses) -> tuple[tuple[str, str], ...]:
 GITIGNORE_LINES = [
     ".teams-webhooks.local.json",
     f"{FLOW_DIR}/",
+    # The gate exports PYTHONDONTWRITEBYTECODE; this catches every other run of the copies,
+    # Codex's renderer under scripts/harness/ included.
+    f"{SCRIPTS_DIR}/**/__pycache__/",
 ]
 
 # The pre-commit hook id owned by harness-tier (a fixed hook, not a per-language replacement).
@@ -243,19 +248,6 @@ _is_own_empty_entry = _claude._is_own_empty_entry
 _gate_hook_remains = _claude.hook_remains
 
 
-def _confine(host: Path, path: Path) -> Path:
-    """`path`, refused when it resolves outside the host, every symlink on the way followed."""
-    root = os.path.normcase(os.path.realpath(host))
-    real = os.path.normcase(os.path.realpath(path))
-    try:
-        inside = os.path.commonpath([root, real]) == root
-    except ValueError:  # another drive
-        inside = False
-    if not inside:
-        raise OSError(f"호스트 밖을 가리킴: {path}")
-    return path
-
-
 def _host_target(host: Path, dest: Path) -> Path:
     """`dest`, made safe to write. The repo is untrusted input: a symlink it commits where this
     writes would carry plugin text over any file the user owns. So a directory resolving outside
@@ -265,6 +257,29 @@ def _host_target(host: Path, dest: Path) -> Path:
     if dest.is_symlink():
         dest.unlink()
     return dest
+
+
+def _read_host_text(host: Path, path: Path) -> tuple[str, str]:
+    """A host file this edits in place: its text with LF line ends, and the line end it was
+    written in ("\n" when it does not exist). Refused when it resolves outside the host, since
+    the write that follows goes wherever a link at `path` points."""
+    _confine(host, path)
+    if not path.is_file():
+        return "", "\n"
+    raw = path.read_bytes().decode("utf-8")
+    return raw.replace("\r\n", "\n"), ("\r\n" if "\r\n" in raw else "\n")
+
+
+def _write_host_text(path: Path, text: str, eol: str) -> None:
+    """Bytes, not text mode: text mode rewrites every line end to the platform's, so a CRLF file
+    edited on Linux came back LF on every line of its diff."""
+    path.write_bytes(text.replace("\n", eol).encode("utf-8"))
+
+
+def _make_executable(path: Path) -> None:
+    """`copyfile` creates a file with the default mode; a hook runs these as scripts."""
+    mode = path.stat().st_mode
+    os.chmod(path, mode | (mode & 0o444) >> 2)
 
 
 def copy_artifacts(plugin: Path, host: Path, harnesses=("claude",)) -> list[str]:
@@ -293,6 +308,8 @@ def copy_artifacts(plugin: Path, host: Path, harnesses=("claude",)) -> list[str]
             dest_path = _host_target(host, dest_dir / dest_rel)
             dest_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(src, dest_path)
+            if dest_path.suffix == ".sh":
+                _make_executable(dest_path)
         except OSError as exc:
             # One file the host holds open or keeps read-only is one file, not the whole run.
             report.append(f"  [!] 복사 실패({_why(exc)}): {dest_name}")
@@ -441,18 +458,41 @@ def design_gitignore_lines(host: Path) -> list[str]:
     return [f"{out}/"] if out else []
 
 
+def _ignore_rule(line: str) -> tuple[str, bool] | None:
+    """What a .gitignore line matches, as (pattern, directories only); None for a blank line.
+    A leading `/` is dropped where another slash anchors the rule anyway; on a bare name it
+    narrows the rule to the root, so it stays."""
+    s = line.rstrip()
+    if not s:
+        return None
+    body = s.rstrip("/")
+    if "/" in body.lstrip("/"):
+        body = body.lstrip("/")
+    return body, s.endswith("/")
+
+
+def _ignored_already(line: str, rules: set[tuple[str, bool]]) -> bool:
+    """A rule without the trailing `/` covers one with it; the reverse misses files."""
+    body, dir_only = _ignore_rule(line)
+    return (body, False) in rules or (dir_only and (body, True) in rules)
+
+
 def append_gitignore(host: Path) -> list[str]:
     """Add only the missing lines to .gitignore (without duplicates). Skip if all are present."""
     gi = host / ".gitignore"
-    text = gi.read_text(encoding="utf-8") if gi.is_file() else ""
-    existing = {ln.strip() for ln in text.splitlines()}
-    missing = [ln for ln in [*GITIGNORE_LINES, *design_gitignore_lines(host)] if ln not in existing]
+    try:
+        text, eol = _read_host_text(host, gi)
+    except OSError as exc:
+        return [f"  [!] .gitignore 수정 거부({_why(exc)}) — 수동 확인 필요"]
+    rules = {r for r in map(_ignore_rule, text.splitlines()) if r is not None}
+    wanted = [*GITIGNORE_LINES, *design_gitignore_lines(host)]
+    missing = [ln for ln in wanted if not _ignored_already(ln, rules)]
     if not missing:
         return ["  [=] .gitignore 이미 최신 (skip)"]
     if text and not text.endswith("\n"):
         text += "\n"
     text += "".join(ln + "\n" for ln in missing)
-    gi.write_text(text, encoding="utf-8")
+    _write_host_text(gi, text, eol)
     return [f"  [+] .gitignore += {ln}" for ln in missing]
 
 
@@ -530,8 +570,12 @@ def remove_gitignore_lines(host: Path) -> str:
     gi = host / ".gitignore"
     if not gi.is_file():
         return "  [=] .gitignore 없음 (skip)"
+    try:
+        text, eol = _read_host_text(host, gi)
+    except OSError as exc:
+        return f"  [!] .gitignore 수정 거부({_why(exc)}) — 수동 확인 필요"
     targets = set(GITIGNORE_LINES)
-    lines = gi.read_text(encoding="utf-8").splitlines()
+    lines = text.splitlines()
     kept = [ln for ln in lines if ln.strip() not in targets]
     removed = len(lines) - len(kept)
     if removed == 0:
@@ -539,7 +583,7 @@ def remove_gitignore_lines(host: Path) -> str:
     text = "\n".join(kept)
     if text and not text.endswith("\n"):
         text += "\n"
-    gi.write_text(text, encoding="utf-8")
+    _write_host_text(gi, text, eol)
     return f"  [-] .gitignore harness-tier 라인 {removed}개 제거"
 
 
@@ -548,7 +592,11 @@ def remove_claude_md_block(host: Path) -> str:
     cm = host / "CLAUDE.md"
     if not cm.is_file():
         return "  [=] CLAUDE.md 없음 (skip)"
-    lines = cm.read_text(encoding="utf-8").splitlines(keepends=True)
+    try:
+        text, eol = _read_host_text(host, cm)
+    except OSError as exc:
+        return f"  [!] CLAUDE.md 수정 거부({_why(exc)}) — 수동 확인 필요"
+    lines = text.splitlines(keepends=True)
     begin = end = None
     for i, ln in enumerate(lines):
         if begin is None and CLAUDE_MD_BEGIN in ln:
@@ -559,7 +607,7 @@ def remove_claude_md_block(host: Path) -> str:
     if begin is None or end is None:
         return "  [=] CLAUDE.md teams 블록 없음 (skip)"
     del lines[begin : end + 1]
-    cm.write_text("".join(lines), encoding="utf-8")
+    _write_host_text(cm, "".join(lines), eol)
     return "  [-] CLAUDE.md teams 블록 제거"
 
 
@@ -828,6 +876,22 @@ _DEFAULT_IMAGE_BY_TARGET = {
 }
 
 
+# The orchestrator's first line, and how a re-render tells its own deploy.yml from the host's.
+ORCHESTRATOR_HEADER = "# Generated by /harness-deployments from flow-config.deploy — DO NOT EDIT."
+
+
+def _orchestrator_is_ours(path: Path) -> bool:
+    """Whether `path` is absent or a deploy.yml this renders. Compared as bytes: a file that is
+    not UTF-8 is the host's, and a BOM an editor added leaves a generated one generated."""
+    if not path.is_file():
+        return True
+    try:
+        head = path.read_bytes()
+    except OSError:
+        return False
+    return head.lstrip(b"\xef\xbb\xbf").startswith(ORCHESTRATOR_HEADER.encode("utf-8"))
+
+
 def _deploy_template_for(target: str, build_tool: str) -> str | None:
     """Component template for a target. maven-central branches on build_tool; None → authored
     by /harness-deployments (sbt / custom / unknown)."""
@@ -918,9 +982,15 @@ def render_deploy_workflows(host: Path, plugin: Path) -> list[str]:
     if orch_targets:
         try:
             orch = _host_target(host, wf_dir / "deploy.yml")
-            orch.parent.mkdir(parents=True, exist_ok=True)
-            orch.write_text(_orchestrator_yaml(orch_targets, d.get("order")), encoding="utf-8")
-            out.append("  [+] .github/workflows/deploy.yml 생성(오케스트레이터, 재생성)")
+            if not _orchestrator_is_ours(orch):
+                out.append(
+                    "  [!] .github/workflows/deploy.yml 이 생성본이 아니라 덮어쓰지 않음"
+                    " — 직접 병합하거나 지운 뒤 재실행하세요"
+                )
+            else:
+                orch.parent.mkdir(parents=True, exist_ok=True)
+                orch.write_text(_orchestrator_yaml(orch_targets, d.get("order")), encoding="utf-8")
+                out.append("  [+] .github/workflows/deploy.yml 생성(오케스트레이터, 재생성)")
         except OSError as exc:
             out.append(f"  [!] deploy.yml 렌더링 실패({_why(exc)}) — 수동 확인 필요")
     out += integrate_release_deploy(host, plugin)
@@ -1002,11 +1072,21 @@ def integrate_release_deploy(host: Path, plugin: Path) -> list[str]:
         rel = host / ".github" / "workflows" / "release.yml"
         if not rel.exists():
             return ["  [=] release.yml 없음 — deploy 배선 skip"]
+        try:
+            text, eol = _read_host_text(host, rel)
+        except OSError as exc:
+            return [f"  [!] release.yml 수정 거부({_why(exc)}) — 수동 확인 필요"]
         d = load_deploy_config(host)
         enabled = bool(d and d.get("enable", False))
         wired = [t for t in (d.get("targets") if d else None) or [] if _deploy_target_wired(t)]
         body = _deploy_call_job(wired) if (enabled and wired) else ""
-        text = rel.read_text(encoding="utf-8")
+        if body and not _orchestrator_is_ours(rel.parent / "deploy.yml"):
+            # The call job hands `tag` to a reusable workflow; GitHub rejects release.yml whole
+            # when the file it calls takes no such input.
+            return [
+                "  [!] release.yml deploy 배선 보류 — deploy.yml 이 생성본이 아님"
+                " (workflow_call 의 tag 입력을 확인한 뒤 직접 배선하세요)"
+            ]
         lines = text.splitlines()
         begin_marker = "# __HARNESS_DEPLOY_BEGIN__"
         end_marker = "# __HARNESS_DEPLOY_END__"
@@ -1015,9 +1095,7 @@ def integrate_release_deploy(host: Path, plugin: Path) -> list[str]:
         if begin is None or end is None or end < begin:
             return report_legacy_release_workflow(enabled)
         new_lines = lines[: begin + 1] + ([body] if body else []) + lines[end:]
-        rel.write_text(
-            "\n".join(new_lines) + ("\n" if text.endswith("\n") else ""), encoding="utf-8"
-        )
+        _write_host_text(rel, "\n".join(new_lines) + ("\n" if text.endswith("\n") else ""), eol)
         return [
             "  [+] release.yml deploy 배선 갱신(관리 블록)"
             if body
@@ -1034,7 +1112,7 @@ def _orchestrator_yaml(targets: list, order: list | None) -> str:
     hand-edit)."""
     order = [str(o) for o in (order or [])]
     L = [
-        "# Generated by /harness-deployments from flow-config.deploy — DO NOT EDIT.",
+        ORCHESTRATOR_HEADER,
         "# Change targets in flow-config.yaml and re-render (/flow-init or /harness-deployments).",
         "name: deploy",
         "on:",

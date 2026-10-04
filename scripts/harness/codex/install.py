@@ -14,10 +14,10 @@ from pathlib import Path
 
 try:
     from harness.gate_spec import GATE
-    from harness.jsonfile import load_json_object, why, write_json
+    from harness.jsonfile import confine, load_json_object, why, write_json
 except ImportError:
     from scripts.harness.gate_spec import GATE
-    from scripts.harness.jsonfile import load_json_object, why, write_json
+    from scripts.harness.jsonfile import confine, load_json_object, why, write_json
 
 _WRAPPER = GATE.runner_rel.rsplit("/", 1)[0] + "/harness/codex/gate"
 GATE_COMMAND = f'bash "$(git rev-parse --show-toplevel)/{_WRAPPER}.sh"'
@@ -135,7 +135,7 @@ def register(host: Path) -> str:
         _path(host).parent.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         return f"  [!] .codex 를 만들지 못했습니다({why(exc)}) — 수동 확인 필요"
-    failed = write_json(_path(host), data)
+    failed = write_json(_path(host), data, host)
     if failed:
         return failed
     if added and moved:
@@ -174,11 +174,12 @@ def unregister(host: Path) -> str:
         hooks.pop("PreToolUse", None)
     if not hooks and set(data) <= {"hooks"}:
         try:
+            confine(host, _path(host).parent)  # a link AT the file is unlinked, never followed
             _path(host).unlink()
         except OSError as exc:
             return f"  [!] .codex/hooks.json 삭제 실패({why(exc)}) — 수동 확인 필요"
         return "  [-] Codex 커밋 게이트 해제 (.codex/hooks.json 삭제 — 남은 훅 없음)"
-    failed = write_json(_path(host), data)
+    failed = write_json(_path(host), data, host)
     return failed or "  [-] Codex 커밋 게이트 해제 (.codex/hooks.json)"
 
 

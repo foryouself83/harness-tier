@@ -5,7 +5,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from scripts.flow_init_setup import load_deploy_config, render_deploy_workflows
+from scripts.flow_init_setup import (
+    ORCHESTRATOR_HEADER,
+    load_deploy_config,
+    render_deploy_workflows,
+)
 
 PLUGIN = Path(__file__).resolve().parents[1]  # repo root (plugin source)
 
@@ -322,14 +326,15 @@ def test_orchestrator_custom_target(tmp_path: Path):
 
 def test_orchestrator_regenerated_not_preserved(tmp_path: Path):
     """Contrast with test_render_deploy_idempotent_nondestructive: components are preserved
-    (skip-if-exists), but the orchestrator is fully generated/managed and overwritten every
-    render, so config changes (e.g. a new target) are always reflected."""
+    (skip-if-exists), but a generated orchestrator is overwritten every render, so config
+    changes (e.g. a new target) are always reflected."""
     _write_config(tmp_path, _ORCH_CONFIG)
     render_deploy_workflows(tmp_path, PLUGIN)
     wf = tmp_path / ".github" / "workflows" / "deploy.yml"
-    wf.write_text("# stale\n", encoding="utf-8")
+    stale = ORCHESTRATOR_HEADER + "\n# stale\n"
+    wf.write_text(stale, encoding="utf-8")
     render_deploy_workflows(tmp_path, PLUGIN)
-    assert wf.read_text(encoding="utf-8") != "# stale\n"
+    assert wf.read_text(encoding="utf-8") != stale
 
 
 # --- M1: wired-only orchestrator (mapped-but-skipped targets must not dangle) --------------

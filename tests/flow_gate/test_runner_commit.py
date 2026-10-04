@@ -237,3 +237,21 @@ def test_runner_stops_over_blocking_cd_main_from_a_worktree(tmp_path: Path):
     # hook cwd is the worktree; the command cd's to main
     r = _run_runner(main, f"cd {main}; git commit -m x", hook_cwd=wt)
     assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
+
+
+@requires_bash_git
+def test_the_runner_leaves_no_bytecode_beside_the_scripts(tmp_path: Path, monkeypatch):
+    """The scripts sit in the host's tracked tree: a `__pycache__` there keeps it dirty for
+    good, and `git add -A` sweeps the `.pyc` into a commit."""
+    import shutil
+
+    monkeypatch.delenv("PYTHONDONTWRITEBYTECODE", raising=False)
+    repo = Path(__file__).resolve().parent.parent.parent
+    plugin = tmp_path / "plugin"
+    shutil.copytree(
+        repo / "scripts", plugin / "scripts", ignore=shutil.ignore_patterns("__pycache__")
+    )
+    main = tmp_path / "main"
+    _init_repo(main)
+    _run_runner(main, "git commit -m x", plugin_root=plugin)
+    assert not list(plugin.rglob("__pycache__"))

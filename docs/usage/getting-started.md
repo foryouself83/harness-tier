@@ -57,13 +57,17 @@ where that tool looks for them.
 | `.claude/harness-tier/.flow/` | runtime | gitignored | Gate evidence: the `tier` marker and `<gate>.done` files |
 | `.claude/settings.json` | shared | tracked | The `PreToolUse` commit gate and the `harness-tier` marketplace entry |
 | `.pre-commit-config.yaml` | you | tracked | Created from the example when absent; an existing file is only checked |
-| `.gitignore` | you | tracked | Two lines: `.teams-webhooks.local.json` and `.claude/harness-tier/.flow/` |
+| `.gitignore` | you | tracked | `.teams-webhooks.local.json`, `.claude/harness-tier/.flow/`, `.claude/harness-tier/scripts/**/__pycache__/` |
 | `CLAUDE.md` | you | tracked | The `harness-tier:teams` block, once a Teams channel is configured |
 | `.github/workflows/` | you | tracked | The workflows the config enables ([CI workflows](ci-workflows.md)) |
 
 Keep `scripts/` committed. `wiki-verify.yml`, `doc-style.yml` and `srs-verify.yml` skip when
 the script is missing from the checkout, so they verify nothing; the `gitversion` and
 `jreleaser` release workflows call `bump_version.py` with no such guard and fail.
+
+`/flow-init` never writes through a symlink that leaves the repo. A `.claude/settings.json`
+linked into a dotfiles directory is refused and the gate stays unregistered; make it a plain
+file, or a link to a file inside the repo.
 
 The `tier` marker is bound to the branch it was written on. A `<gate>.done` file is not — see
 [gate evidence](tiers-and-gates.md#gate-evidence).

@@ -27,7 +27,9 @@ is reported and left untouched, so a template fix in a new plugin version does n
 delete the file and re-run `/flow-init` to take the new template. The same holds for
 `.pre-commit-config.yaml`, whose missing hooks are reported, not added. The exceptions are the
 `deploy.yml` orchestrator and the managed deploy block in `release.yml`, which are regenerated
-on every run.
+on every run. A `deploy.yml` that does not open with the generated header is the host's own:
+it is reported and left untouched, and `release.yml`'s wiring is withheld along with it — the
+call job passes a `tag` input a hand-written `deploy.yml` may not declare.
 
 ## `/flow-uninstall` — remove host-side wiring
 
@@ -42,7 +44,7 @@ It removes:
 
 - the commit gate from `.claude/settings.json` `hooks.PreToolUse`, keeping your other hooks;
 - the `harness-tier` entry from `extraKnownMarketplaces`;
-- the two harness-tier lines from `.gitignore`;
+- the three harness-tier lines from `.gitignore`;
 - the `harness-tier:teams` block from `CLAUDE.md`;
 - the Codex gate from `.codex/hooks.json` and the managed instructions block from `AGENTS.md`
   — whether or not `codex` is still listed under `harnesses`;
@@ -83,7 +85,8 @@ leaves it untouched, and still ends on `정리 완료.`
    only that hook. Drop its `PreToolUse` entry only if that emptied the entry's `hooks` list
    and the entry holds nothing but `matcher` and `hooks`. Delete the file only if `hooks` is
    then empty and the file has no other top-level key; any other hook stays.
-3. Remove `.teams-webhooks.local.json` and `.claude/harness-tier/.flow/` from `.gitignore`.
+3. Remove `.teams-webhooks.local.json`, `.claude/harness-tier/.flow/` and
+   `.claude/harness-tier/scripts/**/__pycache__/` from `.gitignore`.
 4. Remove the `harness-tier:teams` block from `CLAUDE.md`.
 5. Decide on each rendered workflow:
    - `wiki-verify.yml`, `doc-style.yml`, `srs-verify.yml` — each skips when its script is gone,

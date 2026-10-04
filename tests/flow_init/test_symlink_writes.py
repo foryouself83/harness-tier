@@ -2,22 +2,32 @@
 never carry that write outside the host. A write replaces a link standing at its own path; a
 directory link that leaves the host refuses the write."""
 
+import json
 from pathlib import Path
 
 import pytest
 import yaml
 
 from scripts.flow_init_setup import (
+    GATE_ENTRY,
     RULES_DEST,
     _render_one,
+    append_gitignore,
     check_precommit,
     copy_artifacts,
+    integrate_release_deploy,
+    register_gate,
+    register_marketplace,
+    remove_claude_md_block,
+    remove_gitignore_lines,
     remove_rules,
     render_deploy_workflows,
     render_unit_test_workflow,
     render_workflow,
     seed_design_templates,
+    unregister_gate,
 )
+from scripts.harness.codex import install as codex_install
 from tests.flow_init._helpers import PLUGIN
 
 VICTIM_TEXT = "victim\n"
@@ -177,3 +187,99 @@ def test_config_renders_refuse_a_workflows_dir_linked_outside(tmp_path, render, 
     report = render(host, PLUGIN)
     assert list(outside.iterdir()) == []
     assert any("[!]" in ln for ln in report)
+
+
+# ── in-place edits: a host file this rewrites must not be a link leaving the host ──
+
+BARE_SETTINGS = '{"permissions": {"allow": []}}\n'
+GATED_SETTINGS = json.dumps({"hooks": {"PreToolUse": [GATE_ENTRY]}}) + "\n"
+
+
+@pytest.mark.parametrize(
+    ("step", "body"),
+    [
+        (register_gate, BARE_SETTINGS),
+        (register_marketplace, BARE_SETTINGS),
+        (unregister_gate, GATED_SETTINGS),
+    ],
+)
+def test_settings_steps_refuse_a_settings_file_linked_outside(tmp_path, step, body):
+    """A committed `.claude/settings.json` pointing at `~/.claude/settings.json` would put the
+    gate into every project of that user."""
+    host, outside = _layout(tmp_path)
+    victim = outside / "settings.json"
+    victim.write_text(body, encoding="utf-8")
+    _link(host / ".claude" / "settings.json", victim)
+    report = step(host)
+    assert victim.read_text(encoding="utf-8") == body
+    assert (host / ".claude" / "settings.json").is_symlink()
+    assert "[!]" in report
+
+
+def test_register_gate_refuses_a_claude_dir_linked_outside(tmp_path):
+    """Copying refuses this directory, so registering into it left a hook naming no script."""
+    host, outside = _layout(tmp_path)
+    _link(host / ".claude", outside)
+    report = register_gate(host)
+    assert list(outside.iterdir()) == []
+    assert "[!]" in report
+
+
+def test_codex_register_refuses_a_hooks_file_linked_outside(tmp_path):
+    host, outside = _layout(tmp_path)
+    victim = outside / "hooks.json"
+    victim.write_text("{}\n", encoding="utf-8")
+    _link(host / ".codex" / "hooks.json", victim)
+    report = codex_install.register(host)
+    assert victim.read_text(encoding="utf-8") == "{}\n"
+    assert "[!]" in report
+
+
+def test_codex_unregister_never_deletes_through_a_dir_linked_outside(tmp_path):
+    host, outside = _layout(tmp_path)
+    victim = outside / "hooks.json"
+    victim.write_text(
+        json.dumps({"hooks": {"PreToolUse": [codex_install.GATE_ENTRY]}}) + "\n", encoding="utf-8"
+    )
+    _link(host / ".codex", outside)
+    report = codex_install.unregister(host)
+    assert victim.exists()
+    assert "[!]" in report
+
+
+def _report(out) -> str:
+    return "\n".join(out) if isinstance(out, list) else out
+
+
+@pytest.mark.parametrize(
+    ("name", "edit", "body"),
+    [
+        (".gitignore", append_gitignore, VICTIM_TEXT),
+        (".gitignore", remove_gitignore_lines, ".claude/harness-tier/.flow/\n"),
+        (
+            "CLAUDE.md",
+            remove_claude_md_block,
+            "<!-- harness-tier:teams BEGIN -->\nx\n<!-- harness-tier:teams END -->\n",
+        ),
+    ],
+)
+def test_in_place_edits_refuse_a_file_linked_outside(tmp_path, name, edit, body):
+    host, outside = _layout(tmp_path)
+    victim = outside / name
+    victim.write_text(body, encoding="utf-8")
+    _link(host / name, victim)
+    report = _report(edit(host))
+    assert victim.read_text(encoding="utf-8") == body
+    assert "[!]" in report
+
+
+def test_release_deploy_wiring_refuses_a_release_file_linked_outside(tmp_path):
+    host, outside = _layout(tmp_path)
+    _config(host, {"deploy": {"enable": True, "targets": [{"name": "p", "target": "pypi"}]}})
+    body = "jobs:\n  # __HARNESS_DEPLOY_BEGIN__\n  # __HARNESS_DEPLOY_END__\n"
+    victim = outside / "release.yml"
+    victim.write_text(body, encoding="utf-8")
+    _link(host / ".github/workflows/release.yml", victim)
+    report = _report(integrate_release_deploy(host, PLUGIN))
+    assert victim.read_text(encoding="utf-8") == body
+    assert "[!]" in report

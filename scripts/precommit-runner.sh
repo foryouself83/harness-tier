@@ -31,6 +31,8 @@ set -uo pipefail
 # To keep Korean-reason print() / UTF-8 config-file open() from encoding-erroring into FAIL-OPEN,
 # force UTF-8 mode on every child python process (inherited).
 export PYTHONUTF8=1
+# The scripts sit in the host's tracked tree: bytecode beside them keeps that tree dirty.
+export PYTHONDONTWRITEBYTECODE=1
 
 deny() {  # $1=reason → block commit (exit 2 is the actual blocking mechanism; JSON is for forward compat)
   # The reason is interpolated into a JSON string, so it must be escaped first. Reasons carry
