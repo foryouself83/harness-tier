@@ -182,7 +182,47 @@ def test_uninstall_still_reaches_its_verdict_when_the_workflow_listing_raises(
 def test_uninstall_reads_an_uppercase_workflow_extension(tmp_path: Path, capsys):
     _workflow(tmp_path, "release.YML", "run: python3 .claude/harness-tier/scripts/y.py\n")
     run_uninstall(tmp_path)
-    assert "release.YML" in capsys.readouterr().out
+    lines = capsys.readouterr().out.splitlines()
+    assert "실패" in next(ln for ln in lines if "release.YML" in ln), lines
+
+
+def _commit_reminder(out: str) -> str:
+    return next((ln for ln in out.splitlines() if "커밋해야 반영" in ln), "")
+
+
+def test_the_commit_reminder_names_settings_only_when_uninstall_changed_it(tmp_path, capsys):
+    run_uninstall(tmp_path)
+    assert "settings.json" not in _commit_reminder(capsys.readouterr().out)
+    register_gate(tmp_path)
+    run_uninstall(tmp_path)
+    assert "settings.json" in _commit_reminder(capsys.readouterr().out)
+
+
+def test_the_commit_reminder_names_every_host_file_uninstall_changed(tmp_path, capsys):
+    append_gitignore(tmp_path)
+    (tmp_path / "CLAUDE.md").write_text(
+        f"# Host\n{CLAUDE_MD_BEGIN} -->\nbody\n<!-- harness-tier:teams END -->\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".claude" / "harness-tier").mkdir(parents=True)
+    run_uninstall(tmp_path)
+    reminder = _commit_reminder(capsys.readouterr().out)
+    for name in (".gitignore", "CLAUDE.md", ".claude/harness-tier/"):
+        assert name in reminder, reminder
+    assert "AGENTS.md" not in reminder
+
+
+def test_an_uninstall_that_changed_nothing_asks_for_no_commit(tmp_path, capsys):
+    run_uninstall(tmp_path)
+    assert _commit_reminder(capsys.readouterr().out) == ""
+
+
+def test_the_commit_reminder_skips_a_settings_file_uninstall_left_alone(tmp_path, capsys):
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text('{"model": "opus"}\n', encoding="utf-8")
+    run_uninstall(tmp_path)
+    assert "settings.json" not in _commit_reminder(capsys.readouterr().out)
 
 
 def test_an_emptied_settings_file_that_cannot_be_deleted_is_reported(tmp_path: Path, monkeypatch):

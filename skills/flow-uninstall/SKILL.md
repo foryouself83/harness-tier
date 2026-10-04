@@ -40,6 +40,8 @@ to wait for the reply — never answer the question yourself or skip it.
      else is left in it.
    - **Strips** the harness-tier `.gitignore` lines — keeping `.teams-webhooks.local.json`,
      which may still guard a secret — and the `CLAUDE.md` `harness-tier:teams` managed block.
+   - **Unregisters** the Codex gate from `.codex/hooks.json` and strips the managed block
+     from `AGENTS.md`, whether or not `codex` is still listed under `harnesses`.
    - **Deletes** `.claude/harness-tier/` (scripts, config, evidence, webhooks, templates) and
      `.claude/rules/harness-tier/` (the plugin's rules an older `/flow-init` may have copied in
      — the host's own rules stay).
@@ -58,8 +60,7 @@ to wait for the reply — never answer the question yourself or skip it.
      Remove what is no longer wanted by hand.
    - Disable the installed git hooks:
      `pre-commit uninstall --hook-type pre-commit --hook-type commit-msg --hook-type pre-push`.
-   - Commit the deletions (the removed `.claude/harness-tier/` files were git-tracked, and so
-     may be the changed or deleted `.claude/settings.json`).
+   - Commit what the run changed — it names each file and directory it touched.
 
 4. After cleanup, the user can `/plugin uninstall harness-tier` to remove the cached
    plugin.

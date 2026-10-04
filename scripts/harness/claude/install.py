@@ -4,7 +4,6 @@ host's settings.json."""
 from __future__ import annotations
 
 import copy
-import os
 import re
 from pathlib import Path
 
@@ -14,9 +13,9 @@ except ImportError:
     from scripts.harness.gate_spec import GATE
 
 try:
-    from harness.jsonfile import confine, load_json_object, why, write_json
+    from harness.jsonfile import load_json_object, why, write_json, write_or_remove
 except ImportError:
-    from scripts.harness.jsonfile import confine, load_json_object, why, write_json
+    from scripts.harness.jsonfile import load_json_object, why, write_json, write_or_remove
 
 # The commit gate to register in settings.json (runs the HOST copy via the host path). The `if`
 # field is not included — precommit-runner.sh self-filters via stdin (avoiding per-build diffs).
@@ -249,18 +248,8 @@ def _is_own_empty_entry(entry: object) -> bool:
 
 
 def _save_or_drop(settings: Path, data: dict, host: Path, done: str) -> str:
-    """Write `data` back, or delete the file once the removal left an empty object: an `{}`
-    the host never wrote is a leftover. A link is written through, never unlinked — deleting
-    it would leave its target holding the gate — and a file locked read-only goes to the
-    writer, which refuses it."""
-    if data or settings.is_symlink() or not os.access(settings, os.W_OK):
-        return write_json(settings, data, host) or done
-    try:
-        confine(host, settings.parent)
-        settings.unlink()
-    except OSError as exc:
-        return f"  [!] settings.json 삭제 실패({why(exc)}) — 수동 확인 필요"
-    return f"{done} — 남은 설정이 없어 settings.json 삭제"
+    failed, dropped = write_or_remove(settings, data, host, "settings.json")
+    return failed or (f"{done} — 남은 설정이 없어 settings.json 삭제" if dropped else done)
 
 
 def unregister(host: Path) -> str:

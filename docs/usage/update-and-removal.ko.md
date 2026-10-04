@@ -62,8 +62,8 @@
   `pre-commit uninstall --hook-type pre-commit --hook-type commit-msg --hook-type pre-push`;
 - `.github/workflows/` — 아직 남은 워크플로를 짚어 줌: 삭제된 스크립트를 부르는 것(가드가
   있는 것과 실패하는 것)과 계속 도는 렌더본. 각각 어떻게 될지는 아래 수동 정리 5단계 참고;
-- 삭제 자체 — `.claude/harness-tier/` 와 `.claude/rules/harness-tier/` 는 추적 대상이었고
-  `.claude/settings.json` 도 그럴 수 있으므로 커밋해야 반영됨.
+- 커밋 — 바꾸거나 지운 파일과 디렉터리(`.claude/harness-tier/`, `.claude/rules/harness-tier/`,
+  `.claude/settings.json`, `.gitignore` 등)를 하나하나 짚어 줌; 그것들을 커밋해야 반영됨.
 
 `커밋 게이트 훅이 settings.json 에 남았습니다` 로 끝나면, 지우지 못한 훅이 이제 없는 스크립트를 가리킴 — 아래 2단계(두 파일 다 다룸)로 직접 지움.
 `Codex 커밋 게이트 훅이 .codex/hooks.json 에 남았습니다` 는 같은 문제를 그 파일에서 가리킴. 해석하지 못하는 `.codex/hooks.json` —

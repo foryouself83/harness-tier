@@ -3,6 +3,7 @@ never carry that write outside the host. A write replaces a link standing at its
 directory link that leaves the host refuses the write."""
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -267,6 +268,48 @@ def test_codex_unregister_never_deletes_through_a_dir_linked_outside(tmp_path):
     report = codex_install.unregister(host)
     assert victim.exists()
     assert "[!]" in report
+
+
+CODEX_GATED = json.dumps({"hooks": {"PreToolUse": [codex_install.GATE_ENTRY]}}) + "\n"
+
+
+def test_codex_unregister_empties_a_linked_hooks_file_instead_of_unlinking_it(tmp_path):
+    """Deleting the link would leave its target, still read through other paths, holding the
+    gate that names the scripts the uninstall deletes."""
+    host, _outside = _layout(tmp_path)
+    shared = host / "shared" / "hooks.json"
+    shared.parent.mkdir()
+    shared.write_text(CODEX_GATED, encoding="utf-8")
+    _link(host / ".codex" / "hooks.json", shared)
+    assert "[-]" in codex_install.unregister(host)
+    assert (host / ".codex" / "hooks.json").is_symlink()
+    assert json.loads(shared.read_text(encoding="utf-8")) == {"hooks": {}}
+
+
+def test_codex_unregister_keeps_a_hooks_file_that_holds_a_key_of_the_hosts(tmp_path):
+    hooks = tmp_path / ".codex" / "hooks.json"
+    hooks.parent.mkdir()
+    body = {"description": "team hooks", "hooks": {"PreToolUse": [codex_install.GATE_ENTRY]}}
+    hooks.write_text(json.dumps(body), encoding="utf-8")
+    assert "[-]" in codex_install.unregister(tmp_path)
+    assert json.loads(hooks.read_text(encoding="utf-8")) == {
+        "description": "team hooks",
+        "hooks": {},
+    }
+
+
+def test_codex_unregister_refuses_a_read_only_hooks_file(tmp_path):
+    hooks = tmp_path / ".codex" / "hooks.json"
+    hooks.parent.mkdir()
+    hooks.write_text(CODEX_GATED, encoding="utf-8")
+    hooks.chmod(0o444)
+    try:
+        if os.access(hooks, os.W_OK):  # a host where the bit does not deny the owner
+            pytest.skip("read-only is not enforced here")
+        assert "[!]" in codex_install.unregister(tmp_path)
+        assert hooks.read_text(encoding="utf-8") == CODEX_GATED
+    finally:
+        hooks.chmod(0o644)
 
 
 def _report(out) -> str:

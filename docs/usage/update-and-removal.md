@@ -64,8 +64,9 @@ It leaves, and tells you to handle:
 - `.github/workflows/` — it names the workflows still there: the ones calling a deleted
   script, guarded or failing, and the rendered ones that keep running. Step 5 of the manual
   cleanup says what each does next;
-- the deletion itself — `.claude/harness-tier/` and `.claude/rules/harness-tier/` were tracked,
-  and so may be `.claude/settings.json`, so commit it.
+- the commit — it names every file and directory it changed or deleted
+  (`.claude/harness-tier/`, `.claude/rules/harness-tier/`, `.claude/settings.json`, `.gitignore`
+  and the rest); commit them.
 
 When it ends on `커밋 게이트 훅이 settings.json 에 남았습니다`, the hook it could not remove points
 at a script that no longer exists — delete it by hand (step 2 below, which covers both files).

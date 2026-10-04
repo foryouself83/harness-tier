@@ -136,6 +136,23 @@ def write_json(path: Path, data: dict, host: Path) -> str | None:
     return None
 
 
+def write_or_remove(path: Path, data: dict, host: Path, label: str) -> tuple[str | None, bool]:
+    """Write `data`, or delete the file once a removal left an empty object — an `{}` the host
+    never wrote is a leftover. Returns (the line to report on failure, whether it was deleted).
+
+    A link is written through, never unlinked: deleting it would leave its target, still read
+    through other paths, holding what was removed. A file locked read-only goes to the writer,
+    which refuses it."""
+    if data or path.is_symlink() or not os.access(path, os.W_OK):
+        return write_json(path, data, host), False
+    try:
+        confine(host, path.parent)
+        path.unlink()
+    except OSError as exc:
+        return f"  [!] {label} 삭제 실패({why(exc)}) — 수동 확인 필요", False
+    return None, True
+
+
 def load_json_object(path: Path, label: str) -> tuple[dict | None, str | None]:
     """Parse `path` as a JSON object. Absent → ({}, None). Unreadable or not an object →
     (None, the line to report). `label` names the file in that line."""

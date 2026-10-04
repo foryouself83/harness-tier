@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from scripts.flow_init_setup import (
+    _orchestrator_is_ours,
     append_gitignore,
     copy_artifacts,
     integrate_release_deploy,
@@ -78,6 +79,34 @@ def test_a_generated_deploy_yml_saved_with_a_bom_is_still_generated(tmp_path):
     _config(tmp_path, DEPLOY_CONFIG.format(name="second"))
     render_deploy_workflows(tmp_path, PLUGIN)
     assert "deploy-second.yml" in wf.read_text(encoding="utf-8")
+
+
+def test_turning_deploy_off_empties_the_release_block_beside_a_hand_written_deploy_yml(tmp_path):
+    """Emptying the block calls nothing, so the host's deploy.yml has no say in it."""
+    _config(tmp_path, "deploy:\n  enable: false\n")
+    wf = tmp_path / ".github" / "workflows"
+    wf.mkdir(parents=True)
+    (wf / "deploy.yml").write_text("name: my own deploy\non: push\n", encoding="utf-8")
+    (wf / "release.yml").write_text(
+        "jobs:\n  # __HARNESS_DEPLOY_BEGIN__\n  stale: x\n  # __HARNESS_DEPLOY_END__\n",
+        encoding="utf-8",
+    )
+    report = integrate_release_deploy(tmp_path, PLUGIN)
+    assert (wf / "release.yml").read_text(encoding="utf-8") == (
+        "jobs:\n  # __HARNESS_DEPLOY_BEGIN__\n  # __HARNESS_DEPLOY_END__\n"
+    )
+    assert report == ["  [=] release.yml deploy 블록 비움(deploy.enable=false)"]
+
+
+def test_a_deploy_yml_that_cannot_be_read_is_not_ours(tmp_path, monkeypatch):
+    wf = tmp_path / "deploy.yml"
+    wf.write_text("anything\n", encoding="utf-8")
+
+    def refuse(self):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(Path, "read_bytes", refuse)
+    assert _orchestrator_is_ours(wf) is False
 
 
 def test_a_generated_deploy_yml_is_regenerated(tmp_path):

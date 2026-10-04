@@ -1705,6 +1705,31 @@ def _codex_hook_status(host: Path) -> str:
         return "unconfirmed"
 
 
+# What the uninstall steps may change in a host, for the commit reminder: the files compared
+# by content, the directories by whether they exist.
+UNINSTALL_FILES = (
+    ".claude/settings.json",
+    ".codex/hooks.json",
+    ".gitignore",
+    "CLAUDE.md",
+    "AGENTS.md",
+)
+UNINSTALL_DIRS = (HARNESS_DIR, RULES_DEST)
+
+
+def _bytes_or_none(path: Path) -> bytes | None:
+    try:
+        return path.read_bytes()
+    except OSError:
+        return None
+
+
+def _uninstall_state(host: Path) -> dict[str, object]:
+    state: dict[str, object] = {rel: _bytes_or_none(host / rel) for rel in UNINSTALL_FILES}
+    state.update({f"{rel}/": (host / rel).is_dir() for rel in UNINSTALL_DIRS})
+    return state
+
+
 def run_uninstall(host: Path) -> bool:
     """Run every step, and answer whether the gate hook is gone.
 
@@ -1715,6 +1740,7 @@ def run_uninstall(host: Path) -> bool:
     case again: it reports its line and the run goes on, because the verdict is what
     the caller came for."""
     print(f"harness-tier 정리(uninstall) — host={host}")
+    before = _uninstall_state(host)
     finished = [
         _step("[커밋 게이트 해제]", lambda: [unregister_gate(host)]),
         # Always — regardless of what flow-config.yaml's `harnesses` currently says. A host
@@ -1745,7 +1771,10 @@ def run_uninstall(host: Path) -> bool:
     print("  - 설치했던 git 훅 비활성화:")
     print("      pre-commit uninstall --hook-type pre-commit --hook-type commit-msg \\")
     print("        --hook-type pre-push")
-    print("  - .claude/harness-tier/ 와 .claude/settings.json 의 삭제·수정은 커밋해야 반영됩니다.")
+    after = _uninstall_state(host)
+    changed = [rel for rel in before if before[rel] != after[rel]]
+    if changed:
+        print(f"  - 이 정리가 바꾼 것은 커밋해야 반영됩니다: {', '.join(changed)}")
     # Named separately, not one shared line: settings.json and .codex/hooks.json are
     # different files a different step failed to clear, and a host whose Codex hook is the
     # only thing left must not be sent to settings.json, which holds nothing by then.
