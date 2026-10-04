@@ -575,6 +575,7 @@ def verify(path: Path, before: str, after: str) -> list[Finding]:
 
 
 DEFAULT_GLOBS = ("**/*.md",)
+REVIEW_GLOBS = ("**/*.md", "**/*.py", "**/*.sh")
 # The carve-outs the rule states with no condition on them: a CHANGELOG a release tool
 # regenerates from commit subjects, and the superpowers record trees whose lines ARE what
 # PLAN bans. A host's own `exclude` is added to these rather than replacing them — a host
@@ -713,6 +714,25 @@ def in_scope(root: Path, paths: list[Path], fail_open: bool = True) -> list[Path
         if fail_open:
             return []
         raise
+    return _filter(root, paths, globs, excluded)
+
+
+def review_scope(root: Path, paths: list[Path]) -> list[Path]:
+    """The subset of ``paths`` a prose review covers: the config's scope, or every file this
+    checker reads prose from where ``doc_style`` is off, absent or unreadable — the rule binds
+    shipped ``.md`` and code comments whether or not the lint gate runs."""
+    try:
+        rules = scope_rules(root)
+        if rules is not None:
+            for pattern in rules[0] + rules[1]:
+                _glob_re(pattern)
+    except ValueError:
+        rules = None
+    globs, excluded = rules if rules is not None else (REVIEW_GLOBS, DEFAULT_EXCLUDES)
+    return _filter(root, paths, globs, excluded)
+
+
+def _filter(root: Path, paths: list[Path], globs, excluded) -> list[Path]:
     root_resolved = root.resolve()
     out = []
     for path in paths:
@@ -792,6 +812,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--verify", nargs=2, metavar=("BEFORE", "AFTER"))
     parser.add_argument("--verify-git", nargs="+", metavar="PATH")
     parser.add_argument("--lint-config", action="store_true")
+    parser.add_argument("--scope", nargs="*", metavar="PATH")
     parser.add_argument("--root", default=None)
     args = parser.parse_args(argv)
 
@@ -813,6 +834,11 @@ def main(argv: list[str] | None = None) -> int:
                 continue  # new file — nothing to lose
             items.append((path, verify(path, before, path.read_text(encoding="utf-8"))))
         return 1 if report(items, root) else 0
+
+    if args.scope is not None:
+        for path in review_scope(root, [Path(p) for p in args.scope]):
+            print(path.resolve().relative_to(root.resolve()).as_posix())
+        return 0
 
     paths = config_paths(root) if args.lint_config else [Path(p) for p in (args.lint or [])]
     return 1 if report(lint_paths(paths), root) else 0

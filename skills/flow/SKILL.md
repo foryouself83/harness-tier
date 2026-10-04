@@ -17,7 +17,7 @@ and record gate evidence under `.claude/harness-tier/.flow/` so the `git commit`
 enforces the tier's required gates.
 
 **Source of truth**: [`risk-tiers.md`](../../rules/risk-tiers.md) (criteria, skill
-gate, per-tier steps) and [`flow-tiers.yaml`](../../flow-tiers.yaml) (tier→gates the
+gate, gates) and [`flow-tiers.yaml`](../../flow-tiers.yaml) (tier→gates the
 commit hook enforces). `risk-tiers.md` is already in context — the SessionStart hook
 injects it — but **read `flow-tiers.yaml`**, which is not injected and carries the
 gate list you must report in Phase 1. On a promotion also read
@@ -82,8 +82,7 @@ before confirmation.** When uncertain, default one tier up.
 
 **Then ensure you are on a work branch — before writing the marker.** Day-to-day
 work (Docs *and* Dev) lives on `feature/*` / `fix/*`, never directly on an
-integration/staging/production branch (`flow-config.branches`). See
-[`risk-tiers.md`](../../rules/risk-tiers.md) Step 2b:
+integration/staging/production branch (`flow-config.branches`):
 
 ```bash
 cur=$(git branch --show-current)
@@ -199,7 +198,7 @@ do not go looking for a skill behind either — none exists; the hook runs the c
    - **Implementation minimalism** — right after the plan, before writing code,
      climb the reuse-before-build ladder (YAGNI → codebase → stdlib → native →
      dependency → one line → minimum code) and stop at the earliest rung. Detail
-     and non-negotiable floor in [`risk-tiers.md`](../../rules/risk-tiers.md) Step 3.
+     and non-negotiable floor in [`dev-overlays.md`](references/dev-overlays.md).
    - **Record the design before the code** — right after the plan, alongside the reuse
      ladder: a new module, an integration-point contract, or a structural change goes
      into `docs/sds/` now, with its `Implemented requirements` linking the FR anchors it
@@ -208,7 +207,7 @@ do not go looking for a skill behind either — none exists; the hook runs the c
      `PostToolUse` hook would delete `doc-sync.done` and `review.done` on that edit, so
      both would have to run again — a loop.
    - **Selective TDD** — only business logic / core nodes / validators / workflow
-     orchestration (see [`risk-tiers.md`](../../rules/risk-tiers.md) Step 3), not
+     orchestration (see [`dev-overlays.md`](references/dev-overlays.md)), not
      every change.
    - **invoke the `doc-sync` skill** (not part of `superpowers`) →
      `touch .claude/harness-tier/.flow/doc-sync.done`.
@@ -218,8 +217,10 @@ do not go looking for a skill behind either — none exists; the hook runs the c
      judged against `flow-config.review_checklist` (regression, cross-service
      contract, DB/migration & transactions, async task idempotency & queue
      routing, API error conventions),
-     plus the callers of every changed public symbol. Procedure in
-     [`risk-tiers.md`](../../rules/risk-tiers.md) Step 3.
+     plus the callers of every changed public symbol. **Read
+     [`dev-overlays.md`](references/dev-overlays.md) Domain review before dispatching**
+     and hand the reviewer its ① command verbatim — `git diff HEAD` alone misses what
+     is already committed on the branch.
      On pass → `touch .claude/harness-tier/.flow/review.done`.
      **Every edit after that pass voids it** — the fixes the review itself asked
      for included. A `PostToolUse` hook deletes `review.done` **and**
@@ -230,7 +231,7 @@ do not go looking for a skill behind either — none exists; the hook runs the c
      `rm -f .claude/harness-tier/.flow/review.done .claude/harness-tier/.flow/doc-sync.done`.
      A host that sets `flow-config.gate_evidence.invalidate_on_edit: false`
      turns the hook's deletion off, so in its tree an edit after the pass
-     commits unreviewed ([`risk-tiers.md`](../../rules/risk-tiers.md) Step 3).
+     commits unreviewed ([`dev-overlays.md`](references/dev-overlays.md)).
 5. Commit through the `commit` skill — invoke skill `commit` with the tier and what
    changed (rule 4) → merge **applying
    [`merge-strategy.md`](../../rules/merge-strategy.md)** (rule 3 — not a
@@ -280,7 +281,7 @@ rm -rf .claude/harness-tier/.flow
    It is a plain file that outlives the commit that used it, so **a gate whose
    subject changed after it passed is no longer recorded honestly**. The
    `PostToolUse` hook enforces that for `review` and `doc-sync` — any edit
-   deletes both, unless the host turned that off (Dev step 3) — so what is
+   deletes both, unless the host turned that off (Dev step 4) — so what is
    left to you is the edit it cannot see (a terminal command, another tool):
    delete the marker yourself and earn it again.
 3. **Apply the documented Merge strategy** — direct commit + merge, but

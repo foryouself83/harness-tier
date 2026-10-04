@@ -285,7 +285,7 @@ select this set. That security pass is therefore discipline, not a gate.
 
 ### Staging (integration → staging)
 
-1. Regression review — [`risk-tiers.md`](risk-tiers.md) Step 3's procedure with ①'s form
+1. Regression review — the [domain review](../skills/flow/references/dev-overlays.md) with ①'s form
    for **this** pair (`git fetch origin`, then
    `git diff --name-only "origin/<staging>..origin/<integration>"`;
    the workspace form would list nothing here) → record `review`.

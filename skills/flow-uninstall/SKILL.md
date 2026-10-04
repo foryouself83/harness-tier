@@ -39,7 +39,8 @@ to wait for the reply — never answer the question yourself or skip it.
    - **Strips** the harness-tier `.gitignore` lines and the `CLAUDE.md` `harness-tier:teams`
      managed block.
    - **Deletes** `.claude/harness-tier/` (scripts, config, evidence, webhooks) and
-     `.claude/rules/harness-tier/` (the copied rules — the host's own rules stay).
+     `.claude/rules/harness-tier/` (the plugin's rules an older `/flow-init` may have copied in
+     — the host's own rules stay).
 
 3. **Relay the manual follow-ups** the script prints (it does **not** do these —
    they're destructive to user-owned files):

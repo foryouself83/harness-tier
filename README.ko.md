@@ -155,10 +155,10 @@ pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre
 | 스킬 | `harness-authoring` | `/harness-init` 이 내부적으로 부르는 생성 엔진 — 직접 호출하지 않음 |
 | 에이전트 | `harness-researcher` · `harness-code-analyzer` · `harness-critic` | 하네스 생성용 리서치 / 코드 분석 / 생성물 검증 |
 | 룰 | `risk-tiers` | 위험도 분류와 등급별 워크플로의 단일 기준 — 세션마다 주입 |
-| 룰 | `doc-style` | 문서·주석·docstring 문체 규율의 단일 기준 — `/flow-init` 이 `.claude/rules/harness-tier/` 로 복사 |
+| 룰 | `doc-style` | 문서·주석·docstring 문체 규율의 단일 기준 — SessionStart 훅이 쓰기 시점 핵심만 주입 |
 | 룰 | `commit-discipline` | 커밋 메시지 형식과 type → 버전 표 — `/commit` 이 읽음 |
 | 룰 | `gate-mechanics` · `merge-strategy` · `promotion` · `harness-rules` | 게이트별 동작 방식·브랜치 흐름별 머지 규칙·승격 절차·생성 규약 — 필요할 때 읽음 |
-| 훅 | SessionStart · Notification · PostToolUse(편집) | 위험도 규칙 주입(복사된 `doc-style` 이 없는 호스트에는 문서 문체 요약도)과 구버전 로드 경고 · Teams 알림 · 편집으로 낡은 review/doc-sync 증거 무효화 |
+| 훅 | SessionStart · Notification · PostToolUse(편집) | 위험도 규칙 주입(+ 문서 문체 요약, 호스트에 `doc-style` 구버전 복사본이 남아있을 때만 건너뜀)과 구버전 로드 경고 · Teams 알림 · 편집으로 낡은 review/doc-sync 증거 무효화 |
 | 호스트 등록 게이트 | `PreToolUse`(commit·merge) | `/flow-init` 이 **호스트**의 `.claude/settings.json` 에 등록 — 플러그인 훅이 아니라 차단 강제 신뢰성 때문 |
 
 > **릴리스 CI 토큰** — `/flow-init` 이 렌더링하는 릴리스 워크플로는 기본 `GITHUB_TOKEN` 으로 바로

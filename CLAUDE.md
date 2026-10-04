@@ -67,7 +67,7 @@ agents/          subagents the skills dispatch
 hooks/           SessionStart · PostToolUse · Notification hooks — the commit gate is not one; codex/ registers the same pair for Codex
 skills/          one directory per slash command
 rules/           shipped SSOTs: tier discipline (+ on-demand parts), harness generation, prose
-scripts/         gate + setup scripts; the host copy lists are flow_init_setup.py COPY_FILES/RULE_FILES; harness/<name>/ holds each harness's own installer
+scripts/         gate + setup scripts; the host copy lists are flow_init_setup.py COPY_FILES/HARNESS_COPY_FILES; harness/<name>/ holds each harness's own installer
 github/          consumer workflow templates /flow-init and /wiki-init render; .github/ is this repo's own CI
 templates/       design-doc templates /flow-init seeds once into the host (host-owned after)
 tests/           pytest over scripts/ and over the shipped skill and rule files
@@ -90,8 +90,9 @@ docs/            usage/ consumer guide (English + .ko twins, shipped) · superpo
 - **A consumer-facing `.md` change (rules, skills) commits as `feat`/`fix`** — `docs`/`chore`
   trigger no release, and only a `plugin.json` version bump reaches a consumer.
 - **[`rules/risk-tiers.md`](rules/risk-tiers.md) is the tier-discipline SSOT**, injected at
-  SessionStart beside a `doc-style.md` summary (skipped once `/flow-init` has copied the rule
-  into the host); the split-out files are read on demand. Editing
+  SessionStart beside a `doc-style.md` summary (injected for Codex always, for Claude only while
+  no leftover copy from an older `/flow-init` remains in the host); the split-out files are read
+  on demand. Editing
   it or the hook that injects it costs every `hook_assisted` skill a live re-measure. A rate
   moves with *where* text sits beside `## Principle`'s mandate, not with how much, even on a
   byte-identical description: leave that section alone, move whole sections, and leave no
@@ -99,8 +100,9 @@ docs/            usage/ consumer guide (English + .ko twins, shipped) · superpo
   rate only to a baseline of the same model and `--reps` — a plain `--all` already matches.
 - **Three verification layers**, independent: the host's `.pre-commit-config.yaml`; the flow gate
   (PreToolUse, **agent-session commits and merges only** — terminal commits and CI bypass it);
-  and CI, which closes that blind spot. Per-gate mechanism: the risk-tiers glossary. PR mode takes
-  a flow's merge out of the hook's sight ([`rules/promotion.md`](rules/promotion.md) PR workflow).
+  and CI, which closes that blind spot. Per-gate mechanism: `rules/gate-mechanics.md`. PR mode
+  takes a flow's merge out of the hook's sight ([`rules/promotion.md`](rules/promotion.md) PR
+  workflow).
 - **Ask a review agent for a literal `VERDICT: PASS` / `VERDICT: FAIL` line** — an ambiguous
   report reads as a pass, and the marker then records a review that never happened.
 - **Skills are measured** — `tests/skills/` checks the file is well-formed, [`evals/`](evals/)

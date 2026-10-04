@@ -89,7 +89,8 @@ hook — see [what the gate sees](tiers-and-gates.md#what-the-gate-sees).
 ### `review_checklist`
 
 The categories the Dev `review` gate judges every changed file against. The five above come from
-[`rules/risk-tiers.md`](../../rules/risk-tiers.md) Step 3; append your own rather than dropping one.
+[`dev-overlays.md`](../../skills/flow/references/dev-overlays.md); append your own rather than
+dropping one.
 
 ### `commit_guide`
 

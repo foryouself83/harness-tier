@@ -47,7 +47,8 @@
   `codex` 가 아직 남아있는지와 무관함;
 - `.claude/harness-tier/` — 스크립트, 설정, 증거, 팀 공유 `teams-webhooks.json` 포함
   두 웹훅 파일 전부;
-- `.claude/rules/harness-tier/` — `/flow-init` 이 복사한 규칙. 호스트 자체 규칙은 유지됨.
+- `.claude/rules/harness-tier/` — 이전 `/flow-init` 이 복사해 뒀을 수 있는 플러그인 규칙.
+  호스트 자체 규칙은 유지됨.
 
 남기고 안내하는 것:
 

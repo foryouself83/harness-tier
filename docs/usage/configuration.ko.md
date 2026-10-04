@@ -89,7 +89,7 @@ doc_sync:                    # /doc-sync 가 맞추는 대상
 ### `review_checklist`
 
 Dev `review` 게이트가 변경된 모든 파일을 판단하는 기준. 위 다섯 항목은
-[`rules/risk-tiers.md`](../../rules/risk-tiers.md) Step 3 에서 옴 — 하나를 빼는 대신 자신의
+[`dev-overlays.md`](../../skills/flow/references/dev-overlays.md) 에서 옴 — 하나를 빼는 대신 자신의
 항목을 덧붙임.
 
 ### `commit_guide`

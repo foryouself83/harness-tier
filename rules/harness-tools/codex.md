@@ -24,9 +24,9 @@ Harness-tier skills name actions (`vocabulary.md` beside this file). On Codex th
   a sibling `agents/openai.yaml` (`policy: {allow_implicit_invocation: false}`) hides the skill
   from Codex's catalog instead.
 - **Project instructions:** the harness-tier block in the root `AGENTS.md` is generated from
-  `CLAUDE.md` and `.claude/rules/`, except the plugin's own copied `.claude/rules/harness-tier/`
-  (covered already by the SessionStart hook injection instead); edit those sources, never the
-  block. A directory's own `CLAUDE.md` applies to its files: read it before working under that
-  directory.
+  `CLAUDE.md` and `.claude/rules/`, except `.claude/rules/harness-tier/` (the plugin's own
+  rules an older `/flow-init` may have left there, covered already by the SessionStart hook
+  injection instead); edit those sources, never the block. A directory's own `CLAUDE.md`
+  applies to its files: read it before working under that directory.
 - **Commit gate:** a commit is blocked by a hook that returns a deny decision; read its reason and
   fix the cause — never work around it.

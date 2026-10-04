@@ -328,39 +328,24 @@ def copy_artifacts(plugin: Path, host: Path, harnesses=("claude",)) -> list[str]
     return report
 
 
-# Shipped rules a Claude session loads from the host (Claude Code-forced location — HARNESS_DIR
-# exception). Their own subdirectory, so a host rule of the same name is never overwritten.
-# The SessionStart hook reads this path to skip injecting the same text: keep the two in step.
+# Where setups before this one copied the shipped prose rule. Claude Code loads every file under
+# .claude/rules/ in full each session, so the rule now reaches a session only through the hook's
+# short block, and a re-sync deletes this directory (harness-tier's own) wherever it remains.
 RULES_DEST = ".claude/rules/harness-tier"
-RULE_FILES = ("rules/doc-style.md",)
-
-
-def copy_rules(plugin: Path, host: Path, harnesses=("claude",)) -> list[str]:
-    """Copy the shipped rules into the host's .claude/rules/ (always overwrite — SOURCE is the
-    SSOT). Claude only: Codex reads no .claude/rules/ and keeps the hook's injected block."""
-    if "claude" not in harnesses:
-        return ["  [=] claude 하네스 아님 — 규칙 복사 skip"]
-    dest_dir = host / RULES_DEST
-    report: list[str] = []
-    for rel in RULE_FILES:
-        src = plugin / rel
-        if not src.is_file():
-            report.append(f"  [!] 소스 없음, skip: {rel}")
-            continue
-        try:
-            dest = _host_target(host, dest_dir / src.name)
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(src, dest)
-        except OSError as exc:
-            report.append(f"  [!] 복사 실패({_why(exc)}): {RULES_DEST}/{src.name}")
-            continue
-        report.append(f"  [+] 복사: {RULES_DEST}/{src.name}")
-    return report
 
 
 def remove_rules(host: Path) -> str:
-    """Delete the copied rules directory (only ours — RULES_DEST is harness-tier's own)."""
+    """Delete the rules directory an older setup copied in. A link standing there is unlinked,
+    never followed, and a parent resolving outside the host is refused, so a repo that commits
+    either pointing elsewhere loses nothing outside."""
     d = host / RULES_DEST
+    try:
+        _confine(host, d.parent)
+    except OSError as exc:
+        return f"  [!] {RULES_DEST} 정리 거부({_why(exc)}) — 수동 확인 필요"
+    if d.is_symlink():
+        d.unlink()
+        return f"  [-] {RULES_DEST} 링크 제거"
     if not d.is_dir():
         return f"  [=] {RULES_DEST}/ 없음 (skip)"
     shutil.rmtree(d)
@@ -1516,7 +1501,7 @@ def run_setup(host: Path, plugin: Path) -> bool:
                 + (codex_leftovers(host, names) if harnesses_readable else [])
             ),
         ),
-        _step("[규칙 복사]", lambda: copy_rules(plugin, host, names)),
+        _step("[규칙 정리]", lambda: [remove_rules(host)]),
         _step("[마켓 자동 업데이트]", lambda: [register_marketplace(host)]),
         _step("[pre-commit 점검]", lambda: check_precommit(plugin, host)),
         _step("[설계 산출물 템플릿]", lambda: seed_design_templates(plugin, host)),

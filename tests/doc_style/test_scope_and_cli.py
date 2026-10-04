@@ -231,3 +231,33 @@ def test_a_malformed_config_fails_open_for_in_scope(tmp_path: Path):
     """
     root = _scoped(tmp_path, "doc_style: [\n", ["a.md"])
     assert in_scope(root, [root / "a.md"]) == []
+
+
+# ---------- --scope: the review's file list ----------
+
+SCOPE_TREE = ["a.md", "src/m.py", "CHANGELOG.md", "docs/superpowers/plans/p.md", "legacy/v.md"]
+
+
+def _scope_out(root: Path, capsys) -> list[str]:
+    """Printed root-relative with `/`: a Windows `docs\\x.md` handed unquoted to the next bash
+    command loses its backslashes, and the lint then reads nothing and passes."""
+    assert main(["--root", str(root), "--scope", *(str(root / r) for r in SCOPE_TREE)]) == 0
+    return sorted(capsys.readouterr().out.splitlines())
+
+
+def test_scope_keeps_the_hosts_paths_and_exclude(tmp_path: Path, capsys):
+    """prose-review edits what this prints with no human in the loop, so a file the project
+    excluded from its doc-style scope must not reach it."""
+    config = (
+        "doc_style:\n  enable: true\n  paths: ['**/*.md', '**/*.py']\n  exclude: ['legacy/**']\n"
+    )
+    root = _scoped(tmp_path, config, SCOPE_TREE)
+    assert _scope_out(root, capsys) == ["a.md", "src/m.py"]
+
+
+@pytest.mark.parametrize("config", ["", "doc_style:\n  enable: false\n"])
+def test_scope_falls_back_to_the_default_where_doc_style_is_off(tmp_path: Path, capsys, config):
+    """The rule covers every shipped `.md` and every comment whether or not the lint gate is
+    on, so an off or absent block reviews what the checker can read rather than nothing."""
+    root = _scoped(tmp_path, config, SCOPE_TREE)
+    assert _scope_out(root, capsys) == ["a.md", "legacy/v.md", "src/m.py"]

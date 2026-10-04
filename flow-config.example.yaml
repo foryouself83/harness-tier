@@ -66,7 +66,7 @@ modules:
       test:   "npm --prefix services/web test"
 
 # What the Dev `review` gate judges every changed file against. These five come from
-# rules/risk-tiers.md Step 3; a team appends its own rather than dropping one.
+# skills/flow/references/dev-overlays.md; a team appends its own rather than dropping one.
 review_checklist:
   - "regression tests pass"
   - "cross-service contract validity"

@@ -12,7 +12,6 @@ from scripts.flow_init_setup import (
     check_precommit,
     RULES_DEST,
     copy_artifacts,
-    copy_rules,
     register_gate,
     register_marketplace,
     remove_claude_md_block,
@@ -313,29 +312,30 @@ def test_srs_check_and_its_import_land_together(tmp_path: Path):
     assert (dest / "_md_anchors.py").is_file()
 
 
-def test_copy_rules_lands_the_shipped_rule_byte_for_byte_beside_the_hosts_own(tmp_path: Path):
-    """Claude Code loads .claude/rules/ itself, and the SessionStart hook drops its prose block
-    once this file exists. The subdirectory is what keeps a host rule of the same name intact."""
+def test_setup_removes_the_rule_copy_an_older_setup_left(tmp_path: Path):
+    """The shipped prose rule reaches a session through the hook's short block; a copy under
+    .claude/rules/ would load in full every session. Re-sync deletes ours, never the host's."""
+    stale = tmp_path / RULES_DEST / "doc-style.md"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("old copy", encoding="utf-8")
     own = tmp_path / ".claude" / "rules" / "doc-style.md"
-    own.parent.mkdir(parents=True)
     own.write_text("host's own", encoding="utf-8")
-    for _ in range(2):  # Invariant 5: a re-run overwrites, never duplicates or fails
-        assert any("[+]" in line for line in copy_rules(PLUGIN, tmp_path))
-    copied = tmp_path / RULES_DEST / "doc-style.md"
-    assert copied.read_bytes() == (PLUGIN / "rules" / "doc-style.md").read_bytes()
+    for _ in range(2):  # Invariant 5: a re-run finds nothing left to remove and still passes
+        run_setup(tmp_path, PLUGIN)
+    assert not (tmp_path / RULES_DEST).exists()
     assert own.read_text(encoding="utf-8") == "host's own"
 
 
-def test_copy_rules_skips_a_host_without_claude(tmp_path: Path):
-    """Codex reads no .claude/rules/; it keeps the hook's injected block instead."""
-    copy_rules(PLUGIN, tmp_path, ("codex",))
+def test_setup_copies_no_rule_into_a_fresh_host(tmp_path: Path):
+    run_setup(tmp_path, PLUGIN)
     assert not (tmp_path / RULES_DEST).exists()
 
 
-def test_setup_copies_the_rules_and_uninstall_removes_only_them(tmp_path: Path):
+def test_uninstall_removes_only_the_rule_copy(tmp_path: Path):
     assert "skip" in remove_rules(tmp_path)
-    run_setup(tmp_path, PLUGIN)
-    assert (tmp_path / RULES_DEST / "doc-style.md").is_file()
+    stale = tmp_path / RULES_DEST / "doc-style.md"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("old copy", encoding="utf-8")
     own = tmp_path / ".claude" / "rules" / "mine.md"
     own.write_text("x", encoding="utf-8")
     run_uninstall(tmp_path)
@@ -343,7 +343,8 @@ def test_setup_copies_the_rules_and_uninstall_removes_only_them(tmp_path: Path):
     assert own.is_file()
 
 
-def test_the_hook_looks_for_the_rule_where_setup_copies_it():
-    """Two literals, one path: if they drift, Claude gets the copied rule AND the injected block."""
+def test_the_hook_looks_for_the_rule_where_setup_cleans_it_up():
+    """Two literals, one path: if they drift, a host still holding an old copy gets that full
+    rule AND the injected summary, and setup deletes a directory the hook never checks."""
     hook = (PLUGIN / "hooks" / "inject-risk-tiers.sh").read_text(encoding="utf-8")
     assert f"{RULES_DEST}/doc-style.md" in hook

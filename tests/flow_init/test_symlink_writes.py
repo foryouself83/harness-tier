@@ -12,7 +12,7 @@ from scripts.flow_init_setup import (
     _render_one,
     check_precommit,
     copy_artifacts,
-    copy_rules,
+    remove_rules,
     render_deploy_workflows,
     render_unit_test_workflow,
     render_workflow,
@@ -44,23 +44,27 @@ def _victim(outside: Path) -> Path:
     return victim
 
 
-def test_copy_rules_replaces_a_symlinked_rule(tmp_path):
+def test_rule_cleanup_unlinks_a_rules_dir_linked_outside(tmp_path):
     host, outside = _layout(tmp_path)
     victim = _victim(outside)
-    dest = host / RULES_DEST / "doc-style.md"
-    _link(dest, victim)
-    copy_rules(PLUGIN, host)
-    assert victim.read_text(encoding="utf-8") == VICTIM_TEXT
-    assert not dest.is_symlink()
-    assert dest.read_bytes() == (PLUGIN / "rules/doc-style.md").read_bytes()
-
-
-def test_copy_rules_refuses_a_rules_dir_linked_outside(tmp_path):
-    host, outside = _layout(tmp_path)
     _link(host / RULES_DEST, outside)
-    report = copy_rules(PLUGIN, host)
-    assert not (outside / "doc-style.md").exists()
-    assert any("[!]" in ln for ln in report)
+    remove_rules(host)
+    assert victim.read_text(encoding="utf-8") == VICTIM_TEXT
+    assert not (host / RULES_DEST).exists()
+    assert not (host / RULES_DEST).is_symlink()
+
+
+def test_rule_cleanup_refuses_a_rules_parent_linked_outside(tmp_path):
+    """Setup runs this on every re-sync, so a committed `.claude/rules` link must not turn
+    the cleanup into an rmtree of whatever `harness-tier` directory sits at its target."""
+    host, outside = _layout(tmp_path)
+    victim = outside / "harness-tier" / "victim"
+    victim.parent.mkdir()
+    victim.write_text(VICTIM_TEXT, encoding="utf-8")
+    _link(host / ".claude" / "rules", outside)
+    report = remove_rules(host)
+    assert victim.read_text(encoding="utf-8") == VICTIM_TEXT
+    assert "[!]" in report
 
 
 def test_copy_artifacts_replaces_symlinked_script_and_policy(tmp_path):

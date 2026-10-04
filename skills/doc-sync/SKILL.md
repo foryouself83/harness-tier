@@ -308,9 +308,11 @@ This asks about the rewrite this run made, not about prose style, so it does not
 did not touch says nothing either way — the answer comes from comparing against `HEAD`.
 
 Prose itself follows [`doc-style.md`](../../rules/doc-style.md). Half of that rule is
-patterns and half is judgement, so run both over the files this run touched — invoke
-skill `prose-review` with those paths. It reports what it would change; apply what
-survives review before the marker, since an edit after the marker voids it.
+patterns and half is judgement, so run both over **every file the change touched** within
+the project's doc-style scope — code comments and docstrings too where that scope names code,
+as it does by default, with `doc_style` off or absent. Invoke skill `prose-review` with no
+paths: it reads the change's own list from git and narrows it. It reports what it would
+change; apply what survives review before the marker, since an edit after the marker voids it.
 
 ## 1c. Codex's copy of the instructions
 

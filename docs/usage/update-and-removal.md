@@ -48,7 +48,8 @@ It removes:
   — whether or not `codex` is still listed under `harnesses`;
 - `.claude/harness-tier/` — scripts, config, evidence, and both webhook files, the team-shared
   `teams-webhooks.json` included;
-- `.claude/rules/harness-tier/` — the rules `/flow-init` copied in; the host's own rules stay.
+- `.claude/rules/harness-tier/` — the plugin's rules an older `/flow-init` may have copied in;
+  the host's own rules stay.
 
 It leaves, and tells you to handle:
 

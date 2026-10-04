@@ -380,7 +380,7 @@ def test_match_rule_fix_to_integration():
 
 def test_match_rule_integration_to_staging():
     # The promotion is a MERGE, not a rebase: the release commits must reach staging under
-    # their original SHAs or the stable tag drops out of its ancestry (risk-tiers.md
+    # their original SHAs or the stable tag drops out of its ancestry (promotion.md
     # "Back-merge after release"). This row is why a refused staging back-merge is skipped
     # rather than forced: the promotion carries the release commits forward on its own.
     rule = match_merge_rule(RULES, "dev", "stage", BRANCHES)

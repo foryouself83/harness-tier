@@ -85,7 +85,7 @@ gate**: never skipped, never assumed.
 
 ### Feature branch base
 
-Rule: [`risk-tiers.md`](risk-tiers.md) Step 2b. Command:
+Rule: [`/flow`](../skills/flow/SKILL.md) Phase 2. Command:
 
 ```bash
 git fetch origin

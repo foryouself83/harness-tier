@@ -159,9 +159,10 @@ def collect(host: Path, keep_imports=frozenset()) -> list[InstructionDoc]:
     return [_doc(kind, path, host, keep) for kind, path in sources(host)]
 
 
-# The plugin's own rules, copied in by /flow-init (RULES_DEST in flow_init_setup.py). Codex gets
-# them from the SessionStart hook instead, so rendering them too would spend the AGENTS.md
-# budget on a duplicate and could push the host's own rule bodies out of it.
+# The plugin's own rules an older /flow-init copied in (RULES_DEST in flow_init_setup.py), left
+# until a re-sync deletes them. Codex gets their summary from the SessionStart hook, so rendering
+# them too would spend the AGENTS.md budget on a duplicate and could push the host's own rule
+# bodies out of it.
 PLUGIN_RULES_DIR = ".claude/rules/harness-tier"
 
 

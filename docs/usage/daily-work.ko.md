@@ -75,8 +75,8 @@ Conventional Commits 타입을 고르고, 50/72 규칙을 확인한 뒤 `git com
   `CLAUDE.md`) `service_docs` 아래 없는 모듈에 새로 생성; 없으면 보고만 함. 기존 파일은
   빠진 부분만 채움.
 
-재작성 뒤 손댄 파일에 `/prose-review` 를 돌리고, 통과하면 호출자가 누구든 `doc-sync` 증거
-마커를 씀.
+재작성 뒤 이 변경이 건드린 파일 전체에 — 자신이 편집한 파일만이 아니라 — `/prose-review` 를
+돌리고, 통과하면 호출자가 누구든 `doc-sync` 증거 마커를 씀.
 
 포크된 컨텍스트에서 실행되어 대화를 보지 못함 — 인자가 유일한 의도 전달 통로. 인자가
 정확히 `preview` 면 아무것도 바꾸지 않고 계획만 하며 마커도 쓰지 않음; 그 단어를 포함할
@@ -89,7 +89,9 @@ Conventional Commits 타입을 고르고, 50/72 규칙을 확인한 뒤 `git com
 ```
 
 주석·docstring·문서를 [`rules/doc-style.md`](../../rules/doc-style.md) 와 대조하고
-재작성을 제안함.
+재작성을 제안함. 인자가 없으면 변경된 파일을 가져와 `doc_style_check.py --scope` 로 프로젝트의
+doc-style 범위로 좁힘 — 설정된 `paths`/`exclude`, 또는 `doc_style` 이 꺼져 있거나 없을 때의
+모든 `.md`·`.py`·`.sh` — 프로젝트가 제외한 파일은 재작성되지 않음.
 
 - **패턴 절반** — 경로에 대해 `doc_style_check.py --lint`. 스크립트 없는 저장소는 이 절반만
   건너뛰고 나머지는 그대로 함.

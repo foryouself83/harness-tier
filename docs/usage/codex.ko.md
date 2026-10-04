@@ -61,8 +61,9 @@ Codex 가 열어 둔 셸 세션에 입력한 명령(`write_stdin`)은 `PreToolUs
   이벤트가 없고, `harness-insight` 가 모을 Claude Code 트랜스크립트도 없음.
 - **프로젝트 지침은 `AGENTS.md` 로 렌더됨.** Codex 는 `CLAUDE.md` 나 `.claude/rules/` 를
   직접 읽지 않음 — 세션 디렉터리와 그 상위만, 디렉터리마다 지침 파일 하나만 읽음.
-  `/flow-init`·`/doc-sync`·`/harness-init` 은 사용자의 `CLAUDE.md`·`.claude/rules/`(플러그인이
-  복사해 둔 `.claude/rules/harness-tier/` 는 제외 — 그건 SessionStart 훅 주입으로 이미 받음)·
+  `/flow-init`·`/doc-sync`·`/harness-init` 은 사용자의 `CLAUDE.md`·`.claude/rules/`(이전
+  `/flow-init` 이 남겼을 수 있는 플러그인 자체 규칙 `.claude/rules/harness-tier/` 는 제외 —
+  그 내용은 SessionStart 훅 주입으로 이미 받음)·
   모듈별 `CLAUDE.md` 로부터 루트 `AGENTS.md` 안의 관리 블록 하나를 유지함; 편집은 그 원본에서
   하고 블록 자체는 건드리지 않음 — 다음 렌더가 덮어씀. 렌더된 파일은 32 KiB 로 한도가
   있고, 넘으면 규칙 전문 대신 어디를 읽을지 가리키는 색인 항목으로 바뀜.

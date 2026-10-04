@@ -7,6 +7,7 @@ import pytest
 
 from tests.inject_risk_tiers._helpers import (
     BASH,
+    REPO,
     SCRIPT,
     STARTUP,
     _context,
@@ -21,6 +22,15 @@ def test_rule_body_is_injected(tmp_path):
     assert "the body the hook must actually read" in _context(
         _run(_plugins_root(tmp_path, published=None))
     )
+
+
+def test_the_shipped_injection_fits_the_additional_context_cap(tmp_path):
+    """Claude Code caps `additionalContext` at 10,000 characters and swaps anything longer for
+    a file path and a 2,000-character preview — no error, the rule body silently gone. Measured
+    on the real rule, in a host without the copied prose rule, where the injection is largest."""
+    context = _context(_run(REPO, extra_env={"CLAUDE_PROJECT_DIR": str(tmp_path)}))
+    assert "## Principle" in context
+    assert len(context) < 10_000, f"injection is {len(context)} chars; the cap is 10,000"
 
 
 def test_rule_body_with_json_specials_survives(tmp_path):
@@ -78,9 +88,9 @@ def _host(tmp_path, with_rule: bool) -> dict:
 
 @pytest.mark.parametrize("harness", [[], ["--harness", "codex"]])
 def test_the_prose_block_is_dropped_only_where_claude_loads_the_copied_rule(tmp_path, harness):
-    """/flow-init copies doc-style.md into .claude/rules/harness-tier/, which Claude Code loads
-    itself; injecting the summary beside it is the same rule twice. Codex reads no .claude/rules/,
-    so it keeps the block — as does a host that has not re-run /flow-init since the upgrade."""
+    """An older /flow-init left doc-style.md in .claude/rules/harness-tier/, which Claude Code
+    loads itself until a re-sync deletes it; injecting the summary beside it is the same rule
+    twice. Codex reads no .claude/rules/, so it keeps the block."""
     plugin = _plugins_root(tmp_path, published=None)
     env = _host(tmp_path, with_rule=True)
     result = subprocess.run(

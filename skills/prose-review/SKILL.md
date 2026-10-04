@@ -17,9 +17,22 @@ not be.
 
 ## 1. The machine half
 
-`$ARGUMENTS` names the paths, space-separated. Empty means the caller gave none — read
-the changed files instead: `git diff --name-only HEAD` plus
-`git ls-files --others --exclude-standard`. Keep this resolved list; step 4 reuses it.
+`$ARGUMENTS` names the paths, space-separated. Empty means the caller gave none — take the
+changed files, narrowed to the project's doc-style scope (its `paths` and `exclude`, or every
+`.md`, `.py` and `.sh` where `doc_style` is off or absent), so nothing the project excluded is
+rewritten. Run it from the repository root; it prints root-relative paths:
+
+```bash
+python3 .claude/harness-tier/scripts/doc_style_check.py --scope \
+  $(git -c core.quotePath=false diff --name-only HEAD
+    git -c core.quotePath=false ls-files --others --exclude-standard)
+```
+
+An `unrecognized arguments` exit 2 means the host copy of the script predates `--scope`, and
+a repo without the script has nothing to run: say so, tell the user to re-run `/flow-init`,
+and take the two `git` lists unnarrowed. Never continue with an empty list the failure left.
+
+Keep this resolved list; step 4 reuses it.
 
 ```bash
 python3 .claude/harness-tier/scripts/doc_style_check.py --lint <paths>

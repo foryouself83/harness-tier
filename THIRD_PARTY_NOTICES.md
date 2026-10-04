@@ -6,8 +6,8 @@ from the projects below, each under its own license.
 ## ponytail
 
 - Source: <https://github.com/DietrichGebert/ponytail>
-- Used in: the reuse-before-build ladder in [`rules/risk-tiers.md`](rules/risk-tiers.md)
-  (Dev tier overlays)
+- Used in: the reuse-before-build ladder in
+  [`skills/flow/references/dev-overlays.md`](skills/flow/references/dev-overlays.md)
 
 ```text
 MIT License
