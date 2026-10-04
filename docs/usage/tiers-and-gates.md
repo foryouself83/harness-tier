@@ -114,7 +114,8 @@ that names a branch without rebasing, against its branch flow. Flags are read as
 them: an abbreviation, the last of two opposing options, and a `-c merge.ff=…` (for a pull,
 `-c pull.ff=…` over it) on the command line all count; a `merge.ff`, `pull.ff`,
 `branch.<name>.mergeoptions` or `pull.rebase` set in git config is not seen. Branch names
-resolve from `flow-config.branches`.
+resolve from `flow-config.branches`, and a source with a revision suffix (`stage^0`) is judged
+as its branch.
 
 | Merge | Enforced |
 |-------|----------|

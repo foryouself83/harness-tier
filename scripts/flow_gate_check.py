@@ -6,6 +6,7 @@ variable, and internal errors do not block the gate (fail-open).
 
 from __future__ import annotations
 
+import bisect
 import contextlib
 import io
 import json
@@ -164,23 +165,28 @@ def load_merge_strategy(tiers_path: Path) -> list[dict]:
 _MERGE_RE = git_subcommand_re("merge")
 
 
-# Flags that consume the next token as their argument. If not skipped, `-m "msg"` would leak
-# the message into the source-branch slot.
-# `-S`/`--gpg-sign` are deliberately ABSENT: git takes their keyid *attached* (`-Skeyid`,
-# `--gpg-sign=keyid`), never as a separate token, so listing them here would swallow the source
-# branch of `git merge -S feature/x` and silently disable the check for signed merges.
-_MERGE_FLAGS_WITH_ARG = frozenset(
-    {
-        "-m",
-        "--message",
-        "-F",
-        "--file",
-        "-s",
-        "--strategy",
-        "-X",
-        "--strategy-option",
-    }
-)
+# Short options that consume the next token as their argument when nothing is attached. If not
+# skipped, `-m "msg"` — or `-qm "msg"`, the same option in a bundle — would leak the message into
+# the source-branch slot.
+# `-S` is deliberately ABSENT: git takes its keyid *attached* (`-Skeyid`), never as a separate
+# token, so listing it here would swallow the source branch of `git merge -S feature/x` and
+# silently disable the check for signed merges. It owns the rest of its bundle instead.
+_MERGE_SHORT_WITH_ARG = "mFsX"
+
+
+def _short_takes_next(tok: str, with_arg: str, owns_rest: str) -> bool:
+    """Whether a short-option word such as `-qm` hands the next word to one of its options.
+
+    git reads a bundle letter by letter: the first option in `with_arg` takes the attached rest
+    as its value, or the next word when nothing is attached; one in `owns_rest` takes the rest
+    and never the next word."""
+    for i, letter in enumerate(tok[1:], 1):
+        if letter in with_arg:
+            return i == len(tok) - 1
+        if letter in owns_rest:
+            return False
+    return False
+
 
 # A `git switch` / `git checkout` INVOCATION that precedes the merge in the SAME command.
 # merge-strategy's "Merging feature/* → integration" prescribes a three-step block
@@ -287,13 +293,16 @@ def _resolve(name: str, choices: tuple[str, ...]) -> str | None:
     return hits[0] if len(hits) == 1 else None
 
 
-_FALSE_WORDS = ("false", "no", "off")
-_TRUE_WORDS = ("true", "yes", "on", "")
+_FALSE_WORDS = ("false", "no", "off", "")
+_TRUE_WORDS = ("true", "yes", "on")
 
 
-def _config_bool(val: str) -> bool | None:
+def _config_bool(val: str | None) -> bool | None:
     """A config value read as git reads a boolean — untrimmed, case-folded, an integer by its
-    value — or None for anything git would not take as one."""
+    value — or None for anything git would not take as one. No value at all (`-c key`) is
+    true; an empty one (`-c key=`) is false."""
+    if val is None:
+        return True
     if val in _FALSE_WORDS:
         return False
     if val in _TRUE_WORDS:
@@ -303,16 +312,16 @@ def _config_bool(val: str) -> bool | None:
     return None
 
 
-def _config_values(global_opts: list[str], key: str) -> list[str]:
+def _config_values(global_opts: list[str], key: str) -> list[str | None]:
     """Every value a `-c <key>=<value>` among git's global options sets, in order, case-folded
-    and untrimmed as git leaves it. A bare `-c <key>` sets true."""
-    values = []
+    and untrimmed as git leaves it; None for a bare `-c <key>`."""
+    values: list[str | None] = []
     for flag, value in zip(global_opts, global_opts[1:]):
         if flag != "-c":
             continue
-        name, _eq, val = value.partition("=")
+        name, eq, val = value.partition("=")
         if name.lower() == key:
-            values.append(val.lower())
+            values.append(val.lower() if eq else None)
     return values
 
 
@@ -352,7 +361,9 @@ def _merge_operands(
         if tok.startswith("-"):
             name = tok.split("=", 1)[0]
             if takes_values and (
-                tok in _MERGE_FLAGS_WITH_ARG or ("=" not in tok and _resolve(name, _LONG_WITH_ARG))
+                ("=" not in tok and _resolve(name, _LONG_WITH_ARG))
+                if tok.startswith("--")
+                else _short_takes_next(tok, _MERGE_SHORT_WITH_ARG, "S")
             ):
                 skip_next = True
                 continue
@@ -400,8 +411,8 @@ def _rebase_setting(tok: str) -> bool | None:
             # `-S` and `-j` take an optional value attached, so they own the rest as well
             if letter in _PULL_SHORT_WITH_ARG or letter in "Sj":
                 return None
-            if letter == "r":
-                return _config_bool(tok[i + 1 :].lower()) is not False
+            if letter == "r":  # nothing attached is no value, not an empty one
+                return _config_bool(tok[i + 1 :].lower() or None) is not False
         return None
     name, eq, val = tok.partition("=")
     resolved = _resolve(name, ("--rebase", "--no-rebase"))
@@ -416,7 +427,7 @@ def _takes_pull_value(tok: str) -> bool:
     """Whether this `git pull` option word is followed by its value as the next word."""
     if tok.startswith("--"):
         return "=" not in tok and _resolve(tok, _PULL_LONG_WITH_ARG) is not None
-    return len(tok) == 2 and tok[1] in _PULL_SHORT_WITH_ARG
+    return _short_takes_next(tok, _PULL_SHORT_WITH_ARG, "Sjr")
 
 
 def _pull_merges(command: str) -> list[tuple[int, set[str], str]]:
@@ -525,29 +536,57 @@ def _target_from_command(command: str, head_end: int | None = None) -> str | Non
     """
     if not command:
         return None
+    if head_end is None:
+        merge = _MERGE_RE.search(mask_literals(command))
+        head_end = merge.end(1) if merge else len(command)
+    return _merge_targets(command, [head_end])[0]
+
+
+def _merge_targets(command: str, head_ends: list[int]) -> list[str | None]:
+    """:func:`_target_from_command` for every merge position at once.
+
+    One pass over the command for all of them: read once per merge, a chain of merges cost the
+    square of its length, and a hook that times out lets the merge through."""
+    if not command or not head_ends:
+        return [None] * len(head_ends)
     # Located on the mask like every other subcommand read here: a `git switch` written in a
     # comment, quoted in a message, or sitting in a heredoc body is text, and adopting its branch
     # judges the merge against a flow nobody ran. Operands are sliced from the raw string, so
     # _switch_operand still sees their quotes.
     masked = mask_literals(command)
-    if head_end is None:
-        merge = _MERGE_RE.search(masked)
-        head_end = merge.end(1) if merge else len(command)
-    moves = [
-        (
-            m.start(),
-            _switch_operand(command[m.end() : operand_end(command, masked, m.end(), head_end)]),
-        )
-        for m in _MERGE_SWITCH_RE.finditer(masked, 0, head_end)
-    ]
-    seen = {start for start, _branch in moves}
-    moves += [m for m in _split_switches(command) if m[0] < head_end and m[0] not in seen]
-    target: str | None = None
-    for _start, branch in sorted(moves, key=lambda move: move[0]):
-        if branch is None:  # one unclear switch voids the whole chain
-            return None
-        target = branch
-    return target
+    last = max(head_ends)
+    # (start, operands start, operands end, branch); a split switch's words are already read
+    moves = []
+    for m in _MERGE_SWITCH_RE.finditer(masked, 0, last):
+        end = operand_end(command, masked, m.end())
+        moves.append((m.start(), m.end(), end, _switch_operand(command[m.end() : end])))
+    seen = {move[0] for move in moves}
+    moves += [(s, 0, 0, b) for s, b in _split_switches(command) if s < last and s not in seen]
+    moves.sort(key=lambda move: move[0])
+    starts = [move[0] for move in moves]
+    # prefix state: whether the first k moves hold an unclear one, the branch the k-th lands
+    # on, and how far the furthest operand region among them reaches
+    void, branch, reach = [False], [None], [0]
+    for _s, _a, end, b in moves:
+        void.append(void[-1] or b is None)
+        branch.append(b if b is not None else branch[-1])
+        reach.append(max(reach[-1], end))
+    out: list[str | None] = []
+    for head in head_ends:
+        k = bisect.bisect_left(starts, head)
+        j = k
+        while reach[j] > head:  # a switch whose operands run past this merge reads only up to it
+            j -= 1
+        target, unclear = branch[j], void[j]
+        for _s, a, end, b in moves[j:k]:
+            if a > head:  # the switch word itself runs past the merge
+                continue
+            if end > head:
+                b = _switch_operand(command[a:head])
+            unclear = unclear or b is None
+            target = b
+        out.append(None if unclear else target)
+    return out
 
 
 def _points_elsewhere(command: str, root: Path) -> bool:
@@ -611,8 +650,17 @@ def _branch_matches(pattern: str, branch: str, branches: dict) -> bool:
     return bool(configured) and name == str(configured)
 
 
+# A revision suffix: `stage^0`, `stage~2`, `stage@{1}` and `stage^{commit}` merge stage's own
+# history, and no branch name can hold `^`, `~` or `@{`.
+_REV_SUFFIX_RE = re.compile(r"(?:[\^~]|@\{).*\Z", re.DOTALL)
+
+
 def match_merge_rule(rules: list[dict], source: str, target: str, branches: dict) -> dict | None:
-    """Return the first rule whose source and target both match, else None (FAIL-OPEN)."""
+    """Return the first rule whose source and target both match, else None (FAIL-OPEN).
+
+    The source is judged as the branch its revision suffix starts from. The target is not: a
+    switch to `main^0` detaches HEAD, and the merge lands on no branch."""
+    source = _REV_SUFFIX_RE.sub("", source)
     for rule in rules:
         if _branch_matches(str(rule.get("source", "")), source, branches) and _branch_matches(
             str(rule.get("target", "")), target, branches
@@ -664,7 +712,7 @@ def merge_check_output() -> None:
     root = host_root()
     # Each merge's target is the switch before IT: a switch after a merge moves nothing that
     # merge lands in, and one between a pull and a later merge decides only the later one.
-    targets = [_target_from_command(command, start) for start, _f, _s in merges]
+    targets = _merge_targets(command, [start for start, _f, _s in merges])
     if not all(targets):
         if _points_elsewhere(command, root):  # target unknowable from here → FAIL-OPEN
             sys.exit(0)

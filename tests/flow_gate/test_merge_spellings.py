@@ -271,6 +271,54 @@ def test_review_round_two_spellings(monkeypatch, tmp_path, command, branch, bloc
     assert (code == fgc.BLOCK_EXIT_CODE) is blocked, (command, code)
 
 
+@pytest.mark.parametrize(
+    "command,branch,blocked",
+    [
+        # an empty config value is false, a missing one true (git 2.47)
+        ("git -c merge.ff= merge fix/a", "dev", True),
+        ("git -c merge.ff merge --no-ff fix/a", "dev", True),
+        ("git -c merge.ff merge fix/a", "dev", False),
+        ("git -c pull.rebase= pull origin feature/x", "dev", True),
+        ("git -c pull.rebase pull origin feature/x", "dev", False),
+        ("git pull --rebase= origin feature/x", "dev", True),
+        # a short bundle ending in an option that takes a value hands it the next word
+        ("git merge -qm msg feature/x", "dev", True),
+        ("git merge -qF msg.txt feature/x", "dev", True),
+        ("git merge -nX theirs --squash feature/x", "dev", False),
+        ("git merge -qmmsg feature/x", "dev", True),
+        ("git merge -qS feature/x", "dev", True),
+        # a revision suffix merges the branch it starts from
+        ("git merge stage^0", "main", True),
+        ("git merge stage~1", "main", True),
+        ("git merge stage@{1}", "main", True),
+        ("git merge --no-ff stage^{commit}", "main", False),
+        # a switch to a revision detaches HEAD, so no rule names the merge's target
+        ("git checkout main^0 && git merge stage", "dev", False),
+    ],
+)
+def test_review_round_three_spellings(monkeypatch, tmp_path, command, branch, blocked):
+    _policy(tmp_path)
+    code = _run_merge_check(monkeypatch, tmp_path, command, branch)
+    assert (code == fgc.BLOCK_EXIT_CODE) is blocked, (command, code)
+
+
+def test_a_bundle_hands_its_value_to_the_option_not_the_source():
+    assert fgc.parse_pull_commands("git pull -qs ort origin feature/x") == [(set(), "feature/x")]
+    assert fgc.parse_merge_commands("git merge -qm msg feature/x") == [(set(), "feature/x")]
+
+
+def test_every_merge_target_comes_from_one_pass(monkeypatch):
+    """Reading the command once per merge cost the square of a chain's length."""
+    calls = []
+    real = fgc.mask_literals
+    monkeypatch.setattr(fgc, "mask_literals", lambda c: calls.append(c) or real(c))
+    command = "git switch dev && git merge --squash feature/x; " * 50
+    starts = [start for start, _f, _s in fgc._merges(command)]
+    assert len(starts) == 50
+    assert fgc._merge_targets(command, starts) == ["dev"] * 50
+    assert len(calls) == 1
+
+
 def test_a_commit_whose_message_mentions_a_merge_is_not_blocked(monkeypatch, tmp_path):
     _policy(tmp_path)
     assert _run_merge_check(monkeypatch, tmp_path, COMMIT_SKILL_BODY, "dev") == 0

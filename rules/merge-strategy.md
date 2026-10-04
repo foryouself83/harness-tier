@@ -22,7 +22,7 @@ violating flag, `require` and `forbid` alike. `—` = no `merge_strategy` entry.
 
 - Flags are read as git reads them: an abbreviation (`--no-f`), the last of two opposing
   options, and a `-c merge.ff=…` (for a pull, `-c pull.ff=…` over it) on the command line
-  all count.
+  all count. A source with a revision suffix (`stage^0`, `stage~1`) is judged as its branch.
 - Read from the command alone: a `merge.ff`, `pull.ff`, `branch.<name>.mergeoptions` or
   `pull.rebase` set in git config is not seen.
 

@@ -109,7 +109,7 @@ flow 게이트는 SRS 를 전혀 읽지 않음. `docs/srs/` 가 생기면 `/flow
 축약형, 서로 반대되는 두 옵션 중 마지막, 명령줄의 `-c merge.ff=…`(pull 이면 그보다 우선하는
 `-c pull.ff=…`)가 모두 셈에 들어가고, git config 에 설정된 `merge.ff`·`pull.ff`·
 `branch.<name>.mergeoptions`·`pull.rebase` 는 보지 않음. 브랜치명은 `flow-config.branches`
-에서 옴.
+에서 오고, 리비전 접미사가 붙은 소스(`stage^0`)는 그 브랜치로 판정함.
 
 | 머지 | 강제 |
 |------|------|
