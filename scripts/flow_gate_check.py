@@ -6,7 +6,6 @@ variable, and internal errors do not block the gate (fail-open).
 
 from __future__ import annotations
 
-import bisect
 import contextlib
 import io
 import json
@@ -41,7 +40,7 @@ try:
         is_invocation,
         mask_literals,
         operand_end,
-        requote_ansi_c,
+        operand_words,
         working_root,
     )
 except ImportError:
@@ -63,7 +62,7 @@ except ImportError:
         is_invocation,
         mask_literals,
         operand_end,
-        requote_ansi_c,
+        operand_words,
         working_root,
     )
 
@@ -475,31 +474,6 @@ def parse_pull_commands(command: str) -> list[tuple[set[str], str]]:
     return [(flags, source) for _start, flags, source in _pull_merges(command)]
 
 
-def _switch_operand(operands: str) -> str | None:
-    """The branch a `git switch`/`git checkout` operand region lands HEAD on, else None (unclear).
-
-    Clear means exactly one operand and no flag at all. Every other shape moves HEAD somewhere
-    this parser cannot name, so it is unclear rather than "the first bare word":
-      - `checkout dev -- a/b.py` restores a FILE from dev; HEAD does not move at all.
-      - `switch -c feature/y` / `checkout -b` create and land on a DIFFERENT branch.
-      - `checkout origin/dev` lands on a detached HEAD — yet :func:`_branch_matches` strips
-        `origin/`, so adopting it would match the integration rules it never entered.
-      - `switch -`, `checkout --detach`, unbalanced quotes: unnameable.
-    """
-    import shlex
-
-    try:
-        tokens = shlex.split(requote_ansi_c(operands))
-    except ValueError:  # unbalanced quotes → unclear
-        return None
-    if len(tokens) != 1:
-        return None
-    branch = tokens[0]
-    if branch.startswith("-") or branch.startswith("origin/"):
-        return None
-    return branch
-
-
 @lru_cache(maxsize=8)
 def _split_switches(command: str) -> tuple[tuple[int, str | None], ...]:
     """(start, branch) of every `git switch`/`git checkout` in the command, by the shell-split
@@ -513,7 +487,17 @@ def _split_switches(command: str) -> tuple[tuple[int, str | None], ...]:
 
 
 def _switch_operand_words(words: list[str]) -> str | None:
-    """:func:`_switch_operand` over words the shell has already split."""
+    """The branch a `git switch`/`git checkout` with these operand words lands HEAD on, else
+    None (unclear).
+
+    Clear means exactly one operand and no flag at all. Every other shape moves HEAD somewhere
+    this parser cannot name, so it is unclear rather than "the first bare word":
+      - `checkout dev -- a/b.py` restores a FILE from dev; HEAD does not move at all.
+      - `switch -c feature/y` / `checkout -b` create and land on a DIFFERENT branch.
+      - `checkout origin/dev` lands on a detached HEAD — yet :func:`_branch_matches` strips
+        `origin/`, so adopting it would match the integration rules it never entered.
+      - `switch -`, `checkout --detach`, unbalanced quotes (no words at all): unnameable.
+    """
     if len(words) != 1 or words[0].startswith(("-", "origin/")):
         return None
     return words[0]
@@ -551,42 +535,41 @@ def _merge_targets(command: str, head_ends: list[int]) -> list[str | None]:
         return [None] * len(head_ends)
     # Located on the mask like every other subcommand read here: a `git switch` written in a
     # comment, quoted in a message, or sitting in a heredoc body is text, and adopting its branch
-    # judges the merge against a flow nobody ran. Operands are sliced from the raw string, so
-    # _switch_operand still sees their quotes.
+    # judges the merge against a flow nobody ran. Operand words are read off the raw string,
+    # so a quoted branch name keeps its quotes' meaning.
     masked = mask_literals(command)
     last = max(head_ends)
-    # (start, operands start, operands end, branch); a split switch's words are already read
+    # (start, where its operands end, branch); a split switch's words are already read, and its
+    # operands end where its stage does
     moves = []
     for m in _MERGE_SWITCH_RE.finditer(masked, 0, last):
         end = operand_end(command, masked, m.end())
-        moves.append((m.start(), m.end(), end, _switch_operand(command[m.end() : end])))
+        branch = _switch_operand_words(operand_words(command, masked, m.end(), end))
+        moves.append((m.start(), end, branch))
     seen = {move[0] for move in moves}
-    moves += [(s, 0, 0, b) for s, b in _split_switches(command) if s < last and s not in seen]
-    moves.sort(key=lambda move: move[0])
-    starts = [move[0] for move in moves]
-    # prefix state: whether the first k moves hold an unclear one, the branch the k-th lands
-    # on, and how far the furthest operand region among them reaches
-    void, branch, reach = [False], [None], [0]
-    for _s, _a, end, b in moves:
-        void.append(void[-1] or b is None)
-        branch.append(b if b is not None else branch[-1])
-        reach.append(max(reach[-1], end))
-    out: list[str | None] = []
-    for head in head_ends:
-        k = bisect.bisect_left(starts, head)
-        j = k
-        while reach[j] > head:  # a switch whose operands run past this merge reads only up to it
-            j -= 1
-        target, unclear = branch[j], void[j]
-        for _s, a, end, b in moves[j:k]:
-            if a > head:  # the switch word itself runs past the merge
-                continue
-            if end > head:
-                b = _switch_operand(command[a:head])
-            unclear = unclear or b is None
-            target = b
-        out.append(None if unclear else target)
+    for s, b in _split_switches(command):
+        if s < last and s not in seen:
+            stage = _STAGE_LEAD_RE.match(masked, s).end()
+            moves.append((s, operand_end(command, masked, stage), b))
+    # A switch counts for a merge once its operands end before the merge starts. One whose
+    # operands hold the merge — `git switch $(git merge x)` — runs after it, since the shell
+    # expands an argument before running the command it feeds.
+    moves.sort(key=lambda move: move[1])
+    out: list[str | None] = [None] * len(head_ends)
+    i, void, latest = 0, False, None
+    for idx in sorted(range(len(head_ends)), key=head_ends.__getitem__):
+        while i < len(moves) and moves[i][1] <= head_ends[idx]:
+            start, _end, branch = moves[i]
+            void = void or branch is None  # one unclear switch voids the whole chain
+            if latest is None or start > latest[0]:
+                latest = (start, branch)
+            i += 1
+        out[idx] = None if void or latest is None else latest[1]
     return out
+
+
+# The separators and blanks a split switch's stage can open with, before its first word.
+_STAGE_LEAD_RE = re.compile(r"[\s;&|]*")
 
 
 def _points_elsewhere(command: str, root: Path) -> bool:

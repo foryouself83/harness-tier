@@ -294,6 +294,20 @@ def test_review_round_two_spellings(monkeypatch, tmp_path, command, branch, bloc
         ("git merge --no-ff stage^{commit}", "main", False),
         # a switch to a revision detaches HEAD, so no rule names the merge's target
         ("git checkout main^0 && git merge stage", "dev", False),
+        # a substitution after the source keeps the flags in front of it
+        ("git merge fix/a `true` --no-ff", "dev", True),
+        # an escaped backtick opens nothing, so the merge's words end at the `;`
+        ("git merge feature/x \\`; echo --squash \\`", "dev", True),
+        ("git merge --no-ff fix/a \\`; echo --ff \\`", "dev", True),
+        ("git merge feature/x \\`; git merge --squash feature/y \\`", "dev", True),
+        # text shlex cannot split beyond the merge's words leaves them readable
+        ("git merge feature/x -m $(cat <<EOF\nit's\nEOF\n)", "dev", True),
+        ("git merge feature/x $(echo hi # don't\n)", "dev", True),
+        ('git merge feature/x $(true) -m "a $(echo b c)"', "dev", True),
+        ("git merge feature/x <<'E O'\nx\nE O\n", "dev", True),
+        # a merge inside a switch's argument runs before that switch, onto the earlier one
+        ("git switch main && git switch -c $(git merge stage)", "dev", True),
+        ("git switch main && git switch -c `git merge --no-ff stage`", "dev", False),
     ],
 )
 def test_review_round_three_spellings(monkeypatch, tmp_path, command, branch, blocked):
@@ -305,6 +319,13 @@ def test_review_round_three_spellings(monkeypatch, tmp_path, command, branch, bl
 def test_a_bundle_hands_its_value_to_the_option_not_the_source():
     assert fgc.parse_pull_commands("git pull -qs ort origin feature/x") == [(set(), "feature/x")]
     assert fgc.parse_merge_commands("git merge -qm msg feature/x") == [(set(), "feature/x")]
+
+
+def test_a_closing_backtick_ends_the_command_it_encloses():
+    assert fgc.parse_merge_commands("git switch `git merge a` && git merge b") == [
+        (set(), "a"),
+        (set(), "b"),
+    ]
 
 
 def test_every_merge_target_comes_from_one_pass(monkeypatch):

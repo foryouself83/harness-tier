@@ -2,12 +2,12 @@
   "design-table": {
     "fired_hits": 0,
     "fired_rate": 0.0,
-    "measured_at": "2026-10-04",
+    "measured_at": "2026-10-05",
     "model": "claude-sonnet-5",
     "outcome_hits": 3,
     "outcome_n": 3,
     "outcome_pass_rate": 1.0,
-    "outcome_sha": "e06d8759a212",
+    "outcome_sha": "0145553622bf",
     "reps": 3
   },
   "doc-sync": {
@@ -24,12 +24,12 @@
   "wiki-init": {
     "fired_hits": 0,
     "fired_rate": 0.0,
-    "measured_at": "2026-10-04",
+    "measured_at": "2026-10-05",
     "model": "claude-sonnet-5",
     "outcome_hits": 3,
     "outcome_n": 3,
     "outcome_pass_rate": 1.0,
-    "outcome_sha": "3614a98d4f0f",
+    "outcome_sha": "8d0fb894dd64",
     "reps": 3
   }
 }

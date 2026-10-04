@@ -101,3 +101,42 @@ def test_no_pattern_is_quadratic_on_a_repeated_token():
             if elapsed > BUDGET_SECONDS:
                 slow.append(f"{who} on {label}: {elapsed:.2f}s")
     assert not slow, slow
+
+
+@pytest.mark.parametrize(
+    "unit",
+    [
+        "git switch dev `git merge --squash feature/x` ",
+        "git switch dev $(git merge --squash feature/x) ",
+        "git switch dev && git merge --squash feature/x; ",
+        "git commit -m x `git merge a` ",
+    ],
+)
+def test_many_invocations_in_one_command_cost_the_merge_verdict_little(unit):
+    """Invocations sharing one simple command can give each an operand region running to its
+    end. Split afresh per invocation, or the switch targets read afresh per merge, the
+    backtick shape took tens of seconds at this size; the verdict times out at a few times
+    that, and lets the merge through."""
+    command = unit * 400
+    start = time.perf_counter()
+    merges = sorted(fgc._merges(command) + fgc._pull_merges(command), key=lambda m: m[0])
+    fgc._merge_targets(command, [s for s, _f, _s in merges])
+    elapsed = time.perf_counter() - start
+    assert merges
+    assert elapsed < BUDGET_SECONDS, f"{len(command)} chars took {elapsed:.2f}s"
+
+
+def test_each_token_is_split_once(monkeypatch):
+    """The word table is what keeps the cost linear: splitting grows with the tokens, not
+    with the tokens times the invocations whose regions cover them."""
+    calls = []
+    real = vp._shell_words
+    monkeypatch.setattr(vp, "_shell_words", lambda *a: calls.append(a) or real(*a))
+    for n in (50, 100):
+        command = "git switch dev `git merge --squash feature/x` " * n
+        calls.clear()
+        vp._word_table.cache_clear()
+        fgc._split_switches.cache_clear()
+        merges = fgc._merges(command)
+        fgc._merge_targets(command, [s for s, _f, _s in merges])
+        assert len(calls) <= 2 * len(command.split()), (n, len(calls))

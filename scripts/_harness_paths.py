@@ -31,6 +31,7 @@ cross-shared with JSON/shell. But the *fallback helpers that read those keys*
 from __future__ import annotations
 
 import bisect
+import itertools
 import os
 import re
 import subprocess
@@ -668,10 +669,12 @@ _MASK_TOKEN_RE = re.compile(r"\S+")
 # Characters the scanners name rather than spell: the first three are what a heredoc
 # delimiter must carry for its body to be literal text rather than code.
 SQ_CH, DQ_CH, BS_CH, BT_CH, DOLLAR_CH = chr(39), chr(34), chr(92), chr(96), chr(36)
-# What a backslash quotes: a blank, either quote, itself, and a newline (which joins two
-# lines rather than quoting a character). Everything it precedes outside that set stays an
-# ordinary pair, so a path written with backslash separators keeps them.
-_QUOTED_BY_BACKSLASH = frozenset(" \t\"'\\\n;&|()<>")
+# What a backslash quotes: a blank, either quote, itself, a backtick, and a newline (which
+# joins two lines rather than quoting a character). Everything it precedes outside that set
+# stays an ordinary pair, so a path written with backslash separators keeps them. An escaped
+# backtick opens no substitution: read as one, it pairs with the next real backtick and ends
+# the command it seems to enclose there, dropping the flags git reads after it.
+_QUOTED_BY_BACKSLASH = frozenset(" \t\"'\\\n;&|()<>`")
 # What runs the quoted argument that follows it. Two shapes: a word that takes a command
 # (`eval`, `trap`), and an interpreter's script flag — which has to be preceded by the
 # interpreter, or the same `-c` claims git's own global option and every tool's count
@@ -1425,17 +1428,73 @@ def operand_words(command: str, masked: str, start: int, end: int) -> list[str]:
     shlex then raises on it — which reads as `no merge here` and drops a fail-CLOSED
     verdict. Continuations go too: a `\\` before a newline is not a word.
     """
+    starts, ends, words, unsplit = _word_table(command)
+    i = bisect.bisect_right(ends, start)
+    j = bisect.bisect_left(starts, end)
+    if i >= j:
+        return []
+
+    def piece(k: int) -> tuple[str, ...] | None:
+        """Token k's words, read clipped where the region cuts through it."""
+        if start <= starts[k] and ends[k] <= end:
+            return words[k]
+        return _shell_words(command, max(starts[k], start), min(ends[k], end))
+
+    head, tail = piece(i), piece(j - 1)
+    if head is None or tail is None or unsplit[j - 1] - unsplit[i + 1] > 0:
+        # a token shlex cannot split alone may be a piece of one word the mask left blanks in
+        # (a substitution inside double quotes, a quoted heredoc delimiter): read it whole
+        return list(_shell_words(command, start, end) or ())
+    if j - i == 1:
+        return list(head)
+    return [*head, *itertools.chain.from_iterable(words[i + 1 : j - 1]), *tail]
+
+
+def _shell_words(command: str, start: int, end: int) -> tuple[str, ...] | None:
+    """The words `command[start:end]` splits into, or None where shlex cannot split it."""
     import shlex
 
-    text = list(command[start:end])
+    try:
+        return tuple(shlex.split(requote_ansi_c(_unblanked_view(command)[start:end])))
+    except ValueError:
+        return None
+
+
+@lru_cache(maxsize=16)
+def _word_table(command: str) -> tuple[tuple[int, ...], tuple[int, ...], tuple, tuple[int, ...]]:
+    """(starts, ends, words, unsplit) of every blank-separated token of the mask, its words read
+    once; unsplit[k] counts the tokens before k that shlex cannot split.
+
+    Read once per command: a command holding many invocations gives each an operand region
+    that can run to its end, and splitting every region afresh cost the square of its length.
+    Outside quotes a blank on the mask is a blank the shell splits on — quoted text is a
+    blank-free run there — so where every token splits alone, token by token yields the words
+    the whole region does. Where one does not, :func:`operand_words` reads the region whole."""
+    tokens = [(m.start(), m.end()) for m in re.finditer(r"\S+", mask_literals(command))]
+    words = tuple(_shell_words(command, a, b) for a, b in tokens)
+    return (
+        tuple(a for a, _b in tokens),
+        tuple(b for _a, b in tokens),
+        words,
+        tuple(itertools.accumulate((w is None for w in words), initial=0)),
+    )
+
+
+@lru_cache(maxsize=16)
+def _unblanked_view(command: str) -> str:
+    """`command` with its continuations and heredoc delimiters blanked, same length. Built once
+    per command: rebuilt for each invocation, a command of many cost the square of its length."""
+    out = list(command)
     for a, b, kind in _shell_regions(command):
         if kind in _BLANKED:
-            for i in range(max(a, start), min(b, end)):
-                text[i - start] = " "
-    try:
-        return shlex.split(requote_ansi_c("".join(text)))
-    except ValueError:
-        return []
+            out[a:b] = " " * (b - a)
+    return "".join(out)
+
+
+@lru_cache(maxsize=16)
+def _comment_starts(command: str) -> tuple[int, ...]:
+    """Where each comment in `command` starts, in order."""
+    return tuple(sorted(a for a, _b, kind in _shell_regions(command) if kind == "comment"))
 
 
 def operand_end(command: str, masked: str, start: int, end: int | None = None) -> int:
@@ -1445,13 +1504,48 @@ def operand_end(command: str, masked: str, start: int, end: int | None = None) -
     end of input instead, a later command's flags join this one's and a `--squash` written in a
     trailing comment satisfies the policy row that requires it. Separators are located on the
     MASK, so one inside a message or a heredoc body ends nothing.
+
+    A substitution enclosing the command ends it where it closes, a closing backtick as much as
+    a `)`: read on past it, every merge in a run of backticks took the rest of the command as
+    its operands.
     """
     stop = len(command) if end is None else end
-    for a, _b, kind in _shell_regions(command):
-        if kind == "comment" and start <= a < stop:
-            stop = a
+    starts, ends, closes, parents = _substitution_tree(masked)
+    k = bisect.bisect_left(starts, start) - 1
+    while k >= 0 and ends[k] <= start:
+        k = parents[k]
+    if k >= 0:
+        stop = min(stop, closes[k])
+    comments = _comment_starts(command)
+    c = bisect.bisect_left(comments, start)
+    if c < len(comments) and comments[c] < stop:
+        stop = comments[c]
     m = _SEPARATOR_RE.search(masked, start, stop)
     return m.start() if m else stop
+
+
+@lru_cache(maxsize=16)
+def _substitution_tree(masked: str) -> tuple[tuple[int, ...], ...]:
+    """(starts, ends, closes, parents) of every substitution on the mask, nested ones included,
+    ordered by start: where it closes is its `)` or backtick, and its parent is the index of the
+    one enclosing it, -1 for none."""
+    found = []
+    pending = [(0, len(masked), -1)]
+    while pending:
+        a, b, parent = pending.pop()
+        for i, e in _substitutions(masked[a:b]):
+            i, e = i + a, e + a
+            closed = e - 1 > i and masked[e - 1] in (")", BT_CH)
+            found.append((i, e, e - 1 if closed else e, parent))
+            pending.append((i + (1 if masked[i] == BT_CH else 2), e - 1 if closed else e, i))
+    found.sort()
+    index = {f[0]: n for n, f in enumerate(found)}
+    return (
+        tuple(f[0] for f in found),
+        tuple(f[1] for f in found),
+        tuple(f[2] for f in found),
+        tuple(index.get(f[3], -1) for f in found),
+    )
 
 
 def _unquote(command: str, masked: str, a: int, b: int) -> str:
