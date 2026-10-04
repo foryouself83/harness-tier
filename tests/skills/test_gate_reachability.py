@@ -108,9 +108,35 @@ def runner_prefilter() -> tuple[str, re.Pattern[str]]:
     return literal.group("lit"), re.compile(pattern)
 
 
+# The deletions the pre-filter makes for its joined copy, in the script's order, each as the
+# expansion the script spells and the substitution it performs.
+JOIN_STEPS = (
+    (r"${_cmd//\\$'\r\n'/}", r"\\\r\n"),
+    (r"${_joined//\\$'\n'/}", r"\\\n"),
+    (r"${_joined//\'/}", r"'"),
+    (r"${_joined//\"/}", r'"'),
+    (r"${_joined//\$/}", r"\$"),
+    (r"${_joined//\\/}", r"\\"),
+)
+
+
+def runner_joined(command: str) -> str | None:
+    """The joined copy the pre-filter also tests, or None when the script makes none — read out
+    of the script like the rest, so a dropped step fails here instead of being emulated."""
+    src = (REPO / "scripts/precommit-runner.sh").read_text(encoding="utf-8")
+    if not all(spelled in src for spelled, _ in JOIN_STEPS):
+        return None
+    for _, deleted in JOIN_STEPS:
+        command = re.sub(deleted, "", command)
+    return command
+
+
 def reaches_the_gate(command: str) -> bool:
     """Whether `command` gets the gate spawned on it at all."""
     literal, word_re = runner_prefilter()
+    joined = runner_joined(command)
+    if joined is not None:
+        command += "\n" + joined
     return literal in command and bool(word_re.search(command))
 
 
@@ -144,9 +170,10 @@ def assert_git_commands_reach_the_gate(label: str, commands: list[str]) -> None:
 
 def test_the_prefilter_states_no_opinion_about_quoting():
     """The pre-filter decides only WHETHER to spawn the gate; the gate decides what the command
-    is. A pre-filter that reasons about quotes is a second grammar, and a second grammar has to
-    agree with the first. So it may not mention a quote or an escape at all: over-matching costs
-    one spawn, under-matching costs the whole gate."""
+    is. A word pattern that reasons about quotes is a second grammar, and a second grammar has
+    to agree with the first. So the pattern may not mention a quote or an escape at all: the
+    joined copy it also tests only adds spellings. Over-matching costs one spawn,
+    under-matching costs the whole gate."""
     src = (REPO / "scripts/precommit-runner.sh").read_text(encoding="utf-8")
     raw = re.search(r"^_word_re='(?P<re>.+)'$", src, re.M)
     assert raw, "_word_re is gone from precommit-runner.sh"
@@ -190,6 +217,11 @@ REAL_INVOCATIONS = [
     ("git.exe commit -m x", "commit"),
     ("C:/Git/bin/git.exe -C /a/wt commit -m x", "commit"),
     ("'git' commit -m x", "commit"),
+    # A word quote removal joins: the literal word is nowhere in the command text.
+    ("git com''mit -m x", "commit"),
+    ("git c\\ommit -m x", "commit"),
+    ("g''it commit -m x", "commit"),
+    ('git mer""ge --squash feature/x', "merge"),
     # Text handed to a program that RUNS it. The channel is not always the argument of a `-c`:
     # a here-string, a heredoc, and a pipeline all deliver a script, and each spelling closed
     # by name has been followed by one that was not. What they share is that the command
@@ -238,6 +270,20 @@ def test_every_real_invocation_is_read_as_one_and_reaches_the_gate(command: str,
         f"{command!r} is a real invocation the runner's pre-filter drops: the hook exits 0 and "
         f"every gate behind it is skipped in silence."
     )
+
+
+def _classifier_corpora() -> list[tuple[str, str]]:
+    from tests.harness_paths.test_invocation_corpus import RUNS_A_COMMIT
+    from tests.harness_paths.test_invocation_net import NET_INVOCATIONS
+
+    return [*RUNS_A_COMMIT, *NET_INVOCATIONS]
+
+
+@pytest.mark.parametrize("command,word", _classifier_corpora())
+def test_every_invocation_the_classifier_reads_reaches_the_gate(command: str, word: str):
+    """The pre-filter has to stay coarser than the classifier over every corpus the classifier
+    is pinned on, not only this file's: a spelling only the classifier accepts is the gate off."""
+    assert reaches_the_gate(command), command
 
 
 @pytest.mark.parametrize("command", NON_INVOCATIONS)

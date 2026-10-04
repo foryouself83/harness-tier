@@ -178,6 +178,23 @@ RUNS_A_COMMIT = [
     # rg --pre git <pat> commit: rg runs `git` on the file named `commit` → a standalone git +
     # commit token, the same signal (§1(a) denied its exemption; the token check catches it here)
     ("rg --pre git x commit", "commit"),
+    # quote removal joins the pieces of one word, so a word split by quotes or by a backslash
+    # before an ordinary character is still that word (verified under bash with a stub `git`)
+    ("git com''mit -m x", "commit"),
+    ('git com""mit -m x', "commit"),
+    ("git c\\ommit -m x", "commit"),
+    ("g''it commit -m x", "commit"),
+    ("git $'commit' -m x", "commit"),
+    ("git -C /tmp/wt com''mit -m x", "commit"),
+    ("cd /tmp/wt && git c\\ommit -m x", "commit"),
+    ("git mer''ge --no-ff dev", "merge"),
+    ("git com$'mit' -m x", "commit"),
+    ('git com$"mit" -m x', "commit"),
+    ("g$''it commit -m x", "commit"),
+    # a line continuation is removed before words are split, mid-word included
+    ("git co\\\nmmit -m x", "commit"),
+    ("gi\\\nt commit -m x", "commit"),
+    ("git co\\\r\nmmit -m x", "commit"),
 ]
 
 
@@ -266,6 +283,10 @@ RUNS_NO_COMMIT = [
     'printf -v x "C:\\git\\commit\\y"',
     'rg --pre cat "C:\\git\\commit\\log.txt"',
     "find . -name '*.log' | xargs grep 'C:\\git\\commit\\path'",
+    # a split word joined back is still only an argument when the program is not git
+    "grep -rn \"git com''mit\" .",
+    "git log --grep=com''mit",
+    "git log --oneline -- 'com'mit.txt",
 ]
 
 

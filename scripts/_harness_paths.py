@@ -996,6 +996,23 @@ def _unquoted_view(command: str, *, keep_heredoc: bool = False) -> str:
     return _QUOTING_RE.sub(lambda m: " " * len(m.group()), "".join(out))
 
 
+# What quote removal deletes from a word: a line continuation, each quote, the `$` that opens
+# an ANSI-C or locale string, and a backslash before a character it quotes. `com''mit`,
+# `c\ommit`, `$'commit'` and `co\<newline>mmit` are all `commit` to bash, while the views above
+# leave the pieces apart.
+_QUOTE_REMOVAL_RE = re.compile(r"\\\r?\n|\$(?=['\"])|['\"]|\\(?=\S)")
+
+
+def _uncommented(command: str) -> str:
+    """`command` with its comments blanked and everything else as written, same length — the
+    base each element's quote removal (:data:`_QUOTE_REMOVAL_RE`) runs over."""
+    out = list(command)
+    for a, b, kind in _shell_regions(command):
+        if kind == "comment":
+            out[a:b] = " " * (b - a)
+    return "".join(out)
+
+
 def _substitutions(masked: str) -> list[tuple[int, int]]:
     """Where each `$( … )`, backtick, and process-substitution `<( … )` / `>( … )` span sits on
     the mask, outermost first. Used ONLY to keep _list_elements from splitting inside one — a
@@ -1053,7 +1070,8 @@ def is_invocation(command: str, word: str) -> bool:
     commit. Behind it sits a net for the case the mask is wrong about — the element of the
     command list runs something other than a reader, so its quoted text (and any heredoc body
     it is handed) may be a script rather than data. The same grammar is then tried over that
-    element read with its quoting rubbed out and its heredoc body kept.
+    element read with its quoting rubbed out and its heredoc body kept, and once more with its
+    quoting deleted, which joins a word split by quotes (`git com''mit`) the way bash does.
 
     The exemption is the list, not the gating: a program nobody listed as read-only
     over-gates, which the user sees and can work around, where a channel nobody listed
@@ -1082,10 +1100,13 @@ def is_invocation(command: str, word: str) -> bool:
     if pattern.search(masked):
         return True
     scripted = _unquoted_view(command, keep_heredoc=True)
+    uncommented = _uncommented(command)
     for a, b in _list_elements(command, masked):
         if _reads_only(masked[a:b]) and not _runs_by_flag(command[a:b], masked[a:b]):
             continue
         if pattern.search(scripted[a:b]):
+            return True
+        if pattern.search(_QUOTE_REMOVAL_RE.sub("", uncommented[a:b])):
             return True
         names = [n for n, _s, _e in _program_spans(masked[a:b])]
         if (
@@ -1264,6 +1285,16 @@ def _cd_hop_before_bare_commit(command: str, masked: str) -> bool:
     return False
 
 
+def _net_only_commit(command: str, masked: str) -> bool:
+    """An element whose commit only the :func:`is_invocation` net reads — a script an
+    interpreter is handed, or a word split by quoting. The directory readers above walk the
+    mask, where that commit does not show, so neither its `-C` nor a hop before it is seen."""
+    return any(
+        not _GIT_COMMIT_RE.search(masked[a:b]) and is_invocation(command[a:b], "commit")
+        for a, b in _list_elements(command, masked)
+    )
+
+
 def commit_tree_unresolved(command: str | None) -> bool:
     """Whether the command commits somewhere this cannot name — its invocations disagree, one of
     them names a tree this cannot resolve (an unexpanded `-C` value), or a cd/pushd/popd hop
@@ -1290,7 +1321,7 @@ def commit_tree_unresolved(command: str | None) -> bool:
         answers = _commit_dir_answers(command)
         if len(answers) > 1 or _UNKNOWN_DIR in answers:
             return True
-        return _cd_hop_before_bare_commit(command, masked)
+        return _cd_hop_before_bare_commit(command, masked) or _net_only_commit(command, masked)
     except Exception:
         return False  # FAIL-OPEN: an unreadable command is not one this can claim anything about
 

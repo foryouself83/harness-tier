@@ -81,7 +81,17 @@ fi
 # a second grammar has to agree with the first, and the spellings only one of them accepts
 # are the gate off in silence rather than a narrower gate. Over-matching costs one python
 # spawn and no verdict; under-matching costs the whole gate.
-case "${_hook_cmd:-$_hook_input}" in
+# The grammar also reads each element with its quoting deleted, where `git com''mit`,
+# `git c\ommit` and a word broken by a line continuation are the commit bash runs, so the
+# filter tests that joined spelling as well, with every `$` gone (coarser than `$'…'`).
+_cmd="${_hook_cmd:-$_hook_input}"
+_joined="${_cmd//\\$'\r\n'/}"
+_joined="${_joined//\\$'\n'/}"
+_joined="${_joined//\'/}"
+_joined="${_joined//\"/}"
+_joined="${_joined//\$/}"
+_cmd="$_cmd"$'\n'"${_joined//\\/}"
+case "$_cmd" in
   *git*) ;;
   *) exit 0 ;;
 esac
@@ -90,7 +100,7 @@ esac
 # is an invocation to the gate while a blank-anchored filter drops it, and a filter narrower
 # than the grammar is the gate off in silence.
 _word_re='(commit|merge)($|[^[:alnum:]_-])'
-[[ "${_hook_cmd:-$_hook_input}" =~ $_word_re ]] || exit 0
+[[ "$_cmd" =~ $_word_re ]] || exit 0
 
 ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}"
 [ -n "$ROOT" ] || exit 0

@@ -255,3 +255,45 @@ def test_the_runner_leaves_no_bytecode_beside_the_scripts(tmp_path: Path, monkey
     _init_repo(main)
     _run_runner(main, "git commit -m x", plugin_root=plugin)
     assert not list(plugin.rglob("__pycache__"))
+
+
+@requires_bash_git
+@pytest.mark.parametrize("command", ["git com''mit -m x", "git c\\ommit -m x", "g''it commit -m x"])
+def test_a_quote_split_commit_reaches_the_gate(tmp_path: Path, command: str):
+    """The pre-filter decides only whether to spawn the classifier; one that wants the literal
+    word drops a commit bash runs, with no verdict ever asked. The deny is the proof the gate
+    engaged: this tree carries no tier marker."""
+    main = tmp_path / "main"
+    _init_repo(main)
+    (main / ".claude" / "harness-tier" / "config").mkdir(parents=True)
+    (main / ".claude" / "harness-tier" / "config" / "flow-config.yaml").write_text(
+        "modules: []", encoding="utf-8"
+    )
+    _rg(["add", "-A"], main)
+    _rg(["commit", "-m", "config"], main)
+    (main / "a.txt").write_text("x", encoding="utf-8")
+    _rg(["add", "a.txt"], main)
+    r = _run_runner(main, command)
+    assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)
+
+
+@requires_bash_git
+@pytest.mark.parametrize("spelling", ["com''mit", "c\\ommit", "co\\\nmmit"])
+def test_a_quote_split_worktree_commit_is_not_judged_by_a_clean_main(tmp_path: Path, spelling):
+    """The `-C` reader walks the mask, where this commit does not show, so ROOT stays on main;
+    a clean main then ended the run before the gate. The deny is the proof it engaged: the
+    worktree carries no tier marker."""
+    main = tmp_path / "main"
+    _init_repo(main)
+    (main / ".claude" / "harness-tier" / "config").mkdir(parents=True)
+    (main / ".claude" / "harness-tier" / "config" / "flow-config.yaml").write_text(
+        "modules: []", encoding="utf-8"
+    )
+    _rg(["add", "-A"], main)
+    _rg(["commit", "-m", "config"], main)
+    wt = tmp_path / "wt"
+    _rg(["worktree", "add", "-b", "feature/x", str(wt)], main)
+    (wt / "a.txt").write_text("x", encoding="utf-8")
+    _rg(["add", "a.txt"], wt)
+    r = _run_runner(main, f"git -C {wt.as_posix()} {spelling} -m x")
+    assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)

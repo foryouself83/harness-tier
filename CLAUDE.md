@@ -139,9 +139,11 @@ Preserve these in `scripts/*` and `hooks/*.sh`; code, tests and skills cite them
    re-designation must never newly block. One exception: a command whose commit tree cannot be
    pinned to one place is gated anyway, since whichever tree it resolves to, its being clean says
    nothing — invocations naming different directories, an untrackable `cd`/`pushd`/`popd` hop (a
-   subshell counts) before a bare commit other than the leading prefix, or a `-C` value still
-   carrying shell expansion or a glob. Same-repo identity is `--git-common-dir` equality, never a
-   path prefix. Keep the uncertain set small. Cases: `scripts/_harness_paths.py`.
+   subshell counts) before a bare commit other than the leading prefix, a `-C` value still
+   carrying shell expansion or a glob, or a commit the directory readers never see to resolve —
+   one inside a script handed to an interpreter, or one a quote or backslash splits (`com''mit`,
+   `c\ommit`). Same-repo identity is `--git-common-dir` equality, never a path prefix. Keep the
+   uncertain set small. Cases: `scripts/_harness_paths.py`.
 7. **One authority for what a `git` invocation is** — the classifier decides; the runner's stdin
    filter only decides whether to spawn it, and stays coarser: a spelling one of them alone
    accepts is the gate off in silence. Quoting, escapes, comments and heredoc bodies are read in
