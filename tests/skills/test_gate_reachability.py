@@ -131,8 +131,21 @@ def runner_joined(command: str) -> str | None:
     return command
 
 
+# The runner's skip for an ANSI-C string, whose escapes can spell either word: spelled as the
+# script spells it, so the emulation stops granting the skip the day the script drops it.
+ANSI_C_SKIP = (
+    """case "$_joined" in *\\$*\\\\* | *\\\\*\\$*) _ansi_c=yes ;; esac""",
+    "  yes*) ;;",
+    '[[ $_ansi_c == yes || "$_cmd" =~ $_word_re ]] || exit 0',
+)
+
+
 def reaches_the_gate(command: str) -> bool:
     """Whether `command` gets the gate spawned on it at all."""
+    src = (REPO / "scripts/precommit-runner.sh").read_text(encoding="utf-8")
+    unbroken = re.sub(r"\\\r?\n", "", command)  # the script checks after continuations go
+    if "$" in unbroken and "\\" in unbroken and all(line in src for line in ANSI_C_SKIP):
+        return True
     literal, word_re = runner_prefilter()
     joined = runner_joined(command)
     if joined is not None:

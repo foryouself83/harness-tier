@@ -193,6 +193,35 @@ RUNS_A_COMMIT = [
     ("g$''it commit -m x", "commit"),
     # a line continuation is removed before words are split, mid-word included
     ("git co\\\nmmit -m x", "commit"),
+    # a backslash inside double quotes stays, so a quoted Windows path still names git, and an
+    # escaped one outside quotes is that path too
+    ("\"C:\\Program Files\\Git\\bin\\git.exe\" com''mit -m x", "commit"),
+    ("C:\\\\Git\\\\bin\\\\git.exe com''mit -m x", "commit"),
+    ("\"C:\\Git\\bin\\git.exe\" mer''ge --no-ff dev", "merge"),
+    # an ANSI-C string's escapes are decoded before the word is read
+    ("git $'\\x63ommit' -m x", "commit"),
+    ("git $'\\143ommit' -m x", "commit"),
+    ("git $'\\u0063ommit' -m x", "commit"),
+    ("$'\\x67it' commit -m x", "commit"),
+    ("git $'\\x6derge' --no-ff dev", "merge"),
+    # a line continuation between `$` and the quote still opens an ANSI-C string
+    ("git $\\\n'\\x63ommit' -m x", "commit"),
+    ("git $\\\r\n'\\x63ommit' -m x", "commit"),
+    # `\c` never takes the closing quote as its control character
+    ("git -c x=$'\\c' c\\ommit", "commit"),
+    # a script nested in quotes for an interpreter is read once its own quoting is peeled too
+    ("eval 'git com\"\"mit'", "commit"),
+    ("bash -c 'git c\\ommit -m x'", "commit"),
+    ("bash -c \"git com''mit -m x\"", "commit"),
+    ('sh -c "git c\\\\ommit"', "commit"),
+    ("ssh host 'git com\"m\"it'", "commit"),
+    ("bash -c 'git mer\"\"ge --no-ff dev'", "merge"),
+    # each eval halves the backslashes, so nesting runs past any fixed number of peels
+    ("eval eval eval eval git c" + "\\" * 16 + "ommit", "commit"),
+    # the `$'` of an ANSI-C string quoted apart for the interpreter that joins it
+    ('bash -c "git "\\$"\'\\x63ommit\'"', "commit"),
+    # sh takes the double quotes and one backslash, eval the single quotes and the other
+    ("sh -c \"eval 'git c\\\\ommit'\"", "commit"),
     ("gi\\\nt commit -m x", "commit"),
     ("git co\\\r\nmmit -m x", "commit"),
 ]
@@ -287,6 +316,10 @@ RUNS_NO_COMMIT = [
     "grep -rn \"git com''mit\" .",
     "git log --grep=com''mit",
     "git log --oneline -- 'com'mit.txt",
+    "git log --grep=$'\\x63ommit'",
+    # a code point no character carries is kept as written, not raised on
+    "git log --grep=$'\\U7FFFFFFF'",
+    "grep -rn \"C:\\Git\\bin\\git.exe com''mit\" .",
 ]
 
 

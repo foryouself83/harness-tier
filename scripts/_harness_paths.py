@@ -30,6 +30,7 @@ cross-shared with JSON/shell. But the *fallback helpers that read those keys*
 
 from __future__ import annotations
 
+import bisect
 import os
 import re
 import subprocess
@@ -243,7 +244,50 @@ def _git(args: list[str], cwd: str | Path) -> str | None:
 # flag rather than the previous flag's argument. The leading separator is what stops `mygit`.
 
 
-def git_subcommand_re(word: str) -> re.Pattern[str]:
+# The program token alone, and the global-options run that follows it — the two halves of the
+# grammar below, kept apart so a search can skip a `git` that sits inside a run already read.
+_GIT_HEAD = r"(?:^|[\s;&|(`])(?:[^\s;&|()'\"`]*[/\\])?git(?:\.exe)?"
+_GIT_OPTIONS = r"(?:\s+-\S+(?:\s+(?!-)\S+)?)*"
+_GIT_HEAD_RE = re.compile(_GIT_HEAD)
+_GIT_OPTIONS_RE = re.compile(_GIT_OPTIONS)
+
+
+class GitSubcommand:
+    """A compiled ``git … <word>`` grammar with the two calls the gate makes, `search` and
+    `finditer`, returning the matches the regex alone would.
+
+    Tried at every `git`, the regex rescans the options run to its end each time, so a command
+    of `-a git` pairs costs the square of its length — and past the hook timeout there is no
+    verdict at all. A `git` that ends inside the run of one already tried is skipped: it can
+    only be an option or the value of one there, and whatever follows it the earlier start
+    could have read too, so it fails where that one failed.
+    """
+
+    def __init__(self, word: str) -> None:
+        self._re = re.compile(rf"{_GIT_HEAD}({_GIT_OPTIONS})\s+{word}(?=$|[\s;&|)`<>])")
+
+    def finditer(self, string: str, pos: int = 0, endpos: int | None = None):
+        end = len(string) if endpos is None else endpos
+        read_until = -1
+        i = pos
+        while True:
+            head = _GIT_HEAD_RE.search(string, i, end)
+            if head is None:
+                return
+            if head.end() > read_until:
+                m = self._re.match(string, head.start(), end)
+                if m:
+                    yield m
+                    i = max(m.end(), head.start() + 1)
+                    continue
+                read_until = _GIT_OPTIONS_RE.match(string, head.end(), end).end()
+            i = head.start() + 1
+
+    def search(self, string: str, pos: int = 0, endpos: int | None = None):
+        return next(self.finditer(string, pos, endpos), None)
+
+
+def git_subcommand_re(word: str) -> GitSubcommand:
     """A real ``git … <word>`` invocation, with its global-options region as group 1.
 
     One grammar for every subcommand the gate reads, so none of them can drift from the others.
@@ -256,10 +300,7 @@ def git_subcommand_re(word: str) -> re.Pattern[str]:
     at a token boundary, or `git -c commit.gpgsign=false log` reads as a commit and a read-only
     command is denied.
     """
-    return re.compile(
-        rf"(?:^|[\s;&|(`])(?:[^\s;&|()'\"]*[/\\])?"
-        rf"git(?:\.exe)?((?:\s+-\S+(?:\s+(?!-)\S+)?)*)\s+{word}(?=$|[\s;&|)`<>])"
-    )
+    return GitSubcommand(word)
 
 
 _GIT_COMMIT_RE = git_subcommand_re("commit")
@@ -400,7 +441,9 @@ _COMMAND_PREFIX_RE = re.compile(
     + _NOT_SEPARATOR
     + r"*)"
 )
-_PROGRAM_NAME_RE = re.compile(r"(?:[^\s;&|()'\"]*[/\\])?[A-Za-z0-9_.+-]+")
+# The path prefix stops at a backtick, which opens a program position of its own: run across
+# it, a command of backticks rescanned the rest from each one.
+_PROGRAM_NAME_RE = re.compile(r"(?:[^\s;&|()'\"`]*[/\\])?[A-Za-z0-9_.+-]+")
 # What has to stand in front of a reserved word for the word to be one. The `then` in
 # `echo bash and then "…"` is an argument, and reading it as the start of a command makes
 # the quoted text after it a program the scan cannot name — a denial nothing runs.
@@ -431,6 +474,14 @@ def _program_spans(element: str) -> list[tuple[str | None, int, int]]:
     `len(element)`. Later checks read positions from this one walk instead of a second one.
     """
     found: list[tuple[str | None, int, int]] = []
+    # Every separator, found once: searched afresh from each command position, a run of
+    # positions with none after them (a string of backticks) rescanned the rest each time.
+    separators = [m.start() for m in _SEPARATOR_RE.finditer(element)]
+
+    def next_separator(i: int) -> int:
+        k = bisect.bisect_left(separators, i)
+        return separators[k] if k < len(separators) else len(element)
+
     # How far a walk has already resolved. A start landing inside that is a token of the
     # command already read, not a new one — and re-reading from each of them is what made
     # `do do do …` cost a walk per word.
@@ -470,8 +521,7 @@ def _program_spans(element: str) -> list[tuple[str | None, int, int]]:
                 break  # the start opened no command
             name = _PROGRAM_NAME_RE.match(element, i)
             if name is None:
-                sep = _SEPARATOR_RE.search(element, i)
-                found.append((None, i, sep.start() if sep else len(element)))
+                found.append((None, i, next_separator(i)))
                 seen = i
                 break
             text = name.group().rsplit("/", 1)[-1].rsplit(chr(92), 1)[-1]
@@ -486,14 +536,11 @@ def _program_spans(element: str) -> list[tuple[str | None, int, int]]:
                 # assignment reaches inside the program (`LESSOPEN`, `LD_PRELOAD`) and
                 # the exemption was earned by the name alone. Unnamed is what that is —
                 # its range starts at the command position, same as the other None case.
-                sep = _SEPARATOR_RE.search(element, i)
-                found.append((None, i, sep.start() if sep else len(element)))
+                found.append((None, i, next_separator(i)))
             else:
                 args_start = name.end()
-                sep = _SEPARATOR_RE.search(element, args_start)
-                args_end = sep.start() if sep else len(element)
                 text = text[:-4] if text.lower().endswith(".exe") else text
-                found.append((text, args_start, args_end))
+                found.append((text, args_start, next_separator(args_start)))
             seen = i
             break
     return found
@@ -996,16 +1043,187 @@ def _unquoted_view(command: str, *, keep_heredoc: bool = False) -> str:
     return _QUOTING_RE.sub(lambda m: " " * len(m.group()), "".join(out))
 
 
-# What quote removal deletes from a word: a line continuation, each quote, the `$` that opens
-# an ANSI-C or locale string, and a backslash before a character it quotes. `com''mit`,
-# `c\ommit`, `$'commit'` and `co\<newline>mmit` are all `commit` to bash, while the views above
-# leave the pieces apart.
+# ANSI-C escapes with a fixed meaning; `\x`, `\u`, `\U`, octal and `\c` are decoded apart.
+_ANSI_C_ESCAPES = {
+    "a": "\a",
+    "b": "\b",
+    "e": "\x1b",
+    "E": "\x1b",
+    "f": "\f",
+    "n": "\n",
+    "r": "\r",
+    "t": "\t",
+    "v": "\v",
+    "\\": "\\",
+    "'": "'",
+    '"': '"',
+    "?": "?",
+}
+_ANSI_C_NUMERIC = {"x": (16, 2), "u": (16, 4), "U": (16, 8)}
+_HEX = frozenset("0123456789abcdefABCDEF")
+# Inside double quotes a backslash quotes only these; before anything else it stays.
+_DQ_ESCAPED = frozenset('$`"\\\n')
+# A line continuation, which bash removes before it reads any quote.
+_CONTINUATION_RE = re.compile(r"(?:\\\r?\n)*")
+# What the deleting reading removes: a line continuation, each quote, the `$` that opens an
+# ANSI-C or locale string, and a backslash before anything but a blank. Coarser than bash and
+# unbounded in depth: `eval` nested past the levels below doubles its backslashes each time.
 _QUOTE_REMOVAL_RE = re.compile(r"\\\r?\n|\$(?=['\"])|['\"]|\\(?=\S)")
+# How many times quote removal is applied over the text an interpreter is handed, one quoting
+# level each: `sh -c "eval 'git c\\ommit'"` is three.
+_QUOTE_LEVELS = 4
+
+
+def _ansi_c_end(text: str, i: int) -> int:
+    """The index of the quote closing the `$'…'` body that starts at `i`: a backslash takes the
+    character after it along, the closing quote included, before anything is decoded."""
+    n = len(text)
+    while i < n and text[i] != "'":
+        i += 2 if text[i] == "\\" else 1
+    return min(i, n)
+
+
+def _ansi_c(text: str, i: int) -> tuple[str, int]:
+    """The value of the `$'…'` body starting at `i`, and the index past its closing quote.
+    `git $'\\x63ommit'` runs a commit, so the escapes are decoded rather than left as text. A
+    code point no character carries stays as written."""
+    end = _ansi_c_end(text, i)
+    out = []
+    while i < end:
+        if text[i] != "\\" or i + 1 >= end:
+            out.append(text[i])
+            i += 1
+            continue
+        c = text[i + 1]
+        if c in _ANSI_C_ESCAPES:
+            out.append(_ANSI_C_ESCAPES[c])
+            i += 2
+        elif c in _ANSI_C_NUMERIC:
+            base, width = _ANSI_C_NUMERIC[c]
+            j = i + 2
+            while j < min(end, i + 2 + width) and text[j] in _HEX:
+                j += 1
+            code = int(text[i + 2 : j], base) if j > i + 2 else -1
+            out.append(chr(code) if 0 <= code < 0xD800 or 0xDFFF < code <= 0x10FFFF else text[i:j])
+            i = j
+        elif c in "01234567":
+            j = i + 1
+            while j < min(end, i + 4) and text[j] in "01234567":
+                j += 1
+            out.append(chr(int(text[i + 1 : j], 8) & 0xFF))
+            i = j
+        elif c == "c" and i + 2 < end:
+            out.append(chr(ord(text[i + 2]) & 0x1F))
+            i += 3
+        else:
+            out.append(text[i : i + 2])
+            i += 2
+    return "".join(out), end + 1
+
+
+def _opens_string(text: str, i: int) -> tuple[str, int]:
+    """For a `$` at `i`: the quote that opens an ANSI-C or locale string after it, with any line
+    continuations between skipped, and that quote's index — else ("", i)."""
+    j = _CONTINUATION_RE.match(text, i + 1).end()
+    return (text[j], j) if text[j : j + 1] in ("'", '"') else ("", i)
+
+
+def _remove_quotes(text: str) -> str:
+    """`text` after bash's quote removal: `com''mit`, `c\\ommit`, `$'\\x63ommit'` and a word
+    broken by a line continuation all read `commit`, while a backslash inside double quotes
+    stays where bash keeps it — `"C:\\Git\\bin\\git.exe"` is still a path to git. An
+    unterminated quote runs to the end."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == "\\":
+            if text.startswith("\r\n", i + 1):
+                i += 3
+            elif i + 1 < n:
+                if text[i + 1] != "\n":
+                    out.append(text[i + 1])
+                i += 2
+            else:
+                out.append(c)
+                i += 1
+        elif c == "'":
+            j = text.find("'", i + 1)
+            j = n if j < 0 else j
+            out.append(text[i + 1 : j])
+            i = j + 1
+        elif c == "$" and _opens_string(text, i)[0] == "'":
+            value, i = _ansi_c(text, _opens_string(text, i)[1] + 1)
+            out.append(value)
+        elif c == "$" and _opens_string(text, i)[0] == '"':
+            i = _opens_string(text, i)[1]
+        elif c == '"':
+            i += 1
+            while i < n and text[i] != '"':
+                if text[i] == "\\" and text.startswith("\r\n", i + 1):
+                    i += 3
+                elif text[i] == "\\" and i + 1 < n and text[i + 1] in _DQ_ESCAPED:
+                    if text[i + 1] != "\n":
+                        out.append(text[i + 1])
+                    i += 2
+                else:
+                    out.append(text[i])
+                    i += 1
+            i += 1
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
+def _unquoted_readings(text: str) -> list[str]:
+    """`text` with its quoting removed once per level an interpreter may peel — a script
+    nested in quotes for one (`bash -c 'git c\\ommit'`) is the commit it runs — and once by
+    the deleting reading, for nesting deeper than those levels."""
+    views = [_QUOTE_REMOVAL_RE.sub("", text)]
+    for _ in range(_QUOTE_LEVELS):
+        peeled = _remove_quotes(text)
+        if peeled == text:
+            break
+        views.append(peeled)
+        text = peeled
+    return views
+
+
+def requote_ansi_c(text: str) -> str:
+    """`text` with each unquoted `$'…'` replaced by the single-quoted string it decodes to and
+    each `$"…"` by its plain double-quoted form — the two spellings shlex does not know."""
+    out, i, n = [], 0, len(text)
+    quote = ""
+    while i < n:
+        c = text[i]
+        if quote:
+            if c == "\\" and quote == '"' and i + 1 < n:
+                out.append(text[i : i + 2])
+                i += 2
+                continue
+            if c == quote:
+                quote = ""
+        elif c == "\\" and i + 1 < n:
+            out.append(text[i : i + 2])
+            i += 2
+            continue
+        elif c == "$" and _opens_string(text, i)[0] == "'":
+            value, i = _ansi_c(text, _opens_string(text, i)[1] + 1)
+            out.append("'" + value.replace("'", "'\\''") + "'")
+            continue
+        elif c == "$" and _opens_string(text, i)[0] == '"':
+            i = _opens_string(text, i)[1]
+            continue
+        elif c in "'\"":
+            quote = c
+        out.append(c)
+        i += 1
+    return "".join(out)
 
 
 def _uncommented(command: str) -> str:
     """`command` with its comments blanked and everything else as written, same length — the
-    base each element's quote removal (:data:`_QUOTE_REMOVAL_RE`) runs over."""
+    base each element's quote removal (:func:`_remove_quotes`) runs over."""
     out = list(command)
     for a, b, kind in _shell_regions(command):
         if kind == "comment":
@@ -1106,7 +1324,7 @@ def is_invocation(command: str, word: str) -> bool:
             continue
         if pattern.search(scripted[a:b]):
             return True
-        if pattern.search(_QUOTE_REMOVAL_RE.sub("", uncommented[a:b])):
+        if any(pattern.search(view) for view in _unquoted_readings(uncommented[a:b])):
             return True
         names = [n for n, _s, _e in _program_spans(masked[a:b])]
         if (
@@ -1173,9 +1391,9 @@ def _split_invocations(text: str, word: str) -> list[tuple[list[str], list[str]]
     An operator glued to a word (`--no-ff|cat`, `x>log`) is a word of its own."""
     import shlex
 
-    lexer = shlex.shlex(text, posix=True, punctuation_chars=True)
-    lexer.whitespace_split = True
     try:
+        lexer = shlex.shlex(requote_ansi_c(text), posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
         tokens = list(lexer)
     except ValueError:
         return []
@@ -1215,7 +1433,7 @@ def operand_words(command: str, masked: str, start: int, end: int) -> list[str]:
             for i in range(max(a, start), min(b, end)):
                 text[i - start] = " "
     try:
-        return shlex.split("".join(text))
+        return shlex.split(requote_ansi_c("".join(text)))
     except ValueError:
         return []
 

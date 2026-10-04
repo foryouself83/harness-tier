@@ -84,15 +84,20 @@ fi
 # spawn and no verdict; under-matching costs the whole gate.
 # The grammar also reads each element with its quoting deleted, where `git com''mit`,
 # `git c\ommit` and a word broken by a line continuation are the commit bash runs, so the
-# filter tests that joined spelling as well, with every `$` gone (coarser than `$'…'`).
+# filter tests that joined spelling as well, with every `$` gone. An ANSI-C string spells
+# either word in escapes the filter does not decode (`$'\x63ommit'`), and its `$'` may itself
+# be quoted apart for an interpreter — so any `$` beside a backslash skips the filter.
 _cmd="${_hook_cmd:-$_hook_input}"
 _joined="${_cmd//\\$'\r\n'/}"
 _joined="${_joined//\\$'\n'/}"
+_ansi_c=no
+case "$_joined" in *\$*\\* | *\\*\$*) _ansi_c=yes ;; esac
 _joined="${_joined//\'/}"
 _joined="${_joined//\"/}"
 _joined="${_joined//\$/}"
 _cmd="$_cmd"$'\n'"${_joined//\\/}"
-case "$_cmd" in
+case "$_ansi_c$_cmd" in
+  yes*) ;;
   *git*) ;;
   *) exit 0 ;;
 esac
@@ -101,7 +106,7 @@ esac
 # is an invocation to the gate while a blank-anchored filter drops it, and a filter narrower
 # than the grammar is the gate off in silence.
 _word_re='(commit|merge|pull)($|[^[:alnum:]_-])'
-[[ "$_cmd" =~ $_word_re ]] || exit 0
+[[ $_ansi_c == yes || "$_cmd" =~ $_word_re ]] || exit 0
 
 ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}"
 [ -n "$ROOT" ] || exit 0

@@ -246,6 +246,31 @@ def test_review_round_one_spellings(monkeypatch, tmp_path, command, branch, bloc
     assert (code == fgc.BLOCK_EXIT_CODE) is blocked, (command, code)
 
 
+@pytest.mark.parametrize(
+    "command,branch,blocked",
+    [
+        # a quote-split switch moves HEAD like any other, so the merge after it targets dev
+        ("git sw''itch dev && git merge feature/x", "feature/x", True),
+        ("git sw''itch dev && git merge --squash feature/x", "feature/x", False),
+        ("git check''out dev && git merge feature/x", "feature/x", True),
+        # one unclear switch still voids the chain: HEAD lands on a branch no rule names
+        ("git sw''itch dev && git sw''itch -c y && git merge feature/x", "feature/x", False),
+        # a remote branch detaches HEAD, so no integration rule applies to the merge
+        ("git check''out origin/dev && git merge feature/x", "feature/x", False),
+        # a quoted Windows path to git, with a split subcommand
+        ("\"C:\\Git\\bin\\git.exe\" mer''ge --no-ff fix/x", "dev", True),
+        ("C:\\\\Git\\\\bin\\\\git.exe mer''ge --no-ff fix/x", "dev", True),
+        # an ANSI-C string spells the subcommand or the flag
+        ("git $'\\x6derge' --no-ff fix/x", "dev", True),
+        ("git merge $'--no-\\x66f' fix/x", "dev", True),
+    ],
+)
+def test_review_round_two_spellings(monkeypatch, tmp_path, command, branch, blocked):
+    _policy(tmp_path)
+    code = _run_merge_check(monkeypatch, tmp_path, command, branch)
+    assert (code == fgc.BLOCK_EXIT_CODE) is blocked, (command, code)
+
+
 def test_a_commit_whose_message_mentions_a_merge_is_not_blocked(monkeypatch, tmp_path):
     _policy(tmp_path)
     assert _run_merge_check(monkeypatch, tmp_path, COMMIT_SKILL_BODY, "dev") == 0

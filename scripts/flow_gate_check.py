@@ -13,6 +13,7 @@ import os
 import re
 import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 # Host-root resolution, encoding defenses, and gate contract constants (blocking exit
@@ -39,6 +40,7 @@ try:
         is_invocation,
         mask_literals,
         operand_end,
+        requote_ansi_c,
         working_root,
     )
 except ImportError:
@@ -60,6 +62,7 @@ except ImportError:
         is_invocation,
         mask_literals,
         operand_end,
+        requote_ansi_c,
         working_root,
     )
 
@@ -475,7 +478,7 @@ def _switch_operand(operands: str) -> str | None:
     import shlex
 
     try:
-        tokens = shlex.split(operands)
+        tokens = shlex.split(requote_ansi_c(operands))
     except ValueError:  # unbalanced quotes → unclear
         return None
     if len(tokens) != 1:
@@ -484,6 +487,25 @@ def _switch_operand(operands: str) -> str | None:
     if branch.startswith("-") or branch.startswith("origin/"):
         return None
     return branch
+
+
+@lru_cache(maxsize=8)
+def _split_switches(command: str) -> tuple[tuple[int, str | None], ...]:
+    """(start, branch) of every `git switch`/`git checkout` in the command, by the shell-split
+    reading. A switch the mask cannot see — `git sw''itch dev` — moves HEAD all the same.
+    Cached: a command is asked once per merge it holds, and each read runs the full net."""
+    return tuple(
+        (start, _switch_operand_words(operands))
+        for word in ("switch", "checkout")
+        for start, _dir, _globals, operands in invocation_words(command, word)
+    )
+
+
+def _switch_operand_words(words: list[str]) -> str | None:
+    """:func:`_switch_operand` over words the shell has already split."""
+    if len(words) != 1 or words[0].startswith(("-", "origin/")):
+        return None
+    return words[0]
 
 
 def _target_from_command(command: str, head_end: int | None = None) -> str | None:
@@ -511,9 +533,17 @@ def _target_from_command(command: str, head_end: int | None = None) -> str | Non
     if head_end is None:
         merge = _MERGE_RE.search(masked)
         head_end = merge.end(1) if merge else len(command)
+    moves = [
+        (
+            m.start(),
+            _switch_operand(command[m.end() : operand_end(command, masked, m.end(), head_end)]),
+        )
+        for m in _MERGE_SWITCH_RE.finditer(masked, 0, head_end)
+    ]
+    seen = {start for start, _branch in moves}
+    moves += [m for m in _split_switches(command) if m[0] < head_end and m[0] not in seen]
     target: str | None = None
-    for m in _MERGE_SWITCH_RE.finditer(masked, 0, head_end):
-        branch = _switch_operand(command[m.end() : operand_end(command, masked, m.end(), head_end)])
+    for _start, branch in sorted(moves, key=lambda move: move[0]):
         if branch is None:  # one unclear switch voids the whole chain
             return None
         target = branch

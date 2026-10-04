@@ -258,7 +258,20 @@ def test_the_runner_leaves_no_bytecode_beside_the_scripts(tmp_path: Path, monkey
 
 
 @requires_bash_git
-@pytest.mark.parametrize("command", ["git com''mit -m x", "git c\\ommit -m x", "g''it commit -m x"])
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git com''mit -m x",
+        "git c\\ommit -m x",
+        "g''it commit -m x",
+        # an ANSI-C escape spells the word or the program the filter looks for
+        "git $'\\x63ommit' -m x",
+        "$'\\x67it' commit -m x",
+        # its `$'` quoted apart for the interpreter that joins it
+        'bash -c "git "\\$"\'\\x63ommit\'"',
+        "\"C:\\Program Files\\Git\\bin\\git.exe\" com''mit -m x",
+    ],
+)
 def test_a_quote_split_commit_reaches_the_gate(tmp_path: Path, command: str):
     """The pre-filter decides only whether to spawn the classifier; one that wants the literal
     word drops a commit bash runs, with no verdict ever asked. The deny is the proof the gate
