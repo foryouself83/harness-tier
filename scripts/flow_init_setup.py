@@ -14,10 +14,11 @@ setup (default) idempotently applies the following:
   - Add missing lines to .gitignore (skip if duplicated)
 
 uninstall (--uninstall) is the inverse of setup (host cleanup):
-  - Unregister the commit gate / harness-tier marketplace in settings.json
-  - Remove harness-tier lines from .gitignore, remove the teams management block from CLAUDE.md
-  - Delete the .claude/harness-tier/ directory (including scripts·config·evidence·webhooks)
-  - .pre-commit-config.yaml hooks·git hooks are only reported (high risk; removed by hand)
+  - Unregister the commit gate / harness-tier marketplace in settings.json (an emptied file goes)
+  - Remove harness-tier lines from .gitignore (the webhook-secret line stays), remove the teams
+    management block from CLAUDE.md
+  - Delete the .claude/harness-tier/ directory (scripts·config·evidence·webhooks·templates)
+  - .pre-commit-config.yaml hooks·git hooks·workflows are only reported (removed by hand)
 
 Paths: host=CLAUDE_PROJECT_DIR (else git toplevel), plugin=CLAUDE_PLUGIN_ROOT
 (else this script's parent). Results are printed to stdout as a human-readable summary.
@@ -215,6 +216,10 @@ GITIGNORE_LINES = [
     # Codex's renderer under scripts/harness/ included.
     f"{SCRIPTS_DIR}/**/__pycache__/",
 ]
+
+# Never removed on uninstall: the bare pattern may guard a secret outside HARNESS_DIR, and the
+# host may have carried it before /flow-init did — a kept line costs nothing, a dropped one a leak.
+GITIGNORE_KEEP = {".teams-webhooks.local.json"}
 
 # The pre-commit hook id owned by harness-tier (a fixed hook, not a per-language replacement).
 # When a plugin update moves a script's location, the existing .pre-commit-config.yaml entry no
@@ -574,17 +579,19 @@ def remove_gitignore_lines(host: Path) -> str:
         text, eol = _read_host_text(host, gi)
     except OSError as exc:
         return f"  [!] .gitignore 수정 거부({_why(exc)}) — 수동 확인 필요"
-    targets = set(GITIGNORE_LINES)
+    targets = set(GITIGNORE_LINES) - GITIGNORE_KEEP
     lines = text.splitlines()
     kept = [ln for ln in lines if ln.strip() not in targets]
     removed = len(lines) - len(kept)
+    held = sorted(GITIGNORE_KEEP & {ln.strip() for ln in kept})
+    note = f" — 비밀 파일 보호 라인 유지: {', '.join(held)}" if held else ""
     if removed == 0:
-        return "  [=] .gitignore 에 harness-tier 라인 없음 (skip)"
+        return f"  [=] .gitignore 에 harness-tier 라인 없음 (skip){note}"
     text = "\n".join(kept)
     if text and not text.endswith("\n"):
         text += "\n"
     _write_host_text(gi, text, eol)
-    return f"  [-] .gitignore harness-tier 라인 {removed}개 제거"
+    return f"  [-] .gitignore harness-tier 라인 {removed}개 제거{note}"
 
 
 def remove_claude_md_block(host: Path) -> str:
@@ -616,8 +623,69 @@ def remove_harness_dir(host: Path) -> str:
     d = host / HARNESS_DIR
     if not d.is_dir():
         return "  [=] .claude/harness-tier/ 없음 (skip)"
+    templates = (d / "templates").is_dir()
     shutil.rmtree(d)
-    return "  [-] .claude/harness-tier/ 삭제 (스크립트·config·증거·웹훅 포함)"
+    extra = "·편집했을 수 있는 설계 문서 템플릿" if templates else ""
+    return f"  [-] .claude/harness-tier/ 삭제 (스크립트·config·증거·웹훅{extra} 포함)"
+
+
+# What /flow-init renders under .github/workflows/, beside the deploy-<target>.yml it names per
+# target. A workflow of the host's own is reported only when it calls a deleted script.
+RENDERED_WORKFLOWS = {
+    Path(WORKFLOW_DEST).name,
+    Path(UNIT_TEST_DEST).name,
+    Path(WIKI_VERIFY_DEST).name,
+    Path(DOC_STYLE_DEST).name,
+    Path(E2E_DEST).name,
+    Path(SRS_VERIFY_DEST).name,
+    "release.yml",
+    "branch-naming.yml",
+    "entropy-check.yml",
+    "deploy.yml",
+}
+# These renders check for their script first and exit 0 without it.
+GUARDED_WORKFLOWS = {
+    Path(WIKI_VERIFY_DEST).name,
+    Path(DOC_STYLE_DEST).name,
+    Path(SRS_VERIFY_DEST).name,
+}
+
+
+def report_workflows(host: Path) -> list[str]:
+    """Name the host workflows the deletion leaves behind, read-only: the workflows are the
+    host's to remove, and which ones break depends on what was rendered, not on a fixed list."""
+    wf_dir = host / ".github" / "workflows"
+    try:
+        files = sorted(p for p in wf_dir.iterdir() if p.suffix.lower() in (".yml", ".yaml"))
+    except OSError:
+        return []
+    guarded, failing, running = [], [], []
+    for p in files:
+        try:
+            calls = f"{HARNESS_DIR}/" in p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if calls:
+            (guarded if p.name in GUARDED_WORKFLOWS else failing).append(p.name)
+        elif p.name in RENDERED_WORKFLOWS or p.name.startswith("deploy-"):
+            running.append(p.name)
+    out = []
+    if failing:
+        out += [
+            f"  - {', '.join(failing)}: 방금 삭제된 {HARNESS_DIR}/ 를 가드 없이 불러 실패합니다",
+            "    (release.yml 이면 prerelease 브랜치 push 마다). 제거하거나 고치세요.",
+        ]
+    if guarded:
+        out += [
+            f"  - {', '.join(guarded)}: 스크립트가 없으면 exit 0 — 아무것도 검증하지 못한 채",
+            "    push 마다 러너만 씁니다. 함께 제거하세요.",
+        ]
+    if running:
+        out += [
+            f"  - {', '.join(running)}: 삭제된 스크립트를 부르지 않아 계속 돕니다.",
+            "    더 쓰지 않으면 직접 제거하세요(자동 삭제 안 함 — 팀 커스텀 보존).",
+        ]
+    return out
 
 
 def _load_yaml_safe(path: Path) -> dict:
@@ -1668,18 +1736,16 @@ def run_uninstall(host: Path) -> bool:
     print("[남는 항목 — 수동 처리 안내]")
     print("  - .pre-commit-config.yaml 의 teams-notify-push 훅/정적분석 훅은 자동 제거하지")
     print("    않습니다(주석·팀 커스텀 보존). 필요 시 직접 제거하세요.")
-    print("  - .github/workflows/api-contract.yml 은 자동 삭제하지 않습니다(팀 커스텀 보존).")
-    print("    계약 테스트를 끄려면 직접 제거하세요.")
-    print("  - .github/workflows/wiki-verify.yml·doc-style.yml·srs-verify.yml 은 방금 삭제된")
-    print("    .claude/harness-tier/scripts/ 의 스크립트를 실행합니다. 없는 스크립트를 가드가")
-    print("    보고 exit 0 하므로 CI 가 빨개지지는 않지만 더는 아무것도 검증하지 못하니 함께")
-    print("    제거하세요. 같은 경로를 쓰는 release 워크플로우는 렌더한 종류에 달렸습니다 —")
-    print("    python-semantic-release 는 가드가 있고, gitversion·jreleaser 는 가드가 없어")
-    print("    릴리스 브랜치 push 에서 실패합니다.")
+    try:
+        workflows = report_workflows(host)
+    except Exception:  # noqa: BLE001 — a listing that cannot run must not cost the verdict
+        workflows = ["  - .github/workflows/ 를 읽지 못했습니다 — 남은 워크플로를 직접 확인하세요."]
+    for line in workflows:
+        print(line)
     print("  - 설치했던 git 훅 비활성화:")
     print("      pre-commit uninstall --hook-type pre-commit --hook-type commit-msg \\")
     print("        --hook-type pre-push")
-    print("  - .claude/harness-tier/ 의 git 추적 파일 삭제는 커밋해야 반영됩니다.")
+    print("  - .claude/harness-tier/ 와 .claude/settings.json 의 삭제·수정은 커밋해야 반영됩니다.")
     # Named separately, not one shared line: settings.json and .codex/hooks.json are
     # different files a different step failed to clear, and a host whose Codex hook is the
     # only thing left must not be sent to settings.json, which holds nothing by then.

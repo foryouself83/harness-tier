@@ -59,7 +59,7 @@
 | `.github/workflows/` | 사용자 | 추적 | 설정이 켠 워크플로([CI 워크플로](ci-workflows.ko.md)) |
 
 `scripts/` 는 커밋 상태로 유지. `wiki-verify.yml`·`doc-style.yml`·`srs-verify.yml` 은 스크립트가
-체크아웃에 없으면 건너뛰어 아무것도 검증하지 못하고, `gitversion`·`jreleaser` 릴리스 워크플로는
+체크아웃에 없으면 건너뛰어 아무것도 검증하지 못하고, 어느 릴리스 도구든 `release.yml` 은
 가드 없이 `bump_version.py` 를 불러 실패함.
 
 `/flow-init` 은 저장소 밖을 가리키는 symlink 를 통해 쓰지 않음. dotfiles 디렉터리로 연결된

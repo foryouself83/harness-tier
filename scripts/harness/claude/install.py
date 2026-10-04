@@ -4,6 +4,7 @@ host's settings.json."""
 from __future__ import annotations
 
 import copy
+import os
 import re
 from pathlib import Path
 
@@ -13,9 +14,9 @@ except ImportError:
     from scripts.harness.gate_spec import GATE
 
 try:
-    from harness.jsonfile import load_json_object, why, write_json
+    from harness.jsonfile import confine, load_json_object, why, write_json
 except ImportError:
-    from scripts.harness.jsonfile import load_json_object, why, write_json
+    from scripts.harness.jsonfile import confine, load_json_object, why, write_json
 
 # The commit gate to register in settings.json (runs the HOST copy via the host path). The `if`
 # field is not included — precommit-runner.sh self-filters via stdin (avoiding per-build diffs).
@@ -247,6 +248,21 @@ def _is_own_empty_entry(entry: object) -> bool:
     )
 
 
+def _save_or_drop(settings: Path, data: dict, host: Path, done: str) -> str:
+    """Write `data` back, or delete the file once the removal left an empty object: an `{}`
+    the host never wrote is a leftover. A link is written through, never unlinked — deleting
+    it would leave its target holding the gate — and a file locked read-only goes to the
+    writer, which refuses it."""
+    if data or settings.is_symlink() or not os.access(settings, os.W_OK):
+        return write_json(settings, data, host) or done
+    try:
+        confine(host, settings.parent)
+        settings.unlink()
+    except OSError as exc:
+        return f"  [!] settings.json 삭제 실패({why(exc)}) — 수동 확인 필요"
+    return f"{done} — 남은 설정이 없어 settings.json 삭제"
+
+
 def unregister(host: Path) -> str:
     """Remove the commit gate hook from settings.json (skip if absent)."""
     settings, data, err = load_settings(host)
@@ -259,10 +275,11 @@ def unregister(host: Path) -> str:
     if not sum(_strip_gate_hooks(entry) for entry in pre):
         return "  [=] 게이트 훅 없음 (skip)"
     hooks["PreToolUse"] = [e for e in pre if not _is_own_empty_entry(e)]
-    failed = write_json(settings, data, host)
-    if failed:
-        return failed
-    return "  [-] 커밋 게이트 해제 (settings.json)"
+    if not hooks["PreToolUse"]:
+        del hooks["PreToolUse"]
+    if not hooks:
+        del data["hooks"]
+    return _save_or_drop(settings, data, host, "  [-] 커밋 게이트 해제 (settings.json)")
 
 
 def unregister_marketplace(host: Path) -> str:
@@ -274,10 +291,9 @@ def unregister_marketplace(host: Path) -> str:
     if not isinstance(mkts, dict) or MARKETPLACE_NAME not in mkts:
         return "  [=] harness-tier 마켓 등록 없음 (skip)"
     del mkts[MARKETPLACE_NAME]
-    failed = write_json(settings, data, host)
-    if failed:
-        return failed
-    return "  [-] harness-tier 마켓 등록 해제 (settings.json)"
+    if not mkts:
+        del data["extraKnownMarketplaces"]
+    return _save_or_drop(settings, data, host, "  [-] harness-tier 마켓 등록 해제 (settings.json)")
 
 
 def problems(host: Path) -> list[str]:

@@ -437,7 +437,8 @@ def test_an_uninstall_write_that_fails_is_reported(tmp_path: Path, monkeypatch):
     the two beside it kept theirs."""
     import scripts.flow_init_setup as fis
 
-    _planted(tmp_path, [{"matcher": "Bash", "hooks": [_gate_hook()]}])
+    theirs = {"type": "command", "command": "theirs.sh"}
+    _planted(tmp_path, [{"matcher": "Bash", "hooks": [_gate_hook(), theirs]}])
 
     def refuse(*_args, **_kwargs):
         raise OSError(28, "No space left on device")

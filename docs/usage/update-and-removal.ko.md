@@ -42,13 +42,16 @@
 지우는 것:
 
 - `.claude/settings.json` `hooks.PreToolUse` 의 커밋 게이트 — 다른 훅은 그대로 둠;
-- `extraKnownMarketplaces` 의 `harness-tier` 항목;
-- `.gitignore` 의 harness-tier 세 줄;
+- `extraKnownMarketplaces` 의 `harness-tier` 항목 — 그 뒤 내 설정이 하나도 남지 않으면
+  파일 자체도;
+- `.gitignore` 의 harness-tier 줄 — 단 `.teams-webhooks.local.json` 은 남김: 어느 깊이에서나
+  일치하므로 웹훅 비밀 파일이 커밋되는 것을 아직 막고 있을 수 있음;
 - `CLAUDE.md` 의 `harness-tier:teams` 블록;
 - `.codex/hooks.json` 의 Codex 게이트와 `AGENTS.md` 의 관리 지침 블록 — `harnesses` 에
   `codex` 가 아직 남아있는지와 무관함;
 - `.claude/harness-tier/` — 스크립트, 설정, 증거, 팀 공유 `teams-webhooks.json` 포함
-  두 웹훅 파일 전부;
+  두 웹훅 파일 전부, 그리고 `templates/` 의 설계 문서 템플릿과 거기 한 편집까지 — 남기려면
+  먼저 밖으로 복사해 둠;
 - `.claude/rules/harness-tier/` — 이전 `/flow-init` 이 복사해 뒀을 수 있는 플러그인 규칙.
   호스트 자체 규칙은 유지됨.
 
@@ -57,9 +60,10 @@
 - `.pre-commit-config.yaml` — `teams-notify-push` 와 정적분석 훅은 그대로 둠;
 - 설치된 git 훅 —
   `pre-commit uninstall --hook-type pre-commit --hook-type commit-msg --hook-type pre-push`;
-- `.github/workflows/` — 각각 어떻게 될지는 아래 수동 정리 5단계 참고;
-- 삭제 자체 — `.claude/harness-tier/` 와 `.claude/rules/harness-tier/` 는 추적 대상이었으므로
-  커밋해야 반영됨.
+- `.github/workflows/` — 아직 남은 워크플로를 짚어 줌: 삭제된 스크립트를 부르는 것(가드가
+  있는 것과 실패하는 것)과 계속 도는 렌더본. 각각 어떻게 될지는 아래 수동 정리 5단계 참고;
+- 삭제 자체 — `.claude/harness-tier/` 와 `.claude/rules/harness-tier/` 는 추적 대상이었고
+  `.claude/settings.json` 도 그럴 수 있으므로 커밋해야 반영됨.
 
 `커밋 게이트 훅이 settings.json 에 남았습니다` 로 끝나면, 지우지 못한 훅이 이제 없는 스크립트를 가리킴 — 아래 2단계(두 파일 다 다룸)로 직접 지움.
 `Codex 커밋 게이트 훅이 .codex/hooks.json 에 남았습니다` 는 같은 문제를 그 파일에서 가리킴. 해석하지 못하는 `.codex/hooks.json` —
@@ -80,8 +84,8 @@
    둘 다 담은 `PreToolUse` 훅만 — 그것만 — 지움. 그 결과 항목의 `hooks` 목록이 비고 항목에
    `matcher` 와 `hooks` 외의 것이 없을 때만 그 `PreToolUse` 항목을 지움. 그 뒤 `hooks` 가
    비고 파일에 다른 최상위 키가 없을 때만 파일 자체를 지움 — 다른 훅은 그대로 둠.
-3. `.gitignore` 에서 `.teams-webhooks.local.json`, `.claude/harness-tier/.flow/`,
-   `.claude/harness-tier/scripts/**/__pycache__/` 를 지움.
+3. `.gitignore` 에서 `.claude/harness-tier/.flow/`, `.claude/harness-tier/scripts/**/__pycache__/`
+   를 지움. `.teams-webhooks.local.json` 은 저장소에 그런 파일이 남아 있는 동안 유지함.
 4. `CLAUDE.md` 에서 `harness-tier:teams` 블록을 지움.
 5. 렌더링된 워크플로마다 결정함:
    - `wiki-verify.yml`, `doc-style.yml`, `srs-verify.yml` — 스크립트가 없으면 각각

@@ -216,6 +216,28 @@ def test_settings_steps_refuse_a_settings_file_linked_outside(tmp_path, step, bo
     assert "[!]" in report
 
 
+def test_unregister_empties_a_linked_settings_file_instead_of_unlinking_it(tmp_path):
+    """Deleting the link would leave its target, still read through other paths, holding the
+    gate that names the scripts the uninstall deletes."""
+    host, _outside = _layout(tmp_path)
+    shared = host / "shared" / "settings.json"
+    shared.parent.mkdir()
+    shared.write_text(GATED_SETTINGS, encoding="utf-8")
+    _link(host / ".claude" / "settings.json", shared)
+    assert "[-]" in unregister_gate(host)
+    assert (host / ".claude" / "settings.json").is_symlink()
+    assert json.loads(shared.read_text(encoding="utf-8")) == {}
+
+
+def test_unregister_never_deletes_a_settings_file_through_a_claude_dir_linked_outside(tmp_path):
+    host, outside = _layout(tmp_path)
+    victim = outside / "settings.json"
+    victim.write_text(GATED_SETTINGS, encoding="utf-8")
+    _link(host / ".claude", outside)
+    assert "[!]" in unregister_gate(host)
+    assert victim.read_text(encoding="utf-8") == GATED_SETTINGS
+
+
 def test_register_gate_refuses_a_claude_dir_linked_outside(tmp_path):
     """Copying refuses this directory, so registering into it left a hook naming no script."""
     host, outside = _layout(tmp_path)

@@ -201,8 +201,7 @@ def test_a_codex_module_that_cannot_be_resolved_does_not_abort_the_whole_uninsta
     assert "이 단계를 끝내지 못했습니다" in out  # the Codex step reported its own trouble
     assert "[-] 커밋 게이트 해제 (settings.json)" in out  # ...and did not stop the rest running
     assert "끝내지 못한 단계가 있습니다" in out
-    data = json.loads(settings.read_text(encoding="utf-8"))
-    assert data["hooks"]["PreToolUse"] == []  # the Claude gate was removed
+    assert not settings.exists()  # the Claude gate was removed, and with it all the file held
 
 
 def test_a_codex_module_that_cannot_be_resolved_and_has_a_hooks_file_reports_it_may_remain(
