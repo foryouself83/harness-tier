@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import os  # noqa: F401 — `fis.os` is the monkeypatch target the jsonfile helpers share
 import shutil
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
@@ -1623,6 +1624,35 @@ def _step(title: str, produce: Callable[[], list[str]]) -> bool:
     return True
 
 
+def subdir_warning(host: Path) -> list[str]:
+    """A line when the session started below the git top level, else nothing.
+
+    GitHub reads workflows and pre-commit reads its config only at the repository top, so
+    the copies this writes under `host` run nowhere. They stay where they are: the rendered
+    workflows name `.claude/harness-tier/scripts` relative to the top, which a subdirectory
+    host does not have there either.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=str(host),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=10,
+        )
+        top = Path(out.stdout.strip()).resolve() if out.returncode == 0 else None
+        if top is None or top == Path(host).resolve():
+            return []
+    except Exception:  # noqa: BLE001 — a warning never stops the setup
+        return []
+    return [
+        f"  [!] 세션이 git 최상위({top})가 아닌 하위 디렉터리에서 시작됨 — .github/workflows/ 와"
+        " .pre-commit-config.yaml 은 GitHub·pre-commit 이 읽지 않는 위치에 생김. 저장소 최상위에서"
+        " 세션을 열고 /flow-init 을 다시 실행할 것"
+    ]
+
+
 def run_setup(host: Path, plugin: Path) -> bool:
     """Run every step, and answer whether the commit gate is registered.
 
@@ -1648,6 +1678,8 @@ def run_setup(host: Path, plugin: Path) -> bool:
     # an unrecognized single entry in an otherwise valid list also prints `[!]` there, and
     # that case leaves `names` fully trustworthy.
     print(f"flow-init 기계적 셋업 — host={host}")
+    for line in subdir_warning(host):
+        print(line)
     finished = [
         _step("[복사]", lambda: copy_artifacts(plugin, host, names)),
         _step(

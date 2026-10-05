@@ -69,5 +69,10 @@ release tool, calls `bump_version.py` with no such guard and fails.
 linked into a dotfiles directory is refused and the gate stays unregistered; make it a plain
 file, or a link to a file inside the repo.
 
+A session that starts below the git top level and runs `/flow-init` from there still writes
+`.github/workflows/` and `.pre-commit-config.yaml` into that subdirectory — not the top level,
+where GitHub and pre-commit look for them — so neither file ever runs; a warning names the top
+level and points at opening a session there to re-run `/flow-init`.
+
 The `tier` marker is bound to the branch it was written on. A `<gate>.done` file is not — see
 [gate evidence](tiers-and-gates.md#gate-evidence).

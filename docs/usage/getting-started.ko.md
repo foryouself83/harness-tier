@@ -66,5 +66,10 @@
 `.claude/settings.json` 은 거부되어 게이트가 등록되지 않음 — 일반 파일로 두거나 저장소 안의
 파일로 연결함.
 
+git 최상위가 아닌 하위 디렉터리에서 연 세션으로 돌린 `/flow-init` 도 `.github/workflows/` 와
+`.pre-commit-config.yaml` 을 그 하위 디렉터리에 그대로 씀 — 최상위가 아니라 GitHub 와
+pre-commit 이 전혀 찾지 않는 자리라 둘 다 돌지 않음; 경고가 최상위 경로를 짚고 그 자리에서
+연 세션으로 `/flow-init` 재실행을 안내함.
+
 `tier` 마커는 작성된 브랜치에 묶임. `<gate>.done` 파일은 그렇지 않음 —
 [게이트 증거](tiers-and-gates.ko.md#게이트-증거) 참고.
