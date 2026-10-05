@@ -1,8 +1,14 @@
+import re
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 from scripts import bump_version
 from scripts.bump_version import last_stable, main, next_version, parse_level, pending_rc
 
+ROOT = Path(__file__).resolve().parents[2]
 TAGS_PENDING = ["v1.0.0", "v1.1.0-rc.1", "v1.1.0-rc.2"]
 TAGS_RELEASED = ["v1.0.0", "v1.1.0-rc.1", "v1.1.0-rc.2", "v1.1.0"]
 
@@ -47,6 +53,27 @@ def test_auto_is_left_to_the_tool(message):
 def test_an_invalid_trailer_value_fails(value):
     with pytest.raises(ValueError, match="Release-Level"):
         parse_level(msg(value))
+
+
+@pytest.mark.parametrize("key", ["release-level", "RELEASE-LEVEL"])
+def test_a_trailer_key_reads_in_any_case(key):
+    assert parse_level(f"chore: promote\n\n{key}: minor\n") == "minor"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="GNU sed, as on the ubuntu runner")
+@pytest.mark.parametrize("tool", ["cargo-release", "gitversion", "jreleaser"])
+def test_a_template_reads_a_lowercase_trailer_key(tool):
+    text = (ROOT / "github" / f"release.{tool}.workflow.example.yml").read_text(encoding="utf-8")
+    line = next(ln for ln in text.splitlines() if "sed -nE" in ln and "Release-Level" in ln)
+    script = re.search(r"\| (sed -nE '[^']+') \|", line).group(1)
+    out = subprocess.run(
+        ["bash", "-c", script],
+        input="chore: promote\n\nrelease-level: minor\n",
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert out.strip() == "minor"
 
 
 def test_two_different_trailers_fail():

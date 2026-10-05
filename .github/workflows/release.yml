@@ -91,7 +91,7 @@ jobs:
           # $NEXT already reflects any Release-Level: trailer (bump_version.py, block above).
           BEFORE="$(git rev-parse HEAD)"
           if [ "$NEXT" = "auto" ]; then
-            semantic-release version --commit --tag --push --changelog
+            semantic-release version --commit --tag --push --changelog --no-vcs-release
           else
             python "$HARNESS_SCRIPTS/finalize_prerelease.py" --set "$NEXT"
             git add pyproject.toml
@@ -139,7 +139,7 @@ jobs:
             git push origin "v$STABLE"
           else
             echo "no prerelease to finalize (hotfix) — plain compute"
-            semantic-release version --commit --tag --push --changelog
+            semantic-release version --commit --tag --push --changelog --no-vcs-release
           fi
           AFTER="$(git rev-parse HEAD)"
           [ "$BEFORE" != "$AFTER" ] && echo "released=true" >> "$GITHUB_OUTPUT" || echo "no release"

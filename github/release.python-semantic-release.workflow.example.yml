@@ -76,7 +76,7 @@ jobs:
           # $NEXT already reflects any Release-Level: trailer (bump_version.py, block above).
           BEFORE="$(git rev-parse HEAD)"
           if [ "$NEXT" = "auto" ]; then
-            semantic-release version --commit --tag --push --changelog
+            semantic-release version --commit --tag --push --changelog --no-vcs-release
           else
             python "$HARNESS_SCRIPTS/finalize_prerelease.py" --set "$NEXT"
             git add pyproject.toml
@@ -116,12 +116,13 @@ jobs:
             fi
             # <<< finalize-guard
             python "$FINALIZE"
-            git add pyproject.toml .claude-plugin/plugin.json 2>/dev/null || git add -A
+            git add pyproject.toml
+            [ -f .claude-plugin/plugin.json ] && git add .claude-plugin/plugin.json
             [ -f .codex-plugin/plugin.json ] && git add .codex-plugin/plugin.json
             git commit -m "chore(release): $STABLE [skip ci]"
             git tag "v$STABLE"; git push origin HEAD:__HARNESS_STABLE__; git push origin "v$STABLE"
           else
-            semantic-release version --commit --tag --push --changelog
+            semantic-release version --commit --tag --push --changelog --no-vcs-release
           fi
           AFTER="$(git rev-parse HEAD)"
           if [ "$BEFORE" != "$AFTER" ]; then echo "released=true" >> "$GITHUB_OUTPUT"; fi
