@@ -187,3 +187,24 @@ def test_cmd_finds_git_bash_from_a_mingw64_git(tmp_path, wrapper):
         capture_output=True,
     )
     assert run.returncode == 7, run.stdout
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="cmd wrapper is Windows-only")
+@pytest.mark.parametrize("script, says", [("inject-risk-tiers.sh", True), ("x.sh", False)])
+def test_run_hook_without_git_bash_tells_the_session(tmp_path, script, says):
+    """SessionStart's plain stdout reaches the session as context; any other hook stays quiet."""
+    # cmd.exe sets %ProgramFiles% itself whatever the environment says, so the copy names an
+    # empty directory there instead; PATH then holds no git.
+    text = (REPO / "hooks" / "codex" / "run-hook.cmd").read_text(encoding="utf-8")
+    assert text.count("%ProgramFiles%") == 2
+    wrapper = tmp_path / "run-hook.cmd"
+    wrapper.write_text(text.replace("%ProgramFiles%", str(tmp_path / "none")), encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if k.upper() != "PATH"}
+    env["PATH"] = str(Path(os.environ["SystemRoot"]) / "System32")
+    run = subprocess.run(
+        ["cmd", "/d", "/c", str(wrapper), script],
+        env=env,
+        capture_output=True,
+    )
+    assert run.returncode == 0
+    assert (b"Git Bash was not found" in run.stdout) is says, run.stdout

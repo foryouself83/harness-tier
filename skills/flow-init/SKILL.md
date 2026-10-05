@@ -344,9 +344,9 @@ On **no**, say plainly that nothing now checks the SRS's anchors, and that re-ru
 3. **If any Teams channel was configured**, offer — ask the user (structured choice), default
    yes — to add a **managed Teams-usage block** to the host `CLAUDE.md` so this
    repo's Claude alerts **right before presenting a question to the user** — which the
-   Notification hook does *not* cover (it only auto-fires on permission/idle waits).
-   The alert directive must be **emphasized** (e.g. `IMPORTANT`) so the host model
-   does it. Insert between the idempotent markers, **written in the same
+   Notification hook does *not* cover (it only auto-fires on permission, idle and
+   input-request waits). The alert directive must be **emphasized** (e.g. `IMPORTANT`) so
+   the host model does it. Insert between the idempotent markers, **written in the same
    language as the existing host `CLAUDE.md`** (the block below is the reference
    content — translate it to match the doc's language); if the markers
    already exist, **replace the block in place** (never duplicate). If
@@ -366,8 +366,8 @@ On **no**, say plainly that nothing now checks the SRS's anchors, and that re-ru
    ```
 
    - **Why manual** — a question to the user does not trigger the Notification hook. This
-     call is the only way to alert at the moment options are presented (permission/idle
-     waits are handled automatically by the hook). The card automatically appends
+     call is the only way to alert at the moment options are presented (permission, idle and
+     input-request waits are handled automatically by the hook). The card automatically appends
      `project @ branch`.
    - **`CLAUDE_PROJECT_DIR` fallback recommended** — this variable is injected
      automatically **only during hook execution**. `teams_alert.py` self-heals by

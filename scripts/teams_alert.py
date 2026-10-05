@@ -59,6 +59,10 @@ CONFIG_DIR = config_dir(ROOT)
 TRACKED_FILE = CONFIG_DIR / "teams-webhooks.json"
 LOCAL_FILE = CONFIG_DIR / ".teams-webhooks.local.json"
 LOCAL_CHANNELS = {"personal"}  # channels stored in the gitignored local file
+# Seconds, per call: urlopen's applies to each socket wait, not the whole post. Sized so a post
+# finishes inside the Notification hook's timeout in hooks/hooks.json, which kills it unsent.
+GIT_TIMEOUT = 2
+POST_TIMEOUT = 5
 
 # Per-event built-in messages (title, body). Kept here to keep the hook command ASCII.
 EVENT_MESSAGES = {
@@ -131,7 +135,7 @@ def _context_label() -> str:
             capture_output=True,
             text=True,
             encoding="utf-8",
-            timeout=3,
+            timeout=GIT_TIMEOUT,
         )
         branch = out.stdout.strip()
         if branch:
@@ -190,7 +194,7 @@ def send(channel: str, title: str, text: str) -> bool:
         url, data=body, headers={"Content-Type": "application/json"}, method="POST"
     )
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=POST_TIMEOUT) as resp:
             return 200 <= resp.status < 300
     except Exception:
         return False
