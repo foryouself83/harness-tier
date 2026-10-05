@@ -822,6 +822,13 @@ def load_versioning_config(host: Path) -> dict | None:
     return v if isinstance(v, dict) else None
 
 
+def load_integration_branch(host: Path) -> str:
+    """Return flow-config `branches.integration`, `dev` when absent or unreadable."""
+    branches = _load_yaml_safe(host / HARNESS_DIR / "config" / "flow-config.yaml").get("branches")
+    value = branches.get("integration") if isinstance(branches, dict) else None
+    return str(value or "dev")
+
+
 def load_deploy_config(host: Path) -> dict | None:
     """Return deploy dict from flow-config.yaml (None if absent/unparseable — FAIL-OPEN)."""
     try:
@@ -882,7 +889,11 @@ def render_versioning_workflows(host: Path, plugin: Path) -> list[str]:
     branches = v.get("branches", {}) or {}
     stable = str(branches.get("stable", "main"))
     prerelease = str(branches.get("prerelease", "") or "")
-    subs = {"__HARNESS_STABLE__": stable, "__HARNESS_PRERELEASE__": prerelease}
+    subs = {
+        "__HARNESS_STABLE__": stable,
+        "__HARNESS_PRERELEASE__": prerelease,
+        "__HARNESS_INTEGRATION__": load_integration_branch(host),
+    }
     wf_dir = host / ".github" / "workflows"
 
     # release (per tool) — case-insensitive: harness-init research may propose the tool's

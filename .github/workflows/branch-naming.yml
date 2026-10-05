@@ -4,6 +4,11 @@ name: branch-naming
 
 on:
   push:
+    # A tag push names the tag in github.ref_name; a branches filter alone leaves tags out.
+    branches: ["**"]
+
+permissions:
+  contents: read
 
 jobs:
   validate:
@@ -20,8 +25,10 @@ jobs:
             "^feature/[a-zA-Z0-9][a-zA-Z0-9._/-]*$"
             "^fix/[a-zA-Z0-9][a-zA-Z0-9._/-]*$"
             "^docs/[a-zA-Z0-9][a-zA-Z0-9._/-]*$"
-            "^hotfix/[0-9]+\.[0-9]+\.[0-9]+$"
+            "^hotfix/[a-zA-Z0-9][a-zA-Z0-9._/-]*$"
             "^release/[0-9]+\.[0-9]+\.[0-9]+$"
+            "^dependabot/.+$"
+            "^renovate/.+$"
           )
           for p in "${PATTERNS[@]}"; do
             if [[ "$BRANCH" =~ $p ]]; then
@@ -29,5 +36,5 @@ jobs:
             fi
           done
           echo "❌ Invalid branch name: $BRANCH"
-          echo "Allowed: main/stage/dev, feature/*, fix/*, docs/*, hotfix/x.y.z, release/x.y.z"
+          echo "Allowed: main/stage/dev, feature/*, fix/*, docs/*, hotfix/*, release/x.y.z, dependabot/*, renovate/*"
           exit 1

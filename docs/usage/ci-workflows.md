@@ -108,11 +108,12 @@ duplicate id introduced on separate branches — the flow gate never reads an SR
   `python-semantic-release` template additionally derives its own initial release notes from
   `CHANGELOG.md`; the other templates create theirs with `--generate-notes` and rely on the
   shared step alone to pull from the file.
-- **`branch-naming.yml`** under its own `branch_naming.enable`, on every push. It fails a push
-  whose branch does not match a fixed set of patterns: `feature/*`, `fix/*`, `docs/*`,
-  `hotfix/X.Y.Z`, `release/X.Y.Z`, the literal `dev`, and `versioning.branches.stable`/
-  `.prerelease`. The template hardcodes `dev` regardless of what `flow-config.branches.integration`
-  names — a repo whose integration branch is not literally `dev` fails every push to it.
+- **`branch-naming.yml`** under its own `branch_naming.enable`, on every branch push
+  (`branches: ["**"]` excludes tag pushes, which a bare `push:` trigger would otherwise also
+  catch). It fails a push whose branch does not match a fixed set of patterns — `feature/*`,
+  `fix/*`, `docs/*`, `hotfix/*`, `release/X.Y.Z`, `dependabot/*`, `renovate/*` — or one of the
+  three configured branch names: `versioning.branches.stable`/`.prerelease` and
+  `flow-config.branches.integration`, compared as literal strings, never patterns.
 - **`entropy-check.yml`** under its own `entropy.enable`, on the `schedule` cron (default weekly)
   over `entropy.paths`.
 

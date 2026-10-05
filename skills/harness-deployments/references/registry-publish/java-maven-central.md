@@ -1,8 +1,8 @@
 # Registry Publish — Java (Maven Central)
 
 ## Official action / build command
-- Publish: there is no dedicated GitHub Action — install `actions/setup-java@v5` (Temurin), then run `mvn -B -DskipTests deploy` via the Maven CLI. The `deploy` goal uploads to the Sonatype **Central Portal** via `org.sonatype.central:central-publishing-maven-plugin` (configured in pom.xml).
-- `setup-java`'s `server-id`/`server-username`/`server-password` inputs write the `settings.xml` server entry `mvn deploy` authenticates with, and its `gpg-private-key`/`gpg-passphrase` inputs import the signing key into the keyring — `maven-gpg-plugin`, bound to the `deploy` phase in pom.xml, performs the signature itself.
+- Publish: there is no dedicated GitHub Action — install `actions/setup-java@v6` (Temurin), then run `mvn -B -DskipTests deploy` via the Maven CLI. The `deploy` goal uploads to the Sonatype **Central Portal** via `org.sonatype.central:central-publishing-maven-plugin` (configured in pom.xml).
+- `setup-java`'s `server-id`/`server-username-env-var`/`server-password-env-var` inputs write the `settings.xml` server entry `mvn deploy` authenticates with, and its `gpg-private-key`/`gpg-passphrase-env-var` inputs import the signing key into the keyring — `maven-gpg-plugin`, bound to the `deploy` phase in pom.xml, performs the signature itself.
 - **As of 2025-06-30 the legacy OSSRH (oss.sonatype.org) is fully shut down** — both new and existing projects can only publish through the Central Portal (central.sonatype.com) path. Old guides based on `nexus-staging-maven-plugin` are no longer valid.
 
 ## Secrets

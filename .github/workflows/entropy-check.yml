@@ -8,6 +8,9 @@ on:
     - cron: "0 0 * * 5"  # every Friday 00:00 UTC
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+
 jobs:
   entropy:
     runs-on: ubuntu-latest
@@ -36,7 +39,7 @@ jobs:
         run: |
           echo "## Files exceeding 500 lines"
           find scripts/ -name "*.py" -not -path "*/__pycache__/*" \
-            | xargs wc -l 2>/dev/null \
+            -exec wc -l {} + 2>/dev/null \
             | awk '$1 > 500 && $2 != "total" { print }' | sort -rn
 
       - name: ShellCheck (*.sh)

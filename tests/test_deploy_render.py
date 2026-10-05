@@ -467,5 +467,5 @@ def test_maven_central_wires_credentials_and_signing_into_maven():
     deploy = next(s for s in steps if s.get("name") == "Deploy to Maven Central")
     assert java["server-id"] == "central"
     assert java["gpg-private-key"] == "${{ secrets.MAVEN_GPG_PRIVATE_KEY }}"
-    for key in ("server-username", "server-password", "gpg-passphrase"):
+    for key in ("server-username-env-var", "server-password-env-var", "gpg-passphrase-env-var"):
         assert java[key] in deploy["env"], key

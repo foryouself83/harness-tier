@@ -33,7 +33,7 @@ jobs:
         with:
           ref: ${{ inputs.tag }}
           fetch-depth: 0
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "__HARNESS_VERSION__"
@@ -41,11 +41,11 @@ jobs:
           # the central-publishing-maven-plugin's default publishingServerId; a pom that names
           # another server needs that id here.
           server-id: central
-          server-username: MAVEN_CENTRAL_USERNAME
-          server-password: MAVEN_CENTRAL_PASSWORD
+          server-username-env-var: MAVEN_CENTRAL_USERNAME
+          server-password-env-var: MAVEN_CENTRAL_PASSWORD
           # Empty when the secret is unset, which imports no key and leaves signing to fail.
           gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
-          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+          gpg-passphrase-env-var: MAVEN_GPG_PASSPHRASE
       - name: Build package
         run: __HARNESS_BUILD__
       - name: Deploy to Maven Central
