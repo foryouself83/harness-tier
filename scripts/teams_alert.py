@@ -5,14 +5,15 @@ Per-channel webhook URLs are read by merging two files (local overrides tracked)
 Host-side harness-tier artifacts are collected by purpose under .claude/harness-tier/,
 and webhooks live in config/ (host root = CLAUDE_PROJECT_DIR, else git toplevel, then
 relative to this script's location):
-  - .claude/harness-tier/config/teams-webhooks.json        (git-tracked: branch channels)
-  - .claude/harness-tier/config/.teams-webhooks.local.json (git-excluded: personal, per-user)
+  - .claude/harness-tier/config/teams-webhooks.json        (git-tracked: watched branches)
+  - .claude/harness-tier/config/.teams-webhooks.local.json (git-excluded: personal, URLs)
 
 Channel purposes:
   - personal        -> waiting for response / stop (per-user, local file)
-  - others (branch name) -> on push of a branch with the same name (team-shared, tracked file).
-                       Adding a key to teams-webhooks.json lets you add notification
-                       target branches without editing code.
+  - others (branch name) -> on push of a branch with the same name. The tracked file names
+                       the watched branches for every clone; the URL stays in the local
+                       file unless registered with --shared, since a Power Automate URL
+                       carries its `sig=` credential.
 
 If a channel's URL is empty or missing it is silently skipped, so channels can be
 enabled incrementally. Notification failures are not propagated to the caller — a
@@ -22,6 +23,7 @@ registration guidance to stderr to prompt registration.
 Usage (CLI):
   python teams_alert.py --channel personal --title "..." --text "..."
   python teams_alert.py --set personal https://...   # the URL alone auto-saves it
+  python teams_alert.py --set dev https://... [--shared]
 
 Usage (import):
   from teams_alert import send
@@ -81,24 +83,42 @@ def resolve_webhook(channel: str) -> str | None:
     return merged.get(channel, "").strip() or None
 
 
+def resolve_webhook_tracked(channel: str) -> str | None:
+    """The URL the tracked file alone holds for `channel` (None if none)."""
+    return _load(TRACKED_FILE).get(channel, "").strip() or None
+
+
 def push_channels() -> list[str]:
-    """List of push notification target channels (= branch names), from the tracked file's keys.
+    """List of push notification target channels (= branch names), from both files' keys.
 
     Called by notify-push.sh to decide "which branch push should trigger a notification".
-    Branch names are not hardcoded, so adding or removing a key in teams-webhooks.json
-    is enough to change the target branches. Local-only channels such as personal
-    (LOCAL_CHANNELS) are not push targets, so they are excluded.
+    Local-only channels such as personal (LOCAL_CHANNELS) are not push targets.
     """
-    return [k for k in _load(TRACKED_FILE) if k not in LOCAL_CHANNELS]
+    keys = dict.fromkeys([*_load(TRACKED_FILE), *_load(LOCAL_FILE)])
+    return [k for k in keys if k not in LOCAL_CHANNELS]
 
 
-def set_webhook(channel: str, url: str) -> Path:
-    """Auto-save the channel URL: personal to local (git-excluded), others to the tracked file."""
-    target = LOCAL_FILE if channel in LOCAL_CHANNELS else TRACKED_FILE
-    target.parent.mkdir(parents=True, exist_ok=True)  # ensure .claude/harness-tier/
+def _write(path: Path, data: dict[str, str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)  # ensure .claude/harness-tier/config/
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def set_webhook(channel: str, url: str, shared: bool = False) -> Path:
+    """Save the channel URL and return the file it went to.
+
+    A branch URL goes to the gitignored local file unless `shared`; the tracked file then gets
+    the branch as a key with no URL, so every clone watches that branch and a clone holding
+    the URL posts.
+    """
+    local = channel in LOCAL_CHANNELS or not shared
+    target = LOCAL_FILE if local else TRACKED_FILE
     data = _load(target)
     data[channel] = url.strip()
-    target.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _write(target, data)
+    if local and channel not in LOCAL_CHANNELS:
+        tracked = _load(TRACKED_FILE)
+        if channel not in tracked:
+            _write(TRACKED_FILE, {**tracked, channel: ""})
     return target
 
 
@@ -186,6 +206,11 @@ def main() -> None:
         help="채널 웹훅 URL 등록 (올바른 파일에 자동 저장)",
     )
     parser.add_argument(
+        "--shared",
+        action="store_true",
+        help="브랜치 채널 URL을 git 추적 파일에 저장 (기본: gitignore 된 로컬 파일)",
+    )
+    parser.add_argument(
         "--list-push-channels",
         action="store_true",
         help="push 알림 대상 채널(브랜치) 목록 출력 — notify-push.sh 용",
@@ -198,8 +223,13 @@ def main() -> None:
 
     if args.set:
         channel, url = args.set
-        target = set_webhook(channel, url)
+        target = set_webhook(channel, url, shared=args.shared)
         print(f"[teams_alert] '{channel}' 등록됨 -> {target.name}")
+        if target == LOCAL_FILE and resolve_webhook_tracked(channel):
+            print(f"[teams_alert] {TRACKED_FILE.name} 에 '{channel}' URL 이 아직 남아 있습니다")
+        if target == TRACKED_FILE and _load(LOCAL_FILE).get(channel, "").strip():
+            # The local file wins in resolve_webhook, so this clone keeps posting to that URL.
+            print(f"[teams_alert] {LOCAL_FILE.name} 의 '{channel}' URL 이 이 URL 보다 우선합니다")
         sys.exit(0)
 
     if args.list_push_channels:

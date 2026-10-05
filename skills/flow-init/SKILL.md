@@ -334,9 +334,13 @@ On **no**, say plainly that nothing now checks the SRS's anchors, and that re-ru
    `python3 "${ROOT}/.claude/harness-tier/scripts/teams_alert.py" --set personal <URL>` →
    writes `${ROOT}/.claude/harness-tier/config/.teams-webhooks.local.json` (gitignored).
 2. Ask for **team branch** channels (keys = branch names, e.g. integration /
-   staging / production). For each provided: `--set <branch> <URL>` → writes
-   `${ROOT}/.claude/harness-tier/config/teams-webhooks.json`. Empty URLs are skipped at
-   send time, so partial setup is fine.
+   staging / production). For each provided: `--set <branch> <URL>` → the URL goes to the
+   gitignored `.teams-webhooks.local.json`, and the branch name alone to the tracked
+   `${ROOT}/.claude/harness-tier/config/teams-webhooks.json`, so every clone watches it and a
+   clone holding the URL posts. Only when the user wants the URL itself committed for the
+   team, add `--shared`: the URL's `sig=` token is the credential that posts to the channel,
+   and a public or widely cloned repo hands it to everyone who reads it. Empty URLs are
+   skipped at send time, so partial setup is fine.
 3. **If any Teams channel was configured**, offer — ask the user (structured choice), default
    yes — to add a **managed Teams-usage block** to the host `CLAUDE.md` so this
    repo's Claude alerts **right before presenting a question to the user** — which the
@@ -370,14 +374,15 @@ On **no**, say plainly that nothing now checks the SRS's anchors, and that re-ru
      falling back to the git toplevel when it is unset, but for explicitness add the
      `:-$(git rev-parse --show-toplevel)` fallback shown above in manual calls (right
      before a question to the user) — a safety net for when cwd is outside the repo.
-   - **Webhook setup** — `personal` lives in
+   - **Webhook setup** — webhook URLs live in
      `.claude/harness-tier/config/.teams-webhooks.local.json` (gitignored, per-user);
-     branch channels (`dev`/`stage`/`main`, etc.) live in
-     `.claude/harness-tier/config/teams-webhooks.json` (git-tracked, team-shared).
-   - **Security exception** — a tracked Power Automate URL (containing a `sig=` token)
-     is an intentional commit, not a leak. Because it is an incoming webhook, the worst
-     case is channel-message injection (no data exfiltration or privilege escalation) —
-     treat it as a secret-scanner exception.
+     `.claude/harness-tier/config/teams-webhooks.json` (git-tracked) names the watched
+     branches (`dev`/`stage`/`main`, etc.) and holds a URL only when it was registered with
+     `--shared`.
+   - **Security** — a Power Automate URL's `sig=` token is the credential that posts to the
+     channel. One committed with `--shared` lets anyone who can read the repo inject channel
+     messages (no data exfiltration or privilege escalation); mark it as a secret-scanner
+     exception only after deciding that is acceptable.
    <!-- harness-tier:teams END -->
    ````
 
@@ -414,11 +419,11 @@ is written down and enforced nowhere, and `wiki-verify.yml` is not rendered here
    .gitignore lines (match-then-skip); pre-commit config is created-if-absent, else
    only **reported** (missing hooks listed, never auto-merged — preserves the team's
    comments/format); interactive steps confirm before overwrite.
-3. **Secrets discipline** — the `personal` webhook stays in a gitignored file under
-   `.claude/harness-tier/config/`. Branch-channel webhooks
-   (`.claude/harness-tier/config/teams-webhooks.json`) are **intentionally git-tracked**
-   (incoming webhooks → worst case is channel-message injection; a secret-scanner
-   exception, not a leak).
+3. **Secrets discipline** — webhook URLs stay in the gitignored
+   `.claude/harness-tier/config/.teams-webhooks.local.json`; the tracked
+   `teams-webhooks.json` carries the watched branch names. A branch URL is committed only
+   when the user asks for `--shared` (worst case channel-message injection by anyone who
+   reads the repo).
 4. **Host writes go through `${CLAUDE_PROJECT_DIR}`**, plugin reads through
    `${CLAUDE_PLUGIN_ROOT}` — never write into the plugin directory.
 5. **CLAUDE.md edits are a managed block only** — touch only the marked

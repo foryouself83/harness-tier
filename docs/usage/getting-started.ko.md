@@ -48,8 +48,8 @@
 |------|------|-----|------|
 | `.claude/harness-tier/config/flow-config.yaml` | 사용자 | 추적 | 팀 공유 설정([설정](configuration.ko.md)) |
 | `.claude/harness-tier/config/flow-tiers.yaml` | 플러그인 | 추적 | 등급→게이트 정책, `/flow-init` 실행마다 덮어씀 |
-| `.claude/harness-tier/config/teams-webhooks.json` | 사용자 | 추적 | 팀 Teams 채널([Teams](teams.ko.md)) |
-| `.claude/harness-tier/config/.teams-webhooks.local.json` | 사용자 | gitignore | 개인 Teams 웹훅 |
+| `.claude/harness-tier/config/teams-webhooks.json` | 사용자 | 추적 | 지켜보는 브랜치명, 팀 공유([Teams](teams.ko.md)) |
+| `.claude/harness-tier/config/.teams-webhooks.local.json` | 사용자 | gitignore | 개인 웹훅, 그리고 기본값으로 브랜치 웹훅 URL |
 | `.claude/harness-tier/scripts/` | 플러그인 | 추적 | 게이트 스크립트, 렌더링된 CI 워크플로도 호출 |
 | `.claude/harness-tier/.flow/` | 런타임 | gitignore | 게이트 증거: `tier` 마커와 `<gate>.done` 파일 |
 | `.claude/settings.json` | 공유 | 추적 | `PreToolUse` 커밋 게이트와 `harness-tier` 마켓 항목 |

@@ -51,8 +51,8 @@ where that tool looks for them.
 |------|-------|-----|----------|
 | `.claude/harness-tier/config/flow-config.yaml` | you | tracked | Team-shared settings ([configuration](configuration.md)) |
 | `.claude/harness-tier/config/flow-tiers.yaml` | plugin | tracked | Tier → gate policy; overwritten on every `/flow-init` run |
-| `.claude/harness-tier/config/teams-webhooks.json` | you | tracked | Team Teams channels ([Teams](teams.md)) |
-| `.claude/harness-tier/config/.teams-webhooks.local.json` | you | gitignored | Personal Teams webhook |
+| `.claude/harness-tier/config/teams-webhooks.json` | you | tracked | Watched branch names, team-shared ([Teams](teams.md)) |
+| `.claude/harness-tier/config/.teams-webhooks.local.json` | you | gitignored | Personal webhook, and branch webhook URLs by default |
 | `.claude/harness-tier/scripts/` | plugin | tracked | Gate scripts, also called by the rendered CI workflows |
 | `.claude/harness-tier/.flow/` | runtime | gitignored | Gate evidence: the `tier` marker and `<gate>.done` files |
 | `.claude/settings.json` | shared | tracked | The `PreToolUse` commit gate and the `harness-tier` marketplace entry |
