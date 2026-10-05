@@ -25,6 +25,10 @@ violating flag, `require` and `forbid` alike. `—` = no `merge_strategy` entry.
   all count. A source with a revision suffix (`stage^0`, `stage~1`) is judged as its branch.
 - Read from the command alone: a `merge.ff`, `pull.ff`, `branch.<name>.mergeoptions` or
   `pull.rebase` set in git config is not seen.
+- A `$( … )` or backtick among the operands is one word, so flags after it count; a merge
+  inside one is judged. A `git merge` written among the arguments of another merge, pull,
+  switch or checkout that starts its command runs nothing and is not judged; behind `eval`,
+  `watch` or `ssh` it is judged, since those parse the arguments again.
 
 - Rows 6 and 7: a choice ("or") — nothing to enforce.
 - Row 8: a refused fast-forward needs a **skip**, and `require: --ff-only` would block the

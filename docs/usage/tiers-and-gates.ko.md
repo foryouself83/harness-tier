@@ -109,7 +109,10 @@ flow 게이트는 SRS 를 전혀 읽지 않음. `docs/srs/` 가 생기면 `/flow
 축약형, 서로 반대되는 두 옵션 중 마지막, 명령줄의 `-c merge.ff=…`(pull 이면 그보다 우선하는
 `-c pull.ff=…`)가 모두 셈에 들어가고, git config 에 설정된 `merge.ff`·`pull.ff`·
 `branch.<name>.mergeoptions`·`pull.rebase` 는 보지 않음. 브랜치명은 `flow-config.branches`
-에서 오고, 리비전 접미사가 붙은 소스(`stage^0`)는 그 브랜치로 판정함.
+에서 오고, 리비전 접미사가 붙은 소스(`stage^0`)는 그 브랜치로 판정함. 인자 사이의 `$( … )`
+나 백틱은 한 단어로 읽혀 그 뒤 플래그도 셈에 들어가고 그 안의 머지도 판정함. 다른
+merge·pull·switch·checkout 이 명령 맨 앞에 올 때 그 인자 안에 적힌 `git merge` 는 실행되지
+않아 판정 대상이 아님(인자를 다시 파싱하는 `eval`·`watch`·`ssh` 뒤라면 판정함).
 
 | 머지 | 강제 |
 |------|------|

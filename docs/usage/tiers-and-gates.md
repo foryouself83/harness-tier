@@ -115,7 +115,10 @@ them: an abbreviation, the last of two opposing options, and a `-c merge.ff=…`
 `-c pull.ff=…` over it) on the command line all count; a `merge.ff`, `pull.ff`,
 `branch.<name>.mergeoptions` or `pull.rebase` set in git config is not seen. Branch names
 resolve from `flow-config.branches`, and a source with a revision suffix (`stage^0`) is judged
-as its branch.
+as its branch. A `$( … )` or backtick among the operands is one word, so flags after it count
+and a merge inside one is judged; a `git merge` written among the arguments of another merge,
+pull, switch or checkout that starts its command runs nothing and is not judged (behind `eval`,
+`watch` or `ssh`, which parse the arguments again, it is).
 
 | Merge | Enforced |
 |-------|----------|

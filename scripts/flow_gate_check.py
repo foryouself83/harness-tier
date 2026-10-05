@@ -13,7 +13,6 @@ import os
 import re
 import subprocess
 import sys
-from functools import lru_cache
 from pathlib import Path
 
 # Host-root resolution, encoding defenses, and gate contract constants (blocking exit
@@ -26,6 +25,7 @@ try:
         _PATH_TOKEN,
         BLOCK_EXIT_CODE,
         CONFIG_DIR,
+        OPAQUE_CH,
         RELEASE_TIER,
         RUNTIME_GATES,
         STAGING_TIER,
@@ -38,9 +38,9 @@ try:
         host_root,
         invocation_words,
         is_invocation,
+        live_invocations,
         mask_literals,
         operand_end,
-        operand_words,
         working_root,
     )
 except ImportError:
@@ -48,6 +48,7 @@ except ImportError:
         _PATH_TOKEN,
         BLOCK_EXIT_CODE,
         CONFIG_DIR,
+        OPAQUE_CH,
         RELEASE_TIER,
         RUNTIME_GATES,
         STAGING_TIER,
@@ -60,9 +61,9 @@ except ImportError:
         host_root,
         invocation_words,
         is_invocation,
+        live_invocations,
         mask_literals,
         operand_end,
-        operand_words,
         working_root,
     )
 
@@ -185,20 +186,6 @@ def _short_takes_next(tok: str, with_arg: str, owns_rest: str) -> bool:
         if letter in owns_rest:
             return False
     return False
-
-
-# A `git switch` / `git checkout` INVOCATION that precedes the merge in the SAME command.
-# merge-strategy's "Merging feature/* → integration" prescribes a three-step block
-# (`git switch <integration>` → `git pull --ff-only` → `git merge --squash feature/<name>`) that
-# Claude Code sends as ONE Bash call, so at hook time HEAD is still the SOURCE branch and no rule
-# would match — the very idiom the policy documents would bypass the gate.
-# The operands are deliberately NOT part of this pattern: the invocation must be *seen* even
-# when its operands are unreadable, because an unreadable one voids the whole chain
-# (see :func:`_target_from_command`).
-# It shares the grammar the commit and merge paths read rather than restating one: a spelling
-# only this pattern rejects names no target, and the merge is then judged against whatever
-# branch HEAD happens to be on.
-_MERGE_SWITCH_RE = git_subcommand_re("(?:switch|checkout)")
 
 
 def _merge_dirs(command: str) -> list[str | None]:
@@ -474,18 +461,6 @@ def parse_pull_commands(command: str) -> list[tuple[set[str], str]]:
     return [(flags, source) for _start, flags, source in _pull_merges(command)]
 
 
-@lru_cache(maxsize=8)
-def _split_switches(command: str) -> tuple[tuple[int, str | None], ...]:
-    """(start, branch) of every `git switch`/`git checkout` in the command, by the shell-split
-    reading. A switch the mask cannot see — `git sw''itch dev` — moves HEAD all the same.
-    Cached: a command is asked once per merge it holds, and each read runs the full net."""
-    return tuple(
-        (start, _switch_operand_words(operands))
-        for word in ("switch", "checkout")
-        for start, _dir, _globals, operands in invocation_words(command, word)
-    )
-
-
 def _switch_operand_words(words: list[str]) -> str | None:
     """The branch a `git switch`/`git checkout` with these operand words lands HEAD on, else
     None (unclear).
@@ -496,9 +471,10 @@ def _switch_operand_words(words: list[str]) -> str | None:
       - `switch -c feature/y` / `checkout -b` create and land on a DIFFERENT branch.
       - `checkout origin/dev` lands on a detached HEAD — yet :func:`_branch_matches` strips
         `origin/`, so adopting it would match the integration rules it never entered.
-      - `switch -`, `checkout --detach`, unbalanced quotes (no words at all): unnameable.
+      - `switch -`, `checkout --detach`, unbalanced quotes (no words at all), a branch a
+        substitution prints: unnameable.
     """
-    if len(words) != 1 or words[0].startswith(("-", "origin/")):
+    if len(words) != 1 or words[0].startswith(("-", "origin/")) or OPAQUE_CH in words[0]:
         return None
     return words[0]
 
@@ -533,24 +509,23 @@ def _merge_targets(command: str, head_ends: list[int]) -> list[str | None]:
     square of its length, and a hook that times out lets the merge through."""
     if not command or not head_ends:
         return [None] * len(head_ends)
-    # Located on the mask like every other subcommand read here: a `git switch` written in a
-    # comment, quoted in a message, or sitting in a heredoc body is text, and adopting its branch
-    # judges the merge against a flow nobody ran. Operand words are read off the raw string,
-    # so a quoted branch name keeps its quotes' meaning.
+    # merge-strategy's feature/* → integration block (`git switch <integration>` → `git pull
+    # --ff-only` → `git merge --squash feature/<name>`) arrives as ONE Bash call, so at hook time
+    # HEAD is still the source branch: without the switch, the very idiom the policy documents
+    # would match no rule.
+    # Read off the merge path's own invocations, a `git switch` the mask cannot see — `git
+    # sw''itch dev` — included: it moves HEAD all the same. A switch written in a comment, quoted
+    # in a message, or sitting in a heredoc body is text and is not among them, and adopting its
+    # branch would judge the merge against a flow nobody ran.
+    # (start, where its operands end, branch); a split switch's operands end where its stage does
     masked = mask_literals(command)
-    last = max(head_ends)
-    # (start, where its operands end, branch); a split switch's words are already read, and its
-    # operands end where its stage does
     moves = []
-    for m in _MERGE_SWITCH_RE.finditer(masked, 0, last):
-        end = operand_end(command, masked, m.end())
-        branch = _switch_operand_words(operand_words(command, masked, m.end(), end))
-        moves.append((m.start(), end, branch))
-    seen = {move[0] for move in moves}
-    for s, b in _split_switches(command):
-        if s < last and s not in seen:
-            stage = _STAGE_LEAD_RE.match(masked, s).end()
-            moves.append((s, operand_end(command, masked, stage), b))
+    for start, word, _dir, _globals, operands, end in live_invocations(command):
+        if word not in ("switch", "checkout"):
+            continue
+        if end is None:
+            end = operand_end(command, masked, _STAGE_LEAD_RE.match(masked, start).end())
+        moves.append((start, end, _switch_operand_words(operands)))
     # A switch counts for a merge once its operands end before the merge starts. One whose
     # operands hold the merge — `git switch $(git merge x)` — runs after it, since the shell
     # expands an argument before running the command it feeds.

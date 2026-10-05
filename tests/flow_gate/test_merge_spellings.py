@@ -305,6 +305,38 @@ def test_review_round_two_spellings(monkeypatch, tmp_path, command, branch, bloc
         ("git merge feature/x $(echo hi # don't\n)", "dev", True),
         ('git merge feature/x $(true) -m "a $(echo b c)"', "dev", True),
         ("git merge feature/x <<'E O'\nx\nE O\n", "dev", True),
+        # a substitution is one word, its `;`, `)`, comments and quotes included
+        ("git merge fix/a $(true) --no-ff", "dev", True),
+        ("git merge fix/a $(true; false) --no-ff", "dev", True),
+        ("git merge feature/x $(echo '#') --squash", "dev", False),
+        ('git merge stage -m "Release $(date +%F)"', "main", True),
+        ('git merge --no-ff stage -m "Release $(date +%F)"', "main", False),
+        ('git merge feature/x "$(date)"', "dev", True),
+        ("git merge feature/x -m \"$(printf 'a\\nb')\" --squash", "dev", False),
+        # a git merge among another merge-path command's arguments never runs
+        ("git switch dev git merge feature/x", "dev", False),
+        ("FOO=1 git switch dev git merge feature/x", "dev", False),
+        # unless something parses those arguments again, or the mask may have closed a
+        # substitution early
+        ("eval git switch dev \\; git merge feature/x", "dev", True),
+        ("eval git checkout dev '&&' git merge feature/x", "dev", True),
+        ("watch git switch dev \\; git merge feature/x", "dev", True),
+        ("eval git sw''itch dev x\\; git mer''ge feature/x", "dev", True),
+        ("eval git sw''itch dev 'x;' git mer''ge feature/x", "dev", True),
+        ("eval git switch dev x\\; git mer''ge feature/x", "dev", True),
+        ("eval git sw''itch dev 'x &&' git mer''ge feature/x", "dev", True),
+        ("git sw''itch dev git mer''ge feature/x", "dev", False),
+        # a quoted separator after `eval` is an argument until eval parses it again
+        ("eval echo \\; git sw''itch dev x\\; git mer''ge feature/x", "dev", True),
+        ("eval echo ';' git sw''itch dev 'y;' git mer''ge feature/x", "dev", True),
+        ("eval : '&&' git sw''itch dev x\\; git mer''ge feature/x", "dev", True),
+        ("eval echo \\; git switch dev x\\; git mer''ge feature/x", "dev", True),
+        ("eval echo \\> git sw''itch dev x\\; git mer''ge feature/x", "dev", True),
+        ("eval true \\| git sw''itch dev x\\; git mer''ge feature/x", "dev", True),
+        ("watch echo \\; git sw''itch dev x\\; git mer''ge feature/x", "dev", True),
+        ("git switch dev $(case x in x) git merge feature/x;; esac)", "dev", True),
+        # one inside a substitution does, before the command it feeds
+        ("git switch main $(git merge feature/x)", "dev", True),
         # a merge inside a switch's argument runs before that switch, onto the earlier one
         ("git switch main && git switch -c $(git merge stage)", "dev", True),
         ("git switch main && git switch -c `git merge --no-ff stage`", "dev", False),
