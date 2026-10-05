@@ -76,9 +76,14 @@
 
 **Python ≥ 3.8** — OS 패키지 관리자로 설치(이미 있으면 건너뜀).
 
+훅은 `python3` 를 부름. Windows 에서는 그 명령을 만들어 주는 Python install manager 를
+설치함. python.org 나 `Python.Python.3.x` 설치는 `python` 만 만들고, 그러면 `python3` 는
+실행되지 않고 Microsoft Store 를 엶.
+
 ```bash
 # Windows
-winget install Python.Python.3.12
+winget install 9NQ7512CXL7T -e --accept-package-agreements --disable-interactivity
+py install 3.12
 # macOS
 brew install python@3.12
 # Debian/Ubuntu

@@ -82,9 +82,14 @@ and (with your consent) installs most of them.
 
 **Python ≥ 3.8** — via your OS package manager (skip if already present).
 
+The hooks call `python3`. On Windows, install the Python install manager, which provides
+that command; a python.org or `Python.Python.3.x` install provides only `python`, and
+`python3` then opens the Microsoft Store instead of running.
+
 ```bash
 # Windows
-winget install Python.Python.3.12
+winget install 9NQ7512CXL7T -e --accept-package-agreements --disable-interactivity
+py install 3.12
 # macOS
 brew install python@3.12
 # Debian/Ubuntu

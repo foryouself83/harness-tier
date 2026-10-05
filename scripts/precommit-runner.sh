@@ -169,6 +169,10 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 # floor = python 3.8 (SSOT: check-deps.sh — sync both sides when changing)
 if ! python3 -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 8) else 1)" >/dev/null 2>&1; then
+  # The Microsoft Store's app execution alias answers `command -v python3` and runs no python.
+  case "$(command -v python3)" in
+    *WindowsApps*) deny "python3 가 Microsoft Store 별칭이라 python 이 실행되지 않습니다. Python install manager(winget install 9NQ7512CXL7T 후 py install 3.12)로 설치하거나 '앱 실행 별칭 관리'에서 python3 별칭을 끄세요." ;;
+  esac
   deny "게이트에 python 3.8+ 가 필요합니다(현재 버전 미만). 업그레이드 후 다시 커밋하세요."
 fi
 # PyYAML install command = kept as the same string as check-deps.sh

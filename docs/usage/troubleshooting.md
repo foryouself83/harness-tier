@@ -9,10 +9,14 @@ block described here is layer 2 — an agent-session (Claude Code or Codex) comm
 ## Blocked — "python3 / PyYAML required"
 
 Message: `게이트에 python3 가 필요합니다` · `게이트에 python 3.8+ 가 필요합니다` ·
-`게이트에 PyYAML 이 필요합니다`.
+`게이트에 PyYAML 이 필요합니다` · `python3 가 Microsoft Store 별칭이라 python 이 실행되지 않습니다`.
 
 The gate needs `python3` 3.8 or later and PyYAML, whatever your project's language. Without them
-it blocks every commit rather than let checks drop out in silence.
+it blocks every commit rather than let checks drop out in silence. The fourth message is
+Windows-specific: the Microsoft Store's app execution alias answers `command -v python3` while
+running no interpreter, which the version check otherwise misreads as "too old". Install the
+Python install manager (`winget install 9NQ7512CXL7T`) and run `py install 3.12`, or turn the
+alias off under Windows' App execution aliases settings, then put a real `python3` on `PATH`.
 
 ```bash
 python3 -m pip install pyyaml                       # into the python3 the hook calls

@@ -9,10 +9,14 @@
 ## 막혀요 — "python3 / PyYAML 필요"
 
 메시지: `게이트에 python3 가 필요합니다` · `게이트에 python 3.8+ 가 필요합니다` ·
-`게이트에 PyYAML 이 필요합니다`.
+`게이트에 PyYAML 이 필요합니다` · `python3 가 Microsoft Store 별칭이라 python 이 실행되지 않습니다`.
 
 프로젝트 언어와 무관하게 게이트는 `python3` 3.8 이상과 PyYAML 이 필요함. 없으면
-검사가 조용히 빠지는 대신 모든 커밋을 막음.
+검사가 조용히 빠지는 대신 모든 커밋을 막음. 넷째 메시지는 Windows 전용임: Microsoft
+Store 의 앱 실행 별칭이 `command -v python3` 에는 응답하지만 인터프리터를 실행하지
+않아, 버전 검사가 이를 "너무 낮음"으로 잘못 읽음. Python install manager
+(`winget install 9NQ7512CXL7T`)를 설치하고 `py install 3.12` 를 실행하거나,
+Windows 의 앱 실행 별칭 설정에서 별칭을 끄고 `PATH` 에 실제 `python3` 를 둠.
 
 ```bash
 python3 -m pip install pyyaml                       # 훅이 부르는 그 python3 에
