@@ -48,6 +48,8 @@ PATH_LIKE = re.compile(r"(?:\./|\.\./|/|[A-Za-z]:\\)[\w\-/\\.]+|[\w\-.]+[/\\][\w
 # 7+ hex chars carrying BOTH a letter and a digit: a commit sha, never an English word
 # (`deadbeef` has no digit) and never a plain number (`20240115`, a byte count).
 SHA = re.compile(r"\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{7,40}\b")
+# Its groups are hex runs SHA would read as shas, so the default mask blanks the whole UUID.
+UUID = re.compile(r"\b[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\b")
 # A filename followed by a line number. The extension whitelist is the rule: without it
 # `12:30`, `localhost:8000` and a YAML `key: 3` all read as anchors. The space after the colon
 # splits the two readings: with none it is an anchor whatever follows, with one it is an anchor
@@ -98,14 +100,14 @@ def _closes(opener: re.Match, candidate: re.Match) -> bool:
 # per mode. Spelled a second time there, a mode present in only one of the two raises KeyError
 # on the first prose line the gate reads.
 MASK_PATTERNS = {
-    "default": (INLINE_CODE, LINK_TARGET, URL),
+    "default": (INLINE_CODE, LINK_TARGET, URL, UUID),
     "links": (INLINE_CODE, URL),
     "code": (LINK_TARGET, URL),
 }
 
 
 def _mask(line: str, mode: str = "default") -> str:
-    """Blank out spans a prose rule must never read: code, URLs, and link targets.
+    """Blank out spans a prose rule must never read: code, URLs, link targets, and UUIDs.
 
     Three modes, because two rules need to see what the default hides. ``links`` serves
     PLAN: a backticked ``docs/superpowers/plans/`` NAMES the banned pattern, where a link
@@ -119,7 +121,7 @@ def _mask(line: str, mode: str = "default") -> str:
 
 def markdown_prose(text: str) -> list[tuple[int, str]]:
     """Numbered prose lines, fenced blocks and front matter removed. Masking is per rule."""
-    lines = text.split("\n")
+    lines = (text[1:] if text.startswith("\ufeff") else text).split("\n")
     out: list[tuple[int, str]] = []
     opener = None
     start = 0
@@ -221,11 +223,11 @@ BANNED = (
         "HIST",
         "error",
         re.compile(
-            r"\b(previously|formerly|historically|in the past|back then|"
-            r"at the time|for months|turned out|went wrong|has since)\b"
+            r"\b(previously|formerly|historically|back then|"
+            r"at the time|for months|turned out|has since)\b"
             # `used to` narrates; `is used to` is the passive of "use".
             r"|(?<!is )(?<!are )(?<!was )(?<!were )(?<!be )(?<!been )(?<!being )\bused to\b"
-            r"|이전에는|예전에|원래는|과거에|였다가|바뀌었",
+            r"|이전에는|예전에|원래는|였다가|바뀌었",
             re.IGNORECASE,
         ),
         "history narration — state the rule in force, not how it got there",
@@ -581,11 +583,20 @@ REVIEW_GLOBS = ("**/*.md", "**/*.py", "**/*.sh")
 # PLAN bans. A host's own `exclude` is added to these rather than replacing them — a host
 # whose list predates an entry never receives it, because `/flow-init` leaves a host-owned
 # config alone, and its CI then goes red with no edit that could clear it.
-DEFAULT_EXCLUDES = ("CHANGELOG.md", "docs/superpowers/**", ".superpowers/**")
+DEFAULT_EXCLUDES = (
+    "**/CHANGELOG.md",
+    "docs/superpowers/**",
+    ".superpowers/**",
+)
 # Directory NAMES, matched at any depth. A vendored tree is never the repo's own prose, and
 # these hold whatever a consumer's `paths` says — a glob would need every one of them
 # spelled `**/node_modules/**` to reach as far.
 NEVER_LINTED = frozenset({".git", "node_modules", ".venv", "vendor"})
+# GitHub's issue and pull request templates, by file name and by directory name, matched in any
+# case at any depth: a template's checklist is the form a contributor fills in, which PLAN
+# would reject.
+GITHUB_FORM_FILES = frozenset({"pull_request_template.md", "issue_template.md"})
+GITHUB_FORM_DIRS = frozenset({"pull_request_template", "issue_template"})
 
 
 def _segment_re(seg: str) -> str:
@@ -732,6 +743,12 @@ def review_scope(root: Path, paths: list[Path]) -> list[Path]:
     return _filter(root, paths, globs, excluded)
 
 
+def _is_github_form(rel: Path) -> bool:
+    if rel.name.lower() in GITHUB_FORM_FILES:
+        return True
+    return any(part.lower() in GITHUB_FORM_DIRS for part in rel.parts[:-1])
+
+
 def _filter(root: Path, paths: list[Path], globs, excluded) -> list[Path]:
     root_resolved = root.resolve()
     out = []
@@ -740,7 +757,7 @@ def _filter(root: Path, paths: list[Path], globs, excluded) -> list[Path]:
             rel = path.resolve().relative_to(root_resolved)
         except (ValueError, OSError):
             continue
-        if not NEVER_LINTED.isdisjoint(rel.parts):
+        if not NEVER_LINTED.isdisjoint(rel.parts) or _is_github_form(rel):
             continue
         posix = rel.as_posix()
         if any(_match(posix, rule) for rule in excluded):

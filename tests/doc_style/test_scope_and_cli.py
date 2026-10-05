@@ -52,6 +52,26 @@ def test_the_rules_own_carve_outs_survive_a_hosts_exclude(tmp_path: Path):
     assert _rels(root, config_paths(root)) == ["a.md"]
 
 
+def test_github_forms_and_nested_changelogs_are_never_linted(tmp_path: Path):
+    """A pull request or issue template's checklist is the form itself, and a package's
+    CHANGELOG is generated like the root one."""
+    tree = [
+        "a.md",
+        "packages/core/CHANGELOG.md",
+        ".github/PULL_REQUEST_TEMPLATE.md",
+        ".github/pull_request_template.md",
+        "docs/Pull_Request_Template.md",
+        ".github/PULL_REQUEST_TEMPLATE/feature.md",
+        ".github/ISSUE_TEMPLATE/bug.md",
+        ".github/issue_template.md",
+        "ISSUE_TEMPLATE/feature.md",
+        "docs/pull_request_template/fix.md",
+        ".github/CONTRIBUTING.md",
+    ]
+    root = _scoped(tmp_path, "doc_style:\n  enable: true\n", tree)
+    assert _rels(root, config_paths(root)) == [".github/CONTRIBUTING.md", "a.md"]
+
+
 def test_exclude_reaches_past_a_directorys_direct_children(tmp_path: Path):
     """`Path.match` matched from the right, so even `docs/legacy/**` kept nested files in."""
     root = _scoped(

@@ -131,10 +131,11 @@ The prose check against [`rules/doc-style.md`](../../rules/doc-style.md).
 |------|---------|
 | `enable` | Turns on the commit-time check and the `doc-style.yml` workflow together |
 | `paths` | Repo-relative globs in scope, `["**/*.md"]` by default; add `**/*.py` · `**/*.sh` for comments |
-| `exclude` | Globs kept out, added to the three the checker always skips |
+| `exclude` | Globs kept out, added to what the checker always skips |
 
-The checker always skips `CHANGELOG.md`, `docs/superpowers/` and `.superpowers/`; `exclude` adds
-to them and cannot remove one. `/flow-init` asks about this section.
+The checker always skips every `CHANGELOG.md`, GitHub's issue and pull request templates,
+`docs/superpowers/` and `.superpowers/`; `exclude` adds to them and cannot remove one.
+`/flow-init` asks about this section.
 
 ### `design_docs`
 

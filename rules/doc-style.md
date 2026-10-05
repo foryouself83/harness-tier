@@ -3,8 +3,9 @@
 Applies to every `.md` a project ships and every comment and docstring in its code.
 `.claude/harness-tier/scripts/doc_style_check.py --lint` checks the patterns; `prose-review`
 applies the judgement. The checker reads `flow-config.doc_style.paths` (default `**/*.md`; add
-`**/*.py` · `**/*.sh` for comments) and always skips `CHANGELOG.md`, `docs/superpowers/` and
-`.superpowers/`; a project's `exclude` adds to those.
+`**/*.py` · `**/*.sh` for comments) and always skips every `CHANGELOG.md`, GitHub's issue and
+pull request templates, `docs/superpowers/` and `.superpowers/`; a project's `exclude` adds
+to those.
 
 **Write the fact in force. Nothing else** — not how it got here, what it was, which plan
 proposed it, or an apology for its shape.

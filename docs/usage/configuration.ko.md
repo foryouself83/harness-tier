@@ -131,10 +131,10 @@ Dev `review` 게이트가 변경된 모든 파일을 판단하는 기준. 위 �
 |------|------|
 | `enable` | 커밋 시점 검사와 `doc-style.yml` 워크플로를 함께 켬 |
 | `paths` | 범위에 넣을 저장소 상대 글롭, 기본 `["**/*.md"]`; 주석·docstring 을 포함하려면 `**/*.py`·`**/*.sh` 추가 |
-| `exclude` | 범위에서 뺄 글롭, 검사기가 항상 빼는 세 가지에 더해짐 |
+| `exclude` | 범위에서 뺄 글롭, 검사기가 항상 빼는 것들에 더해짐 |
 
-검사기는 `CHANGELOG.md`, `docs/superpowers/`, `.superpowers/` 를 항상 건너뜀; `exclude` 는
-여기에 더할 뿐 뺄 수는 없음. `/flow-init` 이 이 섹션을 물음.
+검사기는 모든 `CHANGELOG.md`, GitHub 이슈·PR 템플릿, `docs/superpowers/`, `.superpowers/` 를
+항상 건너뜀; `exclude` 는 여기에 더할 뿐 뺄 수는 없음. `/flow-init` 이 이 섹션을 물음.
 
 ### `design_docs`
 
