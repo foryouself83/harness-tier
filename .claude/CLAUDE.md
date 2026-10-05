@@ -1,15 +1,15 @@
 # CLAUDE.md
 
 This repo is the **Claude Code plugin itself**, not a consumer of it. Usage:
-[README.md](README.md) (core idea + install) · [USAGE.md](USAGE.md) (per-topic index into
-[docs/usage/](docs/usage/)), every file with a Korean twin that `doc-sync` keeps in step.
+[README.md](../README.md) (core idea + install) · [USAGE.md](../USAGE.md) (per-topic index into
+[docs/usage/](../docs/usage/)), every file with a Korean twin that `doc-sync` keeps in step.
 Component authoring specs (agent/hook/skill frontmatter) come from the official docs as
 SSOT, never model knowledge: [skills](https://code.claude.com/docs/en/skills.md) ·
 [plugins-reference](https://code.claude.com/docs/en/plugins-reference.md) ·
 [hooks](https://code.claude.com/docs/en/hooks.md) ·
 [permissions](https://code.claude.com/docs/en/permissions.md).
 `allowed-tools` pre-approves tools, it does not restrict — enforced at point of use by
-[`.claude/rules/skill-frontmatter.md`](.claude/rules/skill-frontmatter.md) and `tests/skills/`.
+[`.claude/rules/skill-frontmatter.md`](rules/skill-frontmatter.md) and `tests/skills/`.
 
 `vway-kit` is the internal sister repo — not a consumer install and not an older name: the same
 disciplines and gate scripts, maintained separately, propagating in neither direction. A session
@@ -34,9 +34,9 @@ on the Windows hook runtime, and the CRLF worktree floods ShellCheck with CR err
   Korean stays only where load-bearing: text the repo quotes rather than authors, the strings a
   test compares against it, and fixtures whose non-ASCII bytes ARE the case — translated, the
   test stays green and stops exercising anything. Untracked `docs/superpowers/` stays Korean.
-- **Write only what the code can't say** — [`rules/doc-style.md`](rules/doc-style.md); for a
-  commit body, [`rules/commit-discipline.md`](rules/commit-discipline.md); for generated
-  harness artifacts, [`rules/harness-rules.md`](rules/harness-rules.md) 5-2.
+- **Write only what the code can't say** — [`rules/doc-style.md`](../rules/doc-style.md); for a
+  commit body, [`rules/commit-discipline.md`](../rules/commit-discipline.md); for generated
+  harness artifacts, [`rules/harness-rules.md`](../rules/harness-rules.md) 5-2.
 - **Dogfood new CI** — a workflow-rendering feature also lands in this repo's own
   `.github/workflows/`, every job with a tight `timeout-minutes`. Exempt: a template whose
   subject does not exist here (a REST service, a browser front end, a deployment target).
@@ -62,7 +62,7 @@ on the Windows hook runtime, and the CRLF worktree floods ShellCheck with CR err
 
 ```text
 .claude-plugin/  plugin manifest · self-exposed marketplace entry (immutable sha pin); .codex-plugin/ · .agents/ mirror this for Codex
-.claude/         dev-only rules for this repo: authoring guidance, and what loads rules/ here — never ships
+.claude/         this file and dev-only rules for this repo: authoring guidance, and what loads rules/ here — never ships
 agents/          subagents the skills dispatch
 hooks/           SessionStart · PostToolUse · Notification hooks — the commit gate is not one; codex/ registers the same pair for Codex
 skills/          one directory per slash command
@@ -89,7 +89,7 @@ docs/            usage/ consumer guide (English + .ko twins, shipped) · superpo
   and its `merge_strategy` names flows only by `flow-config.branches` **key**.
 - **A consumer-facing `.md` change (rules, skills) commits as `feat`/`fix`** — `docs`/`chore`
   trigger no release, and only a `plugin.json` version bump reaches a consumer.
-- **[`rules/risk-tiers.md`](rules/risk-tiers.md) is the tier-discipline SSOT**, injected at
+- **[`rules/risk-tiers.md`](../rules/risk-tiers.md) is the tier-discipline SSOT**, injected at
   SessionStart beside a `doc-style.md` summary (injected for Codex always, for Claude only while
   no leftover copy from an older `/flow-init` remains in the host); the split-out files are read
   on demand. Editing
@@ -101,11 +101,11 @@ docs/            usage/ consumer guide (English + .ko twins, shipped) · superpo
 - **Three verification layers**, independent: the host's `.pre-commit-config.yaml`; the flow gate
   (PreToolUse, **agent-session commits and merges only** — terminal commits and CI bypass it);
   and CI, which closes that blind spot. Per-gate mechanism: `rules/gate-mechanics.md`. PR mode
-  takes a flow's merge out of the hook's sight ([`rules/promotion.md`](rules/promotion.md) PR
+  takes a flow's merge out of the hook's sight ([`rules/promotion.md`](../rules/promotion.md) PR
   workflow).
 - **Ask a review agent for a literal `VERDICT: PASS` / `VERDICT: FAIL` line** — an ambiguous
   report reads as a pass, and the marker then records a review that never happened.
-- **Skills are measured** — `tests/skills/` checks the file is well-formed, [`evals/`](evals/)
+- **Skills are measured** — `tests/skills/` checks the file is well-formed, [`evals/`](../evals/)
   that it is *reached* (stale when its description or a fixture its cases run in moves) and, in
   the outcome arm, *executed*, whose fingerprint covers the body and every fixture input: a body
   edit costs a re-measure the invocation check never shows.
