@@ -114,14 +114,8 @@ flow 게이트는 SRS 를 전혀 읽지 않음. `docs/srs/` 가 생기면 `/flow
 ## 머지 전략
 
 `flow-tiers.yaml` 의 `merge_strategy` 는 `git merge`, 그리고 브랜치를 명시하고 rebase 하지
-않는 `git pull` 의 플래그를 그 브랜치 흐름과 대조함. 플래그는 git 이 읽는 그대로 읽음 —
-축약형, 서로 반대되는 두 옵션 중 마지막, 명령줄의 `-c merge.ff=…`(pull 이면 그보다 우선하는
-`-c pull.ff=…`)가 모두 셈에 들어가고, git config 에 설정된 `merge.ff`·`pull.ff`·
-`branch.<name>.mergeoptions`·`pull.rebase` 는 보지 않음. 브랜치명은 `flow-config.branches`
-에서 오고, 리비전 접미사가 붙은 소스(`stage^0`)는 그 브랜치로 판정함. 인자 사이의 `$( … )`
-나 백틱은 한 단어로 읽혀 그 뒤 플래그도 셈에 들어가고 그 안의 머지도 판정함. 다른
-merge·pull·switch·checkout 이 명령 맨 앞에 올 때 그 인자 안에 적힌 `git merge` 는 실행되지
-않아 판정 대상이 아님(인자를 다시 파싱하는 `eval`·`watch`·`ssh` 뒤라면 판정함).
+않는 `git pull` 의 플래그를 그 브랜치 흐름과 대조함. 브랜치명은 `flow-config.branches` 에서
+옴. 위반은 차단됨:
 
 | 머지 | 강제 |
 |------|------|
@@ -131,21 +125,7 @@ merge·pull·switch·checkout 이 명령 맨 앞에 올 때 그 인자 안에 �
 | staging → production | `--no-ff` 필수 |
 | `fix/*` → integration | `--no-ff` 금지 |
 
-위반은 차단됨. 정답 플래그가 하나뿐인 흐름만 검사함: production → integration 백머지와
-재승격 전 staging → integration 백머지는 fast-forward 나 `--no-ff` 둘 다 허용하고,
-production → staging 백머지는 fast-forward 가 거부됐을 때 건너뛰길 원하는데 이는 어떤
-`require` 규칙으로도 표현되지 않음. rebase 없이
-올라온 `feature/*` 머지는 경고만 하고 차단하지 않음 — `origin` 참조가 오래됐을 때 오탐을
-막기 위함.
-
-게이트가 판단할 수 없는 명령은 통과시킴: 매칭되는 규칙이 없거나, 파싱할 수 없거나, 머지가
-모두 다른 디렉터리에서 실행되는 경우. `cd` 뒤의 머지가 디렉터리를 명시하지 않는 머지 옆에
-있으면 그래도 판단함. 디렉터리를 전혀 명시하지 않은 머지는, 셸을 다른 곳으로 옮기는 것도
-없으면(`cd`·`pushd`·`popd`·서브셸·`env`·`--git-dir`·`--work-tree`·`GIT_DIR`·`GIT_WORK_TREE`
-전부 없음) 암묵적 타깃을 메인 체크아웃이 아니라 셸이 실제로 있는 트리의 브랜치로 읽음 —
-워크트리 세션은 이 방식으로 자기 브랜치로 머지됨. `-C .` 는 바로 그 트리를 명시한 것이라
-같은 브랜치를 읽음.
-
-이 검사는 직접 머지만 봄. PR 로 보낸 흐름은 GitHub 브랜치 룰셋으로 강제가 옮겨감 —
-[PR 워크플로와 브랜치 룰셋](promotion-and-release.ko.md#pr-워크플로와-브랜치-룰셋). 모든 흐름의
-절차는 [`rules/merge-strategy.md`](../../rules/merge-strategy.md) 참고.
+검사하지 않는 흐름, rebase 경고, 게이트가 명령과 머지할 트리를 읽는 방식, 흐름별 절차는
+[`rules/merge-strategy.md`](../../rules/merge-strategy.md) 참고. 이 검사는 직접 머지만 봄.
+PR 로 보낸 흐름은 GitHub 브랜치 룰셋으로 강제가 옮겨감 —
+[PR 워크플로와 브랜치 룰셋](promotion-and-release.ko.md#pr-워크플로와-브랜치-룰셋).

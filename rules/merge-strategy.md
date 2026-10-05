@@ -27,8 +27,19 @@ violating flag, `require` and `forbid` alike. `—` = no `merge_strategy` entry.
   `pull.rebase` set in git config is not seen.
 - A `$( … )` or backtick among the operands is one word, so flags after it count; a merge
   inside one is judged. A `git merge` written among the arguments of another merge, pull,
-  switch or checkout that starts its command runs nothing and is not judged; behind `eval`,
-  `watch` or `ssh` it is judged, since those parse the arguments again.
+  switch or checkout that starts its command runs nothing and is not judged.
+- `eval`, `watch` (without `-x`) and `ssh` parse the words after them again, and the gate
+  reads them as that parse does: a merge among another's arguments is judged, and a quoted
+  separator or `#` ends the merge before it — a later merge's flags do not count for it.
+- A redirection and its target (`>|log`, `2>&1`, `&>log`) are not operands: the flags after
+  one still count.
+- A command the gate cannot decide lets the merge through: no matching rule, a command it
+  cannot parse, or merges that all run in another directory. A merge behind a `cd` beside one
+  naming no directory is judged anyway. One naming no directory at all, in a command that
+  moves the shell nowhere else (no `cd`, `pushd`, `popd`, subshell, `env`, `--git-dir`,
+  `--work-tree`, `GIT_DIR` or `GIT_WORK_TREE`), takes its implicit target from the branch of
+  the tree the shell runs in, not the main checkout — a worktree session merges into its own
+  branch this way. `-C .` names that same tree outright and reads the same branch.
 
 - Rows 6 and 7: a choice ("or") — nothing to enforce.
 - Row 8: a refused fast-forward needs a **skip**, and `require: --ff-only` would block the

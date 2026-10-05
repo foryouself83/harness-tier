@@ -348,6 +348,68 @@ def test_review_round_three_spellings(monkeypatch, tmp_path, command, branch, bl
     assert (code == fgc.BLOCK_EXIT_CODE) is blocked, (command, code)
 
 
+@pytest.mark.parametrize(
+    "command,branch,blocked",
+    [
+        # a redirection and its target are no operands, and its `|` or `&` separates nothing
+        ("git merge >|o.txt --no-ff fix/x", "dev", True),
+        ("git merge >| o.txt --no-ff fix/x", "dev", True),
+        ("git merge > o.txt --no-ff fix/x", "dev", True),
+        ("git merge >o.txt --no-ff fix/x", "dev", True),
+        ("git merge 2>&1 --no-ff fix/x", "dev", True),
+        ("git merge &>o.txt --no-ff fix/x", "dev", True),
+        ("git merge >&2 --no-ff fix/x", "dev", True),
+        ("git merge <o.txt --no-ff fix/x", "dev", True),
+        ("git merge --no-ff fix/x <<<hi", "dev", True),
+        ("git merge feature/x >|o.txt --squash", "dev", False),
+        ("git mer''ge >|o.txt --no-ff fix/x", "dev", True),
+        ("git mer''ge 2>&1 --no-ff fix/x", "dev", True),
+        # a quoted `>` is an argument, not a redirection
+        ("git merge -m '>' --no-ff fix/x", "dev", True),
+        # behind `eval` a quoted separator ends the merge before it
+        ("eval git merge feature/a ';' git merge --squash feature/x", "dev", True),
+        ("eval git merge feature/a \\; git merge --squash feature/x", "dev", True),
+        ("eval git merge feature/a 'x;' git merge --squash feature/x", "dev", True),
+        ("eval >|o git merge feature/a ';' git merge --squash feature/x", "dev", True),
+        ("eval git mer''ge feature/a ';' git mer''ge --squash feature/x", "dev", True),
+        ("eval git switch main ';' git merge stage", "dev", True),
+        ("eval git switch main \\; git merge --no-ff stage", "dev", False),
+        # without a program that parses it again, a quoted `;` stays an argument
+        ("env git merge -m ';' --no-ff fix/x", "dev", True),
+        ("watch -x git merge -m 'a;b' --no-ff fix/x", "dev", True),
+        ("watch --exec git merge -m 'a;b' --no-ff fix/x", "dev", True),
+        ("find . -name eval -exec git merge -m 'a;b' --no-ff fix/x \\;", "dev", True),
+        ("sudo -u eval git merge -m 'a;b' --no-ff fix/x", "dev", True),
+        ("timeout -s eval 5 git merge -m 'x;y' --no-ff fix/x", "dev", True),
+        ("sudo eval git merge feature/a ';' git merge --squash feature/x", "dev", True),
+        ("eval git merge -m 'a;b' --no-ff fix/x", "dev", False),
+        # the second parse drops a redirection and ends at a comment as the first one does
+        ("eval git merge '2>&1' --no-ff fix/x", "dev", True),
+        ("eval git merge '&>o' --no-ff fix/x", "dev", True),
+        ("eval git merge '>|o' --no-ff fix/x", "dev", True),
+        ("ssh h git merge '2>&1' --no-ff fix/x", "dev", True),
+        ("eval git switch main '2>&1' ';' git merge stage", "dev", True),
+        ("eval git merge feature/x '#;' --squash", "dev", True),
+        ("eval git merge feature/x '#' --squash", "dev", True),
+        # the quote-split fallback reads the second parse the same way
+        ("eval git mer''ge feature/x '#' --squash", "dev", True),
+        ("eval git mer''ge '2>&1' --no-ff fix/x", "dev", True),
+        ("watch -x git mer''ge -m 'a#' --no-ff fix/x", "dev", True),
+        # a quote spanning two words, a second `eval`, and `builtin eval`
+        ("eval git merge -m \"'a\" \"b'\" feature/x ';' --squash", "dev", True),
+        ("eval eval git merge feature/x \"';'\" --squash", "dev", True),
+        ("builtin eval git merge feature/x ';' --squash", "dev", True),
+        ("watch eval git merge feature/x \"';'\" --squash", "dev", True),
+        # the word after `ssh` is its host, whatever it is named
+        ("ssh eval git merge -m \"'a;b'\" --no-ff fix/x", "dev", True),
+    ],
+)
+def test_review_round_four_spellings(monkeypatch, tmp_path, command, branch, blocked):
+    _policy(tmp_path)
+    code = _run_merge_check(monkeypatch, tmp_path, command, branch)
+    assert (code == fgc.BLOCK_EXIT_CODE) is blocked, (command, code)
+
+
 def test_a_bundle_hands_its_value_to_the_option_not_the_source():
     assert fgc.parse_pull_commands("git pull -qs ort origin feature/x") == [(set(), "feature/x")]
     assert fgc.parse_merge_commands("git merge -qm msg feature/x") == [(set(), "feature/x")]
@@ -370,6 +432,18 @@ def test_every_merge_target_comes_from_one_pass(monkeypatch):
     assert len(starts) == 50
     assert fgc._merge_targets(command, starts) == ["dev"] * 50
     assert len(calls) == 1
+
+
+def test_a_chain_behind_eval_parses_each_word_again_once(monkeypatch):
+    """Parsed again for each merge, a chain of them cost the square of its length."""
+    import scripts._harness_paths as hp
+
+    calls = []
+    real = hp._reread
+    monkeypatch.setattr(hp, "_reread", lambda w: calls.append(w) or real(w))
+    command = "eval " + "git merge --squash feature/x " * 50
+    assert len(fgc._merges(command)) == 50
+    assert len(calls) <= len(command.split())
 
 
 def test_a_commit_whose_message_mentions_a_merge_is_not_blocked(monkeypatch, tmp_path):

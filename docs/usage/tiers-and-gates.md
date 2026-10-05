@@ -120,15 +120,8 @@ leaves its markers for whatever runs next, on any branch.
 ## Merge strategy
 
 `flow-tiers.yaml`'s `merge_strategy` checks the flags of a `git merge`, and of a `git pull`
-that names a branch without rebasing, against its branch flow. Flags are read as git reads
-them: an abbreviation, the last of two opposing options, and a `-c merge.ff=…` (for a pull,
-`-c pull.ff=…` over it) on the command line all count; a `merge.ff`, `pull.ff`,
-`branch.<name>.mergeoptions` or `pull.rebase` set in git config is not seen. Branch names
-resolve from `flow-config.branches`, and a source with a revision suffix (`stage^0`) is judged
-as its branch. A `$( … )` or backtick among the operands is one word, so flags after it count
-and a merge inside one is judged; a `git merge` written among the arguments of another merge,
-pull, switch or checkout that starts its command runs nothing and is not judged (behind `eval`,
-`watch` or `ssh`, which parse the arguments again, it is).
+that names a branch without rebasing, against its branch flow, with branch names resolved from
+`flow-config.branches`. A violation is blocked:
 
 | Merge | Enforced |
 |-------|----------|
@@ -138,21 +131,8 @@ pull, switch or checkout that starts its command runs nothing and is not judged 
 | staging → production | `--no-ff` required |
 | `fix/*` → integration | `--no-ff` refused |
 
-A violation is blocked. Only flows with a single correct flag are checked: the production →
-integration back-merge and the staging → integration back-merge before a re-promotion allow
-fast-forward or `--no-ff`, and the production → staging back-merge wants a skip when the
-fast-forward is refused, which no `require` rule expresses. A `feature/*` merge not rebased
-first is warned about, not blocked — a stale `origin` ref would otherwise raise false alarms.
-
-A command the gate cannot decide lets the merge through: no matching rule, a command it cannot
-parse, or merges that all run in another directory. A merge behind a `cd` beside one naming no
-directory is judged anyway. One naming no directory at all, in a command that moves the shell
-nowhere else (no `cd`, `pushd`, `popd`, subshell, `env`, `--git-dir`, `--work-tree`, `GIT_DIR`
-or `GIT_WORK_TREE`), takes its implicit target from the branch of the tree the shell runs in,
-not the main checkout — a worktree session merges into its own branch this way. `-C .` names
-that same tree outright and reads the same branch.
-
-The check sees only direct merges. A flow routed through a pull request moves enforcement to a
-GitHub branch ruleset —
+Which flows go unchecked, the rebase warning, how the gate reads a command and the tree it
+merges in, and the procedure for every flow are in
+[`rules/merge-strategy.md`](../../rules/merge-strategy.md). The check sees only direct merges.
+A flow routed through a pull request moves enforcement to a GitHub branch ruleset —
 [PR workflow and branch rulesets](promotion-and-release.md#pr-workflow-and-branch-rulesets).
-The procedure for every flow is [`rules/merge-strategy.md`](../../rules/merge-strategy.md).
