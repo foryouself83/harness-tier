@@ -3,12 +3,10 @@ name: doc-sync
 description: "Use when a change may have left the documentation drifted or inconsistent — after editing code that docs describe, after editing docs themselves, when verifying doc consistency, or when a module has no local CLAUDE.md. Also the /flow doc-sync gate."
 # The gate marker this skill writes on pass — an exact path, no trailing glob (a glob's
 # `*` crosses path separators including `..`, so `.flow/*` pre-approved touch of any path
-# on disk). Doc edits themselves stay promptable. `--neighbors <id>` is deliberately absent:
-# its argument is a node id, so the only rule that would cover it ends in `*`, and a trailing
-# `*` is a prefix match — `… --neighbors x && <anything>` would be pre-approved too. The
-# per-node prompt is the cost of not granting that.
-# `--derive-id <paths>` is absent for the same reason — path arguments force a trailing `*`.
-allowed-tools: Bash(mkdir -p .claude/harness-tier/.flow) Bash(touch .claude/harness-tier/.flow/doc-sync.done) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --build) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --verify) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --stale) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --unmapped) Bash(python3 .claude/harness-tier/scripts/harness/codex/instructions.py render) Bash(python3 .claude/harness-tier/scripts/harness/codex/instructions.py render --check)
+# on disk). Doc edits themselves stay promptable. `--neighbors <id>` and `--derive-id <paths>`
+# end in `*` for their argument: Claude Code matches each subcommand of `a && b` on its own, so
+# the `*` widens only what wiki_graph.py reads.
+allowed-tools: Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --neighbors *) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --derive-id *) Bash(mkdir -p .claude/harness-tier/.flow) Bash(touch .claude/harness-tier/.flow/doc-sync.done) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --build) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --verify) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --stale) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --unmapped) Bash(python3 .claude/harness-tier/scripts/harness/codex/instructions.py render) Bash(python3 .claude/harness-tier/scripts/harness/codex/instructions.py render --check)
 argument-hint: "[preview | what changed and why]"
 # This skill reads a whole doc set to change a few lines of it, so the reading is the cost,
 # and it lands on whoever called the skill rather than on the work. Forking moves it. What

@@ -24,8 +24,13 @@ to wait for the reply — never answer the question yourself or skip it.
 ```bash
 ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
 PLUGIN="${CLAUDE_PLUGIN_ROOT}"
-TMP="$(mktemp -d 2>/dev/null || echo "${ROOT}/.harness-insight-tmp")"   # intermediate artifacts (deleted after the work)
+TMP="${ROOT}/.claude/harness-tier/.flow/insight"   # intermediate artifacts (deleted after the work)
 ```
+Each Bash call is a fresh shell: open every later block with these assignments again, or the
+variables it names are empty there.
+`TMP` is a fixed path for that reason: a `mktemp` directory would differ in every block. It
+holds your own prompts, so Step 2 adds `.claude/harness-tier/.flow/` to `.gitignore` first;
+a run cut short before Step 6 then leaves nothing `git add` picks up.
 Write intermediate txt only to the temporary directory (do not pollute the project root). Do not write to the plugin directory.
 
 ## Step 1 — Parse the period
@@ -35,6 +40,11 @@ Convert the argument (`$ARGUMENTS`) to **days**. If there is no argument, **7**.
 
 ## Step 2 — Aggregation (script, generates intermediate artifacts)
 ```bash
+ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
+PLUGIN="${CLAUDE_PLUGIN_ROOT}"
+TMP="${ROOT}/.claude/harness-tier/.flow/insight"
+grep -qxF '.claude/harness-tier/.flow/' "${ROOT}/.gitignore" 2>/dev/null \
+  || printf '\n.claude/harness-tier/.flow/\n' >> "${ROOT}/.gitignore"
 python3 "${PLUGIN}/scripts/harness_insight.py" --days <DAYS> --out-dir "${TMP}"
 ```
 Creates two files in the temporary directory:
@@ -94,12 +104,14 @@ Execution summary (details in the reference):
 ## Step 6 — Delete intermediate artifacts (mandatory)
 Once the report and memory consolidation are done, delete the intermediate artifacts. Do not leave temporary artifacts (txt) behind.
 ```bash
-rm -rf "${TMP}"
+ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
+rm -rf "${ROOT}/.claude/harness-tier/.flow/insight"
 ```
 
 ## Critical rules
 1. **No report file created** — the report (`<ISO-week>.md`, etc.) is conversation-only. The only file writes are Step 5's
    SSOT promotion (rules/docs) and memory consolidation, and even those happen **only after user approval**.
+   One exception, unasked: Step 2's `.gitignore` line, so the prompts it writes never get committed.
 2. **Delete intermediate txt after the work** — always perform Step 6.
 3. **The report is based only on the two txt files** — do not fabricate anything not in the data; omit it (Step 4).
 4. **No emoji / no evaluative language** — facts, frequencies, patterns, actions only (report).

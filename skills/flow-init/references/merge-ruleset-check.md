@@ -19,10 +19,11 @@ never opted into securing. `flows()` below validates its own output before print
 anything — an empty/absent `merge_workflow.pull_request` is the "skip" exit 3, while a
 non-list or any value outside `daily`/`promotion` is exit 1 with a stated reason, instead of
 silently handing the ruleset check zero (or garbled) arguments. Either way the block stops
-here rather than letting the check proceed and report a false "match". Run as written
-(`${ROOT}` and `${PLUGIN}` come from [`SKILL.md`](../SKILL.md) Path conventions):
+here rather than letting the check proceed and report a false "match". Run as written:
 
 ```bash
+ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
+PLUGIN="${CLAUDE_PLUGIN_ROOT}"
 CFG="${ROOT}/.claude/harness-tier/config/flow-config.yaml"
 br() {
   python3 - "$CFG" "$1" <<'PY'

@@ -51,6 +51,8 @@ to wait for the reply — never answer the question yourself or skip it.
 ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
 PLUGIN="${CLAUDE_PLUGIN_ROOT}"
 ```
+Each Bash call is a fresh shell: open every later block with these assignments again, or the
+variables it names are empty there.
 
 ## Execution
 
