@@ -196,9 +196,9 @@ if [ "$_answered" -ne 1 ]; then
 fi
 
 # merge gate — a merge runs on a clean tree, so it must be inspected before the `git status`
-# early-exit below, and before the worktree re-designation (Invariant #6: the merge path is
-# resolved against CLAUDE_PROJECT_DIR only). Uses neither .done markers nor module checks (the
-# commit gate already vetted the content being moved).
+# early-exit below, and before the worktree re-designation (Invariant #6: the merge path takes
+# its policy from CLAUDE_PROJECT_DIR and only reads a branch elsewhere). Uses neither .done
+# markers nor module checks (the commit gate already vetted the content being moved).
 # The merge check is NOT exclusive with the commit check: `git merge X && git commit -m …` is the
 # canonical squash-merge idiom, and gating it as "a commit" alone would skip the merge verdict
 # entirely (and then early-exit on the clean tree). So a merge is always inspected FIRST, and a

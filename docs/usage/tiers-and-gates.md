@@ -33,7 +33,14 @@ Three layers check your work, and each sees a different set of commits:
    or on GitHub bypasses it. It reads the command as written: a git alias (`git ci`,
    `git -c alias.ci=commit ci`) or a subcommand built by expansion (`git $(echo commit)`,
    `$g commit`) is not read as a commit, and other commands that create commits, such as
-   `cherry-pick`, `revert`, `am`, `rebase` and `commit-tree`, are not gated.
+   `cherry-pick`, `revert`, `am`, `rebase` and `commit-tree`, are not gated. A commit in a
+   worktree is judged by that worktree's own `.claude/harness-tier/`, so one branched before
+   the `/flow-init` setup commit carries no policy and passes ungated until it takes that
+   commit (merge or rebase it in). A single `git -C <dir> commit` or `cd <dir> && git commit`
+   that names another repository outright — proven by a `--git-common-dir` that differs from
+   this one's — is not read as this repo's commit either; a second command, a directory
+   reached by expansion, a stacked `-C`, or a `--git-dir`/`GIT_DIR` that could send it back
+   here all leave that unproven, so the commit stays gated.
 3. **CI** — the workflows `/flow-init` renders, which run on every push and close the gap
    layer 2 leaves ([CI workflows](ci-workflows.md)).
 
@@ -139,7 +146,11 @@ first is warned about, not blocked — a stale `origin` ref would otherwise rais
 
 A command the gate cannot decide lets the merge through: no matching rule, a command it cannot
 parse, or merges that all run in another directory. A merge behind a `cd` beside one naming no
-directory is judged anyway.
+directory is judged anyway. One naming no directory at all, in a command that moves the shell
+nowhere else (no `cd`, `pushd`, `popd`, subshell, `env`, `--git-dir`, `--work-tree`, `GIT_DIR`
+or `GIT_WORK_TREE`), takes its implicit target from the branch of the tree the shell runs in,
+not the main checkout — a worktree session merges into its own branch this way. `-C .` names
+that same tree outright and reads the same branch.
 
 The check sees only direct merges. A flow routed through a pull request moves enforcement to a
 GitHub branch ruleset —

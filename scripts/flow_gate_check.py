@@ -30,6 +30,7 @@ try:
         RUNTIME_GATES,
         STAGING_TIER,
         TIERS_FILENAME,
+        _common_dir,
         commit_tree_unresolved,
         config_path,
         flow_dir,
@@ -53,6 +54,7 @@ except ImportError:
         RUNTIME_GATES,
         STAGING_TIER,
         TIERS_FILENAME,
+        _common_dir,
         commit_tree_unresolved,
         config_path,
         flow_dir,
@@ -553,10 +555,11 @@ def _points_elsewhere(command: str, root: Path) -> bool:
     Two shell forms name an execution directory, and both must be recognised: `git -C <dir> merge
     X` (git's own global option) and a leading `cd <dir> && … git merge X`. Either way the source
     comes from the command while the target would be read from THIS root — a mismatch that has
-    produced false blocks naming a flow that has no rule at all. The merge path must not
-    re-designate the worktree (Invariant #6), so a foreign directory FAILs OPEN
-    (Invariant #1). A directory that resolves to ``root`` itself is not foreign and stays
-    enforced. Unresolvable path → treated as foreign.
+    produced false blocks naming a flow that has no rule at all. A directory the command names is
+    never followed to read its branch (Invariant #6), so a foreign one FAILs OPEN
+    (Invariant #1); a merge naming none reads the branch of the tree the shell runs in. A
+    directory that resolves to ``root`` itself is not foreign and stays enforced. Unresolvable
+    path → treated as foreign.
 
     Relative directories resolve against ``root``, never the process cwd: the merge check runs
     before precommit-runner.sh's `cd "$ROOT"`, so the interpreter's cwd is the hook cwd and
@@ -645,13 +648,22 @@ def _is_rebased(root: Path, source: str, target: str) -> bool:
     return rc == 0
 
 
+# A `cd`, `pushd`, `popd`, subshell or `env` (whose -C moves the command) anywhere, or a
+# repository named by --git-dir / --work-tree / GIT_DIR / GIT_WORK_TREE: the merge may land
+# somewhere other than the shell's tree.
+_SHELL_MOVE_RE = re.compile(
+    r"(?<![\w-])(?:cd|pushd|popd|env)(?![\w-])|\(|--git-dir|--work-tree|GIT_DIR|GIT_WORK_TREE"
+)
+
+
 def merge_check_output() -> None:
     """Check a `git merge` invocation against the merge_strategy policy.
 
     Blocks (BLOCK_EXIT_CODE) only on two purely syntactic verdicts — a missing `require` flag or
     a present `forbid` flag. Everything else (not a merge, no source, no policy, no matching
-    rule, detached HEAD, a merge run in another worktree, any exception) exits 0 (FAIL-OPEN —
-    Invariant #1). The rebase check only warns. Invariant #2: force_utf8_io before any output.
+    rule, detached HEAD, a merge the command runs in a directory other than root, any exception)
+    exits 0 (FAIL-OPEN — Invariant #1). The rebase check only warns. Invariant #2:
+    force_utf8_io before any output.
 
     The target branch is read from the command when it says so (`git switch dev && git merge …`)
     and only otherwise from HEAD — see :func:`_target_from_command`.
@@ -674,7 +686,17 @@ def merge_check_output() -> None:
     if not all(targets):
         if _points_elsewhere(command, root):  # target unknowable from here → FAIL-OPEN
             sys.exit(0)
-        head = _current_branch(root)
+        # A merge that names no directory, in a command that moves no shell, lands on the HEAD
+        # of the tree the shell runs in: another worktree of this repo merges into its own branch,
+        # not root's. Anything else reads root, as `_points_elsewhere` already judged it. The
+        # policy and branch names still come from root.
+        head_tree = root
+        # `-C .` names the directory the shell already stands in.
+        named = [d for d in _merge_dirs(command) if d not in (None, ".", "./")]
+        if not named and not _SHELL_MOVE_RE.search(command):
+            hook_cwd = payload.get("cwd") or None
+            head_tree = working_root(project_dir=root, hook_cwd=hook_cwd, command=None)
+        head = _current_branch(head_tree)
         targets = [t or head for t in targets]
 
     try:
@@ -1208,6 +1230,35 @@ def wiki_check_output() -> None:
         print(json.dumps({"systemMessage": note}, ensure_ascii=False))
 
 
+# The only commands read as another repository's commit: one `git -C <dir> commit …` or one
+# `cd <dir> && git commit …`, nothing before it, and no character that could start a second
+# command, an expansion or an escape anywhere. A second `-C` stacks onto the first, and
+# `--git-dir`, `GIT_DIR` or a prefix can send the commit back here, so every other shape keeps
+# the commit gated (Invariant #7).
+_UNSAFE_CH = r"\s;&|`$()<>'\"\\"
+_FOREIGN_COMMIT_RE = re.compile(
+    rf"\A\s*(?:cd\s+(?P<cd>[^{_UNSAFE_CH}]+)\s*&&\s*git\s+commit"
+    rf"|git\s+-C\s+(?P<c>[^{_UNSAFE_CH}]+)\s+commit)"
+    r"(?:\s[^;&|`$()<>\\\n]*)?\Z"
+)
+
+
+def _commits_in_another_repo(command: str, root: Path, cwd: str | None) -> bool:
+    """Whether the command's one commit provably runs in a repository other than root's.
+
+    `git -C ../other commit` or a submodule's commit is that repository's own, and judging it
+    by root's tier marker blocks work this gate does not govern. Proof is the command matching
+    `_FOREIGN_COMMIT_RE` and its directory, read from the shell's cwd, resolving to a different
+    ``--git-common-dir`` (Invariant #6); a directory it cannot read keeps the commit gated.
+    """
+    m = _FOREIGN_COMMIT_RE.match(command)
+    if not m or "--git-dir" in command or "--work-tree" in command:
+        return False
+    named = Path(cwd or ".", m.group("cd") or m.group("c"))
+    ours, theirs = _common_dir(root), _common_dir(named)
+    return ours is not None and theirs is not None and ours != theirs
+
+
 def classify_output() -> None:
     """Print what the hook's command IS — the gate's single authority on that question.
 
@@ -1247,6 +1298,11 @@ def classify_output() -> None:
         is_merge = is_invocation(command, "merge") or bool(parse_pull_commands(command))
     except Exception:
         return  # FAIL-OPEN
+    try:
+        if is_commit and _commits_in_another_repo(command, host_root(), payload.get("cwd")):
+            is_commit = False
+    except Exception:
+        pass  # unproven → the commit stays gated
     print("ok=1")
     if is_commit:
         print("commit=1")

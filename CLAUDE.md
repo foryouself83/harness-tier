@@ -145,7 +145,9 @@ Preserve these in `scripts/*` and `hooks/*.sh`; code, tests and skills cite them
    one inside a script handed to an interpreter, or one a quote, backslash or ANSI-C escape
    spells (`com''mit`, `c\ommit`, `$'\x63ommit'`). Same-repo identity is `--git-common-dir`
    equality, never a path prefix. Keep the uncertain set small. Cases:
-   `scripts/_harness_paths.py`.
+   `scripts/_harness_paths.py`. A merge whose target the command never names, in a command that
+   names and moves to no directory, reads that branch from the hook's cwd through the same
+   resolver: Exception 3's verdict, not a re-designation, so it may block.
 7. **One authority for what a `git` invocation is** — the classifier decides; the runner's stdin
    filter only decides whether to spawn it, and stays coarser: a spelling one of them alone
    accepts is the gate off in silence. Quoting, escapes, comments and heredoc bodies are read in
