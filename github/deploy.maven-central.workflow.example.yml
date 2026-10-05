@@ -37,6 +37,15 @@ jobs:
         with:
           distribution: temurin
           java-version: "__HARNESS_VERSION__"
+          # Writes the settings.xml server entry `mvn deploy` authenticates with. `central` is
+          # the central-publishing-maven-plugin's default publishingServerId; a pom that names
+          # another server needs that id here.
+          server-id: central
+          server-username: MAVEN_CENTRAL_USERNAME
+          server-password: MAVEN_CENTRAL_PASSWORD
+          # Empty when the secret is unset, which imports no key and leaves signing to fail.
+          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
       - name: Build package
         run: __HARNESS_BUILD__
       - name: Deploy to Maven Central
@@ -44,3 +53,4 @@ jobs:
         env:
           MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
