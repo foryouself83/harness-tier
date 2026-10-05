@@ -27,7 +27,10 @@
    모든 `git commit` 에서 커밋 메시지 검사와 파일 점검을 함.
 2. **flow 게이트** — `/flow-init` 이 `.claude/settings.json` 에 등록하는 `PreToolUse` 훅. **Claude
    세션에서 실행한** `git commit`·`git merge`, 그리고 브랜치를 명시하고 rebase 하지 않는
-   `git pull` 명령만 봄. 터미널·CI·GitHub 상의 커밋이나 머지는 이 층을 건너뜀.
+   `git pull` 명령만 봄. 터미널·CI·GitHub 상의 커밋이나 머지는 이 층을 건너뜀. 명령은 쓰인
+   그대로 읽음: git 별칭(`git ci`, `git -c alias.ci=commit ci`)이나 확장으로 만든
+   서브커맨드(`git $(echo commit)`, `$g commit`)는 커밋으로 읽지 않고, 커밋을 만드는 다른
+   명령(`cherry-pick`·`revert`·`am`·`rebase`·`commit-tree` 등)도 게이트 대상이 아님.
 3. **CI** — `/flow-init` 이 렌더링하는 워크플로들, 모든 push 에서 돌아 2층이 남기는 공백을
    메움([CI 워크플로](ci-workflows.ko.md)).
 

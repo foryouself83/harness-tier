@@ -72,8 +72,8 @@ Conventional Commits 타입을 고르고, 50/72 규칙을 확인한 뒤 `git com
 - **위키** — `flow-config.wiki` 가 켜져 있으면 오래된 `sources` 스탬프를 갱신하고
   `docs/graph/graph.yaml` 을 재빌드.
 - **모듈 `CLAUDE.md`** — 프로젝트에 하네스가 있으면(`docs/code-style/` 또는 형제 모듈의
-  `CLAUDE.md`) `service_docs` 아래 없는 모듈에 새로 생성; 없으면 보고만 함. 기존 파일은
-  빠진 부분만 채움.
+  `CLAUDE.md`) `service_docs` 아래 `CLAUDE.md` 가 없는 `modules[].path` 에 새로 생성; 없으면
+  보고만 함. 기존 파일은 빠진 부분만 채움.
 
 재작성 뒤 이 변경이 건드린 파일 전체에 — 자신이 편집한 파일만이 아니라 — `/prose-review` 를
 돌리고, 통과하면 호출자가 누구든 `doc-sync` 증거 마커를 씀.

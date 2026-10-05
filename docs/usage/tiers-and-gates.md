@@ -30,7 +30,10 @@ Three layers check your work, and each sees a different set of commits:
 2. **The flow gate** — the `PreToolUse` hook `/flow-init` registers in `.claude/settings.json`.
    It sees only `git commit`, `git merge`, and branch-naming, non-rebasing `git pull`
    commands **Claude runs in a session**. A commit or merge from your own terminal, from CI,
-   or on GitHub bypasses it.
+   or on GitHub bypasses it. It reads the command as written: a git alias (`git ci`,
+   `git -c alias.ci=commit ci`) or a subcommand built by expansion (`git $(echo commit)`,
+   `$g commit`) is not read as a commit, and other commands that create commits, such as
+   `cherry-pick`, `revert`, `am`, `rebase` and `commit-tree`, are not gated.
 3. **CI** — the workflows `/flow-init` renders, which run on every push and close the gap
    layer 2 leaves ([CI workflows](ci-workflows.md)).
 
