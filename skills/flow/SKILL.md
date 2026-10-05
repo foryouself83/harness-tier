@@ -103,13 +103,18 @@ esac
 ```
 
 Record the tier marker **after** switching, so it binds to the work branch (the
-commit gate is branch-bound):
+commit gate is branch-bound). When the work lives in a git worktree, the gate reads every
+marker from that worktree, while this marker, each `.done` and every relative path below land
+in the shell's directory. A worktree inside the project directory: `cd` into it first and stay
+there. One outside it: the shell returns to the project directory after each call, so put the
+worktree's path in front of every marker path and of `.gitignore` instead.
 
 ```bash
 # Ensure the evidence directory is never exposed to git (idempotent). Safe even
 # without running /flow-init first: add the ignore rule *before* writing the tier
-# marker to close the untracked-exposure window.
-grep -qxF '.claude/harness-tier/.flow/' .gitignore 2>/dev/null || printf '\n.claude/harness-tier/.flow/\n' >> .gitignore
+# marker to close the untracked-exposure window. `tr` drops the CR a CRLF .gitignore ends
+# each line with, which `-x` would otherwise never match, adding the line on every run.
+tr -d '\r' 2>/dev/null < .gitignore | grep -qxF '.claude/harness-tier/.flow/' || printf '\n.claude/harness-tier/.flow/\n' >> .gitignore
 mkdir -p .claude/harness-tier/.flow
 echo "<tier>:$(git branch --show-current)" > .claude/harness-tier/.flow/tier   # docs | dev
 ```
@@ -297,11 +302,13 @@ rm -rf .claude/harness-tier/.flow
 4. **Every commit goes through the `commit` skill** — invoke skill `commit`, which
    owns staging, the type choice, and the 50/72 rule so this skill does not restate
    them. It inherits the pre-commit gate like any other commit: never `--no-verify`.
-5. **Commit from a git worktree with `git -C <worktree> commit …`** — a single
-   command, not a preceding `cd`. `CLAUDE_PROJECT_DIR` is fixed at session start,
+5. **Commit from a git worktree with `git -C <worktree> commit …`** — the `-C` names
+   the tree in the command itself, even with the shell already inside it (Phase 2),
+   since the hook's cwd is only a guess at it. `CLAUDE_PROJECT_DIR` is fixed at session start,
    so when the commit runs in a worktree, the gate re-points to it by branch-key
    (`flow_gate_check.py --classify`); the explicit `git -C <worktree>` is the
-   deterministic signal that keeps that detection unambiguous. (No worktree → no
+   deterministic signal that keeps that detection unambiguous, and the markers it reads
+   there are the ones Phase 2 wrote into the worktree. (No worktree → no
    change.) The `commit` skill issues it that way (rule 4), and owns
    "never `--no-verify`" and "stage only affected files" with it.
 6. **Worker / service-process safety** — Dev+ changes touching long-running

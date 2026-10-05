@@ -43,7 +43,7 @@ Convert the argument (`$ARGUMENTS`) to **days**. If there is no argument, **7**.
 ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
 PLUGIN="${CLAUDE_PLUGIN_ROOT}"
 TMP="${ROOT}/.claude/harness-tier/.flow/insight"
-grep -qxF '.claude/harness-tier/.flow/' "${ROOT}/.gitignore" 2>/dev/null \
+tr -d '\r' 2>/dev/null < "${ROOT}/.gitignore" | grep -qxF '.claude/harness-tier/.flow/' \
   || printf '\n.claude/harness-tier/.flow/\n' >> "${ROOT}/.gitignore"
 python3 "${PLUGIN}/scripts/harness_insight.py" --days <DAYS> --out-dir "${TMP}"
 ```
