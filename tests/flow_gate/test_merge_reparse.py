@@ -153,6 +153,12 @@ def test_a_quoted_separator_parsed_again_is_an_argument():
         ("ssh h git mer''ge feature/x '>' --squash", "dev", True),
         ("watch -n1 eval git mer''ge feature/x '>' --squash", "dev", True),
         ("eval git merge feature/x '>o' --squash", "dev", False),
+        # `<<<`, `<<` and `<<-` are one operator each, never a run of `<`
+        ("eval eval git merge feature/x \"'<<<'\" --squash", "dev", True),
+        ("eval git merge feature/x '<<<' --squash", "dev", True),
+        ("eval git merge feature/x '<<' --squash", "dev", True),
+        ("eval git merge feature/x '<<-' --squash", "dev", True),
+        ("git merge feature/x <<<hi --squash", "dev", False),
         # a line continuation inside a word joins it
         ("git merge --no" + chr(92) + chr(10) + "-ff fix/x", "dev", True),
         ("git merge fi" + chr(92) + chr(10) + "x/x --no-ff", "dev", True),

@@ -1668,12 +1668,13 @@ _COMMAND_BREAK_RE = re.compile(r"[;&|\n\r()`]")
 # A redirection and its target, on a mask. Neither is an operand of the command it sits in,
 # and the `|` of `>|` or the `&` of `>&`/`&>` separates nothing: read as words, `git merge >|o
 # --no-ff fix/x` would merge a source named `>` and lose the flag behind the `|`. A heredoc's
-# `<<`/`<<-` goes with its delimiter, its body being read elsewhere; a process substitution's
-# `<(` is left alone, as a word. An fd number (`2>`, `{fd}>`) counts only as a word of its own,
-# as bash reads `fix2>o`.
+# `<<`/`<<-` goes with its delimiter, its body being read elsewhere, and a here-string's `<<<`
+# with its word, each one operator: read as a run of `<`, the bare ones have no target and
+# a reread gives up on the merge. A process substitution's `<(` is left alone, as a word. An
+# fd number (`2>`, `{fd}>`) counts only as a word of its own, as bash reads `fix2>o`.
 _REDIRECTION_RE = re.compile(
     r"(?:(?<![^\s;&|()])(?:[0-9]+|\{[A-Za-z_][A-Za-z0-9_]*\}))?"
-    r"(?:&>>?|>>|>\||[<>]&|<>|>(?!\()|<(?!\())"
+    r"(?:&>>?|>>|>\||<<<|<<-?|[<>]&|<>|>(?!\()|<(?!\())"
     r"""(?P<target>[ \t]*(?:'[^']*'|"[^"]*"|[^\s;&|()<>'"])+)?"""
 )
 # Words that can stand before a program and run it with its arguments as they are — never
