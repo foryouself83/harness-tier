@@ -31,6 +31,7 @@ try:
         STAGING_TIER,
         TIERS_FILENAME,
         _common_dir,
+        _short_takes_next,
         commit_tree_unresolved,
         config_path,
         flow_dir,
@@ -55,6 +56,7 @@ except ImportError:
         STAGING_TIER,
         TIERS_FILENAME,
         _common_dir,
+        _short_takes_next,
         commit_tree_unresolved,
         config_path,
         flow_dir,
@@ -174,20 +176,6 @@ _MERGE_RE = git_subcommand_re("merge")
 # token, so listing it here would swallow the source branch of `git merge -S feature/x` and
 # silently disable the check for signed merges. It owns the rest of its bundle instead.
 _MERGE_SHORT_WITH_ARG = "mFsX"
-
-
-def _short_takes_next(tok: str, with_arg: str, owns_rest: str) -> bool:
-    """Whether a short-option word such as `-qm` hands the next word to one of its options.
-
-    git reads a bundle letter by letter: the first option in `with_arg` takes the attached rest
-    as its value, or the next word when nothing is attached; one in `owns_rest` takes the rest
-    and never the next word."""
-    for i, letter in enumerate(tok[1:], 1):
-        if letter in with_arg:
-            return i == len(tok) - 1
-        if letter in owns_rest:
-            return False
-    return False
 
 
 def _merge_dirs(command: str) -> list[str | None]:

@@ -28,6 +28,8 @@ violating flag, `require` and `forbid` alike. `—` = no `merge_strategy` entry.
 - A `$( … )` or backtick among the operands is one word, so flags after it count; a merge
   inside one is judged. A `git merge` written among the arguments of another merge, pull,
   switch or checkout that starts its command runs nothing and is not judged.
+- A word split by quoting, a backslash or a line continuation (`git mer''ge`) is read as the
+  shell joins it, and a quoted `;`, `>`, `|` or `(` stays an argument.
 - `eval`, `watch` (without `-x`) and `ssh` parse the words after them again, and the gate
   reads them as that parse does: a merge among another's arguments is judged, and a quoted
   separator or `#` ends the merge before it — a later merge's flags do not count for it.

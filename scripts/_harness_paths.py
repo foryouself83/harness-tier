@@ -36,6 +36,8 @@ import os
 import re
 import subprocess
 import sys
+from collections import Counter
+from collections.abc import Sequence
 from functools import lru_cache
 from pathlib import Path
 from typing import NamedTuple
@@ -1356,12 +1358,14 @@ def invocation_words(command: str, word: str) -> list[tuple[int, str | None, lis
     """(where it starts, its `-C` value, global options, operands) of every ``git … <word>``
     the command runs, `word` one of :data:`MERGE_PATH_WORDS`.
 
-    Read off the mask, as every other reader here is. A pipeline stage the mask shows no such
-    invocation in but :func:`is_invocation` does — a subcommand split by quoting, `git mer''ge`
-    — is split once more by shlex, which joins the pieces the way bash does. Heredoc bodies and
-    comments are blanked first, since a commit message that says `git merge feature/x` is text
-    there exactly as it is on the mask; a stage shlex cannot split, or one that names git only
-    inside a quoted script, adds nothing. Such an invocation starts where its stage does.
+    Read off the mask, as every other reader here is. A pipeline stage holding a quote or a
+    backslash that :func:`is_invocation` finds a `word` in is read once more by
+    :func:`_split_invocations`, which joins a subcommand split by quoting (`git mer''ge`) the way
+    bash does; the invocations the mask already showed come back from it too and are dropped.
+    Heredoc bodies and comments are blanked first, since a commit message that says `git merge
+    feature/x` is text there exactly as it is on the mask; a simple command shlex cannot split,
+    or one that names git only inside a quoted script, adds nothing. Such an invocation starts
+    where its stage does.
     """
     assert word in MERGE_PATH_WORDS, word
     return [(s, d, g, o) for s, w, d, g, o, _e in live_invocations(command) if w == word]
@@ -1392,7 +1396,8 @@ def live_invocations(command: str) -> tuple[tuple, ...]:
         end = operand_end(command, masked, m.end())
         if m.start() >= cover_end:
             covered[level.lo] = (m.end(), end, level.heads_command(m.start()))
-        depth = _reparse_depth(level.lead(m.start()))
+        lead = level.lead(m.start())
+        depth = _reparse_depth(lead, len(lead))
         reparsed = depth and _reparsed_operands(command, masked, m.end(), end, depth)
         if reparsed:
             operands, end = reparsed
@@ -1414,19 +1419,29 @@ def live_invocations(command: str) -> tuple[tuple, ...]:
         if kind in ("comment", "heredoc"):
             text[a:b] = " " * (b - a)
     code = "".join(text)
+    shown = [inv[0] for inv in out]
     for a, b in _list_elements(command, masked):
         for sa, sb in _pipeline_stages(plain, a, b):
-            seen = {m.group(2) for m in pattern.finditer(masked[sa:sb])}
-            wanted = {
-                w for w in MERGE_PATH_WORDS if w not in seen and is_invocation(command[sa:sb], w)
-            }
-            if not wanted:
+            # A stage holding one the mask shows may hold another it does not: `eval git merge a
+            # ';' git mer''ge b`. Read whole, the shown ones come back too and are dropped.
+            if not _HIDES_RE.search(command, sa, sb) or not any(
+                is_invocation(command[sa:sb], w) for w in MERGE_PATH_WORDS
+            ):
                 continue
-            for word, global_opts, operands in _split_invocations(code[sa:sb]):
-                if word in wanted:
-                    dirs = [v for f, v in zip(global_opts, global_opts[1:]) if f == "-C"]
-                    out.append((sa, word, dirs[-1] if dirs else None, global_opts, operands, None))
+            first, last = bisect.bisect_left(shown, sa), bisect.bisect_left(shown, sb)
+            seen = Counter((w, tuple(g), tuple(o)) for _s, w, _d, g, o, _e in out[first:last])
+            for word, global_opts, operands in _split_invocations(code[sa:sb], plain[sa:sb]):
+                key = (word, tuple(global_opts), tuple(operands))
+                if seen[key]:
+                    seen[key] -= 1
+                    continue
+                dirs = [v for f, v in zip(global_opts, global_opts[1:]) if f == "-C"]
+                out.append((sa, word, dirs[-1] if dirs else None, global_opts, operands, None))
     return tuple(sorted(out, key=lambda inv: inv[0]))
+
+
+# What can split a word so that the mask does not show it: a quote or a backslash.
+_HIDES_RE = re.compile(r"""['"\\]""")
 
 
 def _pipeline_stages(masked: str, a: int, b: int) -> list[tuple[int, int]]:
@@ -1436,49 +1451,54 @@ def _pipeline_stages(masked: str, a: int, b: int) -> list[tuple[int, int]]:
     return [(s + (1 if i else 0), e) for i, (s, e) in enumerate(zip(bounds, bounds[1:]))]
 
 
-def _split_invocations(text: str) -> list[tuple[str, list[str], list[str]]]:
+def _split_invocations(text: str, mask: str) -> list[tuple[str, list[str], list[str]]]:
     """Every ``git [global options] <word> operands…`` in `text` for a word of
-    :data:`MERGE_PATH_WORDS`, split the way the shell does, as (word, global options,
-    operands). An operator glued to a word (`--no-ff|cat`, `x>log`) is a word of its own, and
-    a `git` among the operands of one that heads its command is one of them — behind any other
-    word, `eval` among them, the operands may be parsed again and are read on."""
-    import shlex
-
-    try:
-        lexer = shlex.shlex(requote_ansi_c(text), posix=True, punctuation_chars=True)
-        lexer.whitespace_split = True
-        tokens = list(lexer)
-    except ValueError:
-        return []
-
-    def ends_command(tok: str) -> bool:
-        return bool(tok) and set(tok) <= set(";&|<>()")
-
+    :data:`MERGE_PATH_WORDS`, as (word, global options, operands), `mask` its mask with
+    redirections blanked. The text is cut only where the mask shows a separator, so a quoted
+    `;`, `>` or `(` stays an argument; a substitution is one word, and the ones inside it are
+    read on their own. A `git` among the operands of one that heads its command is one of them —
+    behind any other word the operands may be parsed again, and are read on."""
     out = []
-    i = lead = 0
-    # Whether only words that run a program unparsed stood before token i. Never set back: the
-    # mask already split the stage at every real separator, so a `;` or `&&` token inside it was
-    # quoted or escaped — an argument, which `eval` turns back into a separator.
+    chars, opaque = list(text), list(mask)
+    for i, e in _substitutions(mask):
+        lo, hi = _substitution_inside(mask, i, e)
+        out += _split_invocations(text[lo:hi], mask[lo:hi])
+        chars[i:e] = opaque[i:e] = OPAQUE_CH * (e - i)
+    text, mask = "".join(chars), "".join(opaque)
+    cuts = [m.start() for m in _COMMAND_BREAK_RE.finditer(mask)]
+    for a, b in zip([0, *(c + 1 for c in cuts)], [*cuts, len(mask)]):
+        out += _command_invocations(list(_shlex_words(text[a:b]) or ()))
+    return out
+
+
+def _command_invocations(words: list[str]) -> list[tuple[str, list[str], list[str]]]:
+    """:func:`_split_invocations` for the words of one simple command."""
+    out = []
+    i = 0
+    indexes: dict[int, _RereadIndex] = {}
+    # whether only words that run a program unparsed stood before word i
     heads = True
-    while i < len(tokens):
-        tok = tokens[i]
-        if ends_command(tok):
-            i = lead = i + 1
-            continue
+    while i < len(words):
         j = i + 1
-        is_git = _program_name(tok) in ("git", "git.exe")
-        while is_git and j < len(tokens) and tokens[j].startswith("-"):
-            j += 2 if tokens[j] in _GIT_GLOBAL_WITH_ARG else 1
-        if not is_git or j >= len(tokens) or tokens[j] not in MERGE_PATH_WORDS:
-            heads = heads and _runs_unparsed(tok)
+        is_git = _program_name(words[i]) in ("git", "git.exe")
+        while is_git and j < len(words) and words[j].startswith("-"):
+            j += 2 if words[j] in _GIT_GLOBAL_WITH_ARG else 1
+        if not is_git or j >= len(words) or words[j] not in MERGE_PATH_WORDS:
+            heads = heads and _runs_unparsed(words[i])
             i += 1
             continue
-        end = j + 1
-        while end < len(tokens) and not ends_command(tokens[end]):
-            end += 1
-        operands = _reread_times(tuple(tokens[j + 1 : end]), _reparse_depth(tokens[lead:i]))
-        out.append((tokens[j], tokens[i + 1 : j], list(operands or ())))
-        i = end if heads else i + 1
+        depth = _reparse_depth(words, i)
+        if not depth:
+            operands = words[j + 1 :]
+        else:
+            if depth not in indexes:
+                indexes[depth] = _reread_index([(w,) for w in words], depth)
+            span = _reread_span(indexes[depth], j + 1, len(words))
+            # a quote spanning two words: the rest parsed again whole
+            whole = span or (_reread_deep(tuple(words[j + 1 :]), depth)[0] or (), None)
+            operands = list(whole[0])
+        out.append((words[j], words[i + 1 : j], operands))
+        i = len(words) if heads else i + 1
     return out
 
 
@@ -1512,21 +1532,52 @@ def _reparsed_operands(
     standing, else at `end`. None where they will not split."""
     level = _level(command, masked, start)
     i, j, end = level.region(start, end)
-    if depth == 1 and (once := level.reparsed_once(start, end, i, j)):
-        return once
-    # a quote spanning two tokens, or a second `eval`: the region parsed again whole
-    words = _reread_times(tuple(operand_words(command, masked, start, end)), depth)
+    if by_token := level.reparsed(start, end, i, j, depth):
+        return by_token
+    # a quote spanning two tokens: the region parsed again whole
+    words, _cut = _reread_deep(tuple(operand_words(command, masked, start, end)), depth)
     return (list(words), end) if words is not None else None
 
 
 def _shlex_words(text: str) -> tuple[str, ...] | None:
-    """The words shlex splits `text` into, or None where it cannot."""
+    """The words shlex splits `text` into, or None where it cannot. A line continuation is
+    removed first, as bash removes it outside single quotes — shlex keeps it inside double ones
+    and makes a newline of it outside, which a later parse reads as the command's end."""
     import shlex
 
+    if "\\\n" in text:
+        chars = list(text)
+        for a, b, kind in _shell_regions(text):
+            if kind == "continuation":
+                chars[a:b] = " " * (b - a)
+            elif kind == "quote" and a and text[a - 1] == '"':
+                for m in re.finditer(r"(?<!\\)(?:\\\\)*\\\n", text[a:b]):
+                    chars[a + m.end() - 2 : a + m.end()] = _JOIN_FILL * 2
+        for a, b in _word_joins(text):
+            chars[a:b] = _JOIN_FILL * (b - a)
+        text = "".join(chars)
     try:
-        return tuple(shlex.split(requote_ansi_c(text)))
+        return tuple(w.replace(_JOIN_FILL, "") for w in shlex.split(requote_ansi_c(text)))
     except ValueError:
         return None
+
+
+# What a line continuation inside a word reads as: no blank, so the word stays one, and a mark
+# the words drop once split. Blanked, `--no\<newline>-ff` read as two words and lost its flag.
+_JOIN_FILL = chr(2)
+
+
+def _word_joins(command: str) -> list[tuple[int, int]]:
+    """The line continuations in `command` that join two pieces of one word."""
+    return [
+        (a, b)
+        for a, b, kind in _shell_regions(command)
+        if kind == "continuation"
+        and 0 < a
+        and b < len(command)
+        and not command[a - 1].isspace()
+        and not command[b].isspace()
+    ]
 
 
 def _reread(words: tuple[str, ...] | None) -> tuple[tuple[str, ...] | None, bool]:
@@ -1535,54 +1586,95 @@ def _reread(words: tuple[str, ...] | None) -> tuple[tuple[str, ...] | None, bool
     if words is None:
         return None, False
     again = " ".join(words)
-    text, plain = _blank_redirections(again, mask_literals(again))
+    # masked behind a word, as the arguments they are: at a command's start the mask unwraps a
+    # quoted word as a program name, and `';'` would show its `;`
+    masked = mask_literals(": " + again)[2:]
+    text, plain = _blank_redirections(again, masked)
     stop = len(again)
     if m := _SEPARATOR_RE.search(plain):
         stop = m.start()
     stop = min([stop, *(c for c in _comment_starts(again) if plain[c] != " ")])
+    if any(not r.group("target") for r in _REDIRECTION_RE.finditer(masked, 0, stop)):
+        # its target is a word of the next token: read alone, that word stays an operand
+        return None, False
     words = _shlex_words(text[:stop])
     return (words, stop < len(again)) if words is not None else (None, False)
 
 
-def _reread_times(words: tuple[str, ...] | None, depth: int) -> tuple[str, ...] | None:
-    """`words` parsed again `depth` times (:func:`_reread`)."""
+def _reread_deep(words: tuple[str, ...] | None, depth: int) -> tuple[tuple[str, ...] | None, bool]:
+    """`words` parsed again `depth` times (:func:`_reread`), and whether any of them cut."""
+    cut = False
     for _ in range(depth):
-        words, _cut = _reread(words)
-    return words
+        words, once = _reread(words)
+        cut = cut or once
+    return words, cut
 
 
-def _reparse_depth(lead: list[str]) -> int:
-    """How many more times the words after `lead`, a simple command's words in front of a
-    program, are parsed before that program runs: once per `eval` or `watch` (without `-x`, which
-    runs the command itself) standing as the program, each in front of the next, and once more
-    behind `ssh`, whose next word is a host rather than a program."""
+def _reparse_depth(words: list[str], end: int) -> int:
+    """How many more times the words of a simple command from its program at `end` on are
+    parsed before that program runs: once per `eval`, `watch` (without `-x`, which runs the
+    command itself) or `ssh` in front of it, each standing as the program of what follows the
+    last — past the options of `watch` and `ssh`, and the host `ssh` connects to."""
     depth, i = 0, 0
     while True:
-        while i < len(lead) and _runs_unparsed(lead[i]):
+        while i < end and _runs_unparsed(words[i]):
             i += 1
-        program = _program_name(lead[i]) if i < len(lead) else None
-        if program == "ssh":
-            return depth + 1
-        if not (
-            program == "eval"
-            or program == "watch"
-            and not any(w == "--exec" or re.fullmatch(r"-[^-]*x.*", w) for w in lead[i + 1 :])
-        ):
+        program = _program_name(words[i]) if i < end else None
+        if program not in _REPARSING_PROGRAMS:
             return depth
-        depth, i = depth + 1, i + 1
+        short, long = _REPARSING_PROGRAMS[program]
+        i += 1
+        while i < end and words[i].startswith("-"):
+            if program == "watch" and (
+                words[i] == "--exec" or re.fullmatch(r"-[^-]*x.*", words[i])
+            ):
+                return depth
+            option = words[i]
+            if option.startswith("--"):
+                takes = "=" not in option and option in long
+            else:
+                takes = _short_takes_next(option, short)
+            i += 2 if takes else 1
+        if program == "ssh":
+            i += 1
+        depth += 1
+
+
+# Programs that parse the words after them again: the short option letters and long options of
+# each that take the next word as their value.
+_REPARSING_PROGRAMS = {
+    "eval": ("", ()),
+    "watch": ("nq", ("--interval", "--equexit")),
+    "ssh": ("BbcDEeFIiJLlmOoPpQRSWw", ()),
+}
+
+
+def _short_takes_next(tok: str, with_arg: str, owns_rest: str = "") -> bool:
+    """Whether a short-option word such as `-qm` hands the next word to one of its options.
+
+    A bundle is read letter by letter: the first option in `with_arg` takes the attached rest
+    as its value, or the next word when nothing is attached; one in `owns_rest` takes the rest
+    and never the next word."""
+    for i, letter in enumerate(tok[1:], 1):
+        if letter in with_arg:
+            return i == len(tok) - 1
+        if letter in owns_rest:
+            return False
+    return False
 
 
 # What ends the simple command a word belongs to, on a level's mask.
 _COMMAND_BREAK_RE = re.compile(r"[;&|\n\r()`]")
 # A redirection and its target, on a mask. Neither is an operand of the command it sits in,
 # and the `|` of `>|` or the `&` of `>&`/`&>` separates nothing: read as words, `git merge >|o
-# --no-ff fix/x` would merge a source named `>` and lose the flag behind the `|`. A heredoc's `<<`
-# and a process substitution's `<(` are left alone — the first has its own reader, the second
-# is a word. An fd number counts only as a word of its own, as bash reads `fix2>o`.
+# --no-ff fix/x` would merge a source named `>` and lose the flag behind the `|`. A heredoc's
+# `<<`/`<<-` goes with its delimiter, its body being read elsewhere; a process substitution's
+# `<(` is left alone, as a word. An fd number (`2>`, `{fd}>`) counts only as a word of its own,
+# as bash reads `fix2>o`.
 _REDIRECTION_RE = re.compile(
-    r"(?:(?<![^\s;&|()])[0-9]+)?"
-    r"(?:&>>?|>>|>\||[<>]&|<>|(?<!<)<<<|>(?!\()|(?<!<)<(?![<(]))"
-    r"(?:[ \t]*[^\s;&|()<>]+)?"
+    r"(?:(?<![^\s;&|()])(?:[0-9]+|\{[A-Za-z_][A-Za-z0-9_]*\}))?"
+    r"(?:&>>?|>>|>\||[<>]&|<>|>(?!\()|<(?!\())"
+    r"""(?P<target>[ \t]*(?:'[^']*'|"[^"]*"|[^\s;&|()<>'"])+)?"""
 )
 # Words that can stand before a program and run it with its arguments as they are — never
 # parsed again, so a separator quoted among them stays an argument.
@@ -1614,12 +1706,43 @@ def _program_name(word: str) -> str:
 
 
 class _RereadIndex(NamedTuple):
-    """A level's tokens parsed again — see :meth:`_Level.reread_index`."""
+    """Each token's words parsed again some number of times (:func:`_reread_deep`) — one index
+    per number — those words laid end to end with each token's offset into them, and for each
+    token the first one at or after it that a separator or comment cuts or that will not split.
+    Built once for a run of tokens: rebuilt for each invocation behind `eval`, a chain of them
+    cost the square of its length."""
 
     reread: list[tuple[tuple[str, ...] | None, bool]]
     flat: list[str]
     offsets: list[int]
     stops: list[int]
+
+
+def _reread_index(words: Sequence[tuple[str, ...] | None], depth: int) -> _RereadIndex:
+    """The :class:`_RereadIndex` of tokens whose words are `words`, each parsed `depth` more
+    times — cut where any of those parses leaves a separator or comment standing."""
+    reread = [_reread_deep(w, depth) for w in words]
+    flat: list[str] = []
+    offsets = [0]
+    for parsed, _cut in reread:
+        flat.extend(parsed or ())
+        offsets.append(len(flat))
+    stops = [len(reread)] * (len(reread) + 1)
+    for k in range(len(reread) - 1, -1, -1):
+        parsed, cut = reread[k]
+        stops[k] = k if parsed is None or cut else stops[k + 1]
+    return _RereadIndex(reread, flat, offsets, stops)
+
+
+def _reread_span(index: _RereadIndex, lo: int, hi: int) -> tuple[list[str], int | None] | None:
+    """The words of tokens `[lo, hi)` parsed again, through the first token a separator or
+    comment cuts, and that token — None for none. None where a token will not split alone."""
+    s = min(index.stops[lo], hi) if lo < hi else lo
+    out = index.flat[index.offsets[lo] : index.offsets[s]]
+    if s == hi:
+        return out, None
+    words, _cut = index.reread[s]
+    return ([*out, *words], s) if words is not None else None
 
 
 # What a substitution's text reads as in the words of the command it sits in: one run of
@@ -1643,13 +1766,17 @@ class _Level:
         if k < 0:
             self.lo, self.hi = 0, len(command)
         else:
-            self.lo = starts[k] + (1 if masked[starts[k]] == BT_CH else 2)
-            self.hi = closes[k]
+            self.lo, self.hi = _substitution_inside(masked, starts[k], ends[k])
         mask = list(masked[self.lo : self.hi])
         text = list(_unblanked_view(command)[self.lo : self.hi])
         for c in _children(masked).get(k, ()):
             a, b = starts[c] - self.lo, min(ends[c], self.hi) - self.lo
             mask[a:b] = text[a:b] = OPAQUE_CH * (b - a)
+        for a, b in _word_joins(command):
+            if self.lo <= a and b <= self.hi and mask[a - self.lo] != OPAQUE_CH:
+                mask[a - self.lo : b - self.lo] = text[a - self.lo : b - self.lo] = _JOIN_FILL * (
+                    b - a
+                )
         self.text, self.mask = _blank_redirections("".join(text), "".join(mask))
         tokens = [(m.start() + self.lo, m.end() + self.lo) for m in re.finditer(r"\S+", self.mask)]
         self.starts = tuple(a for a, _b in tokens)
@@ -1662,7 +1789,7 @@ class _Level:
             if self.lo <= a < self.hi and self.mask[a - self.lo] != OPAQUE_CH
         )
         self.breaks = tuple(m.start() + self.lo for m in _COMMAND_BREAK_RE.finditer(self.mask))
-        self._reread_index: _RereadIndex | None = None
+        self._reread_index: dict[int, _RereadIndex] = {}
         # a `case` pattern's `)` closes the substitution early on the mask, and what follows it
         # reads as this level's text though the shell runs it inside
         self.risky = tuple(
@@ -1693,43 +1820,31 @@ class _Level:
             return self.words[k]
         return self.split(max(self.starts[k], start), min(self.ends[k], end))
 
-    def reread_index(self) -> _RereadIndex:
-        """Every token's words parsed again (`_reread`), those words laid end to end with each
-        token's offset into them, and for each token the first one at or after it that a
-        separator or comment cuts or that will not split. Built once per level: rebuilt for each
-        invocation behind `eval`, a chain of them cost the square of its length many times
-        over."""
-        if self._reread_index is None:
-            reread = [_reread(w) for w in self.words]
-            flat: list[str] = []
-            offsets = [0]
-            for words, _cut in reread:
-                flat.extend(words or ())
-                offsets.append(len(flat))
-            stops = [len(reread)] * (len(reread) + 1)
-            for k in range(len(reread) - 1, -1, -1):
-                words, cut = reread[k]
-                stops[k] = k if words is None or cut else stops[k + 1]
-            self._reread_index = _RereadIndex(reread, flat, offsets, stops)
-        return self._reread_index
+    def reread_index(self, depth: int) -> _RereadIndex:
+        """This level's tokens as one :class:`_RereadIndex` for `depth`, built on first use."""
+        if depth not in self._reread_index:
+            self._reread_index[depth] = _reread_index(self.words, depth)
+        return self._reread_index[depth]
 
-    def reparsed_once(self, start: int, end: int, i: int, j: int) -> tuple[list[str], int] | None:
-        """:func:`_reparsed_operands` for one more parse, read token by token off the index;
-        None where a token will not split alone."""
+    def reparsed(
+        self, start: int, end: int, i: int, j: int, depth: int
+    ) -> tuple[list[str], int] | None:
+        """:func:`_reparsed_operands` read token by token off the index; None where a token
+        will not split alone."""
         out: list[str] = []
         lo = i + (i < j and self.starts[i] < start)
         hi = max(lo, j - (self.ends[j - 1] > end if i < j else 0))
         # the tokens the region cuts through are read alone, the ones between off the index
         for k in itertools.chain(range(i, lo), (None,), range(hi, j)):
             if k is None:
-                index = self.reread_index()
-                s = min(index.stops[lo], hi) if lo < hi else lo
-                out += index.flat[index.offsets[lo] : index.offsets[s]]
-                if s == hi:
-                    continue
-                k, (words, cut) = s, index.reread[s]
-            else:
-                words, cut = _reread(self.piece(k, start, end))
+                span = _reread_span(self.reread_index(depth), lo, hi)
+                if span is None:
+                    return None
+                out += span[0]
+                if span[1] is not None:
+                    return out, self.ends[span[1]]
+                continue
+            words, cut = _reread_deep(self.piece(k, start, end), depth)
             if words is None:
                 return None
             out += words
@@ -1814,6 +1929,13 @@ def operand_end(command: str, masked: str, start: int, end: int | None = None) -
     return m.start() + level.lo if m else stop
 
 
+def _substitution_inside(masked: str, i: int, e: int) -> tuple[int, int]:
+    """Where the text inside the substitution `masked[i:e]` starts and ends: past its `$(` or
+    backtick, and before its closing `)` or backtick when it has one."""
+    closed = e - 1 > i and masked[e - 1] in (")", BT_CH)
+    return i + (1 if masked[i] == BT_CH else 2), e - 1 if closed else e
+
+
 @lru_cache(maxsize=16)
 def _substitution_tree(masked: str) -> tuple[tuple[int, ...], ...]:
     """(starts, ends, closes, parents) of every substitution on the mask, nested ones included,
@@ -1825,9 +1947,9 @@ def _substitution_tree(masked: str) -> tuple[tuple[int, ...], ...]:
         a, b, parent = pending.pop()
         for i, e in _substitutions(masked[a:b]):
             i, e = i + a, e + a
-            closed = e - 1 > i and masked[e - 1] in (")", BT_CH)
-            found.append((i, e, e - 1 if closed else e, parent))
-            pending.append((i + (1 if masked[i] == BT_CH else 2), e - 1 if closed else e, i))
+            lo, hi = _substitution_inside(masked, i, e)
+            found.append((i, e, hi, parent))
+            pending.append((lo, hi, i))
     found.sort()
     index = {f[0]: n for n, f in enumerate(found)}
     return (
