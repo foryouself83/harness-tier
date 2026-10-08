@@ -53,7 +53,8 @@ bash .claude/harness-tier/scripts/check-deps.sh    # 무엇이 빠졌는지 나�
 대신하는 머지 플래그)가 그 브랜치 흐름의 규칙을 어김. 메시지가 말하는 플래그를 씀 —
 표는 [머지 전략](tiers-and-gates.ko.md#머지-전략) 참고.
 `[경고] 머지 전략: … rebase 선행이 요구됩니다` 는 경고일 뿐임 — feature 브랜치를 먼저
-rebase 하거나, `origin` 참조가 낡았다면 무시함.
+rebase 하거나, `origin` 참조가 낡았다면 무시함. 내부 오류로 판정을 마치지 못한 머지도 같은 방식으로
+알림(`merge 전략 판정 실패 — 판정 없이 통과`).
 
 ## 막혀요 — 모듈 사전검사 실패
 

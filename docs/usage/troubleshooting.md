@@ -53,7 +53,8 @@ The `git merge` flags (or, for a branch-naming, non-rebasing `git pull`, the mer
 stands in for) break its branch flow's rule. Use the flag the message names; the table is in
 [merge strategy](tiers-and-gates.md#merge-strategy).
 A `[경고] 머지 전략: … rebase 선행이 요구됩니다` line is a warning only — rebase the feature
-branch first, or ignore it when your `origin` ref is stale.
+branch first, or ignore it when your `origin` ref is stale. A merge the hook passes after
+an internal error says so in the same way (`merge 전략 판정 실패 — 판정 없이 통과`).
 
 ## Blocked — module pre-check failed
 

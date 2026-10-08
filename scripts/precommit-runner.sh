@@ -57,6 +57,15 @@ deny() {  # $1=reason → block commit (exit 2 is the actual blocking mechanism;
   exit 2
 }
 
+allow() {  # emit the held non-blocking notice, then let the command through
+  if [ -n "${gate_note:-}" ]; then
+    printf '%s\n' "$gate_note"
+  elif [ -n "${merge_note:-}" ]; then
+    printf '%s\n' "$merge_note"
+  fi
+  exit 0
+}
+
 # Read PreToolUse stdin (tool_input JSON) and gate only `git commit`. Rather than relying on the
 # settings.json `if` field, the script self-filters directly (avoids per-build `if` behavior differences).
 _hook_input="$(timeout 5 cat 2>/dev/null || true)"
@@ -204,16 +213,23 @@ fi
 # entirely (and then early-exit on the clean tree). So a merge is always inspected FIRST, and a
 # command that also commits falls through to the commit path below — both checks apply.
 if [ "$_is_merge" -eq 1 ]; then
+  # The verdict's reason arrives on stderr, its notice on stdout — the notice only from a
+  # check that ran (exit 0).
+  merge_note_file="$(mktemp 2>/dev/null)" || merge_note_file=""
   merge_reason="$(printf '%s' "$_hook_input" | CLAUDE_PROJECT_DIR="$ROOT" \
-    python3 "$PLUGIN_SCRIPTS/flow_gate_check.py" --merge-check 2>&1 >/dev/null)"
+    python3 "$PLUGIN_SCRIPTS/flow_gate_check.py" --merge-check 2>&1 >"${merge_note_file:-/dev/null}")"
   merge_rc=$?
+  if [ -n "$merge_note_file" ]; then
+    [ "$merge_rc" -eq 0 ] && merge_note="$(cat "$merge_note_file")"
+    rm -f "$merge_note_file"
+  fi
   if [ "$merge_rc" -eq 2 ] && [ -n "$merge_reason" ]; then
     deny "$merge_reason"
   fi
   # A warning is what a check that RAN has to say. Anything on this channel after a
   # non-zero exit is the interpreter's, not the gate's, and reads as a verdict.
   [ "$merge_rc" -eq 0 ] && [ -n "$merge_reason" ] && printf '%s\n' "$merge_reason" >&2
-  [ "$_is_commit" -eq 1 ] || exit 0
+  [ "$_is_commit" -eq 1 ] || allow
 fi
 
 # worktree-aware ROOT re-designation (FAIL-OPEN, commit-only — Invariant #6: the merge path must
@@ -226,16 +242,16 @@ if [ -n "$_wt" ] && [ -d "$_wt" ]; then
   ROOT="$_wt"
 fi
 
-cd "$ROOT" || exit 0
+cd "$ROOT" || allow
 
-status="$(git status --porcelain 2>/dev/null)" || exit 0
+status="$(git status --porcelain 2>/dev/null)" || allow
 # A clean ROOT means nothing to commit - unless the command commits somewhere this could
 # not name. `--classify` says so with `unresolved=1`: the command commits in more than one
 # tree, ROOT is whichever one the resolver fell back to, and its being clean says nothing about
 # whether the commit happens. Reading it as "nothing to gate" skips every gate in silence on a
 # command that does commit, so gating ROOT anyway is the lesser wrong.
 if [ -z "$status" ] && [ "$_unresolved" -eq 0 ]; then
-  exit 0
+  allow
 fi
 
 # 1) flow gate + the runtime gates (wiki, doc-style) — ONE process. flow_gate_check.py reads
@@ -251,17 +267,13 @@ fi
 #    is allowed (a hook's stdout and stderr both go to the debug log at exit 0 —
 #    systemMessage is the documented field for a warning the user does see).
 #    HARNESS_PRECOMMIT_DRYRUN is consumed inside the script (the notice stages skip).
-flow_reason="$(CLAUDE_PROJECT_DIR="$ROOT" python3 "$PLUGIN_SCRIPTS/flow_gate_check.py" 2>/dev/null)"
+flow_reason="$(HARNESS_MERGE_NOTE="${merge_note:-}" CLAUDE_PROJECT_DIR="$ROOT" \
+  python3 "$PLUGIN_SCRIPTS/flow_gate_check.py" 2>/dev/null)"
 flow_rc=$?
 if [ "$flow_rc" -eq 2 ] && [ -n "$flow_reason" ]; then
   deny "$flow_reason"
 fi
 [ "$flow_rc" -eq 0 ] && gate_note="$flow_reason"
-
-allow() {  # emit any held non-blocking notice, then let the commit through
-  [ -n "${gate_note:-}" ] && printf '%s\n' "$gate_note"
-  exit 0
-}
 
 # 2) module pre-check. Per tier, runs the every-commit checks of the changed modules
 #    (+ all-module promotion checks on promotion). Commands arrive on stdout, the uncovered report

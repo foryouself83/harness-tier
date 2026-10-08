@@ -648,13 +648,10 @@ def merge_check_output() -> None:
     """Check a `git merge` invocation against the merge_strategy policy.
 
     Blocks (BLOCK_EXIT_CODE) only on two purely syntactic verdicts — a missing `require` flag or
-    a present `forbid` flag. Everything else (not a merge, no source, no policy, no matching
-    rule, detached HEAD, a merge the command runs in a directory other than root, any exception)
-    exits 0 (FAIL-OPEN — Invariant #1). The rebase check only warns. Invariant #2:
+    a present `forbid` flag. Everything else exits 0 (FAIL-OPEN — Invariant #1), and a pass
+    says so on stdout as a ``systemMessage`` when the verdict raised or the merge was not
+    rebased first. Invariant #2:
     force_utf8_io before any output.
-
-    The target branch is read from the command when it says so (`git switch dev && git merge …`)
-    and only otherwise from HEAD — see :func:`_target_from_command`.
     """
     force_utf8_io()
     raw = sys.stdin.read()
@@ -663,9 +660,24 @@ def merge_check_output() -> None:
     except Exception:
         sys.exit(0)
     command = (payload.get("tool_input") or {}).get("command") or ""
+    try:
+        notes = _merge_verdict(command, payload)
+    except Exception as exc:  # FAIL-OPEN, said out loud
+        notes = [f"merge 전략 판정 실패 — 판정 없이 통과: {type(exc).__name__}"]
+    if notes:
+        print(json.dumps({"systemMessage": "\n".join(notes)}, ensure_ascii=False))
+    sys.exit(0)
+
+
+def _merge_verdict(command: str, payload: dict) -> list[str]:
+    """:func:`merge_check_output`'s verdict: exits BLOCK_EXIT_CODE on a violation, else returns
+    the notices of a pass. The target branch is read from the command when it says so (`git
+    switch dev && git merge …`) and only otherwise from HEAD — see :func:`_target_from_command`.
+    """
+    notes = []
     merges = sorted(_merges(command) + _pull_merges(command), key=lambda m: m[0])
     if not merges:
-        sys.exit(0)
+        return notes
 
     root = host_root()
     # Each merge's target is the switch before IT: a switch after a merge moves nothing that
@@ -673,7 +685,7 @@ def merge_check_output() -> None:
     targets = _merge_targets(command, [start for start, _f, _s in merges])
     if not all(targets):
         if _points_elsewhere(command, root):  # target unknowable from here → FAIL-OPEN
-            sys.exit(0)
+            return notes
         # A merge that names no directory, in a command that moves no shell, lands on the HEAD
         # of the tree the shell runs in: another worktree of this repo merges into its own branch,
         # not root's. Anything else reads root, as `_points_elsewhere` already judged it. The
@@ -726,15 +738,14 @@ def merge_check_output() -> None:
             sys.exit(BLOCK_EXIT_CODE)
 
         if rule.get("warn_unless_rebased") and not _is_rebased(root, source, target):
-            print(
+            notes.append(
                 f"[경고] 머지 전략: '{rule.get('source')}' → '{target}' 는 "
                 f"rebase 선행이 요구됩니다. "
                 f"'{source}' 가 '{target}' 위에 rebase되어 있지 않은 것으로 보입니다"
-                f"(origin ref 가 낡았다면 무시하세요).",
-                file=sys.stderr,
+                f"(origin ref 가 낡았다면 무시하세요)."
             )
 
-    sys.exit(0)
+    return notes
 
 
 def policy_parseable(tiers_path: Path) -> bool:
@@ -1183,18 +1194,28 @@ def _wiki_stage(root: Path, gates: list[str] | None) -> str | None:
     return f"wiki graph 경고\n{text}" if text else None
 
 
+def _held_merge_note() -> str | None:
+    """The merge stage's notice the runner hands over in HARNESS_MERGE_NOTE, as its text: a hook
+    may print one JSON object, so it rides in this stage's."""
+    raw = os.environ.get("HARNESS_MERGE_NOTE") or ""
+    try:
+        return (json.loads(raw) or {}).get("systemMessage") or None if raw else None
+    except Exception:
+        return None
+
+
 def _runtime_notices(root: Path, gates: list[str] | None) -> None:
     """Run the runtime gates that ride main(), then emit their notices as ONE payload.
 
     precommit-runner.sh echoes this stdout verbatim on a passing commit, and a second JSON
-    object on the same stream would not parse.
-
-    ``HARNESS_PRECOMMIT_DRYRUN=1`` skips every stage here, not only the wiki one: a dry run
-    prints the commands it would issue and writes nothing else to stdout.
+    object on the same stream would not parse — so the merge stage's notice, held by the
+    runner, comes out here too. ``HARNESS_PRECOMMIT_DRYRUN=1`` skips every gate stage, not the
+    held notice: a dry run prints the commands it would issue and the notices it was handed.
     """
-    if os.environ.get("HARNESS_PRECOMMIT_DRYRUN") == "1":
-        return
-    notes = [note for note in (_wiki_stage(root, gates), doc_style_gate(root, gates)) if note]
+    notes = [_held_merge_note()]
+    if os.environ.get("HARNESS_PRECOMMIT_DRYRUN") != "1":
+        notes += [_wiki_stage(root, gates), doc_style_gate(root, gates)]
+    notes = [note for note in notes if note]
     if notes:
         print(json.dumps({"systemMessage": "\n\n".join(notes)}, ensure_ascii=False))
 
