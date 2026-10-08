@@ -89,7 +89,7 @@ doc_sync:                    # /doc-sync 가 맞추는 대상
 ### `review_checklist`
 
 Dev `review` 게이트가 변경된 모든 파일을 판단하는 기준. 위 다섯 항목은
-[`rules/risk-tiers.md`](../../rules/risk-tiers.md) Step 3 에서 옴 — 하나를 빼는 대신 자신의
+[`dev-overlays.md`](../../skills/flow/references/dev-overlays.md) 에서 옴 — 하나를 빼는 대신 자신의
 항목을 덧붙임.
 
 ### `commit_guide`
@@ -131,10 +131,10 @@ Dev `review` 게이트가 변경된 모든 파일을 판단하는 기준. 위 �
 |------|------|
 | `enable` | 커밋 시점 검사와 `doc-style.yml` 워크플로를 함께 켬 |
 | `paths` | 범위에 넣을 저장소 상대 글롭, 기본 `["**/*.md"]`; 주석·docstring 을 포함하려면 `**/*.py`·`**/*.sh` 추가 |
-| `exclude` | 범위에서 뺄 글롭, 검사기가 항상 빼는 세 가지에 더해짐 |
+| `exclude` | 범위에서 뺄 글롭, 검사기가 항상 빼는 것들에 더해짐 |
 
-검사기는 `CHANGELOG.md`, `docs/superpowers/`, `.superpowers/` 를 항상 건너뜀; `exclude` 는
-여기에 더할 뿐 뺄 수는 없음. `/flow-init` 이 이 섹션을 물음.
+검사기는 모든 `CHANGELOG.md`, GitHub 이슈·PR 템플릿, `docs/superpowers/`, `.superpowers/` 를
+항상 건너뜀; `exclude` 는 여기에 더할 뿐 뺄 수는 없음. `/flow-init` 이 이 섹션을 물음.
 
 ### `design_docs`
 
@@ -162,5 +162,6 @@ Dev `review` 게이트가 변경된 모든 파일을 판단하는 기준. 위 �
 호스트에서 지속적으로 바꿀 방법은 없음 — 강제를 아예 끄려면
 [`/flow-uninstall`](update-and-removal.ko.md#flow-uninstall--호스트-배선-제거) 을 실행.
 
-두 가지를 담음: 등급별 필수 게이트, 그리고 `merge_strategy`(브랜치 흐름별 `git merge` 가
-가져야 할 플래그). 둘 다 [등급과 게이트](tiers-and-gates.ko.md) 에서 다룸.
+두 가지를 담음: 등급별 필수 게이트, 그리고 `merge_strategy`(브랜치 흐름별 `git merge`,
+또는 브랜치를 명시하고 rebase 하지 않는 `git pull` 이 가져야 할 플래그). 둘 다
+[등급과 게이트](tiers-and-gates.ko.md) 에서 다룸.

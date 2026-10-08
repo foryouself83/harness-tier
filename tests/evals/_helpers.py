@@ -11,7 +11,7 @@ SKILLS = sorted(CASES["skills"])
 
 
 class _NoRealSessions:
-    """Stands in for the `subprocess` module inside `evals.run`, refusing the two spawn
+    """Stands in for the `subprocess` module inside `evals.runner.session`, refusing the two spawn
     entry points (`Popen` carries the sessions since the tree-kill change; `run` is the
     taskkill helper and the historical spawn path — refusing both keeps the guard ahead
     of refactors between them).
@@ -24,15 +24,23 @@ class _NoRealSessions:
     def run(*_args, **_kwargs):
         raise AssertionError(
             "this test tried to spawn a real `claude` session. Every test here must be "
-            "model-free: monkeypatch `evals.run._one` to return (stream.Observation(...), "
-            "stderr) instead of letting it reach run_session. If a real session is genuinely "
-            "what you want, it belongs in `evals/run.py`, not in the suite."
+            "model-free: monkeypatch `evals.runner.session._one` to return "
+            "(stream.Observation(...), raw()) instead of letting it reach run_session. If a real "
+            "session is genuinely "
+            "what you want, it belongs in `evals/runner/`, not in the suite."
         )
 
     Popen = run
 
     def __getattr__(self, attr):
         return getattr(subprocess, attr)
+
+
+def raw(text: str = "", err: str = "", **kw):
+    """A `session.Raw` for fakes of `_one` and `_claude_stream`."""
+    from evals.runner import session
+
+    return session.Raw(text, err, **kw)
 
 
 # Real captured `claude -p --output-format stream-json` transcripts, not hand-written JSON —
@@ -45,7 +53,7 @@ class _NoRealSessions:
 #
 # What survives that reduction is the `init` event, kept whole: it is the source of `available`
 # and cannot be trimmed without rewriting a captured event into fiction. These two were captured
-# under the isolated config dir `evals.run.isolated_config_dir` builds, so `init` lists
+# under the isolated config dir `evals.runner.session.isolated_config_dir` builds, so `init` lists
 # `harness-tier@inline` as its only plugin — the earlier captures carried the whole machine
 # instead (18 plugins with absolute paths, one of them private, plus the home directory), and
 # that is gone. What the isolation cannot strip stays: the account-level claude.ai MCP connectors

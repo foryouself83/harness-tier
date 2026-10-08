@@ -56,8 +56,8 @@ def test_an_unfingerprinted_entry_warns_rather_than_going_stale():
 
 
 def test_a_skill_that_gained_or_lost_fixtures_is_stale():
-    # run.py records None for a fixture-less run, so a null key is a claim, not an absence:
-    # the score was measured in no fixture. Either direction of change fails.
+    # invocation.measure records None for a fixture-less run, so a null key is a claim, not an
+    # absence: the score was measured in no fixture. Either direction of change fails.
     gained = {**OK, "fixture_sha": None}
     assert scores.check("integration", gained, "x", EXPECT, N_SKILLS, fixture="now").level == (
         "fail"
@@ -101,13 +101,16 @@ def test_an_unknown_fixture_name_does_not_stop_the_fingerprint(monkeypatch):
 
 
 def test_fixtures_for_agrees_with_the_runner_for_every_skill():
-    """run.cases_for decides which fixture each session builds; fixtures_for restates that rule
-    because run imports scores. Held here to one answer over the real cases file."""
-    import evals.run as run
+    """invocation.cases_for decides which fixture each session builds; fixtures_for restates
+    that rule because the runner imports scores. Held here to one answer over the real cases
+    file."""
+    from evals.runner import config, invocation
 
-    data = yaml.safe_load(run.CASES.read_text(encoding="utf-8"))
+    data = yaml.safe_load(config.CASES.read_text(encoding="utf-8"))
     for name, entry in data["skills"].items():
-        from_runner = {f for arm in ("happy", "negative") for _, f in run.cases_for(entry, arm)}
+        from_runner = {
+            f for arm in ("happy", "negative") for _, f in invocation.cases_for(entry, arm)
+        }
         assert scores.fixtures_for(name) == sorted(f for f in from_runner if f), name
 
 
@@ -116,14 +119,14 @@ def test_a_fixture_less_skill_ignores_the_key():
 
 
 def test_the_incremental_run_targets_a_moved_fixture_and_nothing_else(monkeypatch):
-    import evals.run as run
+    from evals.runner import invocation
 
     monkeypatch.setattr(scores, "fixture_sha", lambda name: "now")
     monkeypatch.setattr(scores, "description_sha", lambda name: "desc")
-    assert not run.is_stale("x", {"description_sha": "desc", "fixture_sha": "now"})
-    assert run.is_stale("x", {"description_sha": "desc", "fixture_sha": "then"})
-    assert not run.is_stale("x", {"description_sha": "desc"})  # predates the key
-    assert run.is_stale("x", {"description_sha": "old"})
+    assert not invocation.is_stale("x", {"description_sha": "desc", "fixture_sha": "now"})
+    assert invocation.is_stale("x", {"description_sha": "desc", "fixture_sha": "then"})
+    assert not invocation.is_stale("x", {"description_sha": "desc"})  # predates the key
+    assert invocation.is_stale("x", {"description_sha": "old"})
 
 
 def test_every_recorded_fixture_sha_is_current():

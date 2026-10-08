@@ -49,7 +49,7 @@ jobs:
           AUTO_LEVEL: patch
         run: |
           echo "GitVersion computed: ${{ steps.gitversion.outputs.semVer }} (informational)"
-          LEVEL="$(git log -1 --pretty=%B | sed -nE 's/^Release-Level:[[:space:]]*(major|minor|patch)[[:space:]]*$/\1/p' | head -1)"
+          LEVEL="$(git log -1 --pretty=%B | sed -nE 's/^Release-Level:[[:space:]]*(major|minor|patch)[[:space:]]*$/\1/Ip' | head -1)"
           LEVEL="${LEVEL:-patch}"
           CURRENT="$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo 0.0.0)"
           if [ "$REF_NAME" = "__HARNESS_PRERELEASE__" ]; then

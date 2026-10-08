@@ -12,6 +12,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   srs-verify:
     runs-on: ubuntu-latest

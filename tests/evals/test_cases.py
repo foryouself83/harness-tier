@@ -5,7 +5,7 @@ import yaml
 
 import evals.scores as scores
 import scripts.skill_sandbox as sandbox
-from evals.run import DEFAULT_REPS
+from evals.runner.config import DEFAULT_REPS
 from tests.evals._helpers import CASES, REPO, SKILLS
 
 HAPPY_CASES = 5
@@ -78,7 +78,7 @@ def test_the_prose_review_fixture_carries_what_its_prompts_describe():
 
 
 def test_a_reps_override_is_declared_where_the_run_reads_it():
-    """`run.measure` takes reps as `entry.get("reps", args.reps)`, so a misspelled key is
+    """`invocation.measure` takes reps as `entry.get("reps", args.reps)`, so a misspelled key is
     ignored in silence and the next `--all` re-baselines that skill at the run default — a
     smaller denominator under the same name, and the rate it writes still looks plausible.
 

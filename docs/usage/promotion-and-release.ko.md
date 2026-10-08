@@ -130,8 +130,9 @@ notes 를 그대로 유지함.
 
 `merge_workflow.pull_request` 에 흐름이 있으면([설정](configuration.ko.md#merge_workflowpull_request))
 그 흐름의 머지가 PR 이 됨. 커밋은 여전히 로컬에서 만들어지므로 gitlint 와 등급 게이트는
-전과 같이 실행됨. [머지 전략](tiers-and-gates.ko.md#머지-전략) 검사는 그 흐름의 `git merge`
-를 전혀 보지 못하므로, 강제가 GitHub 브랜치 룰셋의 허용 머지 방식으로 옮겨감:
+전과 같이 실행됨. [머지 전략](tiers-and-gates.ko.md#머지-전략) 검사는 그 흐름의 `git merge`, 그리고 브랜치를
+명시하고 rebase 하지 않는 `git pull` 을 전혀 보지 못하므로, 강제가 GitHub 브랜치 룰셋의
+허용 머지 방식으로 옮겨감:
 
 | 대상 브랜치 | 허용 방식 |
 |-------------|-----------|

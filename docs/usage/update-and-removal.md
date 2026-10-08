@@ -27,7 +27,9 @@ is reported and left untouched, so a template fix in a new plugin version does n
 delete the file and re-run `/flow-init` to take the new template. The same holds for
 `.pre-commit-config.yaml`, whose missing hooks are reported, not added. The exceptions are the
 `deploy.yml` orchestrator and the managed deploy block in `release.yml`, which are regenerated
-on every run.
+on every run. A `deploy.yml` that does not open with the generated header is the host's own:
+it is reported and left untouched, and `release.yml`'s wiring is withheld along with it — the
+call job passes a `tag` input a hand-written `deploy.yml` may not declare.
 
 ## `/flow-uninstall` — remove host-side wiring
 
@@ -41,23 +43,30 @@ plugin first leaves you with the [manual cleanup](#manual-cleanup-after-the-plug
 It removes:
 
 - the commit gate from `.claude/settings.json` `hooks.PreToolUse`, keeping your other hooks;
-- the `harness-tier` entry from `extraKnownMarketplaces`;
-- the two harness-tier lines from `.gitignore`;
+- the `harness-tier` entry from `extraKnownMarketplaces` — and the file itself once nothing of
+  yours is left in it;
+- the harness-tier lines from `.gitignore`, except `.teams-webhooks.local.json`: it matches at
+  any depth, so it may still keep a webhook secret out of a commit;
 - the `harness-tier:teams` block from `CLAUDE.md`;
 - the Codex gate from `.codex/hooks.json` and the managed instructions block from `AGENTS.md`
   — whether or not `codex` is still listed under `harnesses`;
-- `.claude/harness-tier/` — scripts, config, evidence, and both webhook files, the team-shared
-  `teams-webhooks.json` included;
-- `.claude/rules/harness-tier/` — the rules `/flow-init` copied in; the host's own rules stay.
+- `.claude/harness-tier/` — scripts, config, evidence, both webhook files, the team-shared
+  `teams-webhooks.json` included, and the design-doc templates under `templates/`, your edits
+  with them — copy them out first to keep them;
+- `.claude/rules/harness-tier/` — the plugin's rules an older `/flow-init` may have copied in;
+  the host's own rules stay.
 
 It leaves, and tells you to handle:
 
 - `.pre-commit-config.yaml` — its `teams-notify-push` and static-analysis hooks stay;
 - the installed git hooks —
   `pre-commit uninstall --hook-type pre-commit --hook-type commit-msg --hook-type pre-push`;
-- `.github/workflows/` — see step 5 of the manual cleanup for what each one does next;
-- the deletion itself — `.claude/harness-tier/` and `.claude/rules/harness-tier/` were tracked,
-  so commit it.
+- `.github/workflows/` — it names the workflows still there: the ones calling a deleted
+  script, guarded or failing, and the rendered ones that keep running. Step 5 of the manual
+  cleanup says what each does next;
+- the commit — it names every file and directory it changed or deleted
+  (`.claude/harness-tier/`, `.claude/rules/harness-tier/`, `.claude/settings.json`, `.gitignore`
+  and the rest); commit them.
 
 When it ends on `커밋 게이트 훅이 settings.json 에 남았습니다`, the hook it could not remove points
 at a script that no longer exists — delete it by hand (step 2 below, which covers both files).
@@ -82,7 +91,8 @@ leaves it untouched, and still ends on `정리 완료.`
    only that hook. Drop its `PreToolUse` entry only if that emptied the entry's `hooks` list
    and the entry holds nothing but `matcher` and `hooks`. Delete the file only if `hooks` is
    then empty and the file has no other top-level key; any other hook stays.
-3. Remove `.teams-webhooks.local.json` and `.claude/harness-tier/.flow/` from `.gitignore`.
+3. Remove `.claude/harness-tier/.flow/` and `.claude/harness-tier/scripts/**/__pycache__/`
+   from `.gitignore`. Keep `.teams-webhooks.local.json` while any such file is left in the repo.
 4. Remove the `harness-tier:teams` block from `CLAUDE.md`.
 5. Decide on each rendered workflow:
    - `wiki-verify.yml`, `doc-style.yml`, `srs-verify.yml` — each skips when its script is gone,

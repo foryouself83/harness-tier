@@ -28,8 +28,19 @@ Three layers check your work, and each sees a different set of commits:
 1. **pre-commit** — `.pre-commit-config.yaml`: commit-message lint and file checks, on every
    `git commit` in a repo where `pre-commit install` ran.
 2. **The flow gate** — the `PreToolUse` hook `/flow-init` registers in `.claude/settings.json`.
-   It sees only the `git commit` and `git merge` commands **Claude runs in a session**. A commit
-   or merge from your own terminal, from CI, or on GitHub bypasses it.
+   It sees only `git commit`, `git merge`, and branch-naming, non-rebasing `git pull`
+   commands **Claude runs in a session**. A commit or merge from your own terminal, from CI,
+   or on GitHub bypasses it. It reads the command as written: a git alias (`git ci`,
+   `git -c alias.ci=commit ci`) or a subcommand built by expansion (`git $(echo commit)`,
+   `$g commit`) is not read as a commit, and other commands that create commits, such as
+   `cherry-pick`, `revert`, `am`, `rebase` and `commit-tree`, are not gated. A commit in a
+   worktree is judged by that worktree's own `.claude/harness-tier/`, so one branched before
+   the `/flow-init` setup commit carries no policy and passes ungated until it takes that
+   commit (merge or rebase it in). A single `git -C <dir> commit` or `cd <dir> && git commit`
+   that names another repository outright — proven by a `--git-common-dir` that differs from
+   this one's — is not read as this repo's commit either; a second command, a directory
+   reached by expansion, a stacked `-C`, or a `--git-dir`/`GIT_DIR` that could send it back
+   here all leave that unproven, so the commit stays gated.
 3. **CI** — the workflows `/flow-init` renders, which run on every push and close the gap
    layer 2 leaves ([CI workflows](ci-workflows.md)).
 
@@ -108,8 +119,9 @@ leaves its markers for whatever runs next, on any branch.
 
 ## Merge strategy
 
-`flow-tiers.yaml`'s `merge_strategy` checks the flags of a `git merge` against its branch flow.
-Branch names resolve from `flow-config.branches`.
+`flow-tiers.yaml`'s `merge_strategy` checks the flags of a `git merge`, and of a `git pull`
+that names a branch without rebasing, against its branch flow, with branch names resolved from
+`flow-config.branches`. A violation is blocked:
 
 | Merge | Enforced |
 |-------|----------|
@@ -119,17 +131,8 @@ Branch names resolve from `flow-config.branches`.
 | staging → production | `--no-ff` required |
 | `fix/*` → integration | `--no-ff` refused |
 
-A violation is blocked. Only flows with a single correct flag are checked: the production →
-integration back-merge and the staging → integration back-merge before a re-promotion allow
-fast-forward or `--no-ff`, and the production → staging back-merge wants a skip when the
-fast-forward is refused, which no `require` rule expresses. A `feature/*` merge not rebased
-first is warned about, not blocked — a stale `origin` ref would otherwise raise false alarms.
-
-A command the gate cannot decide lets the merge through: no matching rule, a command it cannot
-parse, or merges that all run in another directory. A merge behind a `cd` beside one naming no
-directory is judged anyway.
-
-The check sees only direct merges. A flow routed through a pull request moves enforcement to a
-GitHub branch ruleset —
+Which flows go unchecked, the rebase warning, how the gate reads a command and the tree it
+merges in, and the procedure for every flow are in
+[`rules/merge-strategy.md`](../../rules/merge-strategy.md). The check sees only direct merges.
+A flow routed through a pull request moves enforcement to a GitHub branch ruleset —
 [PR workflow and branch rulesets](promotion-and-release.md#pr-workflow-and-branch-rulesets).
-The procedure for every flow is [`rules/merge-strategy.md`](../../rules/merge-strategy.md).

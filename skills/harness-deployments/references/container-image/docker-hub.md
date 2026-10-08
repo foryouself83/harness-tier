@@ -17,6 +17,8 @@
 - You must issue and use an **Access Token** — do not put the account login password in a secret (for 2FA accounts, password login is blocked at the API in the first place).
 - The token scope must be set to "Read & Write" for the push to succeed (the default "Read-only" fails).
 - The free plan has an anonymous pull rate limit — if CI pulls base images frequently, pulling while logged in (`docker/login-action`) can ease the limit.
+- The image name must be lowercase (`<namespace>/<name>`) — a repo name with uppercase letters mixed in produces a tag error; the template lowercases it before tagging.
+- A prerelease tag (`vX.Y.Z-rc.N`) never also tags `:latest` — only a stable tag moves it, so a bare `docker pull` keeps resolving to the last stable image.
 
 ## Corresponding template
 `github/deploy.dockerhub.workflow.example.yml` — the image+docker-hub combination is statically rendered by `/flow-init --render-deploy`.

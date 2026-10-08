@@ -60,7 +60,8 @@ def golden_cases() -> list[tuple[str, str, str | None]]:
     out = []
     for case in entry["happy"]:
         if isinstance(case, dict) and case.get("golden_tier"):
-            # Case first, then the skill-level default — the same order run.cases_for applies.
+            # Case first, then the skill-level default — the same order
+            # invocation.cases_for applies.
             # Read the case alone and a skill-level fixture would build for the scored run and
             # not for this one, measuring the router against a directory the score never saw.
             fixture = case.get("fixture") or entry.get("fixture")
@@ -69,13 +70,14 @@ def golden_cases() -> list[tuple[str, str, str | None]]:
 
 
 def _probe_one(prompt: str, golden: str, fixture: str | None, config_dir: Path) -> dict:
-    """One session; capture the tier two ways. Lazy import keeps run's subprocess machinery
+    """One session; capture the tier two ways. Lazy import keeps the runner's subprocess machinery
     off the import path of the pure-function tests."""
-    from evals import run, stream
+    from evals import stream
+    from evals.runner import session
 
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         wd = Path(tmp)
-        text, _err = run._claude_stream(prompt, fixture, wd, config_dir, False)
+        text = session._claude_stream(prompt, fixture, wd, config_dir, False).text
         # _claude_stream builds a fixture into <tmp>/<scenario> and runs there, so the marker
         # lands one level down. Reading <tmp> instead would report every fixture-backed case
         # as "no marker", which is what a capture rate is for.
@@ -109,11 +111,11 @@ def _report(rows: list[dict]) -> None:
 
 
 def main(reps: int = 3, jobs: int = 8) -> None:
-    from evals import run
+    from evals.runner import session
 
     plan = [(p, g, f) for p, g, f in golden_cases() for _ in range(reps)]
     rows: list[dict] = []
-    with run.isolated_config_dir() as cfg:
+    with session.isolated_config_dir() as cfg:
         with ThreadPoolExecutor(max_workers=jobs) as pool:
             futures = [pool.submit(_probe_one, p, g, f, cfg) for p, g, f in plan]
             for done, fut in enumerate(as_completed(futures), 1):

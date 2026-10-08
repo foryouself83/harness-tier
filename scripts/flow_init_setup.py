@@ -14,10 +14,11 @@ setup (default) idempotently applies the following:
   - Add missing lines to .gitignore (skip if duplicated)
 
 uninstall (--uninstall) is the inverse of setup (host cleanup):
-  - Unregister the commit gate / harness-tier marketplace in settings.json
-  - Remove harness-tier lines from .gitignore, remove the teams management block from CLAUDE.md
-  - Delete the .claude/harness-tier/ directory (including scripts·config·evidence·webhooks)
-  - .pre-commit-config.yaml hooks·git hooks are only reported (high risk; removed by hand)
+  - Unregister the commit gate / harness-tier marketplace in settings.json (an emptied file goes)
+  - Remove harness-tier lines from .gitignore (the webhook-secret line stays), remove the teams
+    management block from CLAUDE.md
+  - Delete the .claude/harness-tier/ directory (scripts·config·evidence·webhooks·templates)
+  - .pre-commit-config.yaml hooks·git hooks·workflows are only reported (removed by hand)
 
 Paths: host=CLAUDE_PROJECT_DIR (else git toplevel), plugin=CLAUDE_PLUGIN_ROOT
 (else this script's parent). Results are printed to stdout as a human-readable summary.
@@ -30,6 +31,7 @@ from __future__ import annotations
 import argparse
 import os  # noqa: F401 — `fis.os` is the monkeypatch target the jsonfile helpers share
 import shutil
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
@@ -67,11 +69,13 @@ except ImportError:
 try:
     from harness.jsonfile import ACCESS_ENTRIES as _ACCESS_ENTRIES  # noqa: F401
     from harness.jsonfile import access_entries as _access_entries  # noqa: F401
+    from harness.jsonfile import confine as _confine
     from harness.jsonfile import why as _why
     from harness.jsonfile import write_json as _write_json  # noqa: F401
 except ImportError:
     from scripts.harness.jsonfile import ACCESS_ENTRIES as _ACCESS_ENTRIES  # noqa: F401
     from scripts.harness.jsonfile import access_entries as _access_entries  # noqa: F401
+    from scripts.harness.jsonfile import confine as _confine
     from scripts.harness.jsonfile import why as _why
     from scripts.harness.jsonfile import write_json as _write_json  # noqa: F401
 
@@ -209,7 +213,14 @@ def gate_files(harnesses) -> tuple[tuple[str, str], ...]:
 GITIGNORE_LINES = [
     ".teams-webhooks.local.json",
     f"{FLOW_DIR}/",
+    # The gate exports PYTHONDONTWRITEBYTECODE; this catches every other run of the copies,
+    # Codex's renderer under scripts/harness/ included.
+    f"{SCRIPTS_DIR}/**/__pycache__/",
 ]
+
+# Never removed on uninstall: the bare pattern may guard a secret outside HARNESS_DIR, and the
+# host may have carried it before /flow-init did — a kept line costs nothing, a dropped one a leak.
+GITIGNORE_KEEP = {".teams-webhooks.local.json"}
 
 # The pre-commit hook id owned by harness-tier (a fixed hook, not a per-language replacement).
 # When a plugin update moves a script's location, the existing .pre-commit-config.yaml entry no
@@ -243,13 +254,47 @@ _is_own_empty_entry = _claude._is_own_empty_entry
 _gate_hook_remains = _claude.hook_remains
 
 
+def _host_target(host: Path, dest: Path) -> Path:
+    """`dest`, made safe to write. The repo is untrusted input: a symlink it commits where this
+    writes would carry plugin text over any file the user owns. So a directory resolving outside
+    the host is refused, and a link standing at `dest` itself is removed for the write to
+    replace."""
+    _confine(host, dest.parent)
+    if dest.is_symlink():
+        dest.unlink()
+    return dest
+
+
+def _read_host_text(host: Path, path: Path) -> tuple[str, str]:
+    """A host file this edits in place: its text with LF line ends, and the line end it was
+    written in ("\n" when it does not exist). Refused when it resolves outside the host, since
+    the write that follows goes wherever a link at `path` points."""
+    _confine(host, path)
+    if not path.is_file():
+        return "", "\n"
+    raw = path.read_bytes().decode("utf-8")
+    return raw.replace("\r\n", "\n"), ("\r\n" if "\r\n" in raw else "\n")
+
+
+def _write_host_text(path: Path, text: str, eol: str) -> None:
+    """Bytes, not text mode: text mode rewrites every line end to the platform's, so a CRLF file
+    edited on Linux came back LF on every line of its diff."""
+    path.write_bytes(text.replace("\n", eol).encode("utf-8"))
+
+
+def _make_executable(path: Path) -> None:
+    """`copyfile` creates a file with the default mode; a hook runs these as scripts."""
+    mode = path.stat().st_mode
+    os.chmod(path, mode | (mode & 0o444) >> 2)
+
+
 def copy_artifacts(plugin: Path, host: Path, harnesses=("claude",)) -> list[str]:
     """Copy deployment artifacts (always overwrite — SOURCE is the SSOT). Gate scripts go to
     scripts/ (a flat file at its basename, a per-harness file under its subpath — `_dest_rel`),
     and the plugin policy flow-tiers.yaml goes to config/ (same place as flow-config)."""
     dest_dir = host / SCRIPTS_DIR
     try:
-        dest_dir.mkdir(parents=True, exist_ok=True)
+        _confine(host, dest_dir).mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         # First of the steps, and unguarded it took every later one down with it — the
         # workflows and the .gitignore are worth having even where this is not.
@@ -266,9 +311,11 @@ def copy_artifacts(plugin: Path, host: Path, harnesses=("claude",)) -> list[str]
             missed.add(rel)
             continue
         try:
-            dest_path = dest_dir / dest_rel
+            dest_path = _host_target(host, dest_dir / dest_rel)
             dest_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(src, dest_path)
+            if dest_path.suffix == ".sh":
+                _make_executable(dest_path)
         except OSError as exc:
             # One file the host holds open or keeps read-only is one file, not the whole run.
             report.append(f"  [!] 복사 실패({_why(exc)}): {dest_name}")
@@ -280,7 +327,7 @@ def copy_artifacts(plugin: Path, host: Path, harnesses=("claude",)) -> list[str]
     try:
         # The directory is made either way: `/flow-init` puts the host's own flow-config
         # beside this file, and a missing SOURCE is no reason to withhold the place for it.
-        cfg_dir = host / CONFIG_DIR
+        cfg_dir = _confine(host, host / CONFIG_DIR)
         cfg_dir.mkdir(parents=True, exist_ok=True)
         # The policy names the gates the scripts beside it must know how to run, so a new
         # policy over an older module is the one pairing that fails CLOSED: the check asks for
@@ -296,7 +343,7 @@ def copy_artifacts(plugin: Path, host: Path, harnesses=("claude",)) -> list[str]
         if not tiers_src.is_file():
             report.append(f"  [!] 소스 없음, skip: {TIERS_FILENAME}")
             return report
-        shutil.copyfile(tiers_src, cfg_dir / TIERS_FILENAME)
+        shutil.copyfile(tiers_src, _host_target(host, cfg_dir / TIERS_FILENAME))
     except OSError as exc:
         report.append(f"  [!] {TIERS_FILENAME} 복사 실패({_why(exc)}) — 수동 확인 필요")
         return report
@@ -304,38 +351,24 @@ def copy_artifacts(plugin: Path, host: Path, harnesses=("claude",)) -> list[str]
     return report
 
 
-# Shipped rules a Claude session loads from the host (Claude Code-forced location — HARNESS_DIR
-# exception). Their own subdirectory, so a host rule of the same name is never overwritten.
-# The SessionStart hook reads this path to skip injecting the same text: keep the two in step.
+# Where setups before this one copied the shipped prose rule. Claude Code loads every file under
+# .claude/rules/ in full each session, so the rule now reaches a session only through the hook's
+# short block, and a re-sync deletes this directory (harness-tier's own) wherever it remains.
 RULES_DEST = ".claude/rules/harness-tier"
-RULE_FILES = ("rules/doc-style.md",)
-
-
-def copy_rules(plugin: Path, host: Path, harnesses=("claude",)) -> list[str]:
-    """Copy the shipped rules into the host's .claude/rules/ (always overwrite — SOURCE is the
-    SSOT). Claude only: Codex reads no .claude/rules/ and keeps the hook's injected block."""
-    if "claude" not in harnesses:
-        return ["  [=] claude 하네스 아님 — 규칙 복사 skip"]
-    dest_dir = host / RULES_DEST
-    report: list[str] = []
-    for rel in RULE_FILES:
-        src = plugin / rel
-        if not src.is_file():
-            report.append(f"  [!] 소스 없음, skip: {rel}")
-            continue
-        try:
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(src, dest_dir / src.name)
-        except OSError as exc:
-            report.append(f"  [!] 복사 실패({_why(exc)}): {RULES_DEST}/{src.name}")
-            continue
-        report.append(f"  [+] 복사: {RULES_DEST}/{src.name}")
-    return report
 
 
 def remove_rules(host: Path) -> str:
-    """Delete the copied rules directory (only ours — RULES_DEST is harness-tier's own)."""
+    """Delete the rules directory an older setup copied in. A link standing there is unlinked,
+    never followed, and a parent resolving outside the host is refused, so a repo that commits
+    either pointing elsewhere loses nothing outside."""
     d = host / RULES_DEST
+    try:
+        _confine(host, d.parent)
+    except OSError as exc:
+        return f"  [!] {RULES_DEST} 정리 거부({_why(exc)}) — 수동 확인 필요"
+    if d.is_symlink():
+        d.unlink()
+        return f"  [-] {RULES_DEST} 링크 제거"
     if not d.is_dir():
         return f"  [=] {RULES_DEST}/ 없음 (skip)"
     shutil.rmtree(d)
@@ -376,7 +409,7 @@ def seed_design_templates(plugin: Path, host: Path) -> list[str]:
     )
     dest = host / rel
     try:
-        dest.mkdir(parents=True, exist_ok=True)
+        _confine(host, dest).mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         return [f"  [!] {rel} 을 만들지 못했습니다({_why(exc)}) — 수동 확인 필요"]
     report: list[str] = []
@@ -386,7 +419,7 @@ def seed_design_templates(plugin: Path, host: Path) -> list[str]:
             report.append(f"  [=] 템플릿 유지: {f.name}")
             continue
         try:
-            shutil.copyfile(f, target)
+            shutil.copyfile(f, _host_target(host, target))
         except OSError as exc:
             report.append(f"  [!] 템플릿 시딩 실패({_why(exc)}): {f.name}")
             continue
@@ -431,18 +464,41 @@ def design_gitignore_lines(host: Path) -> list[str]:
     return [f"{out}/"] if out else []
 
 
+def _ignore_rule(line: str) -> tuple[str, bool] | None:
+    """What a .gitignore line matches, as (pattern, directories only); None for a blank line.
+    A leading `/` is dropped where another slash anchors the rule anyway; on a bare name it
+    narrows the rule to the root, so it stays."""
+    s = line.rstrip()
+    if not s:
+        return None
+    body = s.rstrip("/")
+    if "/" in body.lstrip("/"):
+        body = body.lstrip("/")
+    return body, s.endswith("/")
+
+
+def _ignored_already(line: str, rules: set[tuple[str, bool]]) -> bool:
+    """A rule without the trailing `/` covers one with it; the reverse misses files."""
+    body, dir_only = _ignore_rule(line)
+    return (body, False) in rules or (dir_only and (body, True) in rules)
+
+
 def append_gitignore(host: Path) -> list[str]:
     """Add only the missing lines to .gitignore (without duplicates). Skip if all are present."""
     gi = host / ".gitignore"
-    text = gi.read_text(encoding="utf-8") if gi.is_file() else ""
-    existing = {ln.strip() for ln in text.splitlines()}
-    missing = [ln for ln in [*GITIGNORE_LINES, *design_gitignore_lines(host)] if ln not in existing]
+    try:
+        text, eol = _read_host_text(host, gi)
+    except OSError as exc:
+        return [f"  [!] .gitignore 수정 거부({_why(exc)}) — 수동 확인 필요"]
+    rules = {r for r in map(_ignore_rule, text.splitlines()) if r is not None}
+    wanted = [*GITIGNORE_LINES, *design_gitignore_lines(host)]
+    missing = [ln for ln in wanted if not _ignored_already(ln, rules)]
     if not missing:
         return ["  [=] .gitignore 이미 최신 (skip)"]
     if text and not text.endswith("\n"):
         text += "\n"
     text += "".join(ln + "\n" for ln in missing)
-    gi.write_text(text, encoding="utf-8")
+    _write_host_text(gi, text, eol)
     return [f"  [+] .gitignore += {ln}" for ln in missing]
 
 
@@ -470,7 +526,7 @@ def check_precommit(plugin: Path, host: Path) -> list[str]:
     if not example.is_file():
         return ["  [!] pre-commit-hooks.example.yaml 없음 — skip"]
     if not dest.is_file():
-        shutil.copyfile(example, dest)
+        shutil.copyfile(example, _host_target(host, dest))
         return ["  [+] .pre-commit-config.yaml 생성 (예시 복사 — local 훅은 팀 언어로 교체)"]
     try:
         ex = yaml.safe_load(example.read_text(encoding="utf-8")) or {}
@@ -520,17 +576,23 @@ def remove_gitignore_lines(host: Path) -> str:
     gi = host / ".gitignore"
     if not gi.is_file():
         return "  [=] .gitignore 없음 (skip)"
-    targets = set(GITIGNORE_LINES)
-    lines = gi.read_text(encoding="utf-8").splitlines()
+    try:
+        text, eol = _read_host_text(host, gi)
+    except OSError as exc:
+        return f"  [!] .gitignore 수정 거부({_why(exc)}) — 수동 확인 필요"
+    targets = set(GITIGNORE_LINES) - GITIGNORE_KEEP
+    lines = text.splitlines()
     kept = [ln for ln in lines if ln.strip() not in targets]
     removed = len(lines) - len(kept)
+    held = sorted(GITIGNORE_KEEP & {ln.strip() for ln in kept})
+    note = f" — 비밀 파일 보호 라인 유지: {', '.join(held)}" if held else ""
     if removed == 0:
-        return "  [=] .gitignore 에 harness-tier 라인 없음 (skip)"
+        return f"  [=] .gitignore 에 harness-tier 라인 없음 (skip){note}"
     text = "\n".join(kept)
     if text and not text.endswith("\n"):
         text += "\n"
-    gi.write_text(text, encoding="utf-8")
-    return f"  [-] .gitignore harness-tier 라인 {removed}개 제거"
+    _write_host_text(gi, text, eol)
+    return f"  [-] .gitignore harness-tier 라인 {removed}개 제거{note}"
 
 
 def remove_claude_md_block(host: Path) -> str:
@@ -538,7 +600,11 @@ def remove_claude_md_block(host: Path) -> str:
     cm = host / "CLAUDE.md"
     if not cm.is_file():
         return "  [=] CLAUDE.md 없음 (skip)"
-    lines = cm.read_text(encoding="utf-8").splitlines(keepends=True)
+    try:
+        text, eol = _read_host_text(host, cm)
+    except OSError as exc:
+        return f"  [!] CLAUDE.md 수정 거부({_why(exc)}) — 수동 확인 필요"
+    lines = text.splitlines(keepends=True)
     begin = end = None
     for i, ln in enumerate(lines):
         if begin is None and CLAUDE_MD_BEGIN in ln:
@@ -549,7 +615,7 @@ def remove_claude_md_block(host: Path) -> str:
     if begin is None or end is None:
         return "  [=] CLAUDE.md teams 블록 없음 (skip)"
     del lines[begin : end + 1]
-    cm.write_text("".join(lines), encoding="utf-8")
+    _write_host_text(cm, "".join(lines), eol)
     return "  [-] CLAUDE.md teams 블록 제거"
 
 
@@ -558,8 +624,69 @@ def remove_harness_dir(host: Path) -> str:
     d = host / HARNESS_DIR
     if not d.is_dir():
         return "  [=] .claude/harness-tier/ 없음 (skip)"
+    templates = (d / "templates").is_dir()
     shutil.rmtree(d)
-    return "  [-] .claude/harness-tier/ 삭제 (스크립트·config·증거·웹훅 포함)"
+    extra = "·편집했을 수 있는 설계 문서 템플릿" if templates else ""
+    return f"  [-] .claude/harness-tier/ 삭제 (스크립트·config·증거·웹훅{extra} 포함)"
+
+
+# What /flow-init renders under .github/workflows/, beside the deploy-<target>.yml it names per
+# target. A workflow of the host's own is reported only when it calls a deleted script.
+RENDERED_WORKFLOWS = {
+    Path(WORKFLOW_DEST).name,
+    Path(UNIT_TEST_DEST).name,
+    Path(WIKI_VERIFY_DEST).name,
+    Path(DOC_STYLE_DEST).name,
+    Path(E2E_DEST).name,
+    Path(SRS_VERIFY_DEST).name,
+    "release.yml",
+    "branch-naming.yml",
+    "entropy-check.yml",
+    "deploy.yml",
+}
+# These renders check for their script first and exit 0 without it.
+GUARDED_WORKFLOWS = {
+    Path(WIKI_VERIFY_DEST).name,
+    Path(DOC_STYLE_DEST).name,
+    Path(SRS_VERIFY_DEST).name,
+}
+
+
+def report_workflows(host: Path) -> list[str]:
+    """Name the host workflows the deletion leaves behind, read-only: the workflows are the
+    host's to remove, and which ones break depends on what was rendered, not on a fixed list."""
+    wf_dir = host / ".github" / "workflows"
+    try:
+        files = sorted(p for p in wf_dir.iterdir() if p.suffix.lower() in (".yml", ".yaml"))
+    except OSError:
+        return []
+    guarded, failing, running = [], [], []
+    for p in files:
+        try:
+            calls = f"{HARNESS_DIR}/" in p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if calls:
+            (guarded if p.name in GUARDED_WORKFLOWS else failing).append(p.name)
+        elif p.name in RENDERED_WORKFLOWS or p.name.startswith("deploy-"):
+            running.append(p.name)
+    out = []
+    if failing:
+        out += [
+            f"  - {', '.join(failing)}: 방금 삭제된 {HARNESS_DIR}/ 를 가드 없이 불러 실패합니다",
+            "    (release.yml 이면 prerelease 브랜치 push 마다). 제거하거나 고치세요.",
+        ]
+    if guarded:
+        out += [
+            f"  - {', '.join(guarded)}: 스크립트가 없으면 exit 0 — 아무것도 검증하지 못한 채",
+            "    push 마다 러너만 씁니다. 함께 제거하세요.",
+        ]
+    if running:
+        out += [
+            f"  - {', '.join(running)}: 삭제된 스크립트를 부르지 않아 계속 돕니다.",
+            "    더 쓰지 않으면 직접 제거하세요(자동 삭제 안 함 — 팀 커스텀 보존).",
+        ]
+    return out
 
 
 def _load_yaml_safe(path: Path) -> dict:
@@ -678,7 +805,7 @@ def render_workflow(host: Path, plugin: Path) -> list[str]:
         text = template.read_text(encoding="utf-8")
         for token, value in replacements.items():
             text = text.replace(token, value)
-        dest.parent.mkdir(parents=True, exist_ok=True)
+        _host_target(host, dest).parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(text, encoding="utf-8")
     except OSError as exc:
         return [f"  [!] 워크플로우 렌더링 실패(수동 확인): {exc}"]
@@ -694,6 +821,13 @@ def load_versioning_config(host: Path) -> dict | None:
         return None
     v = data.get("versioning")
     return v if isinstance(v, dict) else None
+
+
+def load_integration_branch(host: Path) -> str:
+    """Return flow-config `branches.integration`, `dev` when absent or unreadable."""
+    branches = _load_yaml_safe(host / HARNESS_DIR / "config" / "flow-config.yaml").get("branches")
+    value = branches.get("integration") if isinstance(branches, dict) else None
+    return str(value or "dev")
 
 
 def load_deploy_config(host: Path) -> dict | None:
@@ -722,7 +856,9 @@ _RELEASE_TEMPLATES = {
 }
 
 
-def _render_one(src: Path, dest: Path, subs: dict, label: str = "versioning 렌더") -> list[str]:
+def _render_one(
+    host: Path, src: Path, dest: Path, subs: dict, label: str = "versioning 렌더"
+) -> list[str]:
     if not src.exists():
         return [f"  [!] 템플릿 없음: {src.name} — skip"]
     if dest.exists():
@@ -730,8 +866,11 @@ def _render_one(src: Path, dest: Path, subs: dict, label: str = "versioning 렌�
     text = src.read_text(encoding="utf-8")
     for k, val in subs.items():
         text = text.replace(k, val)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(text, encoding="utf-8")
+    try:
+        _host_target(host, dest).parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(text, encoding="utf-8")
+    except OSError as exc:
+        return [f"  [!] {dest.name} 렌더링 실패({_why(exc)}) — 수동 확인 필요"]
     return [f"  [+] .github/workflows/{dest.name} 생성 ({label})"]
 
 
@@ -751,7 +890,11 @@ def render_versioning_workflows(host: Path, plugin: Path) -> list[str]:
     branches = v.get("branches", {}) or {}
     stable = str(branches.get("stable", "main"))
     prerelease = str(branches.get("prerelease", "") or "")
-    subs = {"__HARNESS_STABLE__": stable, "__HARNESS_PRERELEASE__": prerelease}
+    subs = {
+        "__HARNESS_STABLE__": stable,
+        "__HARNESS_PRERELEASE__": prerelease,
+        "__HARNESS_INTEGRATION__": load_integration_branch(host),
+    }
     wf_dir = host / ".github" / "workflows"
 
     # release (per tool) — case-insensitive: harness-init research may propose the tool's
@@ -759,13 +902,14 @@ def render_versioning_workflows(host: Path, plugin: Path) -> list[str]:
     tool = str(v.get("release_tool", ""))
     tmpl = _RELEASE_TEMPLATES.get(tool.strip().lower())
     if tmpl:
-        out += _render_one(plugin / tmpl, wf_dir / "release.yml", subs)
+        out += _render_one(host, plugin / tmpl, wf_dir / "release.yml", subs)
     else:
         out.append(f"  [!] 알 수 없는 release_tool={tool!r} — release.yml skip")
 
     # branch-naming
     if (v.get("branch_naming", {}) or {}).get("enable", False):
         out += _render_one(
+            host,
             plugin / "github/branch-naming.workflow.example.yml",
             wf_dir / "branch-naming.yml",
             subs,
@@ -778,6 +922,7 @@ def render_versioning_workflows(host: Path, plugin: Path) -> list[str]:
         esub["__HARNESS_ENTROPY_SCHEDULE__"] = str(ent.get("schedule", "0 0 * * 5"))
         esub["__HARNESS_ENTROPY_PATHS__"] = " ".join(str(p) for p in (ent.get("paths") or ["src/"]))
         out += _render_one(
+            host,
             plugin / "github/entropy-check.workflow.example.yml",
             wf_dir / "entropy-check.yml",
             esub,
@@ -809,6 +954,22 @@ _DEFAULT_IMAGE_BY_TARGET = {
     "ghcr": "ghcr.io/${{ github.repository }}",
     "dockerhub": "${{ github.repository }}",
 }
+
+
+# The orchestrator's first line, and how a re-render tells its own deploy.yml from the host's.
+ORCHESTRATOR_HEADER = "# Generated by /harness-deployments from flow-config.deploy — DO NOT EDIT."
+
+
+def _orchestrator_is_ours(path: Path) -> bool:
+    """Whether `path` is absent or a deploy.yml this renders. Compared as bytes: a file that is
+    not UTF-8 is the host's, and a BOM an editor added leaves a generated one generated."""
+    if not path.is_file():
+        return True
+    try:
+        head = path.read_bytes()
+    except OSError:
+        return False
+    return head.lstrip(b"\xef\xbb\xbf").startswith(ORCHESTRATOR_HEADER.encode("utf-8"))
 
 
 def _deploy_template_for(target: str, build_tool: str) -> str | None:
@@ -895,14 +1056,23 @@ def render_deploy_workflows(host: Path, plugin: Path) -> list[str]:
             "__HARNESS_DOCKERFILE__": dockerfile,
             "__HARNESS_PUBLISH__": publish,
         }
-        out += _render_one(plugin / tmpl, wf_dir / f"deploy-{name}.yml", subs)
+        out += _render_one(host, plugin / tmpl, wf_dir / f"deploy-{name}.yml", subs)
 
     orch_targets = [t for t in (d.get("targets", []) or []) if _deploy_target_wired(t)]
     if orch_targets:
-        orch = wf_dir / "deploy.yml"
-        orch.parent.mkdir(parents=True, exist_ok=True)
-        orch.write_text(_orchestrator_yaml(orch_targets, d.get("order")), encoding="utf-8")
-        out.append("  [+] .github/workflows/deploy.yml 생성(오케스트레이터, 재생성)")
+        try:
+            orch = _host_target(host, wf_dir / "deploy.yml")
+            if not _orchestrator_is_ours(orch):
+                out.append(
+                    "  [!] .github/workflows/deploy.yml 이 생성본이 아니라 덮어쓰지 않음"
+                    " — 직접 병합하거나 지운 뒤 재실행하세요"
+                )
+            else:
+                orch.parent.mkdir(parents=True, exist_ok=True)
+                orch.write_text(_orchestrator_yaml(orch_targets, d.get("order")), encoding="utf-8")
+                out.append("  [+] .github/workflows/deploy.yml 생성(오케스트레이터, 재생성)")
+        except OSError as exc:
+            out.append(f"  [!] deploy.yml 렌더링 실패({_why(exc)}) — 수동 확인 필요")
     out += integrate_release_deploy(host, plugin)
     return out
 
@@ -982,11 +1152,21 @@ def integrate_release_deploy(host: Path, plugin: Path) -> list[str]:
         rel = host / ".github" / "workflows" / "release.yml"
         if not rel.exists():
             return ["  [=] release.yml 없음 — deploy 배선 skip"]
+        try:
+            text, eol = _read_host_text(host, rel)
+        except OSError as exc:
+            return [f"  [!] release.yml 수정 거부({_why(exc)}) — 수동 확인 필요"]
         d = load_deploy_config(host)
         enabled = bool(d and d.get("enable", False))
         wired = [t for t in (d.get("targets") if d else None) or [] if _deploy_target_wired(t)]
         body = _deploy_call_job(wired) if (enabled and wired) else ""
-        text = rel.read_text(encoding="utf-8")
+        if body and not _orchestrator_is_ours(rel.parent / "deploy.yml"):
+            # The call job hands `tag` to a reusable workflow; GitHub rejects release.yml whole
+            # when the file it calls takes no such input.
+            return [
+                "  [!] release.yml deploy 배선 보류 — deploy.yml 이 생성본이 아님"
+                " (workflow_call 의 tag 입력을 확인한 뒤 직접 배선하세요)"
+            ]
         lines = text.splitlines()
         begin_marker = "# __HARNESS_DEPLOY_BEGIN__"
         end_marker = "# __HARNESS_DEPLOY_END__"
@@ -995,9 +1175,7 @@ def integrate_release_deploy(host: Path, plugin: Path) -> list[str]:
         if begin is None or end is None or end < begin:
             return report_legacy_release_workflow(enabled)
         new_lines = lines[: begin + 1] + ([body] if body else []) + lines[end:]
-        rel.write_text(
-            "\n".join(new_lines) + ("\n" if text.endswith("\n") else ""), encoding="utf-8"
-        )
+        _write_host_text(rel, "\n".join(new_lines) + ("\n" if text.endswith("\n") else ""), eol)
         return [
             "  [+] release.yml deploy 배선 갱신(관리 블록)"
             if body
@@ -1014,7 +1192,7 @@ def _orchestrator_yaml(targets: list, order: list | None) -> str:
     hand-edit)."""
     order = [str(o) for o in (order or [])]
     L = [
-        "# Generated by /harness-deployments from flow-config.deploy — DO NOT EDIT.",
+        ORCHESTRATOR_HEADER,
         "# Change targets in flow-config.yaml and re-render (/flow-init or /harness-deployments).",
         "name: deploy",
         "on:",
@@ -1197,7 +1375,7 @@ def render_unit_test_workflow(host: Path, plugin: Path) -> list[str]:
         text = template.read_text(encoding="utf-8")
         for token, value in replacements.items():
             text = text.replace(token, value)
-        dest.parent.mkdir(parents=True, exist_ok=True)
+        _host_target(host, dest).parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(text, encoding="utf-8")
     except OSError as exc:
         return [f"  [!] unit-test 워크플로우 렌더링 실패(수동 확인): {exc}"]
@@ -1217,7 +1395,7 @@ def render_wiki_verify_workflow(host: Path, plugin: Path) -> list[str]:
     host that took the earlier unconditional render keeps the file it already has.
     """
     return _render_one(
-        plugin / WIKI_VERIFY_TEMPLATE, host / WIKI_VERIFY_DEST, {}, "wiki-verify 렌더"
+        host, plugin / WIKI_VERIFY_TEMPLATE, host / WIKI_VERIFY_DEST, {}, "wiki-verify 렌더"
     )
 
 
@@ -1230,7 +1408,9 @@ def render_srs_verify_workflow(host: Path, plugin: Path) -> list[str]:
 
     Idempotent·non-destructive (existing dest → report only), like every render here.
     """
-    return _render_one(plugin / SRS_VERIFY_TEMPLATE, host / SRS_VERIFY_DEST, {}, "srs-verify 렌더")
+    return _render_one(
+        host, plugin / SRS_VERIFY_TEMPLATE, host / SRS_VERIFY_DEST, {}, "srs-verify 렌더"
+    )
 
 
 def render_doc_style_workflow(host: Path, plugin: Path) -> list[str]:
@@ -1253,7 +1433,9 @@ def render_doc_style_workflow(host: Path, plugin: Path) -> list[str]:
         return ["  [=] doc_style 미설정 — 워크플로 skip"]
     if not ds.get("enable"):
         return ["  [=] doc_style.enable=false — 워크플로 미설치"]
-    return _render_one(plugin / DOC_STYLE_TEMPLATE, host / DOC_STYLE_DEST, {}, "doc-style 렌더")
+    return _render_one(
+        host, plugin / DOC_STYLE_TEMPLATE, host / DOC_STYLE_DEST, {}, "doc-style 렌더"
+    )
 
 
 def render_e2e_workflow(host: Path, plugin: Path) -> list[str]:
@@ -1271,7 +1453,7 @@ def render_e2e_workflow(host: Path, plugin: Path) -> list[str]:
         return ["  [=] e2e 미설정 — 워크플로 skip"]
     if not cfg.get("enable"):
         return ["  [=] e2e.enable=false — 워크플로 미설치"]
-    out = _render_one(plugin / E2E_TEMPLATE, host / E2E_DEST, {}, "e2e 렌더")
+    out = _render_one(host, plugin / E2E_TEMPLATE, host / E2E_DEST, {}, "e2e 렌더")
     # Delivery is a human trigger (D8 = the scaffold owns playwright.config.*), so the one
     # state the boolean cannot prevent is "workflow rendered, no suite anywhere". The
     # template's detect step keeps that green; this line is how it stops being permanent.
@@ -1442,6 +1624,35 @@ def _step(title: str, produce: Callable[[], list[str]]) -> bool:
     return True
 
 
+def subdir_warning(host: Path) -> list[str]:
+    """A line when the session started below the git top level, else nothing.
+
+    GitHub reads workflows and pre-commit reads its config only at the repository top, so
+    the copies this writes under `host` run nowhere. They stay where they are: the rendered
+    workflows name `.claude/harness-tier/scripts` relative to the top, which a subdirectory
+    host does not have there either.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=str(host),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=10,
+        )
+        top = Path(out.stdout.strip()).resolve() if out.returncode == 0 else None
+        if top is None or top == Path(host).resolve():
+            return []
+    except Exception:  # noqa: BLE001 — a warning never stops the setup
+        return []
+    return [
+        f"  [!] 세션이 git 최상위({top})가 아닌 하위 디렉터리에서 시작됨 — .github/workflows/ 와"
+        " .pre-commit-config.yaml 은 GitHub·pre-commit 이 읽지 않는 위치에 생김. 저장소 최상위에서"
+        " 세션을 열고 /flow-init 을 다시 실행할 것"
+    ]
+
+
 def run_setup(host: Path, plugin: Path) -> bool:
     """Run every step, and answer whether the commit gate is registered.
 
@@ -1467,6 +1678,8 @@ def run_setup(host: Path, plugin: Path) -> bool:
     # an unrecognized single entry in an otherwise valid list also prints `[!]` there, and
     # that case leaves `names` fully trustworthy.
     print(f"flow-init 기계적 셋업 — host={host}")
+    for line in subdir_warning(host):
+        print(line)
     finished = [
         _step("[복사]", lambda: copy_artifacts(plugin, host, names)),
         _step(
@@ -1477,7 +1690,7 @@ def run_setup(host: Path, plugin: Path) -> bool:
                 + (codex_leftovers(host, names) if harnesses_readable else [])
             ),
         ),
-        _step("[규칙 복사]", lambda: copy_rules(plugin, host, names)),
+        _step("[규칙 정리]", lambda: [remove_rules(host)]),
         _step("[마켓 자동 업데이트]", lambda: [register_marketplace(host)]),
         _step("[pre-commit 점검]", lambda: check_precommit(plugin, host)),
         _step("[설계 산출물 템플릿]", lambda: seed_design_templates(plugin, host)),
@@ -1535,6 +1748,31 @@ def _codex_hook_status(host: Path) -> str:
         return "unconfirmed"
 
 
+# What the uninstall steps may change in a host, for the commit reminder: the files compared
+# by content, the directories by whether they exist.
+UNINSTALL_FILES = (
+    ".claude/settings.json",
+    ".codex/hooks.json",
+    ".gitignore",
+    "CLAUDE.md",
+    "AGENTS.md",
+)
+UNINSTALL_DIRS = (HARNESS_DIR, RULES_DEST)
+
+
+def _bytes_or_none(path: Path) -> bytes | None:
+    try:
+        return path.read_bytes()
+    except OSError:
+        return None
+
+
+def _uninstall_state(host: Path) -> dict[str, object]:
+    state: dict[str, object] = {rel: _bytes_or_none(host / rel) for rel in UNINSTALL_FILES}
+    state.update({f"{rel}/": (host / rel).is_dir() for rel in UNINSTALL_DIRS})
+    return state
+
+
 def run_uninstall(host: Path) -> bool:
     """Run every step, and answer whether the gate hook is gone.
 
@@ -1545,6 +1783,7 @@ def run_uninstall(host: Path) -> bool:
     case again: it reports its line and the run goes on, because the verdict is what
     the caller came for."""
     print(f"harness-tier 정리(uninstall) — host={host}")
+    before = _uninstall_state(host)
     finished = [
         _step("[커밋 게이트 해제]", lambda: [unregister_gate(host)]),
         # Always — regardless of what flow-config.yaml's `harnesses` currently says. A host
@@ -1566,18 +1805,19 @@ def run_uninstall(host: Path) -> bool:
     print("[남는 항목 — 수동 처리 안내]")
     print("  - .pre-commit-config.yaml 의 teams-notify-push 훅/정적분석 훅은 자동 제거하지")
     print("    않습니다(주석·팀 커스텀 보존). 필요 시 직접 제거하세요.")
-    print("  - .github/workflows/api-contract.yml 은 자동 삭제하지 않습니다(팀 커스텀 보존).")
-    print("    계약 테스트를 끄려면 직접 제거하세요.")
-    print("  - .github/workflows/wiki-verify.yml·doc-style.yml·srs-verify.yml 은 방금 삭제된")
-    print("    .claude/harness-tier/scripts/ 의 스크립트를 실행합니다. 없는 스크립트를 가드가")
-    print("    보고 exit 0 하므로 CI 가 빨개지지는 않지만 더는 아무것도 검증하지 못하니 함께")
-    print("    제거하세요. 같은 경로를 쓰는 release 워크플로우는 렌더한 종류에 달렸습니다 —")
-    print("    python-semantic-release 는 가드가 있고, gitversion·jreleaser 는 가드가 없어")
-    print("    릴리스 브랜치 push 에서 실패합니다.")
+    try:
+        workflows = report_workflows(host)
+    except Exception:  # noqa: BLE001 — a listing that cannot run must not cost the verdict
+        workflows = ["  - .github/workflows/ 를 읽지 못했습니다 — 남은 워크플로를 직접 확인하세요."]
+    for line in workflows:
+        print(line)
     print("  - 설치했던 git 훅 비활성화:")
     print("      pre-commit uninstall --hook-type pre-commit --hook-type commit-msg \\")
     print("        --hook-type pre-push")
-    print("  - .claude/harness-tier/ 의 git 추적 파일 삭제는 커밋해야 반영됩니다.")
+    after = _uninstall_state(host)
+    changed = [rel for rel in before if before[rel] != after[rel]]
+    if changed:
+        print(f"  - 이 정리가 바꾼 것은 커밋해야 반영됩니다: {', '.join(changed)}")
     # Named separately, not one shared line: settings.json and .codex/hooks.json are
     # different files a different step failed to clear, and a host whose Codex hook is the
     # only thing left must not be sent to settings.json, which holds nothing by then.

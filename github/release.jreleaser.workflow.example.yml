@@ -34,7 +34,7 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
@@ -47,7 +47,7 @@ jobs:
           HARNESS_SCRIPTS: .claude/harness-tier/scripts
           AUTO_LEVEL: patch
         run: |
-          LEVEL="$(git log -1 --pretty=%B | sed -nE 's/^Release-Level:[[:space:]]*(major|minor|patch)[[:space:]]*$/\1/p' | head -1)"
+          LEVEL="$(git log -1 --pretty=%B | sed -nE 's/^Release-Level:[[:space:]]*(major|minor|patch)[[:space:]]*$/\1/Ip' | head -1)"
           LEVEL="${LEVEL:-patch}"
           CURRENT="$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo 0.0.0)"
           if [ "$REF_NAME" = "__HARNESS_PRERELEASE__" ]; then
@@ -90,7 +90,11 @@ jobs:
 
       - name: Expose released tag
         id: exposetag
-        run: echo "tag=$(git describe --tags --abbrev=0)" >> "$GITHUB_OUTPUT"
+        run: |
+          # JReleaser tags through the GitHub API: until a fetch, the checkout's newest tag is
+          # the previous release.
+          git fetch --tags --force --quiet origin
+          echo "tag=$(git describe --tags --abbrev=0)" >> "$GITHUB_OUTPUT"
       - name: Stable release notes from CHANGELOG
         if: ${{ github.ref_name == '__HARNESS_STABLE__' && steps.exposetag.outputs.tag != '' }}
         env:

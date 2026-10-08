@@ -211,10 +211,10 @@ def test_the_top_level_name_is_not_shadowed_by_a_nested_one(tmp_path, indent):
     assert "someone-else" not in notice, notice
 
 
-@pytest.mark.parametrize("source", ["clear", "compact"])
+@pytest.mark.parametrize("source", ["clear", "compact", "resume", "fork"])
 def test_non_startup_source_is_silent(tmp_path, source):
-    """A cleared or compacted session already saw the notice; repeating it is noise. (`resume`
-    is not in hooks.json's matcher, so it never reaches the hook at all.)"""
+    """Only a fresh session announces: every other source continues a session that already
+    saw the notice, and repeating it is noise."""
     payload = json.dumps({"hook_event_name": "SessionStart", "source": source})
     assert _notice(_run(_plugins_root(tmp_path), stdin=payload)) is None
 

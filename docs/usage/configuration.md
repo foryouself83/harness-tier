@@ -89,7 +89,8 @@ hook — see [what the gate sees](tiers-and-gates.md#what-the-gate-sees).
 ### `review_checklist`
 
 The categories the Dev `review` gate judges every changed file against. The five above come from
-[`rules/risk-tiers.md`](../../rules/risk-tiers.md) Step 3; append your own rather than dropping one.
+[`dev-overlays.md`](../../skills/flow/references/dev-overlays.md); append your own rather than
+dropping one.
 
 ### `commit_guide`
 
@@ -130,10 +131,11 @@ The prose check against [`rules/doc-style.md`](../../rules/doc-style.md).
 |------|---------|
 | `enable` | Turns on the commit-time check and the `doc-style.yml` workflow together |
 | `paths` | Repo-relative globs in scope, `["**/*.md"]` by default; add `**/*.py` · `**/*.sh` for comments |
-| `exclude` | Globs kept out, added to the three the checker always skips |
+| `exclude` | Globs kept out, added to what the checker always skips |
 
-The checker always skips `CHANGELOG.md`, `docs/superpowers/` and `.superpowers/`; `exclude` adds
-to them and cannot remove one. `/flow-init` asks about this section.
+The checker always skips every `CHANGELOG.md`, GitHub's issue and pull request templates,
+`docs/superpowers/` and `.superpowers/`; `exclude` adds to them and cannot remove one.
+`/flow-init` asks about this section.
 
 ### `design_docs`
 
@@ -162,4 +164,5 @@ lasts until the next plugin update. There is no lasting way to change it from a 
 enforcement altogether, run [`/flow-uninstall`](update-and-removal.md#flow-uninstall--remove-host-side-wiring).
 
 It holds two things: which gates each tier requires, and `merge_strategy`, the flags each branch
-flow's `git merge` must carry. Both are described in [tiers and gates](tiers-and-gates.md).
+flow's `git merge` (or a branch-naming, non-rebasing `git pull`) must carry. Both are
+described in [tiers and gates](tiers-and-gates.md).

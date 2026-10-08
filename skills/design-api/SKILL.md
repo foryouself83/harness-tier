@@ -3,8 +3,8 @@ name: design-api
 description: Write the API specification from the SRS, SDS, architecture and code, check every id, and render it to .docx.
 disable-model-invocation: true
 model: sonnet
-# Same rule as design-erd: each command below is exact, since a trailing `*` would grant
-# `<command> && <anything>` too. `pip install …` stays promptable for the same reason.
+# Same rule as design-erd: each command below is exact, since none takes a varying argument.
+# `pip install …` stays promptable: the user's own yes/no in Step 1 decides it.
 allowed-tools: Bash(python3 .claude/harness-tier/scripts/design_doc_check.py --paths) Bash(python3 .claude/harness-tier/scripts/design_doc_check.py --templates) Bash(python3 .claude/harness-tier/scripts/design_doc_check.py --doc api) Bash(python3 .claude/harness-tier/scripts/design_doc_check.py --wiki-id api) Bash(python3 .claude/harness-tier/scripts/design_doc_render.py --check-deps) Bash(python3 .claude/harness-tier/scripts/design_doc_render.py api) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --build)
 ---
 

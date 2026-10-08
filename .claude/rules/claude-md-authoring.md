@@ -1,6 +1,6 @@
 ---
 paths:
-  - "CLAUDE.md"
+  - ".claude/CLAUDE.md"
 ---
 
 # Editing this repo's CLAUDE.md

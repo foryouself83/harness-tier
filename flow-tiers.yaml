@@ -22,7 +22,7 @@ tiers:
 
   staging:
     description: "QA/RC promotion (dev → stage) — security-tool pre-check + human bump-level selection"
-    # A promotion validates already-built work; risk-tiers Step 2 is the SSOT for this field.
+    # A promotion validates already-built work; the risk-tiers git-flow mapping table is the SSOT for this field.
     superpowers: false
     gates:
       - precommit

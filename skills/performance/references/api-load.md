@@ -49,6 +49,9 @@ successful response.
 # Save the spec to a fixed, shared path — every later step in this file (openapi-to-k6, the scenario
 # generator) reads from this exact path, so there is only one file location to keep in sync.
 mkdir -p /tmp/harness-perf
+# Write k6-load.ts and gen-k6-scenarios.mjs (§2.1) under the path this prints: Git Bash's /tmp
+# is %TEMP%, and the Write tool reads a literal /tmp as C:\tmp, where no command here looks.
+cygpath -m /tmp/harness-perf 2>/dev/null || echo /tmp/harness-perf
 SPEC_PATH="/tmp/harness-perf/openapi_spec.json"
 SPEC_URL=""
 for path in /openapi.json /v3/api-docs /swagger/v1/swagger.json /swagger.json /api-docs; do
@@ -146,7 +149,7 @@ echo "generated client: ${CLIENT_FILE}"
 > total — using it here would silently run 1000 iterations per endpoint instead of the promised 100.
 
 ```typescript
-// /tmp/harness-perf/k6-load.ts — per-endpoint scenarios (100 TOTAL iterations each, shared across 10 VUs)
+// <printed harness-perf path>/k6-load.ts — per-endpoint scenarios (100 TOTAL iterations each, shared across 10 VUs)
 // Import path/class name are illustrative — see §2.1's generator below to derive them from the real
 // generated file rather than hardcoding.
 import { TestAPIClient } from './client/testAPI.ts';
@@ -177,7 +180,7 @@ since the method name and the string literal are both derived from the same `ope
 then emit one scenario + wrapper function per operation:
 
 ```javascript
-// /tmp/harness-perf/gen-k6-scenarios.mjs
+// <printed harness-perf path>/gen-k6-scenarios.mjs
 // Usage: node gen-k6-scenarios.mjs <spec.json> <generated-client.ts> <output k6-load.ts>
 import fs from 'fs';
 import path from 'path';
@@ -235,6 +238,7 @@ console.log(`Generated ${operationIds.length} scenarios -> ${outPath}`);
 ```
 
 ```bash
+CLIENT_FILE=$(find /tmp/harness-perf/client -name '*.ts' | head -1)   # a fresh shell: found again
 node /tmp/harness-perf/gen-k6-scenarios.mjs /tmp/harness-perf/openapi_spec.json "${CLIENT_FILE}" /tmp/harness-perf/k6-load.ts
 k6 run --out json=/tmp/harness-perf/k6-result.json /tmp/harness-perf/k6-load.ts
 ```

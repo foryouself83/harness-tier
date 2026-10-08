@@ -39,7 +39,14 @@ jobs:
           registry-url: "https://registry.npmjs.org"
       - name: Build
         run: __HARNESS_BUILD__
+      # A prerelease goes to the `next` dist-tag: published bare it becomes `latest`, which every
+      # `npm install` of the package then resolves to.
       - name: Publish to npm
-        run: npm publish --provenance --access public
+        run: |
+          case "$TAG" in
+            *-*) npm publish --provenance --access public --tag next ;;
+            *) npm publish --provenance --access public ;;
+          esac
         env:
+          TAG: ${{ inputs.tag }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -211,7 +211,7 @@ def test_reads_the_trailer_rejects_computation_without_consumption():
     assert _reads_the_trailer(psr_body)
     old = (
         '          if [ "$NEXT" = "auto" ]; then\n'
-        "            semantic-release version --commit --tag --push --changelog\n"
+        "            semantic-release version --commit --tag --push --changelog --no-vcs-release\n"
         "          else\n"
         '            python "$HARNESS_SCRIPTS/finalize_prerelease.py" --set "$NEXT"\n'
         "            git add pyproject.toml\n"

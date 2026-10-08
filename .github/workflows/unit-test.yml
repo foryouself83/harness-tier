@@ -13,6 +13,9 @@ on:
     branches: [dev, stage, main]
   workflow_call:
 
+permissions:
+  contents: read
+
 jobs:
   unit-test:
     runs-on: ubuntu-latest

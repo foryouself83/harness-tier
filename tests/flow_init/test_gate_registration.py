@@ -150,4 +150,4 @@ def test_main_setup_then_uninstall_dispatch(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["flow_init_setup.py", "--uninstall"])
     main()
     assert not vd.exists()
-    assert not any(_is_gate(c) for c in _gate_commands(settings))
+    assert not settings.exists()

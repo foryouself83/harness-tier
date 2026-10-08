@@ -1,6 +1,6 @@
 ---
 name: commit
-description: "Use when a commit message has to be written or a commit issued — choosing the Conventional Commits type, drafting the subject and body, staging the affected files, fixing a subject that is too long, or adding the `Release-Level` trailer to a staging promotion. Writing one freehand is where the rules get missed: the 50/72 limit, and the rule that a consumer-facing `.md` must be `feat`/`fix` because `docs` and `chore` never reach a consumer at all. /flow invokes it at each of its commit steps. It does not classify the tier, so it never stands in for /flow on a development request."
+description: "Use when a commit message has to be written or a commit issued — the Conventional Commits type, subject, body, staging, a subject that is too long, or the `Release-Level` trailer. A freehand message misses the 50/72 limit and the rule that a consumer-facing `.md` is `feat`/`fix`, never `docs`/`chore`. It never stands in for /flow on a development request."
 argument-hint: "[tier · bump level · what changed]"
 ---
 

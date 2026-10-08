@@ -36,9 +36,12 @@ otherwise. Order: `/harness-init` → `/flow-init` → `/harness-deployments`.
      ecs) or `maven-central`+`build_tool: sbt`, authored directly from that recipe;
    - an unmatched target, researched and authored with a "verify needed" flag and its required
      secrets;
-   - `deploy.yml`, the orchestrator, generated from the targets;
+   - `deploy.yml`, the orchestrator, generated from the targets; a file already at that path
+     that does not open with the generated header is the host's own — reported and left
+     alone, never merged;
    - the managed block in `release.yml` that calls the orchestrator — regenerated on legacy or
-     foreign files only after you confirm a diff;
+     foreign files only after you confirm a diff; withheld, too, while `deploy.yml` is the
+     host's own, since the call job's `tag` input has nothing generated to land in;
    - `docs/operations/deploy-guide.md` — secrets to configure, including the JVM signing-key
      format per build tool, manual re-deploy, and rollback pointers.
 4. **Reports** the files created or changed, the secrets the repository admin must set, and any

@@ -25,9 +25,10 @@ to wait for the reply — never answer the question yourself or skip it.
 
 1. **Confirm (destructive)** — deleting `.claude/harness-tier/` removes host-owned
    files too: `flow-config.yaml`, **webhooks**
-   (`teams-webhooks.json` is git-tracked/team-shared), and gate evidence. List what
-   will be removed and ask the user (structured choice) to confirm (default: **no**). Stop if
-   declined.
+   (`teams-webhooks.json` is git-tracked/team-shared), the **design-doc templates** under
+   `templates/` with any edits made to them, and gate evidence. List what will be removed —
+   saying the templates can be copied out first — and ask the user (structured choice) to
+   confirm (default: **no**). Stop if declined.
 
 2. **Run the cleanup** (idempotent — match-then-skip, the inverse of `/flow-init`):
    ```bash
@@ -35,31 +36,31 @@ to wait for the reply — never answer the question yourself or skip it.
    ```
    Relay its report. It:
    - **Unregisters** the commit gate and the `harness-tier` marketplace from
-     `.claude/settings.json` (preserves any other hooks).
-   - **Strips** the harness-tier `.gitignore` lines and the `CLAUDE.md` `harness-tier:teams`
-     managed block.
-   - **Deletes** `.claude/harness-tier/` (scripts, config, evidence, webhooks) and
-     `.claude/rules/harness-tier/` (the copied rules — the host's own rules stay).
+     `.claude/settings.json` (preserves any other hooks), and deletes the file when nothing
+     else is left in it.
+   - **Strips** the harness-tier `.gitignore` lines — keeping `.teams-webhooks.local.json`,
+     which may still guard a secret — and the `CLAUDE.md` `harness-tier:teams` managed block.
+   - **Unregisters** the Codex gate from `.codex/hooks.json` and strips the managed block
+     from `AGENTS.md`, whether or not `codex` is still listed under `harnesses`.
+   - **Deletes** `.claude/harness-tier/` (scripts, config, evidence, webhooks, templates) and
+     `.claude/rules/harness-tier/` (the plugin's rules an older `/flow-init` may have copied in
+     — the host's own rules stay).
 
 3. **Relay the manual follow-ups** the script prints (it does **not** do these —
    they're destructive to user-owned files):
    - `.pre-commit-config.yaml`'s `teams-notify-push` / static-analysis hooks are
      left in place (team customizations / comments). Remove by hand if desired.
-   - `.github/workflows/wiki-verify.yml`, `doc-style.yml` and `srs-verify.yml` call the
-     deleted `.claude/harness-tier/scripts/wiki_graph.py`, `doc_style_check.py` and
-     `srs_check.py`. Each guard sees its missing script and exits 0, so none turns the
-     repo red — none can ever verify anything again — while each still spends a runner on
-     every push. Remove them together. Of the
-     release renders on that path, `python-semantic-release` guards its call, while
-     `gitversion` and `jreleaser` **do** fail on pushes to the release branches;
-     `cargo-release` / `semantic-release` never reference it. Self-contained renders like
-     `api-contract.yml` / `unit-test.yml` merely stay active.
-   - `.github/workflows/e2e.yml`, if it was rendered, references nothing this uninstall
-     deletes — it calls Playwright, not a harness script. It keeps running and keeps
-     costing runner minutes. Remove it by hand if the suite is going too.
+   - The workflows it names under `.github/workflows/`, read from the files there:
+     - the ones calling the deleted `.claude/harness-tier/` **without a guard fail** —
+       `release.yml` from every release tool, on each push to the prerelease branch;
+     - `wiki-verify.yml`, `doc-style.yml` and `srs-verify.yml` guard their script and exit 0,
+       verifying nothing while each still spends a runner on every push;
+     - self-contained renders (`branch-naming.yml`, `entropy-check.yml`, `unit-test.yml`,
+       `api-contract.yml`, `e2e.yml`, `deploy*.yml`) keep running and costing runner minutes.
+     Remove what is no longer wanted by hand.
    - Disable the installed git hooks:
      `pre-commit uninstall --hook-type pre-commit --hook-type commit-msg --hook-type pre-push`.
-   - Commit the deletions (the removed `.claude/harness-tier/` files were git-tracked).
+   - Commit what the run changed — it names each file and directory it touched.
 
 4. After cleanup, the user can `/plugin uninstall harness-tier` to remove the cached
    plugin.

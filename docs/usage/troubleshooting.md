@@ -9,10 +9,14 @@ block described here is layer 2 — an agent-session (Claude Code or Codex) comm
 ## Blocked — "python3 / PyYAML required"
 
 Message: `게이트에 python3 가 필요합니다` · `게이트에 python 3.8+ 가 필요합니다` ·
-`게이트에 PyYAML 이 필요합니다`.
+`게이트에 PyYAML 이 필요합니다` · `python3 가 Microsoft Store 별칭이라 python 이 실행되지 않습니다`.
 
 The gate needs `python3` 3.8 or later and PyYAML, whatever your project's language. Without them
-it blocks every commit rather than let checks drop out in silence.
+it blocks every commit rather than let checks drop out in silence. The fourth message is
+Windows-specific: the Microsoft Store's app execution alias answers `command -v python3` while
+running no interpreter, which the version check otherwise misreads as "too old". Install the
+Python install manager (`winget install 9NQ7512CXL7T`) and run `py install 3.12`, or turn the
+alias off under Windows' App execution aliases settings, then put a real `python3` on `PATH`.
 
 ```bash
 python3 -m pip install pyyaml                       # into the python3 the hook calls
@@ -45,10 +49,12 @@ the listed gates through `/flow` (Docs, Dev) or `/release-commit` (Staging, Rele
 Message: `머지 전략 위반 — '<source>' → '<target>' 는 <flag> 가 필요합니다.` or
 `… 에는 <flag> 를 쓰지 않습니다.`
 
-The `git merge` flags break its branch flow's rule. Use the flag the message names; the table is
-in [merge strategy](tiers-and-gates.md#merge-strategy).
+The `git merge` flags (or, for a branch-naming, non-rebasing `git pull`, the merge flags it
+stands in for) break its branch flow's rule. Use the flag the message names; the table is in
+[merge strategy](tiers-and-gates.md#merge-strategy).
 A `[경고] 머지 전략: … rebase 선행이 요구됩니다` line is a warning only — rebase the feature
-branch first, or ignore it when your `origin` ref is stale.
+branch first, or ignore it when your `origin` ref is stale. A merge the hook passes after
+an internal error says so in the same way (`merge 전략 판정 실패 — 판정 없이 통과`).
 
 ## Blocked — module pre-check failed
 

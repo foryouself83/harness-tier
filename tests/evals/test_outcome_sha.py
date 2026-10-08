@@ -3,8 +3,8 @@ from dataclasses import fields, replace
 from pathlib import Path
 
 import evals.outcome as outcome
-import evals.run as run
 import scripts.skill_sandbox as sandbox
+from evals.runner import config, session
 
 
 class _CapturingSubprocess:
@@ -23,6 +23,8 @@ class _CapturingSubprocess:
         cap = self.captured
 
         class _Proc:
+            returncode = 0
+
             def communicate(self, timeout=None):
                 cap["timeout"] = timeout
                 return (b"", b"")
@@ -32,31 +34,31 @@ class _CapturingSubprocess:
 
 def test_claude_stream_defaults_reproduce_the_scored_command(monkeypatch):
     fake = _CapturingSubprocess()
-    monkeypatch.setattr(run, "subprocess", fake)
-    run._claude_stream("p", None, Path("."), Path("cfg"))
+    monkeypatch.setattr(session, "subprocess", fake)
+    session._claude_stream("p", None, Path("."), Path("cfg"))
     cmd = fake.captured["cmd"]
-    assert cmd[cmd.index("--max-turns") + 1] == str(run.MAX_TURNS)
+    assert cmd[cmd.index("--max-turns") + 1] == str(config.MAX_TURNS)
     assert "--permission-mode" not in cmd
     assert "--add-dir" not in cmd
-    assert fake.captured["timeout"] == run.SESSION_TIMEOUT
+    assert fake.captured["timeout"] == config.SESSION_TIMEOUT
 
 
 def test_claude_stream_threads_the_outcome_flags(monkeypatch):
     fake = _CapturingSubprocess()
-    monkeypatch.setattr(run, "subprocess", fake)
-    run._claude_stream(
+    monkeypatch.setattr(session, "subprocess", fake)
+    session._claude_stream(
         "p",
         None,
         Path("."),
         Path("cfg"),
         permission_mode="bypassPermissions",
-        add_dirs=(run.REPO,),
+        add_dirs=(config.REPO,),
         max_turns=25,
         timeout=300,
     )
     cmd = fake.captured["cmd"]
     assert cmd[cmd.index("--permission-mode") + 1] == "bypassPermissions"
-    assert cmd[cmd.index("--add-dir") + 1] == str(run.REPO)
+    assert cmd[cmd.index("--add-dir") + 1] == str(config.REPO)
     assert cmd[cmd.index("--max-turns") + 1] == "25"
     assert fake.captured["timeout"] == 300
 

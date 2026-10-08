@@ -21,7 +21,8 @@ Not applicable — on GHCR the GITHUB_TOKEN is itself a short-lived credential a
   publicly, either change the visibility directly in the GHCR package settings, or turn on
   "Inherit access from source repository" in the org settings so the package is automatically
   linked to and inherited by the repo.
-- The image name must be lowercase (`ghcr.io/<owner>/<name>`) — a repo name with uppercase letters mixed in produces a tag error.
+- The image name must be lowercase (`ghcr.io/<owner>/<name>`) — a repo name with uppercase letters mixed in produces a tag error; the template lowercases it before tagging.
+- A prerelease tag (`vX.Y.Z-rc.N`) never also tags `:latest` — only a stable tag moves it, so a bare `docker pull` keeps resolving to the last stable image.
 
 ## Corresponding template
 `github/deploy.ghcr.workflow.example.yml` — the image+docker combination is statically rendered by `/flow-init --render-deploy`.

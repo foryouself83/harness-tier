@@ -264,24 +264,24 @@ fi
 # mandate moves the skills measured invocation rates, and a path is not worth that.
 escape_for_json rule_escaped "$rule_content"
 escape_for_json rules_dir_escaped "${PLUGIN_ROOT}/rules"
-flow="/flow"
-invoke_as="the /flow skill (via the Skill tool)"
+# The rule's own Principle carries the mandate; Codex gets one line mapping its slash forms.
+harness_line=""
 if [ "$HARNESS" = codex ]; then
-  # shellcheck disable=SC2016 # $flow names Codex's slash form and must stay literal, not expand.
-  flow='$flow'
-  invoke_as="the ${flow} skill (open its SKILL.md and follow it in full)"
+  # shellcheck disable=SC2016 # $flow names Codex's skill form and must stay literal, not expand.
+  harness_line='On Codex a slash command below that names a harness-tier skill is that skill, invoked as $name: start with $flow, open its SKILL.md and follow it in full.'"\n\n"
 fi
-session_context="${notice_block}<harness-tier-risk-tiers>\nThis project enforces the harness-tier risk-tiered workflow AT COMMIT TIME. The commit gate is fail-closed: it blocks any commit whose task was not classified by ${flow}. So before starting ANY code change, feature, fix, or dev request — and at the latest before you commit — your action MUST be to invoke ${invoke_as}. ${flow} is what classifies the task, confirms the tier, runs the matching gates, and records the marker the commit gate requires. Do NOT judge the tier yourself and skip the skill; without ${flow}'s marker the commit is rejected.\n\n${rule_escaped}\n\nThe files this rule links by bare filename live in ${rules_dir_escaped} — read one there when it sends you to it.\n</harness-tier-risk-tiers>"
+session_context="${notice_block}<harness-tier-risk-tiers>\n${harness_line}${rule_escaped}\n\nThe files this rule links by bare filename live in ${rules_dir_escaped} — read one there when it sends you to it.\n</harness-tier-risk-tiers>"
 
 # A separate block, after the risk-tiers one: the mandate's neighbourhood is measured, and
 # text added beside it moves the skills' invocation rates. Names no skill — a slash name
 # here would force `hook_assisted` onto it (tests/evals/test_injected_rule.py).
-# Skipped where /flow-init copied the full rule into the host's .claude/rules/ (RULES_DEST in
-# flow_init_setup.py), which Claude Code loads itself. Codex reads no .claude/rules/.
+# Skipped where an older /flow-init left the full rule in the host's .claude/rules/ (RULES_DEST
+# in flow_init_setup.py), which Claude Code loads itself until a re-sync deletes it. Codex reads
+# no .claude/rules/.
 prose_block=""
 host_rule="${CLAUDE_PROJECT_DIR:-.}/.claude/rules/harness-tier/doc-style.md"
 if [ "$HARNESS" = codex ] || [ ! -f "$host_rule" ]; then
-  prose_block="\n\n<harness-tier-prose>\nThe rule below is guidance you apply while writing. Restate it to the user in the user's language whenever you surface it; do not quote it back in English by default.\n\nBefore writing a comment, ask whether the code can raise instead — an assert, a validated bound, a type. If it can, write that and no comment. Only a trap with no runtime moment to fire at earns the box. Never a how-explanation, a revision history, date or author, or a line number; filenames are fine.\n\nThe box keys are literals the checker parses and do not translate:\n  CRITICAL TRAP: / Trigger: / Symptom:\n\nFull rule: ${rules_dir_escaped}/doc-style.md\n</harness-tier-prose>"
+  prose_block="\n\n<harness-tier-prose>\nApply this while writing comments, docstrings and docs; restate it in the user's language when you surface it.\n\nWrite the fact in force: no history, commit sha, plan pointer, filler, revision field, or line number after a filename. A number only as a contract or a measurement with its conditions. Prefer code that raises (an assert, a bound, a type) over a comment, and never explain how. A trap with no runtime moment gets the box, its keys untranslated:\n  CRITICAL TRAP: / Trigger: / Symptom:\n\nFull rule: ${rules_dir_escaped}/doc-style.md\n</harness-tier-prose>"
 fi
 session_context="${session_context}${prose_block}"
 

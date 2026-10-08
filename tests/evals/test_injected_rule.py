@@ -9,11 +9,11 @@ from tests.evals._helpers import CASES, REPO, SKILLS
 def _injected_session_text() -> str:
     """Everything the SessionStart hook puts into a session, not only the rule file.
 
-    `hooks/inject-risk-tiers.sh` wraps `rules/risk-tiers.md` in a hardcoded preamble, and that
-    preamble is the *strongest* form the help takes — it says outright that the agent's action
-    MUST be to invoke /flow. Reading only the rule file would miss it, and would also report
-    "the help is gone" if someone rewrote the rule file's slash forms into prose while the
-    preamble kept naming the skill.
+    `hooks/inject-risk-tiers.sh` wraps `rules/risk-tiers.md` in its own text — the Codex mapping
+    line, the prose block — and a slash name it adds reaches the session as surely as the
+    rule's. Reading only the rule file would miss one, and would also report "the help is gone"
+    if someone rewrote the rule file's slash forms into prose while the hook kept naming the
+    skill.
 
     None of it reaches a session unless `hooks.json` still registers the script for `startup`.
     Narrowing that matcher would end the help while both files still named the skills, so this

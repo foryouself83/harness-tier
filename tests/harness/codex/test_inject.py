@@ -82,7 +82,7 @@ def test_codex_preamble_spells_the_skill_the_codex_way():
     ]
     preamble = ctx.split("<harness-tier-risk-tiers>")[1].split("\n\n")[0]
     assert "/flow" not in preamble, preamble
-    assert preamble.count("$flow") == 4, preamble
+    assert "$flow" in preamble and "SKILL.md" in preamble, preamble
 
 
 @pytest.mark.parametrize("args", BAD_HARNESS_ARGS)

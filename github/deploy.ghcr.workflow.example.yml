@@ -38,11 +38,25 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # A registry rejects an uppercase repository name, which `github.repository` carries
+      # whenever the owner's name does. A prerelease never moves `latest`, the tag a bare
+      # `docker pull` resolves to.
+      - name: Image tags
+        id: tags
+        env:
+          IMAGE: "__HARNESS_IMAGE__"
+          TAG: ${{ inputs.tag }}
+        run: |
+          IMAGE="$(printf '%s' "$IMAGE" | tr '[:upper:]' '[:lower:]')"
+          {
+            echo "tags<<EOF"
+            echo "$IMAGE:$TAG"
+            case "$TAG" in *-*) ;; *) echo "$IMAGE:latest" ;; esac
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v6
         with:
           context: __HARNESS_CONTEXT__
           file: __HARNESS_DOCKERFILE__
           push: true
-          tags: |
-            __HARNESS_IMAGE__:${{ inputs.tag }}
-            __HARNESS_IMAGE__:latest
+          tags: ${{ steps.tags.outputs.tags }}

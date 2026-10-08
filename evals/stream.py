@@ -21,6 +21,8 @@ class Observation:
     errored: bool = False
     completed: bool = False
     tool_calls: int = 0
+    # The last tool the session reached for: where a session killed on the timeout was stuck.
+    last_tool: dict | None = None
 
 
 def _local(name: str) -> str | None:
@@ -49,6 +51,7 @@ def observe(text: str) -> Observation:
                 # is a session that had its chance and did not take it; a kill after none is
                 # a session that never got to say.
                 obs.tool_calls += 1
+                obs.last_tool = {"name": block.get("name"), "input": block.get("input")}
                 if block.get("name") == "Skill":
                     # `or ""`, not a .get default: an aborted call serializes as
                     # {"skill": null}, and .get's default only covers a *missing* key —

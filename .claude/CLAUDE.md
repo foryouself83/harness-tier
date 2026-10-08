@@ -1,15 +1,15 @@
 # CLAUDE.md
 
 This repo is the **Claude Code plugin itself**, not a consumer of it. Usage:
-[README.md](README.md) (core idea + install) · [USAGE.md](USAGE.md) (per-topic index into
-[docs/usage/](docs/usage/)), every file with a Korean twin that `doc-sync` keeps in step.
+[README.md](../README.md) (core idea + install) · [USAGE.md](../USAGE.md) (per-topic index into
+[docs/usage/](../docs/usage/)), every file with a Korean twin that `doc-sync` keeps in step.
 Component authoring specs (agent/hook/skill frontmatter) come from the official docs as
 SSOT, never model knowledge: [skills](https://code.claude.com/docs/en/skills.md) ·
 [plugins-reference](https://code.claude.com/docs/en/plugins-reference.md) ·
 [hooks](https://code.claude.com/docs/en/hooks.md) ·
 [permissions](https://code.claude.com/docs/en/permissions.md).
 `allowed-tools` pre-approves tools, it does not restrict — enforced at point of use by
-[`.claude/rules/skill-frontmatter.md`](.claude/rules/skill-frontmatter.md) and `tests/skills/`.
+[`.claude/rules/skill-frontmatter.md`](rules/skill-frontmatter.md) and `tests/skills/`.
 
 `vway-kit` is the internal sister repo — not a consumer install and not an older name: the same
 disciplines and gate scripts, maintained separately, propagating in neither direction. A session
@@ -34,9 +34,9 @@ on the Windows hook runtime, and the CRLF worktree floods ShellCheck with CR err
   Korean stays only where load-bearing: text the repo quotes rather than authors, the strings a
   test compares against it, and fixtures whose non-ASCII bytes ARE the case — translated, the
   test stays green and stops exercising anything. Untracked `docs/superpowers/` stays Korean.
-- **Write only what the code can't say** — [`rules/doc-style.md`](rules/doc-style.md); for a
-  commit body, [`rules/commit-discipline.md`](rules/commit-discipline.md); for generated
-  harness artifacts, [`rules/harness-rules.md`](rules/harness-rules.md) 5-2.
+- **Write only what the code can't say** — [`rules/doc-style.md`](../rules/doc-style.md); for a
+  commit body, [`rules/commit-discipline.md`](../rules/commit-discipline.md); for generated
+  harness artifacts, [`rules/harness-rules.md`](../rules/harness-rules.md) 5-2.
 - **Dogfood new CI** — a workflow-rendering feature also lands in this repo's own
   `.github/workflows/`, every job with a tight `timeout-minutes`. Exempt: a template whose
   subject does not exist here (a REST service, a browser front end, a deployment target).
@@ -62,12 +62,12 @@ on the Windows hook runtime, and the CRLF worktree floods ShellCheck with CR err
 
 ```text
 .claude-plugin/  plugin manifest · self-exposed marketplace entry (immutable sha pin); .codex-plugin/ · .agents/ mirror this for Codex
-.claude/         dev-only rules for this repo: authoring guidance, and what loads rules/ here — never ships
+.claude/         this file and dev-only rules for this repo: authoring guidance, and what loads rules/ here — never ships
 agents/          subagents the skills dispatch
 hooks/           SessionStart · PostToolUse · Notification hooks — the commit gate is not one; codex/ registers the same pair for Codex
 skills/          one directory per slash command
 rules/           shipped SSOTs: tier discipline (+ on-demand parts), harness generation, prose
-scripts/         gate + setup scripts; the host copy lists are flow_init_setup.py COPY_FILES/RULE_FILES; harness/<name>/ holds each harness's own installer
+scripts/         gate + setup scripts; the host copy lists are flow_init_setup.py COPY_FILES/HARNESS_COPY_FILES; harness/<name>/ holds each harness's own installer
 github/          consumer workflow templates /flow-init and /wiki-init render; .github/ is this repo's own CI
 templates/       design-doc templates /flow-init seeds once into the host (host-owned after)
 tests/           pytest over scripts/ and over the shipped skill and rule files
@@ -89,9 +89,10 @@ docs/            usage/ consumer guide (English + .ko twins, shipped) · superpo
   and its `merge_strategy` names flows only by `flow-config.branches` **key**.
 - **A consumer-facing `.md` change (rules, skills) commits as `feat`/`fix`** — `docs`/`chore`
   trigger no release, and only a `plugin.json` version bump reaches a consumer.
-- **[`rules/risk-tiers.md`](rules/risk-tiers.md) is the tier-discipline SSOT**, injected at
-  SessionStart beside a `doc-style.md` summary (skipped once `/flow-init` has copied the rule
-  into the host); the split-out files are read on demand. Editing
+- **[`rules/risk-tiers.md`](../rules/risk-tiers.md) is the tier-discipline SSOT**, injected at
+  SessionStart beside a `doc-style.md` summary (injected for Codex always, for Claude only while
+  no leftover copy from an older `/flow-init` remains in the host); the split-out files are read
+  on demand. Editing
   it or the hook that injects it costs every `hook_assisted` skill a live re-measure. A rate
   moves with *where* text sits beside `## Principle`'s mandate, not with how much, even on a
   byte-identical description: leave that section alone, move whole sections, and leave no
@@ -99,11 +100,12 @@ docs/            usage/ consumer guide (English + .ko twins, shipped) · superpo
   rate only to a baseline of the same model and `--reps` — a plain `--all` already matches.
 - **Three verification layers**, independent: the host's `.pre-commit-config.yaml`; the flow gate
   (PreToolUse, **agent-session commits and merges only** — terminal commits and CI bypass it);
-  and CI, which closes that blind spot. Per-gate mechanism: the risk-tiers glossary. PR mode takes
-  a flow's merge out of the hook's sight ([`rules/promotion.md`](rules/promotion.md) PR workflow).
+  and CI, which closes that blind spot. Per-gate mechanism: `rules/gate-mechanics.md`. PR mode
+  takes a flow's merge out of the hook's sight ([`rules/promotion.md`](../rules/promotion.md) PR
+  workflow).
 - **Ask a review agent for a literal `VERDICT: PASS` / `VERDICT: FAIL` line** — an ambiguous
   report reads as a pass, and the marker then records a review that never happened.
-- **Skills are measured** — `tests/skills/` checks the file is well-formed, [`evals/`](evals/)
+- **Skills are measured** — `tests/skills/` checks the file is well-formed, [`evals/`](../evals/)
   that it is *reached* (stale when its description or a fixture its cases run in moves) and, in
   the outcome arm, *executed*, whose fingerprint covers the body and every fixture input: a body
   edit costs a re-measure the invocation check never shows.
@@ -119,11 +121,12 @@ Preserve these in `scripts/*` and `hooks/*.sh`; code, tests and skills cite them
      marker exists, and the config names the branch neither staging nor production →
      `flow_gate_check` blocks the **unclassified commit**. A missing or broken policy, or a broken
      config, fails open: the test is "works reliably", not "the file exists".
-   - **Exception 3**: a `git merge` whose flags violate its flow's `merge_strategy` row — a
-     missing `require` flag or a present `forbid` flag, nothing else — is blocked, decided from
-     the command string alone, so no internal error can misfire it. Anything uncertain fails
-     open, as does a command whose merges all run elsewhere; one merge naming no directory
-     beside one that does keeps the whole command judged, behind a `cd` a deliberate over-block.
+   - **Exception 3**: a `git merge`, or a `git pull` that names a branch without rebasing,
+     whose flags violate its flow's `merge_strategy` row — a missing `require` flag or a
+     present `forbid` flag, nothing else — is blocked, decided from the command string alone,
+     so no internal error can misfire it. Anything uncertain fails open, as does a command
+     whose merges all run elsewhere; one merge naming no directory beside one that does keeps
+     the whole command judged, behind a `cd` a deliberate over-block.
 2. **Windows encoding** — the hook's Python runs in a cp949 locale, where a Korean `print()` or a
    UTF-8 `open()` can FAIL-OPEN and let a commit that should be blocked through. Keep the
    `PYTHONUTF8=1` · `force_utf8_io()` · `encoding="utf-8"` defenses.
@@ -137,9 +140,14 @@ Preserve these in `scripts/*` and `hooks/*.sh`; code, tests and skills cite them
    re-designation must never newly block. One exception: a command whose commit tree cannot be
    pinned to one place is gated anyway, since whichever tree it resolves to, its being clean says
    nothing — invocations naming different directories, an untrackable `cd`/`pushd`/`popd` hop (a
-   subshell counts) before a bare commit other than the leading prefix, or a `-C` value still
-   carrying shell expansion or a glob. Same-repo identity is `--git-common-dir` equality, never a
-   path prefix. Keep the uncertain set small. Cases: `scripts/_harness_paths.py`.
+   subshell counts) before a bare commit other than the leading prefix, a `-C` value still
+   carrying shell expansion or a glob, or a commit the directory readers never see to resolve —
+   one inside a script handed to an interpreter, or one a quote, backslash or ANSI-C escape
+   spells (`com''mit`, `c\ommit`, `$'\x63ommit'`). Same-repo identity is `--git-common-dir`
+   equality, never a path prefix. Keep the uncertain set small. Cases:
+   `scripts/_harness_paths.py`. A merge whose target the command never names, in a command that
+   names and moves to no directory, reads that branch from the hook's cwd through the same
+   resolver: Exception 3's verdict, not a re-designation, so it may block.
 7. **One authority for what a `git` invocation is** — the classifier decides; the runner's stdin
    filter only decides whether to spawn it, and stays coarser: a spelling one of them alone
    accepts is the gate off in silence. Quoting, escapes, comments and heredoc bodies are read in
@@ -147,5 +155,5 @@ Preserve these in `scripts/*` and `hooks/*.sh`; code, tests and skills cite them
    text and heredoc bodies are data only until something runs them: any exemption from reading
    them as a command must err toward over-gating, and `git` never earns one. A missed commit is
    the one direction this may never fail in; `tests/skills/` pins real invocations **and** mere
-   mentions. Skills spell `git commit` and `git merge` flags **literally** — the hook reads them
-   unexpanded. Exemption and heredoc rules: `scripts/_harness_paths.py`.
+   mentions. Skills spell `git commit`, `git merge` and `git pull` flags **literally** — the
+   hook reads them unexpanded. Exemption and heredoc rules: `scripts/_harness_paths.py`.

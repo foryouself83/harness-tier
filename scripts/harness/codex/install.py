@@ -14,10 +14,15 @@ from pathlib import Path
 
 try:
     from harness.gate_spec import GATE
-    from harness.jsonfile import load_json_object, why, write_json
+    from harness.jsonfile import load_json_object, why, write_json, write_or_remove
 except ImportError:
     from scripts.harness.gate_spec import GATE
-    from scripts.harness.jsonfile import load_json_object, why, write_json
+    from scripts.harness.jsonfile import (
+        load_json_object,
+        why,
+        write_json,
+        write_or_remove,
+    )
 
 _WRAPPER = GATE.runner_rel.rsplit("/", 1)[0] + "/harness/codex/gate"
 GATE_COMMAND = f'bash "$(git rev-parse --show-toplevel)/{_WRAPPER}.sh"'
@@ -135,7 +140,7 @@ def register(host: Path) -> str:
         _path(host).parent.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         return f"  [!] .codex 를 만들지 못했습니다({why(exc)}) — 수동 확인 필요"
-    failed = write_json(_path(host), data)
+    failed = write_json(_path(host), data, host)
     if failed:
         return failed
     if added and moved:
@@ -172,14 +177,15 @@ def unregister(host: Path) -> str:
         hooks["PreToolUse"] = kept_entries
     else:
         hooks.pop("PreToolUse", None)
-    if not hooks and set(data) <= {"hooks"}:
-        try:
-            _path(host).unlink()
-        except OSError as exc:
-            return f"  [!] .codex/hooks.json 삭제 실패({why(exc)}) — 수동 확인 필요"
+    # A link is written through, and `{"hooks": {}}` is the emptied shape Codex is known to load.
+    if not hooks and set(data) <= {"hooks"} and not _path(host).is_symlink():
+        data.clear()
+    failed, dropped = write_or_remove(_path(host), data, host, ".codex/hooks.json")
+    if failed:
+        return failed
+    if dropped:
         return "  [-] Codex 커밋 게이트 해제 (.codex/hooks.json 삭제 — 남은 훅 없음)"
-    failed = write_json(_path(host), data)
-    return failed or "  [-] Codex 커밋 게이트 해제 (.codex/hooks.json)"
+    return "  [-] Codex 커밋 게이트 해제 (.codex/hooks.json)"
 
 
 def problems(host: Path) -> list[str]:

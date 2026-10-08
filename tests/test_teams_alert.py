@@ -34,11 +34,56 @@ def test_set_and_resolve_webhook(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(ta, "LOCAL_FILE", local)
 
     assert ta.set_webhook("personal", "https://x") == local  # personal → local file
-    assert ta.set_webhook("dev", "https://y") == tracked  # branch → tracked file
+    assert ta.set_webhook("dev", "https://y") == local  # a branch URL stays out of git
+    assert ta.set_webhook("main", "https://z", shared=True) == tracked
     assert ta.resolve_webhook("personal") == "https://x"
     assert ta.resolve_webhook("dev") == "https://y"
+    assert ta.resolve_webhook("main") == "https://z"
     assert ta.resolve_webhook("absent") is None
-    assert ta.push_channels() == ["dev"]  # personal (local-only) is excluded from push targets
+    # The tracked file names the watched branch for every clone, never its `sig=` URL.
+    assert json.loads(tracked.read_text(encoding="utf-8")) == {"dev": "", "main": "https://z"}
+    assert ta.push_channels() == ["dev", "main"]  # personal (local-only) is never a push target
+
+
+def test_a_local_only_branch_is_still_a_push_target(monkeypatch, tmp_path: Path):
+    """A clone whose tracked file predates the branch still posts for the URL it holds."""
+    monkeypatch.setattr(ta, "TRACKED_FILE", tmp_path / "teams-webhooks.json")
+    local = tmp_path / ".teams-webhooks.local.json"
+    monkeypatch.setattr(ta, "LOCAL_FILE", local)
+    local.write_text('{"personal": "https://x", "stage": "https://s"}', encoding="utf-8")
+    assert ta.push_channels() == ["stage"]
+
+
+def test_setting_a_branch_locally_keeps_a_teammates_tracked_url(monkeypatch, tmp_path: Path):
+    tracked = tmp_path / "teams-webhooks.json"
+    monkeypatch.setattr(ta, "TRACKED_FILE", tracked)
+    monkeypatch.setattr(ta, "LOCAL_FILE", tmp_path / ".teams-webhooks.local.json")
+    tracked.write_text('{"dev": "https://team"}', encoding="utf-8")
+    ta.set_webhook("dev", "https://mine")
+    assert json.loads(tracked.read_text(encoding="utf-8")) == {"dev": "https://team"}
+    assert ta.resolve_webhook("dev") == "https://mine"
+
+
+def test_the_cli_names_the_url_that_still_wins(tmp_path: Path):
+    """Registering one side while the other side still holds a URL leaves two copies; the CLI
+    says which one is left, since only the local one stays out of git."""
+    cfg = tmp_path / ".claude" / "harness-tier" / "config"
+    cfg.mkdir(parents=True)
+
+    def cli(*args: str) -> str:
+        r = subprocess.run(
+            [sys.executable, str(SCRIPT), "--set", *args],
+            env=cp949_stdio_env(CLAUDE_PROJECT_DIR=str(tmp_path)),
+            capture_output=True,
+        )
+        assert r.returncode == 0, r.stderr.decode("utf-8", "replace")
+        return r.stdout.decode("utf-8")
+
+    assert "teams-webhooks.json" in cli("dev", "https://team", "--shared")
+    assert "아직 남아" in cli("dev", "https://mine")
+    assert "우선합니다" in cli("dev", "https://team2", "--shared")
+    tracked = json.loads((cfg / "teams-webhooks.json").read_text(encoding="utf-8"))
+    assert tracked == {"dev": "https://team2"}
 
 
 def test_set_confirms_in_utf8_on_a_cp949_host(tmp_path: Path):

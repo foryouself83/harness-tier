@@ -15,7 +15,7 @@ from tests.evals._helpers import REPO
 # for real in a golden fixture, reaches the right end-state — scored by deterministic file
 # assertions (SWE-bench style), not by whether it fired. Everything here is model-free: the
 # pure gate (outcome_sha/outcome_check) needs only disk, and the runner is exercised by
-# patching run._claude_stream, so no session is spawned.
+# patching session._claude_stream, so no session is spawned.
 
 
 def test_doc_sync_drift_declares_a_machine_checkable_outcome():

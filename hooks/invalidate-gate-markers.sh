@@ -55,9 +55,10 @@ CONFIG=".claude/harness-tier/config/flow-config.yaml"
 #
 # Read line by line rather than parsed: this runs on every edit and a YAML parser is a process.
 # `false`, under a top-level `gate_evidence:` that opens a plain block, is the switch — every
-# other value and every other place leaves the hook armed, which is what `rules/risk-tiers.md`
-# promises consumers and the direction an unreadable file has to fail in. A header carrying
-# anything else (a flow mapping, a block scalar) opens no block, so nothing under it is read.
+# other value and every other place leaves the hook armed, which is what
+# `skills/flow/references/dev-overlays.md` promises consumers and the direction an unreadable
+# file has to fail in. A header carrying anything else (a flow mapping, a block scalar) opens no
+# block, so nothing under it is read.
 # Being off is asked for, never inferred.
 opted_out() {
   # Set up front: a failed first `read` must leave the hook armed, not trip `set -u` and exit.

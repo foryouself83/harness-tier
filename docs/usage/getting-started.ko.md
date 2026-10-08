@@ -48,19 +48,28 @@
 |------|------|-----|------|
 | `.claude/harness-tier/config/flow-config.yaml` | 사용자 | 추적 | 팀 공유 설정([설정](configuration.ko.md)) |
 | `.claude/harness-tier/config/flow-tiers.yaml` | 플러그인 | 추적 | 등급→게이트 정책, `/flow-init` 실행마다 덮어씀 |
-| `.claude/harness-tier/config/teams-webhooks.json` | 사용자 | 추적 | 팀 Teams 채널([Teams](teams.ko.md)) |
-| `.claude/harness-tier/config/.teams-webhooks.local.json` | 사용자 | gitignore | 개인 Teams 웹훅 |
+| `.claude/harness-tier/config/teams-webhooks.json` | 사용자 | 추적 | 지켜보는 브랜치명, 팀 공유([Teams](teams.ko.md)) |
+| `.claude/harness-tier/config/.teams-webhooks.local.json` | 사용자 | gitignore | 개인 웹훅, 그리고 기본값으로 브랜치 웹훅 URL |
 | `.claude/harness-tier/scripts/` | 플러그인 | 추적 | 게이트 스크립트, 렌더링된 CI 워크플로도 호출 |
 | `.claude/harness-tier/.flow/` | 런타임 | gitignore | 게이트 증거: `tier` 마커와 `<gate>.done` 파일 |
 | `.claude/settings.json` | 공유 | 추적 | `PreToolUse` 커밋 게이트와 `harness-tier` 마켓 항목 |
 | `.pre-commit-config.yaml` | 사용자 | 추적 | 없으면 예시에서 생성, 있으면 점검만 |
-| `.gitignore` | 사용자 | 추적 | 두 줄: `.teams-webhooks.local.json` 과 `.claude/harness-tier/.flow/` |
+| `.gitignore` | 사용자 | 추적 | `.teams-webhooks.local.json`, `.claude/harness-tier/.flow/`, `.claude/harness-tier/scripts/**/__pycache__/` |
 | `CLAUDE.md` | 사용자 | 추적 | Teams 채널 설정 시 `harness-tier:teams` 블록 |
 | `.github/workflows/` | 사용자 | 추적 | 설정이 켠 워크플로([CI 워크플로](ci-workflows.ko.md)) |
 
 `scripts/` 는 커밋 상태로 유지. `wiki-verify.yml`·`doc-style.yml`·`srs-verify.yml` 은 스크립트가
-체크아웃에 없으면 건너뛰어 아무것도 검증하지 못하고, `gitversion`·`jreleaser` 릴리스 워크플로는
+체크아웃에 없으면 건너뛰어 아무것도 검증하지 못하고, 어느 릴리스 도구든 `release.yml` 은
 가드 없이 `bump_version.py` 를 불러 실패함.
+
+`/flow-init` 은 저장소 밖을 가리키는 symlink 를 통해 쓰지 않음. dotfiles 디렉터리로 연결된
+`.claude/settings.json` 은 거부되어 게이트가 등록되지 않음 — 일반 파일로 두거나 저장소 안의
+파일로 연결함.
+
+git 최상위가 아닌 하위 디렉터리에서 연 세션으로 돌린 `/flow-init` 도 `.github/workflows/` 와
+`.pre-commit-config.yaml` 을 그 하위 디렉터리에 그대로 씀 — 최상위가 아니라 GitHub 와
+pre-commit 이 전혀 찾지 않는 자리라 둘 다 돌지 않음; 경고가 최상위 경로를 짚고 그 자리에서
+연 세션으로 `/flow-init` 재실행을 안내함.
 
 `tier` 마커는 작성된 브랜치에 묶임. `<gate>.done` 파일은 그렇지 않음 —
 [게이트 증거](tiers-and-gates.ko.md#게이트-증거) 참고.

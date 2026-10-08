@@ -5,14 +5,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from scripts.flow_init_setup import (
     CLAUDE_MD_BEGIN,
     GITIGNORE_LINES,
+    RULES_DEST,
     append_gitignore,
     check_precommit,
-    RULES_DEST,
     copy_artifacts,
-    copy_rules,
     register_gate,
     register_marketplace,
     remove_claude_md_block,
@@ -102,11 +103,9 @@ def test_uninstall_round_trip(tmp_path: Path):
     assert "제거" in remove_gitignore_lines(tmp_path)
     assert "삭제" in remove_harness_dir(tmp_path)
 
-    data = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
-    assert not any(_is_gate(c) for c in _gate_commands(tmp_path / ".claude" / "settings.json"))
-    assert "harness-tier" not in (data.get("extraKnownMarketplaces") or {})
-    gi = (tmp_path / ".gitignore").read_text(encoding="utf-8")
-    assert all(line not in gi for line in GITIGNORE_LINES)
+    assert not (tmp_path / ".claude" / "settings.json").exists()
+    gi = (tmp_path / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert [line for line in GITIGNORE_LINES if line in gi] == [".teams-webhooks.local.json"]
     assert not vd.exists()
 
 
@@ -118,17 +117,165 @@ def test_uninstall_idempotent(tmp_path: Path):
     assert "skip" in remove_harness_dir(tmp_path)
 
 
-def test_uninstall_names_the_workflows_that_break(tmp_path: Path, capsys):
-    # uninstall removes .claude/harness-tier/scripts/, and wiki-verify.yml is what runs
-    # those scripts. Its own guard keeps it green; the gitversion and jreleaser release
-    # renders call the same path unguarded and do turn every push red. Guidance names both.
+def _workflow(host: Path, name: str, body: str) -> None:
+    wf = host / ".github" / "workflows"
+    wf.mkdir(parents=True, exist_ok=True)
+    (wf / name).write_text(body, encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "tool",
+    ["cargo-release", "semantic-release", "python-semantic-release", "gitversion", "jreleaser"],
+)
+def test_uninstall_names_a_release_workflow_that_calls_the_deleted_scripts(
+    tmp_path: Path, capsys, tool
+):
+    """Every release render calls bump_version.py from the directory this run deletes, so the
+    release.yml in the host is what the guidance has to name — whichever tool rendered it."""
+    template = (PLUGIN / "github" / f"release.{tool}.workflow.example.yml").read_text(
+        encoding="utf-8"
+    )
+    _workflow(tmp_path, "release.yml", template)
     run_uninstall(tmp_path)
     out = capsys.readouterr().out
-    assert "wiki-verify.yml" in out
-    # Not the bare word "release" — the guidance before this one contained it too, and
-    # "python-semantic-release" contains it as a substring.
-    assert "gitversion" in out
-    assert "jreleaser" in out
+    broken = next(ln for ln in out.splitlines() if "release.yml" in ln)
+    assert "실패" in broken, out
+
+
+def test_uninstall_tells_a_guarded_check_from_a_failing_one(tmp_path: Path, capsys):
+    _workflow(tmp_path, "wiki-verify.yml", "run: python3 .claude/harness-tier/scripts/x.py\n")
+    _workflow(tmp_path, "release.yml", "run: python3 .claude/harness-tier/scripts/y.py\n")
+    run_uninstall(tmp_path)
+    lines = capsys.readouterr().out.splitlines()
+    guarded = next(ln for ln in lines if "wiki-verify.yml" in ln)
+    assert "release.yml" not in guarded and "exit 0" in guarded, lines
+
+
+def test_uninstall_names_the_rendered_workflows_that_keep_running(tmp_path: Path, capsys):
+    """A self-contained render references nothing this run deletes, so it keeps spending a
+    runner on every push; a workflow of the host's own is none of this run's business."""
+    for name in ("branch-naming.yml", "entropy-check.yml", "unit-test.yml", "deploy-pypi.yml"):
+        _workflow(tmp_path, name, "on: push\n")
+    _workflow(tmp_path, "ci.yml", "on: push\n")
+    run_uninstall(tmp_path)
+    out = capsys.readouterr().out
+    keeps = next(ln for ln in out.splitlines() if "branch-naming.yml" in ln)
+    for name in ("entropy-check.yml", "unit-test.yml", "deploy-pypi.yml"):
+        assert name in keeps, out
+    assert "ci.yml" not in out
+
+
+def test_uninstall_still_reaches_its_verdict_when_the_workflow_listing_raises(
+    tmp_path: Path, capsys, monkeypatch
+):
+    import scripts.flow_init_setup as fis
+
+    def boom(_host):
+        raise RuntimeError("unreadable")
+
+    monkeypatch.setattr(fis, "report_workflows", boom)
+    assert fis.run_uninstall(tmp_path) is True
+    out = capsys.readouterr().out
+    assert "워크플로를 직접 확인" in out and "정리 완료." in out
+
+
+def test_uninstall_reads_an_uppercase_workflow_extension(tmp_path: Path, capsys):
+    _workflow(tmp_path, "release.YML", "run: python3 .claude/harness-tier/scripts/y.py\n")
+    run_uninstall(tmp_path)
+    lines = capsys.readouterr().out.splitlines()
+    assert "실패" in next(ln for ln in lines if "release.YML" in ln), lines
+
+
+def _commit_reminder(out: str) -> str:
+    return next((ln for ln in out.splitlines() if "커밋해야 반영" in ln), "")
+
+
+def test_the_commit_reminder_names_settings_only_when_uninstall_changed_it(tmp_path, capsys):
+    run_uninstall(tmp_path)
+    assert "settings.json" not in _commit_reminder(capsys.readouterr().out)
+    register_gate(tmp_path)
+    run_uninstall(tmp_path)
+    assert "settings.json" in _commit_reminder(capsys.readouterr().out)
+
+
+def test_the_commit_reminder_names_every_host_file_uninstall_changed(tmp_path, capsys):
+    append_gitignore(tmp_path)
+    (tmp_path / "CLAUDE.md").write_text(
+        f"# Host\n{CLAUDE_MD_BEGIN} -->\nbody\n<!-- harness-tier:teams END -->\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".claude" / "harness-tier").mkdir(parents=True)
+    run_uninstall(tmp_path)
+    reminder = _commit_reminder(capsys.readouterr().out)
+    for name in (".gitignore", "CLAUDE.md", ".claude/harness-tier/"):
+        assert name in reminder, reminder
+    assert "AGENTS.md" not in reminder
+
+
+def test_an_uninstall_that_changed_nothing_asks_for_no_commit(tmp_path, capsys):
+    run_uninstall(tmp_path)
+    assert _commit_reminder(capsys.readouterr().out) == ""
+
+
+def test_the_commit_reminder_skips_a_settings_file_uninstall_left_alone(tmp_path, capsys):
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text('{"model": "opus"}\n', encoding="utf-8")
+    run_uninstall(tmp_path)
+    assert "settings.json" not in _commit_reminder(capsys.readouterr().out)
+
+
+def test_an_emptied_settings_file_that_cannot_be_deleted_is_reported(tmp_path: Path, monkeypatch):
+    register_gate(tmp_path)
+
+    def refuse(self, *_args, **_kwargs):
+        raise OSError(13, "Permission denied")
+
+    monkeypatch.setattr(Path, "unlink", refuse)
+    assert unregister_gate(tmp_path).startswith("  [!] settings.json 삭제 실패")
+
+
+def test_uninstall_names_no_workflow_when_the_host_has_none(tmp_path: Path, capsys):
+    run_uninstall(tmp_path)
+    assert ".yml" not in capsys.readouterr().out
+
+
+def test_uninstall_keeps_the_ignore_line_that_guards_the_webhook_secret(tmp_path: Path):
+    """The bare webhook pattern matches at any depth, so it may guard a secret outside the
+    directory this run deletes — and the host may have had it before /flow-init did."""
+    (tmp_path / ".gitignore").write_text(".teams-webhooks.local.json\nnode_modules/\n")
+    append_gitignore(tmp_path)
+    report = remove_gitignore_lines(tmp_path)
+    gi = (tmp_path / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert gi == [".teams-webhooks.local.json", "node_modules/"], gi
+    assert ".teams-webhooks.local.json" in report
+
+
+def test_uninstall_says_it_deletes_the_design_templates(tmp_path: Path):
+    """The seeded templates are the host's to edit; deleting them unannounced loses the edits."""
+    templates = tmp_path / ".claude" / "harness-tier" / "templates" / "design-docs"
+    templates.mkdir(parents=True)
+    (templates / "sds.template.md").write_text("edited\n", encoding="utf-8")
+    assert "템플릿" in remove_harness_dir(tmp_path)
+
+
+def test_uninstall_deletes_the_settings_file_it_emptied(tmp_path: Path):
+    register_gate(tmp_path)
+    register_marketplace(tmp_path)
+    unregister_gate(tmp_path)
+    assert "삭제" in unregister_marketplace(tmp_path)
+    assert not (tmp_path / ".claude" / "settings.json").exists()
+
+
+def test_uninstall_leaves_only_the_hosts_own_settings(tmp_path: Path):
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text(json.dumps({"model": "opus"}), encoding="utf-8")
+    register_gate(tmp_path)
+    register_marketplace(tmp_path)
+    unregister_gate(tmp_path)
+    unregister_marketplace(tmp_path)
+    assert json.loads(settings.read_text(encoding="utf-8")) == {"model": "opus"}
 
 
 def test_uninstall_preserves_other_settings(tmp_path: Path):
@@ -313,29 +460,30 @@ def test_srs_check_and_its_import_land_together(tmp_path: Path):
     assert (dest / "_md_anchors.py").is_file()
 
 
-def test_copy_rules_lands_the_shipped_rule_byte_for_byte_beside_the_hosts_own(tmp_path: Path):
-    """Claude Code loads .claude/rules/ itself, and the SessionStart hook drops its prose block
-    once this file exists. The subdirectory is what keeps a host rule of the same name intact."""
+def test_setup_removes_the_rule_copy_an_older_setup_left(tmp_path: Path):
+    """The shipped prose rule reaches a session through the hook's short block; a copy under
+    .claude/rules/ would load in full every session. Re-sync deletes ours, never the host's."""
+    stale = tmp_path / RULES_DEST / "doc-style.md"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("old copy", encoding="utf-8")
     own = tmp_path / ".claude" / "rules" / "doc-style.md"
-    own.parent.mkdir(parents=True)
     own.write_text("host's own", encoding="utf-8")
-    for _ in range(2):  # Invariant 5: a re-run overwrites, never duplicates or fails
-        assert any("[+]" in line for line in copy_rules(PLUGIN, tmp_path))
-    copied = tmp_path / RULES_DEST / "doc-style.md"
-    assert copied.read_bytes() == (PLUGIN / "rules" / "doc-style.md").read_bytes()
+    for _ in range(2):  # Invariant 5: a re-run finds nothing left to remove and still passes
+        run_setup(tmp_path, PLUGIN)
+    assert not (tmp_path / RULES_DEST).exists()
     assert own.read_text(encoding="utf-8") == "host's own"
 
 
-def test_copy_rules_skips_a_host_without_claude(tmp_path: Path):
-    """Codex reads no .claude/rules/; it keeps the hook's injected block instead."""
-    copy_rules(PLUGIN, tmp_path, ("codex",))
+def test_setup_copies_no_rule_into_a_fresh_host(tmp_path: Path):
+    run_setup(tmp_path, PLUGIN)
     assert not (tmp_path / RULES_DEST).exists()
 
 
-def test_setup_copies_the_rules_and_uninstall_removes_only_them(tmp_path: Path):
+def test_uninstall_removes_only_the_rule_copy(tmp_path: Path):
     assert "skip" in remove_rules(tmp_path)
-    run_setup(tmp_path, PLUGIN)
-    assert (tmp_path / RULES_DEST / "doc-style.md").is_file()
+    stale = tmp_path / RULES_DEST / "doc-style.md"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("old copy", encoding="utf-8")
     own = tmp_path / ".claude" / "rules" / "mine.md"
     own.write_text("x", encoding="utf-8")
     run_uninstall(tmp_path)
@@ -343,7 +491,8 @@ def test_setup_copies_the_rules_and_uninstall_removes_only_them(tmp_path: Path):
     assert own.is_file()
 
 
-def test_the_hook_looks_for_the_rule_where_setup_copies_it():
-    """Two literals, one path: if they drift, Claude gets the copied rule AND the injected block."""
+def test_the_hook_looks_for_the_rule_where_setup_cleans_it_up():
+    """Two literals, one path: if they drift, a host still holding an old copy gets that full
+    rule AND the injected summary, and setup deletes a directory the hook never checks."""
     hook = (PLUGIN / "hooks" / "inject-risk-tiers.sh").read_text(encoding="utf-8")
     assert f"{RULES_DEST}/doc-style.md" in hook

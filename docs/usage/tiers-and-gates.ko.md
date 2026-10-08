@@ -26,8 +26,17 @@
 1. **pre-commit** — `.pre-commit-config.yaml`: `pre-commit install` 이 실행된 저장소의
    모든 `git commit` 에서 커밋 메시지 검사와 파일 점검을 함.
 2. **flow 게이트** — `/flow-init` 이 `.claude/settings.json` 에 등록하는 `PreToolUse` 훅. **Claude
-   세션에서 실행한** `git commit`·`git merge` 명령만 봄. 터미널·CI·GitHub 상의 커밋이나 머지는
-   이 층을 건너뜀.
+   세션에서 실행한** `git commit`·`git merge`, 그리고 브랜치를 명시하고 rebase 하지 않는
+   `git pull` 명령만 봄. 터미널·CI·GitHub 상의 커밋이나 머지는 이 층을 건너뜀. 명령은 쓰인
+   그대로 읽음: git 별칭(`git ci`, `git -c alias.ci=commit ci`)이나 확장으로 만든
+   서브커맨드(`git $(echo commit)`, `$g commit`)는 커밋으로 읽지 않고, 커밋을 만드는 다른
+   명령(`cherry-pick`·`revert`·`am`·`rebase`·`commit-tree` 등)도 게이트 대상이 아님.
+   워크트리의 커밋은 그 워크트리의 `.claude/harness-tier/` 로 판정하므로, `/flow-init` 셋업
+   커밋 전에 갈라진 워크트리는 정책이 없어 그 커밋을 받기(merge 또는 rebase) 전까지 게이트
+   없이 통과함. 다른 저장소를 통째로 명시하는 `git -C <dir> commit` 또는
+   `cd <dir> && git commit` 단일 명령 — `--git-common-dir` 이 이 저장소와 다름으로 증명됨 — 도 이 저장소의
+   커밋으로 읽지 않음; 두 번째 명령, 확장으로 얻은 디렉터리, 중첩된 `-C`, 여기로 되돌릴 수
+   있는 `--git-dir`·`GIT_DIR` 은 그 증명을 불완전하게 두어 커밋이 그대로 게이트 대상임.
 3. **CI** — `/flow-init` 이 렌더링하는 워크플로들, 모든 push 에서 돌아 2층이 남기는 공백을
    메움([CI 워크플로](ci-workflows.ko.md)).
 
@@ -104,8 +113,9 @@ flow 게이트는 SRS 를 전혀 읽지 않음. `docs/srs/` 가 생기면 `/flow
 
 ## 머지 전략
 
-`flow-tiers.yaml` 의 `merge_strategy` 는 `git merge` 의 플래그를 그 브랜치 흐름과 대조함.
-브랜치명은 `flow-config.branches` 에서 옴.
+`flow-tiers.yaml` 의 `merge_strategy` 는 `git merge`, 그리고 브랜치를 명시하고 rebase 하지
+않는 `git pull` 의 플래그를 그 브랜치 흐름과 대조함. 브랜치명은 `flow-config.branches` 에서
+옴. 위반은 차단됨:
 
 | 머지 | 강제 |
 |------|------|
@@ -115,17 +125,7 @@ flow 게이트는 SRS 를 전혀 읽지 않음. `docs/srs/` 가 생기면 `/flow
 | staging → production | `--no-ff` 필수 |
 | `fix/*` → integration | `--no-ff` 금지 |
 
-위반은 차단됨. 정답 플래그가 하나뿐인 흐름만 검사함: production → integration 백머지와
-재승격 전 staging → integration 백머지는 fast-forward 나 `--no-ff` 둘 다 허용하고,
-production → staging 백머지는 fast-forward 가 거부됐을 때 건너뛰길 원하는데 이는 어떤
-`require` 규칙으로도 표현되지 않음. rebase 없이
-올라온 `feature/*` 머지는 경고만 하고 차단하지 않음 — `origin` 참조가 오래됐을 때 오탐을
-막기 위함.
-
-게이트가 판단할 수 없는 명령은 통과시킴: 매칭되는 규칙이 없거나, 파싱할 수 없거나, 머지가
-모두 다른 디렉터리에서 실행되는 경우. `cd` 뒤의 머지가 디렉터리를 명시하지 않는 머지 옆에
-있으면 그래도 판단함.
-
-이 검사는 직접 머지만 봄. PR 로 보낸 흐름은 GitHub 브랜치 룰셋으로 강제가 옮겨감 —
-[PR 워크플로와 브랜치 룰셋](promotion-and-release.ko.md#pr-워크플로와-브랜치-룰셋). 모든 흐름의
-절차는 [`rules/merge-strategy.md`](../../rules/merge-strategy.md) 참고.
+검사하지 않는 흐름, rebase 경고, 게이트가 명령과 머지할 트리를 읽는 방식, 흐름별 절차는
+[`rules/merge-strategy.md`](../../rules/merge-strategy.md) 참고. 이 검사는 직접 머지만 봄.
+PR 로 보낸 흐름은 GitHub 브랜치 룰셋으로 강제가 옮겨감 —
+[PR 워크플로와 브랜치 룰셋](promotion-and-release.ko.md#pr-워크플로와-브랜치-룰셋).

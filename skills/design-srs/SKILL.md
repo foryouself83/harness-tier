@@ -4,7 +4,7 @@ description: Render the SRS in docs/srs/ to .docx after checking its ids and lin
 disable-model-invocation: true
 model: sonnet
 # Both commands below run a fixed subcommand plus this skill's own doc name, so each rule is the
-# exact command issued — no trailing `*`, which would grant `<command> && <anything>` too.
+# exact command issued and none needs a `*`.
 # `pip install …` stays promptable: the user's own yes/no in Step 1 decides it.
 allowed-tools: Bash(python3 .claude/harness-tier/scripts/design_doc_check.py --paths) Bash(python3 .claude/harness-tier/scripts/design_doc_render.py --check-deps) Bash(python3 .claude/harness-tier/scripts/design_doc_check.py --templates) Bash(python3 .claude/harness-tier/scripts/design_doc_check.py --doc srs) Bash(python3 .claude/harness-tier/scripts/design_doc_render.py srs)
 ---

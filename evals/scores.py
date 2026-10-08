@@ -139,9 +139,9 @@ def description_sha(name: str) -> str:
 
 def fixtures_for(name: str) -> list[str]:
     """Every sandbox scenario this skill's cases run in, sorted: the skill-level fixture and
-    each case's own, across both arms, by the override rule `run.cases_for` applies — a case's
-    `fixture` key wins, an explicit null included. `run` imports this module, so the rule is
-    restated here rather than imported; a test holds the two to the same answer."""
+    each case's own, across both arms, by the override rule `invocation.cases_for` applies —
+    a case's `fixture` key wins, an explicit null included. The runner imports this module, so
+    the rule is restated here rather than imported; a test holds the two to the same answer."""
     skills = (yaml.safe_load(CASES.read_text(encoding="utf-8")) or {}).get("skills") or {}
     entry = skills.get(name) or {}
     default = entry.get("fixture")
@@ -165,7 +165,7 @@ def fixture_sha(name: str) -> str | None:
     names = fixtures_for(name)
     if not names:
         return None
-    # An unknown name still fingerprints, under its own name: run.py's is_stale calls this for
+    # An unknown name still fingerprints, under its own name: invocation.is_stale calls this for
     # every skill, and a typo in one case must fail where that case builds, not stop the run.
     payload = {
         n: sandbox.fingerprint(sandbox.BY_NAME[n]) if n in sandbox.BY_NAME else "unknown"

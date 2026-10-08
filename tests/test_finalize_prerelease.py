@@ -127,6 +127,28 @@ def test_set_version_without_plugin_json_does_not_crash(tmp_path: Path):
     assert not (tmp_path / ".claude-plugin").exists()
 
 
+def test_finalize_without_plugin_json_finalizes_pyproject(tmp_path: Path):
+    """A consumer host has no .claude-plugin/plugin.json; its stable release ran this."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "1.2.0-rc.3"\n', encoding="utf-8"
+    )
+    assert finalize(tmp_path) == "1.2.0"
+    assert 'version = "1.2.0"' in (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
+    assert not (tmp_path / ".claude-plugin").exists()
+
+
+def test_an_unreadable_manifest_leaves_pyproject_unwritten(tmp_path: Path):
+    """Every file is read before any is written, so a failure leaves no half-stamped tree."""
+    _seed(tmp_path, "1.2.0-rc.3")
+    (tmp_path / ".claude-plugin" / "plugin.json").write_bytes(b'{"version": "\xff"}\n')
+    before = (tmp_path / "pyproject.toml").read_bytes()
+    try:
+        finalize(tmp_path)
+    except ValueError:
+        pass
+    assert (tmp_path / "pyproject.toml").read_bytes() == before
+
+
 def test_print_only_writes_nothing(tmp_path: Path):
     _seed(tmp_path, "0.2.0-rc.1")
     before_pyproject = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")

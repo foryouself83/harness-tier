@@ -1,6 +1,8 @@
 __pycache__/
 *.pyc
 .venv/
+# Records of eval sessions the runner could not score as-is (evals/runner/diagnose.py).
+evals/.runs/
 .teams-webhooks.local.json
 flow-config.yaml
 .claude/harness-tier/.flow/

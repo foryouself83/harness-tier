@@ -34,15 +34,16 @@ def test_the_host_can_keep_its_markers_through_an_edit(project: Path):
 
 
 def test_the_switch_has_to_be_asked_for(project: Path):
-    """Armed is the default, and `rules/risk-tiers.md` promises consumers that everything which
-    is not the switch leaves it armed. Each shape below is a way someone reaches for it and
-    misses: no config, the value spelled true, a line commented out mid-experiment, the YAML
-    falses that are not this reader's word, a key whose name merely ends in the block's, and
-    the switch written where `yaml.safe_load` would not read it as this setting either —
-    under a nested key, inside a block scalar, overridden by a later duplicate, or missing
-    one of the two spaces YAML needs to see a value and a comment at all. A header that
-    carries a flow mapping or a block scalar opens no block, so nothing under it is read.
-    Inferring "off" from a file that does not say so is the gate turning itself off in silence."""
+    """Armed is the default, and `skills/flow/references/dev-overlays.md` promises consumers
+    that everything which is not the switch leaves it armed. Each shape below is a way someone
+    reaches for it and misses: no config, the value spelled true, a line commented out
+    mid-experiment, the YAML falses that are not this reader's word, a key whose name merely
+    ends in the block's, and the switch written where `yaml.safe_load` would not read it as
+    this setting either — under a nested key, inside a block scalar, overridden by a later
+    duplicate, or missing one of the two spaces YAML needs to see a value and a comment at
+    all. A header that carries a flow mapping or a block scalar opens no block, so nothing
+    under it is read. Inferring "off" from a file that does not say so is the gate turning
+    itself off in silence."""
     for body in (
         None,
         "gate_evidence:" + NL + "  invalidate_on_edit: true" + NL,
