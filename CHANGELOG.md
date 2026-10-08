@@ -2,6 +2,105 @@
 
 <!-- version list -->
 
+## v0.4.4-rc.1 (2026-10-08)
+
+### Bug Fixes
+
+- **ci**: Let workflow templates pass real pushes
+  ([`96f1701`](https://github.com/foryouself83/harness-tier/commit/96f1701aaafd33fbfc4b507b91b6389f70bed05d))
+
+- **deploy**: Keep prereleases off stable channels
+  ([`8411190`](https://github.com/foryouself83/harness-tier/commit/84111907a3fb15703db38a219610b200594a8013))
+
+- **deps**: Name the Store python3 alias on Windows
+  ([`ea9bb57`](https://github.com/foryouself83/harness-tier/commit/ea9bb579153b21c4bc977092ac06e267f9138d09))
+
+- **doc-style**: Stop flagging ordinary documents
+  ([`8874287`](https://github.com/foryouself83/harness-tier/commit/8874287ba7394465b119418e5fe4c10f7b3061a2))
+
+- **docs**: State what the commit gate cannot read
+  ([`2bd5b74`](https://github.com/foryouself83/harness-tier/commit/2bd5b74aa5105227b8ebfa910119869de6e65b35))
+
+- **flow**: Write worktree markers where gate reads
+  ([`a5bbb9e`](https://github.com/foryouself83/harness-tier/commit/a5bbb9e6a0b479adb231bdc81ddae7d60f998fe5))
+
+- **flow-init**: Keep host files safe and runnable
+  ([`f9af870`](https://github.com/foryouself83/harness-tier/commit/f9af87021143a466c98dd5485ba8eb55e7dae3e0))
+
+- **flow-init**: Never write through host symlinks
+  ([`6264533`](https://github.com/foryouself83/harness-tier/commit/62645339f21b63fad6fc45e516364d83331b3549))
+
+- **flow-init**: Warn about a session below the top
+  ([`d4c6bf1`](https://github.com/foryouself83/harness-tier/commit/d4c6bf11f52174fd0c4a719e0f3d99eb68525c49))
+
+- **flow-uninstall**: Report what cleanup leaves
+  ([`0f4affb`](https://github.com/foryouself83/harness-tier/commit/0f4affb73fc67f5eb17629bf1b9e170ffffbc7a1))
+
+- **flow-uninstall**: Unify hook file cleanup
+  ([`f83ded2`](https://github.com/foryouself83/harness-tier/commit/f83ded2ed043c68761d5ce2037c0e1e6c0f5b4f1))
+
+- **gate**: Judge merges, commits where they land
+  ([`0a889b2`](https://github.com/foryouself83/harness-tier/commit/0a889b220da64f4155145a0705c6bc8017acb488))
+
+- **gate**: Keep the merge verdict linear in length
+  ([`dcbf6ac`](https://github.com/foryouself83/harness-tier/commit/dcbf6acdfdeefa7183fbac46de3217af32d4a43e))
+
+- **gate**: Read a substitution as one operand word
+  ([`b8e1a78`](https://github.com/foryouself83/harness-tier/commit/b8e1a7898f40f313e28d9e4e8b805d240d4649fb))
+
+- **gate**: Read empty values and bundles like git
+  ([`865d879`](https://github.com/foryouself83/harness-tier/commit/865d879f9c0f95b167ddce1a004e25df0d5a6b1c))
+
+- **gate**: Read here-strings as one operator
+  ([`dbd151f`](https://github.com/foryouself83/harness-tier/commit/dbd151f58d5bcb68ecdf1112f2e7da75fa5a6cb4))
+
+- **gate**: Read merge flags the way git does
+  ([`aedb412`](https://github.com/foryouself83/harness-tier/commit/aedb4128c58438afbda7dea43c8b008488cd9ccb))
+
+- **gate**: Read quote-split git subcommands
+  ([`4ed5c0f`](https://github.com/foryouself83/harness-tier/commit/4ed5c0f6df351e34e81c0a3559a7631908b66e00))
+
+- **gate**: Read quote-split merges as bash does
+  ([`dcb7eb9`](https://github.com/foryouself83/harness-tier/commit/dcb7eb9898bf6547163e7254e6e71a71c5afbb4d))
+
+- **gate**: Read quoting the way bash removes it
+  ([`3001530`](https://github.com/foryouself83/harness-tier/commit/30015303fe29d1fb19e4d5506a37d2b3ecc43f80))
+
+- **gate**: Read redirections and eval as bash does
+  ([`0d35207`](https://github.com/foryouself83/harness-tier/commit/0d3520702de48920c492d110e22d71abf1b6daf9))
+
+- **gate**: Show merge-check notices to the user
+  ([`b7c8e0a`](https://github.com/foryouself83/harness-tier/commit/b7c8e0a9c0e8d209d3518ddaeea06e715ef644b7))
+
+- **hooks**: Fire on every session and user wait
+  ([`2db6e26`](https://github.com/foryouself83/harness-tier/commit/2db6e26edd757a3480426b9a662c0918bdb48430))
+
+- **prose-review**: Keep paths with spaces whole
+  ([`1dba314`](https://github.com/foryouself83/harness-tier/commit/1dba314d62f1b0fa5d70381b78dbb215ade9d62b))
+
+- **release**: Repair release template failures
+  ([`6988833`](https://github.com/foryouself83/harness-tier/commit/698883322236303c74102c54d4b9d38eeae49909))
+
+- **rules**: Cut the injected session context
+  ([`59ff907`](https://github.com/foryouself83/harness-tier/commit/59ff907d8f746a8ec63f7beb75b2c806bc642f8c))
+
+- **skills**: Run each shell block on its own
+  ([`c8f2032`](https://github.com/foryouself83/harness-tier/commit/c8f203224d4c37f487d5c605539319394376c9a2))
+
+- **teams**: Keep branch webhook URLs out of git
+  ([`73d4093`](https://github.com/foryouself83/harness-tier/commit/73d40931b363c7a8e526d900e013f85cfa39ca51))
+
+### Documentation
+
+- Move the developer CLAUDE.md under .claude/
+  ([`7e182d1`](https://github.com/foryouself83/harness-tier/commit/7e182d1ca73dbf58d9d55ae78f806838a718c51a))
+
+### Features
+
+- **readme**: State that skills are measured
+  ([`e8b4fb6`](https://github.com/foryouself83/harness-tier/commit/e8b4fb6d98db9e22333514be9ad2552b75b61e51))
+
+
 ## v0.4.3 (2026-10-01)
 
 ### Features
