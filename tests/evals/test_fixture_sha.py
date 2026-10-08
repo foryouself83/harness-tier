@@ -56,8 +56,8 @@ def test_an_unfingerprinted_entry_warns_rather_than_going_stale():
 
 
 def test_a_skill_that_gained_or_lost_fixtures_is_stale():
-    # run.py records None for a fixture-less run, so a null key is a claim, not an absence:
-    # the score was measured in no fixture. Either direction of change fails.
+    # invocation.measure records None for a fixture-less run, so a null key is a claim, not an
+    # absence: the score was measured in no fixture. Either direction of change fails.
     gained = {**OK, "fixture_sha": None}
     assert scores.check("integration", gained, "x", EXPECT, N_SKILLS, fixture="now").level == (
         "fail"

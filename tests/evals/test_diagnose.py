@@ -1,4 +1,5 @@
 import json
+import os
 
 import evals.stream as stream
 from evals.runner import diagnose
@@ -105,3 +106,8 @@ def test_a_second_record_of_the_same_session_never_overwrites_the_first(runs_dir
     assert first != second
     assert _sibling(first, ".jsonl").read_text(encoding="utf-8") == "first"
     assert _sibling(second, ".jsonl").read_text(encoding="utf-8") == "second"
+
+
+def test_each_process_writes_its_own_run_directory():
+    """Two runs started in the same UTC second must not share a directory and race on a stem."""
+    assert diagnose.STAMP.endswith(f"-{os.getpid()}")

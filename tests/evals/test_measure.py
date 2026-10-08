@@ -8,7 +8,7 @@ import pytest
 import evals.run as run
 import evals.scores as scores
 import evals.stream as stream
-from evals.runner import invocation, session
+from evals.runner import config, invocation, session
 from tests.evals._helpers import EXPECT, N_SKILLS, OK, raw
 
 
@@ -191,7 +191,7 @@ def test_a_timed_out_session_is_recorded_and_still_scored(monkeypatch, capsys, r
 
     def fake_one(prompt, fixture, config_dir, restricted):
         if prompt == "h0" and not restricted:
-            return cut, raw("partial", timed_out=True, elapsed=180.0)
+            return cut, raw("partial", timed_out=True, elapsed=config.SESSION_TIMEOUT)
         return quiet, raw()
 
     monkeypatch.setattr(session, "_one", fake_one)
@@ -200,7 +200,7 @@ def test_a_timed_out_session_is_recorded_and_still_scored(monkeypatch, capsys, r
     assert (result["invoke_hits"], result["invoke_n"]) == (0, 1)
     assert result["truncated"] == 1.0
     out = capsys.readouterr().out
-    assert "timed out at 180s after 1 tool calls, last Bash" in out
+    assert f"timed out at {config.SESSION_TIMEOUT}s after 1 tool calls, last Bash" in out
     (record,) = runs_dir.rglob("integration-happy-*.json")
     assert str(record) in out
     assert json.loads(record.read_text(encoding="utf-8"))["reason"] == "timeout"

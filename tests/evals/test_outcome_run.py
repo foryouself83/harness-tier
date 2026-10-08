@@ -152,11 +152,11 @@ def test_run_outcome_aborts_on_a_timed_out_session(monkeypatch, runs_dir):
 
     def fake(prompt, fixture, workdir, config_dir, **kw):
         events = [json.dumps({"subtype": "init", "skills": ["harness-tier:doc-sync"]})]
-        return raw("\n".join(events), timed_out=True, elapsed=300.0)
+        return raw("\n".join(events), timed_out=True, elapsed=outcome.OUTCOME_TIMEOUT)
 
     monkeypatch.setattr(session, "_claude_stream", fake)
     s = sandbox.BY_NAME["doc-sync-drift"]
-    with pytest.raises(SystemExit, match="timed out at 300s") as exc:
+    with pytest.raises(SystemExit, match=f"timed out at {outcome.OUTCOME_TIMEOUT}s") as exc:
         outcome.run_outcome("doc-sync", s, reps=1, config_dir=Path("."))
     (record,) = runs_dir.rglob("doc-sync-outcome-0.json")
     assert f"record: {record}" in str(exc.value)

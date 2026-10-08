@@ -165,7 +165,7 @@ def fixture_sha(name: str) -> str | None:
     names = fixtures_for(name)
     if not names:
         return None
-    # An unknown name still fingerprints, under its own name: run.py's is_stale calls this for
+    # An unknown name still fingerprints, under its own name: invocation.is_stale calls this for
     # every skill, and a typo in one case must fail where that case builds, not stop the run.
     payload = {
         n: sandbox.fingerprint(sandbox.BY_NAME[n]) if n in sandbox.BY_NAME else "unknown"

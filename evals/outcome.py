@@ -1,6 +1,6 @@
 """The outcome arm: does a skill, once it fires, reach the right end-state?
 
-Separate from run.py's invocation arm by design. The invocation arm asks whether a
+Separate from the invocation arm (evals/runner/invocation.py) by design. That arm asks whether a
 description makes the skill fire; this asks whether the skill's *body*, executed for real,
 produces the golden end-state — a different question, with a different freshness signal
 (body + fixture + golden, not the description) and a different recipe (bypassPermissions +

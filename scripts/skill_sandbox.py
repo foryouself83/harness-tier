@@ -1044,7 +1044,7 @@ def main() -> int:
     root = Path(args.out_dir) if args.out_dir else Path(tempfile.mkdtemp(prefix="skill-sandbox-"))
     root.mkdir(parents=True, exist_ok=True)
 
-    # No --json twin: nothing consumed it (run.py imports build()/BY_NAME directly, the
+    # No --json twin: nothing consumed it (the runner imports build()/BY_NAME directly, the
     # tests never invoke this CLI), and it duplicated the Scenario field list by hand.
     for s, p in [(s, build(s, root)) for s in chosen]:
         print(render(s, p))

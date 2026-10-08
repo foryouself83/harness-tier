@@ -4,6 +4,7 @@ The temp workdir and the in-memory transcript are gone the moment a run ends; th
 place a timed-out or failed session's last tool call, transcript and stderr survive."""
 
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -11,8 +12,9 @@ import evals.stream as stream
 from evals.runner import config
 
 RUNS_DIR = config.REPO / "evals/.runs"
-# One directory per process: one CLI invocation is one run, so its records land together.
-STAMP = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+# One directory per process: one CLI invocation is one run, so its records land together. The
+# pid keeps two runs started in the same second from sharing one.
+STAMP = f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{os.getpid()}"
 INPUT_LIMIT = 300
 
 TIMEOUT = "timeout"

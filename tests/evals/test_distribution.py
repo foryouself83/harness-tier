@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 import evals.stream as stream
-from evals.runner import invocation, session
+from evals.runner import config, invocation, session
 from tests.evals._helpers import REPO, raw
 
 MANIFESTS = [".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"]
@@ -87,11 +87,12 @@ def test_a_session_that_timed_out_before_init_says_so(monkeypatch, runs_dir):
 
     def fake_one(prompt, fixture, config_dir, restricted):
         if prompt == "h0" and not restricted:
-            return stream.Observation(), raw(timed_out=True, elapsed=180.0)
+            return stream.Observation(), raw(timed_out=True, elapsed=config.SESSION_TIMEOUT)
         return healthy, raw()
 
     monkeypatch.setattr(session, "_one", fake_one)
-    with pytest.raises(SystemExit, match="timed out at 180s before the init event") as e:
+    expected = f"timed out at {config.SESSION_TIMEOUT}s before the init event"
+    with pytest.raises(SystemExit, match=expected) as e:
         invocation.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
     assert "--plugin-dir" not in str(e.value)
     (record,) = runs_dir.rglob("*-happy-*.json")
