@@ -1,9 +1,9 @@
 import json
 from pathlib import Path
 
-import evals.run as run
 import evals.stream as stream
-from tests.evals._helpers import FIXTURES
+from evals.runner import config, invocation, session
+from tests.evals._helpers import FIXTURES, raw
 
 
 def test_a_spent_turn_cap_cannot_be_ambiguous_at_this_budget():
@@ -17,7 +17,7 @@ def test_a_spent_turn_cap_cannot_be_ambiguous_at_this_budget():
     hold, and lowering MAX_TURNS to 2 would make the branch fire for real. What was missing is
     this: the emptiness now fails loudly if the two constants ever cross, instead of being a
     claim in prose that nothing rechecks."""
-    assert run.MAX_TURNS > run.FIRE_BY_TOOL_CALL, (
+    assert config.MAX_TURNS > config.FIRE_BY_TOOL_CALL, (
         "MAX_TURNS dropped to or below FIRE_BY_TOOL_CALL — cut_early's turn-cap branch is now "
         "reachable, so scenarios (c)/(d) in the table above describe real sessions and the "
         "docstring calling them synthetic is stale."
@@ -60,10 +60,10 @@ def test_both_arms_apply_the_same_ambiguity_rule(monkeypatch):
     )
 
     def fake_one(prompt, fixture, config_dir, restricted):
-        return capped_busy, ""
+        return capped_busy, raw()
 
-    monkeypatch.setattr(run, "_one", fake_one)
-    result = run.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
+    monkeypatch.setattr(session, "_one", fake_one)
+    result = invocation.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
     assert result["truncated"] == result["truncated_quiet"] == 0.0
 
 
@@ -90,10 +90,10 @@ def test_the_narrowed_rule_lowers_truncated_below_the_old_constant(monkeypatch):
     fallback = stream.Observation(available=[name], completed=True)
 
     def fake_one(prompt, fixture, config_dir, restricted):
-        return obs_by_prompt.get(prompt, fallback), ""
+        return obs_by_prompt.get(prompt, fallback), raw()
 
-    monkeypatch.setattr(run, "_one", fake_one)
-    result = run.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
+    monkeypatch.setattr(session, "_one", fake_one)
+    result = invocation.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
 
     # Counting every cut session would read 8/8 = 1.00 — the constant this rule replaced.
     assert result["invoke_rate"] == 0.2  # matches the observed 2/10
@@ -113,10 +113,10 @@ def test_truncated_quiet_counts_the_negative_arm_not_the_happy_arm(monkeypatch):
     cut_early = stream.Observation(completed=False, tool_calls=1, available=[name])
 
     def fake_one(prompt, fixture, config_dir, restricted):
-        return (cut_early if prompt in ("n0", "n1") else completed_quiet), ""
+        return (cut_early if prompt in ("n0", "n1") else completed_quiet), raw()
 
-    monkeypatch.setattr(run, "_one", fake_one)
-    result = run.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
+    monkeypatch.setattr(session, "_one", fake_one)
+    result = invocation.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
 
     assert result["truncated"] == 0.0
     assert result["truncated_quiet"] == 1.0
@@ -133,10 +133,10 @@ def test_truncated_counts_the_happy_arm_not_the_negative_arm(monkeypatch):
     cut_early = stream.Observation(completed=False, tool_calls=1, available=[name])
 
     def fake_one(prompt, fixture, config_dir, restricted):
-        return (cut_early if prompt in ("h0", "h1") else completed_quiet), ""
+        return (cut_early if prompt in ("h0", "h1") else completed_quiet), raw()
 
-    monkeypatch.setattr(run, "_one", fake_one)
-    result = run.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
+    monkeypatch.setattr(session, "_one", fake_one)
+    result = invocation.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
 
     assert result["truncated"] == 1.0
 
@@ -158,10 +158,10 @@ def test_truncated_is_a_share_of_the_misses_not_of_every_sample(monkeypatch):
     fallback = stream.Observation(completed=True, tool_calls=5, available=[name])
 
     def fake_one(prompt, fixture, config_dir, restricted):
-        return by_prompt.get(prompt, fallback), ""
+        return by_prompt.get(prompt, fallback), raw()
 
-    monkeypatch.setattr(run, "_one", fake_one)
-    result = run.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
+    monkeypatch.setattr(session, "_one", fake_one)
+    result = invocation.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
 
     assert result["invoke_rate"] == 0.5
     # Both misses were cut before they could decide, so the whole miss column is unexplained.
@@ -190,10 +190,10 @@ def test_the_truncation_warning_measures_distortion_not_the_miss_column(monkeypa
     fallback = stream.Observation(completed=True, tool_calls=5, available=[name])
 
     def fake_one(prompt, fixture, config_dir, restricted):
-        return by_prompt.get(prompt, fallback), ""
+        return by_prompt.get(prompt, fallback), raw()
 
-    monkeypatch.setattr(run, "_one", fake_one)
-    result = run.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
+    monkeypatch.setattr(session, "_one", fake_one)
+    result = invocation.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
 
     assert result["invoke_rate"] == 0.93
     assert result["truncated"] == 1.0  # the miss column is entirely unexplained
@@ -209,10 +209,10 @@ def test_truncated_reports_zero_when_there_was_nothing_to_miss(monkeypatch):
     fired = stream.Observation(completed=True, fired=[name], available=[name])
 
     def fake_one(prompt, fixture, config_dir, restricted):
-        return fired, ""
+        return fired, raw()
 
-    monkeypatch.setattr(run, "_one", fake_one)
-    result = run.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
+    monkeypatch.setattr(session, "_one", fake_one)
+    result = invocation.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
 
     assert result["invoke_rate"] == 1.0
     assert result["truncated"] == 0.0

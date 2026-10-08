@@ -66,16 +66,17 @@ def test_a_golden_case_carries_the_fixture_its_prompt_presumes():
 def test_probe_reads_the_marker_from_the_directory_the_session_ran_in(monkeypatch, tmp_path):
     """A fixture-backed case runs inside <tmp>/<scenario>; reading <tmp> would report every
     one of them as "no marker" and sink the capture rate for a reason that is not the router."""
-    from evals import run
+    from evals.runner import session
+    from tests.evals._helpers import raw
 
     def fake_stream(prompt, fixture, workdir, config_dir, restricted):
         cwd = Path(workdir) / fixture if fixture else Path(workdir)
         marker = cwd / ".claude" / "harness-tier" / ".flow" / "tier"
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.write_text("dev:feature/x\n", encoding="utf-8")
-        return _assistant("## Tier Classification\n- Tier: DEV"), ""
+        return raw(_assistant("## Tier Classification\n- Tier: DEV"))
 
-    monkeypatch.setattr(run, "_claude_stream", fake_stream)
+    monkeypatch.setattr(session, "_claude_stream", fake_stream)
     # The fake places the marker where build() places the fixture, so the probe's `wd / fixture`
     # is pinned to the real convention rather than to the fake's guess at it.
     assert sandbox.build(sandbox.BY_NAME["flow-pending-commit"], tmp_path) == (
@@ -87,7 +88,7 @@ def test_probe_reads_the_marker_from_the_directory_the_session_ran_in(monkeypatc
 
 
 def test_a_skill_level_fixture_reaches_a_labelled_case(monkeypatch, tmp_path):
-    """run.cases_for falls back to the skill's own fixture; reading the case alone would run
+    """invocation.cases_for falls back to the skill's own fixture; reading the case alone would run
     the probe in an empty directory while the scored arm builds one."""
     (tmp_path / "evals").mkdir()
     (tmp_path / "evals" / "cases.yaml").write_text(

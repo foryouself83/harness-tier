@@ -139,9 +139,9 @@ def description_sha(name: str) -> str:
 
 def fixtures_for(name: str) -> list[str]:
     """Every sandbox scenario this skill's cases run in, sorted: the skill-level fixture and
-    each case's own, across both arms, by the override rule `run.cases_for` applies — a case's
-    `fixture` key wins, an explicit null included. `run` imports this module, so the rule is
-    restated here rather than imported; a test holds the two to the same answer."""
+    each case's own, across both arms, by the override rule `invocation.cases_for` applies —
+    a case's `fixture` key wins, an explicit null included. The runner imports this module, so
+    the rule is restated here rather than imported; a test holds the two to the same answer."""
     skills = (yaml.safe_load(CASES.read_text(encoding="utf-8")) or {}).get("skills") or {}
     entry = skills.get(name) or {}
     default = entry.get("fixture")

@@ -5,10 +5,10 @@ from pathlib import Path
 import pytest
 
 import evals.outcome as outcome
-import evals.run as run
 import evals.scores as scores
 import scripts.skill_sandbox as sandbox
-from tests.evals._helpers import OTHER_MODEL
+from evals.runner import session
+from tests.evals._helpers import OTHER_MODEL, raw
 
 _DOC_SYNC = sandbox.BY_NAME["doc-sync-drift"]
 
@@ -73,7 +73,7 @@ def test_outcome_check_passes_a_fresh_nonzero_entry():
 
 
 def _fake_doc_sync_session(writes_9090: bool, fires: bool):
-    """Stands in for run._claude_stream: edits the built fixture like a doc-sync run would,
+    """Stands in for session._claude_stream: edits the built fixture like a doc-sync run would,
     then returns a stream carrying an init event (so obs.available is populated) and,
     optionally, a doc-sync Skill firing (for the fired diagnostic)."""
 
@@ -101,13 +101,15 @@ def _fake_doc_sync_session(writes_9090: bool, fires: bool):
                 )
             )
         events.append(json.dumps({"type": "result", "subtype": "success", "is_error": False}))
-        return "\n".join(events), ""
+        return raw("\n".join(events))
 
     return fake
 
 
 def test_run_outcome_scores_the_end_state_and_records_fired(monkeypatch):
-    monkeypatch.setattr(run, "_claude_stream", _fake_doc_sync_session(writes_9090=True, fires=True))
+    monkeypatch.setattr(
+        session, "_claude_stream", _fake_doc_sync_session(writes_9090=True, fires=True)
+    )
     s = sandbox.BY_NAME["doc-sync-drift"]
     result = outcome.run_outcome("doc-sync", s, reps=2, config_dir=Path("."))
     assert result["outcome_hits"] == 2
@@ -119,7 +121,7 @@ def test_run_outcome_scores_the_end_state_and_records_fired(monkeypatch):
 
 def test_run_outcome_records_a_miss_when_the_end_state_is_wrong(monkeypatch):
     monkeypatch.setattr(
-        run, "_claude_stream", _fake_doc_sync_session(writes_9090=False, fires=True)
+        session, "_claude_stream", _fake_doc_sync_session(writes_9090=False, fires=True)
     )
     s = sandbox.BY_NAME["doc-sync-drift"]
     result = outcome.run_outcome("doc-sync", s, reps=2, config_dir=Path("."))
@@ -127,22 +129,45 @@ def test_run_outcome_records_a_miss_when_the_end_state_is_wrong(monkeypatch):
     assert result["outcome_pass_rate"] == 0.0
 
 
-def test_run_outcome_aborts_on_an_errored_session(monkeypatch):
+def test_run_outcome_aborts_on_an_errored_session(monkeypatch, runs_dir):
     def fake(prompt, fixture, workdir, config_dir, **kw):
         events = [
             json.dumps({"subtype": "init", "skills": ["harness-tier:doc-sync"]}),
             json.dumps({"type": "result", "subtype": "error_during_execution", "is_error": True}),
         ]
-        return "\n".join(events), "boom\n"
+        return raw("\n".join(events), "boom\n")
 
-    monkeypatch.setattr(run, "_claude_stream", fake)
+    monkeypatch.setattr(session, "_claude_stream", fake)
     s = sandbox.BY_NAME["doc-sync-drift"]
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exc:
         outcome.run_outcome("doc-sync", s, reps=1, config_dir=Path("."))
+    (record,) = runs_dir.rglob("doc-sync-outcome-0.json")
+    assert f"record: {record}" in str(exc.value)
+    assert json.loads(record.read_text(encoding="utf-8"))["reason"] == "errored"
+
+
+def test_run_outcome_aborts_on_a_timed_out_session(monkeypatch, runs_dir):
+    """A killed session left the fixture wherever it stopped; scoring that end-state would
+    record a 0 about the timeout, not about the skill."""
+
+    def fake(prompt, fixture, workdir, config_dir, **kw):
+        events = [json.dumps({"subtype": "init", "skills": ["harness-tier:doc-sync"]})]
+        return raw("\n".join(events), timed_out=True, elapsed=300.0)
+
+    monkeypatch.setattr(session, "_claude_stream", fake)
+    s = sandbox.BY_NAME["doc-sync-drift"]
+    with pytest.raises(SystemExit, match="timed out at 300s") as exc:
+        outcome.run_outcome("doc-sync", s, reps=1, config_dir=Path("."))
+    (record,) = runs_dir.rglob("doc-sync-outcome-0.json")
+    assert f"record: {record}" in str(exc.value)
+    summary = json.loads(record.read_text(encoding="utf-8"))
+    assert summary["reason"] == "timeout"
+    assert summary["fixture"] == "doc-sync-drift"
+    assert summary["timeout_s"] == outcome.OUTCOME_TIMEOUT
 
 
 def test_run_outcome_aborts_when_the_target_skill_is_not_offered(monkeypatch):
-    """Parity with run.measure: the plugin loaded but doc-sync was not among its skills (a
+    """Parity with invocation.measure: the plugin loaded but doc-sync was not among its skills (a
     broken frontmatter). A recorded 0 there is about the missing skill, not the end-state, so
     it must abort rather than fabricate a miss."""
 
@@ -152,9 +177,9 @@ def test_run_outcome_aborts_when_the_target_skill_is_not_offered(monkeypatch):
             json.dumps({"subtype": "init", "skills": ["harness-tier:integration"]}),
             json.dumps({"type": "result", "subtype": "success", "is_error": False}),
         ]
-        return "\n".join(events), ""
+        return raw("\n".join(events))
 
-    monkeypatch.setattr(run, "_claude_stream", fake)
+    monkeypatch.setattr(session, "_claude_stream", fake)
     s = sandbox.BY_NAME["doc-sync-drift"]
     with pytest.raises(SystemExit, match="not among its skills"):
         outcome.run_outcome("doc-sync", s, reps=1, config_dir=Path("."))
@@ -177,10 +202,10 @@ def test_outcome_main_returns_nonzero_on_rate_limit(monkeypatch):
             json.dumps({"type": "rate_limit_event", "rate_limit_info": {"status": "rejected"}}),
             json.dumps({"type": "result", "subtype": "success", "is_error": False}),
         ]
-        return "\n".join(events), ""
+        return raw("\n".join(events))
 
-    monkeypatch.setattr(run, "isolated_config_dir", fake_config)
-    monkeypatch.setattr(run, "_claude_stream", fake)
+    monkeypatch.setattr(session, "isolated_config_dir", fake_config)
+    monkeypatch.setattr(session, "_claude_stream", fake)
     monkeypatch.setattr(sys, "argv", ["evals.outcome", "--reps", "1"])
     assert outcome.main() == 1
 
