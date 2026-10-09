@@ -85,6 +85,7 @@ def _corpus(seed: int, count: int) -> list[str]:
         "/usr/bin/git",
         "git.exe",
         "-C",
+        "-",
         "-c",
         "x",
         "-a",
@@ -115,7 +116,7 @@ def test_the_linear_search_finds_what_the_regex_finds(word: str):
     option region, every start position included."""
     plain = re.compile(
         rf"(?:^|[\s;&|(`])(?:[^\s;&|()'\"`]*[/\\])?"
-        rf"git(?:\.exe)?((?:\s+-\S+(?:\s+(?!-)\S+)?)*)\s+{word}(?=$|[\s;&|)`<>])"
+        rf"git(?:\.exe)?({vp._GIT_OPTIONS})\s+{word}(?=$|[\s;&|)`<>])"
     )
     grammar = vp.git_subcommand_re(word)
     for text in _corpus(7, 4000):

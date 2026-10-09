@@ -39,8 +39,9 @@ Three layers check your work, and each sees a different set of commits:
    commit (merge or rebase it in). A single `git -C <dir> commit` or `cd <dir> && git commit`
    that names another repository outright — proven by a `--git-common-dir` that differs from
    this one's — is not read as this repo's commit either; a second command, a directory
-   reached by expansion, a stacked `-C`, or a `--git-dir`/`GIT_DIR` that could send it back
-   here all leave that unproven, so the commit stays gated.
+   reached by expansion (`$VAR`, `~`, a glob or brace) or starting with `-`, a stacked `-C`, or a
+   `--git-dir`/`GIT_DIR` that could send it back here all leave that unproven, so the commit
+   stays gated.
 3. **CI** — the workflows `/flow-init` renders, which run on every push and close the gap
    layer 2 leaves ([CI workflows](ci-workflows.md)).
 
