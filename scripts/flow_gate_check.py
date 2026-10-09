@@ -1265,7 +1265,17 @@ def _commits_in_another_repo(command: str, root: Path, cwd: str | None) -> bool:
     m = _FOREIGN_COMMIT_RE.match(command)
     if not m or "--git-dir" in command or "--work-tree" in command:
         return False
-    named = Path(cwd or ".", m.group("cd") or m.group("c"))
+    word = m.group("cd") or m.group("c")
+    # The probe resolves the directory physically, as git does for `-C`; bash's `cd` folds a
+    # `..` against the path it was given, so past a symlink the two name different trees.
+    if m.group("cd") and ".." in word.split("/"):
+        return False
+    # Git Bash's `cd` maps every path through the MSYS mount table, which Python never reads.
+    # Its `-C` value is kept only as `C:/…` or a plain relative path: MSYS rewrites a leading `/`
+    # before native git sees it.
+    if os.name == "nt" and (m.group("cd") or not re.fullmatch(r"(?:[A-Za-z]:/)?[^/:][^:]*", word)):
+        return False
+    named = Path(cwd or ".", word)
     ours, theirs = _common_dir(root), _common_dir(named)
     return ours is not None and theirs is not None and ours != theirs
 
