@@ -12,13 +12,17 @@ URL carries a `sig=` token. Start with the personal channel and add branch chann
 
 | File | git | Channels |
 |------|-----|----------|
-| `.claude/harness-tier/config/.teams-webhooks.local.json` | gitignored | `personal` — yours alone |
-| `.claude/harness-tier/config/teams-webhooks.json` | tracked | one key per branch name, shared by the team |
+| `.claude/harness-tier/config/.teams-webhooks.local.json` | gitignored | `personal`, and by default a branch channel's own URL |
+| `.claude/harness-tier/config/teams-webhooks.json` | tracked | the watched branch names (a URL too, only once registered with `--shared`) |
 
 ```bash
 ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
-# Register a channel URL — personal goes to the local file, any other name to the tracked one
+# Register a channel URL — personal and branch URLs default to the local file; a branch
+# registration also adds its key (with no URL) to the tracked file, so every clone watches it
 python3 "${ROOT}/.claude/harness-tier/scripts/teams_alert.py" --set personal https://...
+python3 "${ROOT}/.claude/harness-tier/scripts/teams_alert.py" --set dev https://...
+# Commit the branch URL itself to the tracked file for the whole team
+python3 "${ROOT}/.claude/harness-tier/scripts/teams_alert.py" --set dev https://... --shared
 # Send a notification by hand
 python3 "${ROOT}/.claude/harness-tier/scripts/teams_alert.py" --channel personal --title "..." --text "..."
 ```
@@ -30,14 +34,17 @@ python3 "${ROOT}/.claude/harness-tier/scripts/teams_alert.py" --channel personal
   `/flow-init` adds a `harness-tier:teams` block to your `CLAUDE.md` that tells Claude to post by
   hand right before asking. The block is written in your `CLAUDE.md`'s language.
 - **A branch channel** — the `teams-notify-push` pre-push hook posts the pushed commit's subject
-  when the pushed branch's name equals a key in `teams-webhooks.json`. It needs
-  `pre-commit install --hook-type pre-push`; adding a key adds a watched branch.
+  when the pushed branch's name equals a key in either `teams-webhooks.json` or the local
+  webhook file. It needs `pre-commit install --hook-type pre-push`; registering a branch adds a
+  watched branch for every clone, whether or not its URL was shared.
 
 A channel with no URL is skipped in silence, except `personal`, which prints how to register one.
 A failed post never blocks the hook or the push.
 
 ## Security
 
-A tracked Power Automate URL is an incoming webhook: the worst case is a message injected into
-that channel, with no data exfiltration or privilege escalation. Mark it as an exception in your
-secret scanner.
+A Power Automate URL's `sig=` token is the credential that posts to the channel. By default it
+stays in the gitignored local file, so only the branch name itself is public. Register it with
+`--shared` only once you want the whole team posting as that channel — anyone who can read the
+repo can then post into it too (message injection only, no data exfiltration or privilege
+escalation); mark it as an exception in your secret scanner if you do.

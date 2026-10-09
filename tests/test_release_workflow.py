@@ -63,6 +63,19 @@ def test_every_stamp_of_the_codex_manifest_is_staged():
         assert text.count(add) == 2
 
 
+def test_semantic_release_never_creates_the_github_release():
+    """A later step creates the Release with `gh release create`, which fails on a Release
+    `semantic-release version` already created for the tag. The manifests are staged by name,
+    since `git add -A` sweeps whatever the build left in the tree into the release commit."""
+    tmpl = (ROOT / "github" / "release.python-semantic-release.workflow.example.yml").read_text(
+        encoding="utf-8"
+    )
+    for text in (_release_text(), tmpl):
+        calls = [ln for ln in text.splitlines() if re.search(r"semantic-release\s+version", ln)]
+        assert calls and all("--no-vcs-release" in ln for ln in calls), calls
+    assert "git add -A" not in tmpl
+
+
 def test_consumer_templates_fall_back_to_github_token():
     """Both consumer release templates auth via `RELEASE_TOKEN || GITHUB_TOKEN`, so a repo
     that never sets RELEASE_TOKEN still releases on the auto-provided GITHUB_TOKEN (the PAT
@@ -199,6 +212,28 @@ def test_cargo_release_prerelease_branch_dispatches_on_next():
     assert 'if [ "$NEXT" = "auto" ]; then' in text
     assert "cargo release rc --execute --no-confirm --no-publish" in text
     assert 'cargo release "$NEXT" --execute --no-confirm --no-publish' in text
+
+
+def test_cargo_release_skips_the_commit_it_pushed():
+    """The release commit cargo-release pushes re-triggers the workflow under a PAT, and the
+    stable branch falls back to a patch release on every run: unguarded, that never ends."""
+    data = yaml.safe_load(
+        (ROOT / "github/release.cargo-release.workflow.example.yml").read_text(encoding="utf-8")
+    )
+    job = data["jobs"]["release"]
+    author = next(s for s in job["steps"] if s.get("name") == "Configure Git")["run"]
+    name = re.search(r'git config user\.name "([^"]+)"', author).group(1)
+    assert f"github.event.head_commit.author.name != '{name}'" in job["if"]
+
+
+def test_jreleaser_reads_the_tag_it_created():
+    """JReleaser creates the tag through the GitHub API, never in the checkout."""
+    data = yaml.safe_load(
+        (ROOT / "github/release.jreleaser.workflow.example.yml").read_text(encoding="utf-8")
+    )
+    run = next(s for s in data["jobs"]["release"]["steps"] if s.get("id") == "exposetag")["run"]
+    assert "git fetch --tags" in run
+    assert run.index("git fetch --tags") < run.index("git describe")
 
 
 def test_release_body_uses_changelog_section():

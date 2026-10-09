@@ -3,9 +3,9 @@ from pathlib import Path
 
 import pytest
 
-import evals.run as run
 import evals.stream as stream
-from tests.evals._helpers import FIXTURES
+from evals.runner import invocation, session
+from tests.evals._helpers import FIXTURES, raw
 
 
 def test_observe_sees_a_skill_that_fired():
@@ -163,8 +163,29 @@ def test_the_narrowed_rule_only_counts_a_cut_that_never_had_its_chance(monkeypat
     for label, (happy_obs, expected_truncated) in scenarios.items():
 
         def fake_one(prompt, fixture, config_dir, restricted, _obs=happy_obs):
-            return (_obs if prompt == "p" else fallback), ""
+            return (_obs if prompt == "p" else fallback), raw()
 
-        monkeypatch.setattr(run, "_one", fake_one)
-        result = run.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
+        monkeypatch.setattr(session, "_one", fake_one)
+        result = invocation.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
         assert result["truncated"] == expected_truncated, label
+
+
+def test_last_tool_is_the_final_tool_use():
+    events = [
+        {
+            "type": "assistant",
+            "message": {"content": [{"type": "tool_use", "name": "Read", "input": {"f": "a"}}]},
+        },
+        {
+            "type": "assistant",
+            "message": {
+                "content": [{"type": "tool_use", "name": "Bash", "input": {"command": "pytest"}}]
+            },
+        },
+    ]
+    obs = stream.observe("\n".join(json.dumps(e) for e in events))
+    assert obs.last_tool == {"name": "Bash", "input": {"command": "pytest"}}
+
+
+def test_last_tool_is_none_without_a_tool_call():
+    assert stream.observe("").last_tool is None

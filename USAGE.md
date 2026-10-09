@@ -5,7 +5,8 @@
 If [README](README.md) is "core idea + installation", this guide is the per-topic detail:
 settings, skill behavior, troubleshooting, and update/removal. Each topic below has an English
 page and a Korean twin under [`docs/usage/`](docs/usage/); `doc-sync` keeps every twin in step.
-(The internals of *how* the plugin works are in the developer-facing [CLAUDE.md](CLAUDE.md).)
+(The internals of *how* the plugin works are in the developer-facing
+[CLAUDE.md](.claude/CLAUDE.md).)
 
 | Topic | Answers |
 |-------|---------|

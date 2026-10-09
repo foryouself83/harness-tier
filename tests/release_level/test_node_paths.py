@@ -205,3 +205,36 @@ def test_a_trailer_still_wins_over_the_forced_rc(fx):
     result, outputs, _ = fx.run("nextver", "feat: more\n\nRelease-Level: major\n")
     assert result.returncode == 0, result.stderr
     assert outputs == {"version": "2.0.0-rc.1"}
+
+
+# --- semantic-release itself -------------------------------------------------------------
+
+
+def _stub_npx(fx, output: str, code: int) -> None:
+    npx = fx.bin / "npx"
+    npx.write_text(f"#!/bin/sh\necho '{output}'\nexit {code}\n", "utf-8")
+    npx.chmod(npx.stat().st_mode | stat.S_IEXEC)
+
+
+def test_a_failing_semantic_release_still_prints_why(fx):
+    """Under `bash -e` a failing `out="$(…)"` ends the step before the echo, leaving an empty
+    log for a failure such as Node being too old."""
+    _stub_npx(fx, "EBADENGINE requires node >=22.14", 1)
+    result, outputs, _ = fx.run("sr")
+    assert result.returncode != 0
+    assert "EBADENGINE" in result.stdout
+    assert outputs == {}
+
+
+def test_a_published_release_is_reported(fx):
+    _stub_npx(fx, "[semantic-release] Published release 1.1.0 on default channel", 0)
+    result, outputs, _ = fx.run("sr")
+    assert result.returncode == 0, result.stderr
+    assert outputs == {"released": "true"}
+
+
+def test_the_node_semantic_release_takes_is_installed():
+    """`npx --yes semantic-release` resolves the latest major, which refuses Node below 22.14."""
+    doc = yaml.safe_load(TEMPLATE.read_text(encoding="utf-8"))
+    node = [s for s in doc["jobs"]["release"]["steps"] if "setup-node" in str(s.get("uses"))]
+    assert node and int(str(node[0]["with"]["node-version"]).split(".")[0]) >= 22

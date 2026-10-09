@@ -20,8 +20,8 @@ gitlint (50/72 · Conventional Commits) and the tier gate (markers, unclassified
 fire exactly as before. What moves is the **merge**, and only the merge.
 
 The `require`/`forbid` cells in [`merge-strategy.md`](merge-strategy.md)'s table are
-enforced by a hook watching
-`git merge`, so they **do not fire** for a flow that goes through a PR. A GitHub Ruleset
+enforced by a hook watching `git merge` and a branch-naming, non-rebasing `git pull`, so
+they **do not fire** for a flow that goes through a PR. A GitHub Ruleset
 carries what it can of that enforcement instead, as allowed merge methods per branch —
 exactly for the promotion rows, partially for integration (caveat under the table):
 
@@ -285,7 +285,7 @@ select this set. That security pass is therefore discipline, not a gate.
 
 ### Staging (integration → staging)
 
-1. Regression review — [`risk-tiers.md`](risk-tiers.md) Step 3's procedure with ①'s form
+1. Regression review — the [domain review](../skills/flow/references/dev-overlays.md) with ①'s form
    for **this** pair (`git fetch origin`, then
    `git diff --name-only "origin/<staging>..origin/<integration>"`;
    the workspace form would list nothing here) → record `review`.

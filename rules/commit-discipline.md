@@ -61,6 +61,9 @@ language directive); default to English if unset.
 **Squash** merges pick the **highest-priority type** among bundled
 commits.
 
+A consumer-facing `.md` change (rules, skills) is `feat`/`fix`, never
+`docs`/`chore` — those cut no release and never reach a consumer.
+
 ## When asked "is this commit compliant?"
 
 Re-measure subject char count and each body line length yourself.

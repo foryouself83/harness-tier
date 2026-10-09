@@ -16,6 +16,19 @@ def why(exc: BaseException) -> str:
     return getattr(exc, "strerror", None) or str(exc) or type(exc).__name__
 
 
+def confine(host: Path, path: Path) -> Path:
+    """`path`, refused when it resolves outside the host, every symlink on the way followed."""
+    root = os.path.normcase(os.path.realpath(host))
+    real = os.path.normcase(os.path.realpath(path))
+    try:
+        inside = os.path.commonpath([root, real]) == root
+    except ValueError:  # another drive
+        inside = False
+    if not inside:
+        raise OSError(f"호스트 밖을 가리킴: {path}")
+    return path
+
+
 def access_entries(path: Path) -> bytes | None:
     """The file's POSIX access entries, where the host has any. Read before the rename,
     because after it the inode they belong to is gone."""
@@ -56,8 +69,12 @@ def _carry_over(before: os.stat_result, acl: bytes | None, tmp: Path) -> None:
         pass
 
 
-def write_json(path: Path, data: dict) -> str | None:
+def write_json(path: Path, data: dict, host: Path) -> str | None:
     """Write, or return the line to report instead.
+
+    A path resolving outside `host` is refused: the repo is untrusted input, and a committed
+    `.claude/settings.json` linked to `~/.claude/settings.json` would carry the gate into every
+    project its user opens.
 
     Through a temporary file and one rename, because opening for writing truncates first: a
     full disk, a dropped share or a lone surrogate in the host's own data would otherwise
@@ -65,11 +82,11 @@ def write_json(path: Path, data: dict) -> str | None:
     setup whose remaining steps are unguarded. Every way the write can fail is caught, not
     the ones that have been seen: the encode raises ValueError, the rest raise OSError.
 
-    A rename replaces the NAME, so a settings.json a host keeps as a symlink into their
-    dotfiles came back a plain file while their managed copy kept the old content — and the
-    next sync put a gate-less settings back. The rename lands on what the link points AT for
-    that reason. The temporary file is unique because a fixed name beside it was a file of
-    the host's own that this silently consumed.
+    A rename replaces the NAME, so a settings.json a host keeps as a symlink to another file in
+    the repo came back a plain file while the linked copy kept the old content. The rename
+    lands on what the link points AT for that reason; a link leaving the host is refused
+    above, a dotfiles link included. The temporary file is unique because a fixed name beside
+    it was a file of the host's own that this silently consumed.
 
     What a rename does not carry is the file it replaces. Its mode, its owner and its access
     entries all come from the temporary file, which is the writer's alone: a `sudo /flow-init`
@@ -79,8 +96,12 @@ def write_json(path: Path, data: dict) -> str | None:
     their mask. A file the host locked read-only is refused — except to root, whom the write
     bit does not stop. What a new inode cannot keep is kept by nobody: a second hard link,
     the timestamps, a `user.*` attribute, and the setuid bit where the owner has to be given
-    back. The link a dotfiles manager makes is a symlink, and that one survives.
+    back. A symlink inside the host survives.
     """
+    try:
+        confine(host, path)
+    except OSError as exc:
+        return f"  [!] {path.name} 쓰기 거부({why(exc)}) — 수동 확인 필요"
     target = Path(os.path.realpath(path)) if path.is_symlink() else path
     if target.is_file() and not os.access(target, os.W_OK):
         return f"  [!] {path.name} 이 쓰기 금지 상태입니다 — 수동 확인 필요"
@@ -113,6 +134,23 @@ def write_json(path: Path, data: dict) -> str | None:
             except OSError:
                 pass
     return None
+
+
+def write_or_remove(path: Path, data: dict, host: Path, label: str) -> tuple[str | None, bool]:
+    """Write `data`, or delete the file once a removal left an empty object — an `{}` the host
+    never wrote is a leftover. Returns (the line to report on failure, whether it was deleted).
+
+    A link is written through, never unlinked: deleting it would leave its target, still read
+    through other paths, holding what was removed. A file locked read-only goes to the writer,
+    which refuses it."""
+    if data or path.is_symlink() or not os.access(path, os.W_OK):
+        return write_json(path, data, host), False
+    try:
+        confine(host, path.parent)
+        path.unlink()
+    except OSError as exc:
+        return f"  [!] {label} 삭제 실패({why(exc)}) — 수동 확인 필요", False
+    return None, True
 
 
 def load_json_object(path: Path, label: str) -> tuple[dict | None, str | None]:

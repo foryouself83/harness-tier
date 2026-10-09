@@ -50,10 +50,12 @@ def test_uninstall_keeps_a_host_entry_it_only_emptied(tmp_path: Path):
 def test_uninstall_drops_the_entry_it_wrote_itself(tmp_path: Path):
     import scripts.flow_init_setup as fis
 
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text(json.dumps({"hooks": {"Stop": []}}), encoding="utf-8")
     fis.register_gate(tmp_path)
     fis.unregister_gate(tmp_path)
-    settings = tmp_path / ".claude" / "settings.json"
-    assert json.loads(settings.read_text(encoding="utf-8"))["hooks"]["PreToolUse"] == []
+    assert json.loads(settings.read_text(encoding="utf-8")) == {"hooks": {"Stop": []}}
 
 
 def test_a_gate_that_runs_more_than_once_says_so(tmp_path: Path):

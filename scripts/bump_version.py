@@ -73,7 +73,8 @@ def rewrite_file(path: Path, pattern: str, new_version: str) -> None:
 
 
 LEVELS = ("auto", "continue", "patch", "minor", "major")
-_TRAILER = re.compile(r"^Release-Level\s*:(.*)$", re.MULTILINE)
+# git reads a trailer key case-insensitively, so `release-level: minor` is a forced level.
+_TRAILER = re.compile(r"^Release-Level\s*:(.*)$", re.MULTILINE | re.IGNORECASE)
 _TAG = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z]+)\.(\d+))?$")
 
 

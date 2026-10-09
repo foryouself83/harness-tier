@@ -80,8 +80,8 @@ Reads the change from `git diff` and brings the documentation along:
   once the project has a harness (`docs/code-style/` or a sibling module's `CLAUDE.md`);
   otherwise reports it. An existing file only gets its gaps filled.
 
-After rewriting, it runs `/prose-review` on the files it touched, and on a pass writes the
-`doc-sync` evidence marker whoever called it.
+After rewriting, it runs `/prose-review` over every file the change touched — not only the
+files it edited itself — and on a pass writes the `doc-sync` evidence marker whoever called it.
 
 It runs in a forked context and does not see your conversation: the argument is the only intent
 it receives. An argument that is exactly `preview` plans without changing anything and writes no
@@ -94,7 +94,10 @@ marker; a sentence that merely contains the word is a sync request.
 ```
 
 Checks comments, docstrings and documents against [`rules/doc-style.md`](../../rules/doc-style.md)
-and proposes the rewrite.
+and proposes the rewrite. An empty argument list takes the changed files, narrowed to the
+project's doc-style scope via `doc_style_check.py --scope` — its configured `paths`/`exclude`,
+or every `.md`, `.py` and `.sh` where `doc_style` is off or absent — so a file the project
+excluded is never rewritten.
 
 - **Pattern half** — `doc_style_check.py --lint` over the paths. A repo without the script skips
   this half and keeps the rest.

@@ -17,8 +17,14 @@ Branch names refer to `flow-config.branches` keys.
 | production → staging (after a release or hotfix) | **FF only** (back-merge; refused → skip) | — |
 
 **Gate column** — `flow-tiers.yaml`'s `merge_strategy`, checked by the PreToolUse hook on
-`git merge`. ✅ = exit 2 on a violating flag, `require` and `forbid` alike. `—` = no
-`merge_strategy` entry.
+`git merge` and on a `git pull` that names a branch without rebasing. ✅ = exit 2 on a
+violating flag, `require` and `forbid` alike. `—` = no `merge_strategy` entry.
+
+- The hook reads the flags from the `git merge` or `git pull` line as git reads them: spell the
+  row's flags literally there.
+- A merge that names no target branch is judged against the branch of the tree the shell runs
+  in — a worktree session merges into its own branch.
+- A merge the hook lets through after an internal error carries a notice saying so.
 
 - Rows 6 and 7: a choice ("or") — nothing to enforce.
 - Row 8: a refused fast-forward needs a **skip**, and `require: --ff-only` would block the
@@ -85,7 +91,7 @@ gate**: never skipped, never assumed.
 
 ### Feature branch base
 
-Rule: [`risk-tiers.md`](risk-tiers.md) Step 2b. Command:
+Rule: [`/flow`](../skills/flow/SKILL.md) Phase 2. Command:
 
 ```bash
 git fetch origin

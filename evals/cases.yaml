@@ -1,4 +1,4 @@
-# Prompts that decide whether each model-invoked skill fires. Data only — evals/run.py
+# Prompts that decide whether each model-invoked skill fires. Data only — evals/runner/
 # supplies the mechanics.
 #
 # Negative cases carry the skill's own vocabulary and then ask for something else, because
@@ -152,7 +152,7 @@ skills:
       routing.
     # golden_tier — the deterministic risk-tier the router SHOULD classify each prompt into
     # (rules/risk-tiers.md is the SSOT: docs | dev | staging | release). The scored run ignores
-    # it: run.py's cases_for reads `prompt`/`fixture` alone. What reads it is
+    # it: invocation.cases_for reads `prompt`/`fixture` alone. What reads it is
     # evals/outcome_probe.py, which runs every labelled case and compares the tier the session
     # emitted — so a label added here costs that probe `reps` more sessions per run. A prompt
     # whose tier depends on an unspecified diff carries no label: no deterministic golden

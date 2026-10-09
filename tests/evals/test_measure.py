@@ -1,3 +1,4 @@
+import json
 import sys
 import threading
 from pathlib import Path
@@ -7,7 +8,8 @@ import pytest
 import evals.run as run
 import evals.scores as scores
 import evals.stream as stream
-from tests.evals._helpers import EXPECT, N_SKILLS, OK
+from evals.runner import config, invocation, session
+from tests.evals._helpers import EXPECT, N_SKILLS, OK, raw
 
 
 def test_measure_writes_an_entry_the_gate_accepts(monkeypatch):
@@ -23,10 +25,10 @@ def test_measure_writes_an_entry_the_gate_accepts(monkeypatch):
     quiet = stream.Observation(completed=True, tool_calls=5, available=[name])
 
     def fake_one(prompt, fixture, config_dir, restricted):
-        return (fired if prompt in ("h0", "h1") else quiet), ""
+        return (fired if prompt in ("h0", "h1") else quiet), raw()
 
-    monkeypatch.setattr(run, "_one", fake_one)
-    result = run.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
+    monkeypatch.setattr(session, "_one", fake_one)
+    result = invocation.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
 
     fixture = scores.fixture_sha(name)
     assert fixture is not None, "integration runs in fixtures; the case needs one"
@@ -46,27 +48,27 @@ def test_truncation_warnings_fire_independently_per_metric(monkeypatch, capsys):
 
     def make_fake_one(happy_obs, negative_obs):
         def fake_one(prompt, fixture, config_dir, restricted):
-            return (negative_obs if prompt in ("n0", "n1") else happy_obs), ""
+            return (negative_obs if prompt in ("n0", "n1") else happy_obs), raw()
 
         return fake_one
 
     # Only invoke_rate is compromised: happy cut early, negative completes cleanly.
-    monkeypatch.setattr(run, "_one", make_fake_one(cut, completed_ok))
-    run.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
+    monkeypatch.setattr(session, "_one", make_fake_one(cut, completed_ok))
+    invocation.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
     out = capsys.readouterr().out
     assert "invoke_rate is" in out
     assert "false_fire is" not in out
 
     # Only false_fire is compromised: happy completes cleanly, negative cut early.
-    monkeypatch.setattr(run, "_one", make_fake_one(completed_ok, cut))
-    run.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
+    monkeypatch.setattr(session, "_one", make_fake_one(completed_ok, cut))
+    invocation.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
     out = capsys.readouterr().out
     assert "false_fire is" in out
     assert "invoke_rate is" not in out
 
     # Both are compromised: both arms cut early.
-    monkeypatch.setattr(run, "_one", make_fake_one(cut, cut))
-    run.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
+    monkeypatch.setattr(session, "_one", make_fake_one(cut, cut))
+    invocation.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
     out = capsys.readouterr().out
     assert "invoke_rate is" in out
     assert "false_fire is" in out
@@ -88,12 +90,12 @@ def test_a_miss_records_which_skill_fired_instead(monkeypatch):
 
     def fake_one(prompt, fixture, config_dir, restricted):
         if prompt == "n0":
-            return quiet, ""
+            return quiet, raw()
         # h0 loses to a neighbour twice (reps=2); h1 fires correctly.
-        return (lost if prompt == "h0" else won), ""
+        return (lost if prompt == "h0" else won), raw()
 
-    monkeypatch.setattr(run, "_one", fake_one)
-    result = run.measure(name, entry, reps=2, config_dir=Path("."), jobs=1)
+    monkeypatch.setattr(session, "_one", fake_one)
+    result = invocation.measure(name, entry, reps=2, config_dir=Path("."), jobs=1)
 
     assert result["invoke_rate"] == 0.5
     assert result["lost_to"] == {"playwright-scaffold": 2}
@@ -130,14 +132,14 @@ def test_a_rate_limit_stops_the_plan_instead_of_finishing_it(monkeypatch):
     def fake_one(prompt, fixture, config_dir, restricted):
         calls.append(prompt)
         if prompt == "h0":
-            return limited, ""
+            return limited, raw()
         release.wait(timeout=30)  # the timeout is a hang guard; the finally below releases it
-        return healthy, ""
+        return healthy, raw()
 
-    monkeypatch.setattr(run, "_one", fake_one)
+    monkeypatch.setattr(session, "_one", fake_one)
     try:
-        with pytest.raises(run.RateLimited):
-            run.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
+        with pytest.raises(session.RateLimited):
+            invocation.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
         # 10 happy + 10 negative + 10 restricted = 30 planned. The first is rate-limited and
         # at most one more can already have been picked up, so anything above 2 means the
         # remaining sessions were spent against an exhausted window.
@@ -152,7 +154,7 @@ def test_the_suite_cannot_spawn_a_real_session():
     test in the file silently depends on: reaching `run_session` raises instead of spending a
     session against the rate limit."""
     with pytest.raises(AssertionError, match="model-free"):
-        run.run_session("p", None, Path("."), Path("."))
+        session.run_session("p", None, Path("."), Path("."))
 
 
 def test_session_env_strips_provider_variables(monkeypatch):
@@ -162,7 +164,7 @@ def test_session_env_strips_provider_variables(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-leak")
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://proxy.example")
     monkeypatch.setenv("CLAUDE_CODE_EXTRA", "x")
-    env = run.session_env(Path("cfg"))
+    env = session.session_env(Path("cfg"))
     assert "ANTHROPIC_API_KEY" not in env
     assert "ANTHROPIC_BASE_URL" not in env
     assert "CLAUDE_CODE_EXTRA" not in env
@@ -177,3 +179,37 @@ def test_reps_zero_is_rejected(monkeypatch):
     with pytest.raises(SystemExit) as e:
         run.main()
     assert e.value.code == 2  # argparse error, before any session
+
+
+def test_a_timed_out_session_is_recorded_and_still_scored(monkeypatch, capsys, runs_dir):
+    name = "integration"
+    entry = {"happy": ["h0"], "negative": ["n0"]}
+    cut = stream.Observation(
+        available=[name], tool_calls=1, last_tool={"name": "Bash", "input": {"command": "sleep"}}
+    )
+    quiet = stream.Observation(available=[name], completed=True, tool_calls=4)
+
+    def fake_one(prompt, fixture, config_dir, restricted):
+        if prompt == "h0" and not restricted:
+            return cut, raw("partial", timed_out=True, elapsed=config.SESSION_TIMEOUT)
+        return quiet, raw()
+
+    monkeypatch.setattr(session, "_one", fake_one)
+    result = invocation.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
+    # Scored by the rule every cut session already meets: a miss, and an ambiguous one.
+    assert (result["invoke_hits"], result["invoke_n"]) == (0, 1)
+    assert result["truncated"] == 1.0
+    out = capsys.readouterr().out
+    assert f"timed out at {config.SESSION_TIMEOUT}s after 1 tool calls, last Bash" in out
+    (record,) = runs_dir.rglob("integration-happy-*.json")
+    assert str(record) in out
+    assert json.loads(record.read_text(encoding="utf-8"))["reason"] == "timeout"
+
+
+def test_a_finished_session_leaves_no_record(monkeypatch, runs_dir):
+    name = "integration"
+    entry = {"happy": ["h0"], "negative": ["n0"]}
+    quiet = stream.Observation(available=[name], completed=True, tool_calls=4)
+    monkeypatch.setattr(session, "_one", lambda *a: (quiet, raw()))
+    invocation.measure(name, entry, reps=1, config_dir=Path("."), jobs=1)
+    assert not runs_dir.exists()

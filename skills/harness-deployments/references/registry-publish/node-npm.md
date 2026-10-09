@@ -1,7 +1,7 @@
 # Registry Publish — Node (npm)
 
 ## Official action / build command
-- Publish: there is no dedicated GitHub Action — set up Node/registry-url with `actions/setup-node@v6`, then run `npm publish --provenance --access public` directly via the npm CLI.
+- Publish: there is no dedicated GitHub Action — set up Node/registry-url with `actions/setup-node@v6`, then run `npm publish --provenance --access public` directly via the npm CLI. The template branches on the tag: a prerelease (`vX.Y.Z-rc.N`) publishes with `--tag next` instead, so a bare `npm install` keeps resolving `latest` to the last stable release.
 - Build: the project's build script (`npm ci && npm run build`) — a pure JS library may have no build step at all.
 
 ## Secrets
@@ -11,6 +11,7 @@
 | **npm Trusted Publishing (OIDC, 2025-07-31 GA)** | None | `permissions: id-token: write`. Requires npm CLI ≥ 11.5.1, Node ≥ 22.14.0. Running `npm publish` alone (no separate `--provenance` needed — it is attached automatically on the OIDC path) publishes without a token. |
 
 ## Gotchas
+- A prerelease publishes under the `next` dist-tag, never bare — publishing a prerelease without `--tag` would move `latest` to it, which every unpinned `npm install` resolves to.
 - To use Trusted Publishing, go to npmjs.com package settings → **Trusted Publisher** section, select GitHub Actions, and register org/user, repo, workflow filename, and (optionally) environment — the same pre-registration pattern as PyPI/crates.io.
 - `--provenance` requires Sigstore-based signing, so it only works on **GitHub-hosted runners** (self-hosted runners are not possible, since the public OIDC issuer cannot be verified).
 - Scoped packages (`@org/name`) are published as private by default and fail unless `--access public` is specified (on the free plan).

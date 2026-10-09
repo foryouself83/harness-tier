@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # pre-push hook (pre-commit framework, pre-push stage). If a branch being pushed is a
-# registered team-shared channel, sends a Teams alert to that channel (otherwise skip). Alert failures are ignored.
+# registered branch channel, sends a Teams alert to that channel (otherwise skip). Alert failures are ignored.
 #
 # The target branches are not hardcoded; they are read dynamically via
-# teams_alert.py --list-push-channels (= the team-shared channel keys registered in
-# teams-webhooks.json). Adding/removing a channel changes the target branches without code changes.
+# teams_alert.py --list-push-channels (= the branch keys of teams-webhooks.json and of the
+# local webhook file). Adding/removing a channel changes the target branches without code changes.
 #
 # Since the plugin is installed outside the host, teams_alert.py is found via this script's
 # sibling path, while the git context (branch/commit) is read relative to the host repo.

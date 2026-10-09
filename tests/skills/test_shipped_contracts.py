@@ -190,12 +190,14 @@ def test_the_review_checklist_is_one_list_in_three_files():
             f"{doc}'s review_checklist example is {quoted}, not the template's {items} — the "
             "doc and the file a host copies have to show one list"
         )
-    # The categories the review gate judges against live in the tier SSOT; the
+    # The categories the review gate judges against live in the domain-review procedure; the
     # template is the copy a host edits, so a category added there has to reach it.
-    tiers = (REPO / "rules" / "risk-tiers.md").read_text(encoding="utf-8")
-    assert len(items) == 5, f"expected the five risk-tiers categories, got {len(items)}"
+    overlays = (REPO / "skills" / "flow" / "references" / "dev-overlays.md").read_text(
+        encoding="utf-8"
+    )
+    assert len(items) == 5, f"expected the five domain-review categories, got {len(items)}"
     for word in ("queue routing", "API error conventions"):
-        assert word in tiers, f"risk-tiers no longer names {word!r}"
+        assert word in overlays, f"dev-overlays.md no longer names {word!r}"
 
 
 def _rerun_items() -> list[str]:

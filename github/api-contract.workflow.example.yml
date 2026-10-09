@@ -9,6 +9,11 @@ on:
   pull_request:
     branches: [__HARNESS_BRANCHES__]
 
+permissions:
+  contents: read
+  # schemathesis/action comments its coverage summary on the pull request.
+  pull-requests: write
+
 jobs:
   api-contract:
     runs-on: ubuntu-latest

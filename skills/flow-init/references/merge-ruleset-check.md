@@ -4,8 +4,9 @@ Loaded by [`/flow-init`](../SKILL.md) Step 2.7. Everything the step does is here
 skill keeps only the condition that decides whether to read it.
 
 Applies only when `flow-config.merge_workflow.pull_request` is non-empty. Under PR mode the
-local `git merge` disappears, so `flow-tiers.yaml`'s `merge_strategy` gate never fires — a
-GitHub Ruleset has to carry that enforcement instead. **The block below detects the
+local `git merge` (or a branch-naming, non-rebasing `git pull`) disappears, so
+`flow-tiers.yaml`'s `merge_strategy` gate never fires — a GitHub Ruleset has to carry that
+enforcement instead. **The block below detects the
 not-applicable case itself**: on the shipped `[]` default (or a config that predates the
 slot) it prints a skip line and exits 0, so running it is always safe and never reads as a
 config defect.
@@ -18,8 +19,10 @@ never opted into securing. `flows()` below validates its own output before print
 anything — an empty/absent `merge_workflow.pull_request` is the "skip" exit 3, while a
 non-list or any value outside `daily`/`promotion` is exit 1 with a stated reason, instead of
 silently handing the ruleset check zero (or garbled) arguments. Either way the block stops
-here rather than letting the check proceed and report a false "match". Run as written
-(`${ROOT}` and `${PLUGIN}` come from [`SKILL.md`](../SKILL.md) Path conventions):
+here rather than letting the check proceed and report a false "match". Run it in one
+Bash call, opened with the `ROOT=` and `PLUGIN=` lines of [`SKILL.md`](../SKILL.md) Path
+conventions as they appear there — this file is not substituted, so only SKILL.md holds the
+plugin's real path, and a fresh shell holds neither variable:
 
 ```bash
 CFG="${ROOT}/.claude/harness-tier/config/flow-config.yaml"

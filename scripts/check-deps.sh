@@ -37,7 +37,13 @@ fi
 # precommit-runner.sh — keep the values synced on both sides).
 if ! command -v python3 >/dev/null 2>&1; then
   need "python3 미설치 — python 3.8+ 설치 필요:"
-  need "    macOS: brew install python | Windows: https://www.python.org/downloads/ | Linux: 배포판 패키지"
+  need "    macOS: brew install python | Windows: winget install 9NQ7512CXL7T 후 py install 3.12 (python3 를 만드는 Python install manager) | Linux: 배포판 패키지"
+  missing_required=1
+elif ! python3 -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 8) else 1)" >/dev/null 2>&1 &&
+  case "$(command -v python3)" in *WindowsApps*) true ;; *) false ;; esac; then
+  # The Microsoft Store's app execution alias answers `command -v python3` and runs no python.
+  need "python3 가 Microsoft Store 별칭($(command -v python3)) — python 이 실행되지 않음:"
+  need "    winget install 9NQ7512CXL7T 후 py install 3.12 로 Python install manager 를 설치하거나, '앱 실행 별칭 관리'에서 python3 별칭을 끄고 python3 를 PATH 에 둘 것"
   missing_required=1
 elif ! python3 -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 8) else 1)"; then
   need "python 3.8+ 필요 (현재 $(python3 -V 2>&1)) — 업그레이드 후 재실행"

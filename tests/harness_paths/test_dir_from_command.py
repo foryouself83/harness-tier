@@ -259,6 +259,23 @@ def test_commit_tree_unresolved_widens_to_untrackable_dir_changes():
     assert vp.commit_tree_unresolved("git -C $(pwd) commit -m x")
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git -C /wt com''mit -m x",
+        "git -C /wt c\\ommit -m x",
+        "true; cd /wt && git com''mit -m x",
+        "git -C /a commit -m x && git -C /b com''mit -m y",
+        "printf 'git -C /wt commit -m x' | bash",
+    ],
+)
+def test_a_commit_only_the_net_reads_names_no_tree(command):
+    """The directory readers walk the mask, where these commits do not show; whichever tree the
+    resolver lands on, its being clean says nothing about the commit."""
+    assert vp.is_invocation(command, "commit")
+    assert vp.commit_tree_unresolved(command)
+
+
 def test_dir_from_command_gives_up_on_an_unexpanded_dash_c():
     # `-C "$d"` names no tree the resolver can read → None (→ hook cwd rung), and unresolved gates
     assert vp._dir_from_command('for d in /a /b; do git -C "$d" commit -m x; done') is None

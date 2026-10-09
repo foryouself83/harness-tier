@@ -2,6 +2,50 @@
 
 <!-- version list -->
 
+## v0.4.4 (2026-10-09)
+
+### Features
+
+- **readme**: README states that model-invoked skills are measured in headless sessions, for
+  reach and for execution, and that CI fails a stale or dropped score.
+
+### Bug Fixes
+
+- **gate**: The commit gate reads a command the way bash and git do: quoting and its removal,
+  ANSI-C escapes, line continuations, redirections, here-strings, substitutions, `eval`,
+  `watch` and `ssh`, merge flags and their abbreviations, `-c` values and short bundles. A
+  quote-split `git com''mit` or `git mer''ge` and `git -C - commit` are read as what they run.
+  The merge verdict stays linear in the command's length, so a long command cannot time the
+  hook out.
+- **gate**: A merge or commit is judged in the worktree it lands in. One `git -C <dir> commit`
+  or `cd <dir> && git commit` into another repository is that repository's own; anything
+  bash and the gate could resolve to different trees keeps the commit gated (expansion, a
+  leading `-`, a second command, `..` after `cd`, and on Windows every `cd`).
+- **gate**: A merge check that cannot decide says so in a notice, and the rebase warning
+  reaches the user instead of stderr.
+- **flow-init**: Never writes through a symlink or outside the host, keeps CRLF or LF in the
+  files it edits, marks copied scripts executable, leaves a hand-written `deploy.yml` alone,
+  and warns when the session starts below the git top level.
+- **flow-uninstall**: Reports the workflows and files cleanup leaves behind, and removes hook
+  files without deleting a linked or read-only one.
+- **flow**: Writes worktree markers where the gate reads them.
+- **hooks**: SessionStart also fires on resume and fork; the Notification hook fires only on
+  waits for the user.
+- **rules**: The injected session context fits under Claude Code's hook preview cap; the Dev
+  overlays move into `/flow` and `doc-style.md` is no longer copied into `.claude/rules/`.
+- **release**, **deploy**, **ci**: Release templates run to completion (no duplicate GitHub
+  Release, Node 22, no self-triggered cargo release, JReleaser tag lookup, case-insensitive
+  `Release-Level`); prereleases stay off `latest`; templates declare token permissions and
+  read the integration branch from `flow-config`.
+- **teams**: A branch webhook URL goes to the gitignored local file unless `--shared` says
+  otherwise.
+- **doc-style**: UUIDs, front matter behind a BOM, every `CHANGELOG.md` and GitHub issue and
+  pull request templates no longer raise errors.
+- **deps**: Names the Microsoft Store `python3` alias instead of asking for a newer Python.
+- **skills**, **prose-review**: Each shell block restates the paths it uses; paths holding a
+  space stay whole.
+
+
 ## v0.4.3 (2026-10-01)
 
 ### Features

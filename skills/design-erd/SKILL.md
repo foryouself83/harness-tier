@@ -4,8 +4,7 @@ description: Write the ERD (entity-relationship design) from the SRS, SDS and co
 disable-model-invocation: true
 model: sonnet
 # design_doc_check.py and design_doc_render.py each run on a fixed subcommand plus this skill's
-# own doc name, so every rule below is the exact command it issues — no trailing `*`, since a
-# trailing `*` is a prefix match and would pre-approve `<command> && <anything>` too.
+# own doc name, so every rule below is the exact command it issues and none needs a `*`.
 # `pip install …` stays promptable: the user's own yes/no in Step 1 decides it.
 allowed-tools: Bash(python3 .claude/harness-tier/scripts/design_doc_check.py --paths) Bash(python3 .claude/harness-tier/scripts/design_doc_check.py --templates) Bash(python3 .claude/harness-tier/scripts/design_doc_check.py --doc erd) Bash(python3 .claude/harness-tier/scripts/design_doc_check.py --wiki-id erd) Bash(python3 .claude/harness-tier/scripts/design_doc_render.py --check-deps) Bash(python3 .claude/harness-tier/scripts/design_doc_render.py erd) Bash(python3 .claude/harness-tier/scripts/wiki_graph.py --build)
 ---

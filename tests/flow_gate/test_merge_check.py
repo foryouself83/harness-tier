@@ -151,4 +151,4 @@ def test_merge_check_warns_when_not_rebased(monkeypatch, tmp_path: Path, capsys)
     with pytest.raises(SystemExit) as exc:
         fgc.merge_check_output()
     assert exc.value.code == 0  # warning never blocks
-    assert "rebase" in capsys.readouterr().err
+    assert "rebase" in json.loads(capsys.readouterr().out)["systemMessage"]

@@ -51,6 +51,7 @@
 | **한 파일로 끝내는 품질 게이트** | lint · 정적 분석 · import 린팅 · 테스트 · 보안 스캔을 모듈별로 하나의 `flow-config.yaml` 에 선언 — **모듈·브랜치·CI 잡을 자유롭게 확장**. **언어 무관**으로 설정한 명령을 실행할 뿐이며, 새 저장소는 `/flow-init` 한 번으로 전체 구성을 물려받고 활성 등급에 필요한 것만 실행. REST API 계약 테스트는 모듈 체크가 아니라 별도 옵트인 CI. |
 | **파일을 빠뜨릴 수 없는 리뷰** | `review` 게이트는 변경 파일 목록을 **`git` 에서 직접** 가져와 전부 리뷰하고 그 개수를 보고서에 명시하므로, 큰 변경분에서 일부만 보고 나머지를 넘기는 일이 없음. 여기에 **변경된 public 심볼의 호출자**까지 language server(없으면 `grep`)로 확인 — 회귀가 실제로 터지는 자리이고 diff 만으로는 드러나지 않음. 판정은 독립 리뷰 에이전트가 팀의 `review_checklist` 기준으로 수행. |
 | **살아 있는 문서 SSOT** | `/doc-sync` 가 코드와 문서를 함께 diff — 코드 변경은 관련 마크다운으로 전파되고 문서 변경은 문서 집합 전체에서 조율되며, `doc_style_check.py` 가 그 재작성이 heading·코드 블록·URL·인라인 코드를 하나도 잃지 않았음을 증명. |
+| **가정이 아니라 측정되는 스킬** | 모델이 찾지 않는 스킬은 실행되지 않는 절차임. 모델이 스스로 호출하는 스킬은 실제 headless Claude Code 세션으로 측정 — 그 스킬로 가야 할 프롬프트는 도달하고, 가지 말아야 할 프롬프트는 도달하지 않는지. outcome arm 은 도달한 스킬이 절차를 끝까지 수행하는지 확인. 측정된 스킬의 description·fixture(outcome arm 은 본문까지)가 재측정 없이 바뀌면 CI 가 실패하고, 통계적으로 유의한 적중률 하락은 사유를 기록해 수용하지 않는 한 새 점수로 기록되지 않음. |
 | **스스로 작성되는 CI** | `/flow-init` 이 설정으로부터 GitHub Actions 를 렌더링 — 유닛 테스트 안전망, API 계약 테스트, E2E 안전망, Conventional Commits 로 버전을 올리고 태깅하는 시맨틱 릴리스, 옵트인 문체 검증, 브랜치명·entropy 검사(wiki 검증은 위키가 생긴 뒤 `/wiki-init` 이, 요구사항 무결성 검증은 SRS 가 생긴 뒤 더해짐), 모든 잡에 timeout 상한. |
 | **릴리스 위에 얹는 배포** | `/harness-deployments` 가 산출물 없는 릴리스에 발행을 더함 — 스택 감지 → 무엇을 어디에 배포할지 질문 → CI 렌더. `release.yml` 이 **같은 런**에서 호출하는 오케스트레이터(크로스-워크플로우 트리거·PAT 불필요)가 타깃별 컴포넌트(PyPI · npm · Maven Central/Gradle · NuGet · crates.io · GHCR · Docker Hub, 그리고 저작된 앱 배포)로 분기하며 타깃별 최소권한을 적용. |
 | **당신에게서 배우는 하네스** | `harness-insight` 가 Claude Code 활동을 집계해 반복해서 내리는 지시를 **하네스 후보**로 드러내고, 낡은 메모리를 정리. |
@@ -75,9 +76,14 @@
 
 **Python ≥ 3.8** — OS 패키지 관리자로 설치(이미 있으면 건너뜀).
 
+훅은 `python3` 를 부름. Windows 에서는 그 명령을 만들어 주는 Python install manager 를
+설치함. python.org 나 `Python.Python.3.x` 설치는 `python` 만 만들고, 그러면 `python3` 는
+실행되지 않고 Microsoft Store 를 엶.
+
 ```bash
 # Windows
-winget install Python.Python.3.12
+winget install 9NQ7512CXL7T -e --accept-package-agreements --disable-interactivity
+py install 3.12
 # macOS
 brew install python@3.12
 # Debian/Ubuntu
@@ -154,10 +160,10 @@ pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre
 | 스킬 | `harness-authoring` | `/harness-init` 이 내부적으로 부르는 생성 엔진 — 직접 호출하지 않음 |
 | 에이전트 | `harness-researcher` · `harness-code-analyzer` · `harness-critic` | 하네스 생성용 리서치 / 코드 분석 / 생성물 검증 |
 | 룰 | `risk-tiers` | 위험도 분류와 등급별 워크플로의 단일 기준 — 세션마다 주입 |
-| 룰 | `doc-style` | 문서·주석·docstring 문체 규율의 단일 기준 — `/flow-init` 이 `.claude/rules/harness-tier/` 로 복사 |
+| 룰 | `doc-style` | 문서·주석·docstring 문체 규율의 단일 기준 — SessionStart 훅이 쓰기 시점 핵심만 주입 |
 | 룰 | `commit-discipline` | 커밋 메시지 형식과 type → 버전 표 — `/commit` 이 읽음 |
 | 룰 | `gate-mechanics` · `merge-strategy` · `promotion` · `harness-rules` | 게이트별 동작 방식·브랜치 흐름별 머지 규칙·승격 절차·생성 규약 — 필요할 때 읽음 |
-| 훅 | SessionStart · Notification · PostToolUse(편집) | 위험도 규칙 주입(복사된 `doc-style` 이 없는 호스트에는 문서 문체 요약도)과 구버전 로드 경고 · Teams 알림 · 편집으로 낡은 review/doc-sync 증거 무효화 |
+| 훅 | SessionStart · Notification · PostToolUse(편집) | 위험도 규칙 주입(+ 문서 문체 요약, 호스트에 `doc-style` 구버전 복사본이 남아있을 때만 건너뜀)과 구버전 로드 경고 · Teams 알림 · 편집으로 낡은 review/doc-sync 증거 무효화 |
 | 호스트 등록 게이트 | `PreToolUse`(commit·merge) | `/flow-init` 이 **호스트**의 `.claude/settings.json` 에 등록 — 플러그인 훅이 아니라 차단 강제 신뢰성 때문 |
 
 > **릴리스 CI 토큰** — `/flow-init` 이 렌더링하는 릴리스 워크플로는 기본 `GITHUB_TOKEN` 으로 바로

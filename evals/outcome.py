@@ -1,6 +1,6 @@
 """The outcome arm: does a skill, once it fires, reach the right end-state?
 
-Separate from run.py's invocation arm by design. The invocation arm asks whether a
+Separate from the invocation arm (evals/runner/invocation.py) by design. That arm asks whether a
 description makes the skill fire; this asks whether the skill's *body*, executed for real,
 produces the golden end-state — a different question, with a different freshness signal
 (body + fixture + golden, not the description) and a different recipe (bypassPermissions +
@@ -8,7 +8,7 @@ produces the golden end-state — a different question, with a different freshne
 
 The pure half here (outcome_sha, outcome_check) is model-free like scores.py. run_outcome
 and the CLI spend real sessions and are guarded by the suite's no_real_sessions fixture
-through run._claude_stream.
+through session._claude_stream.
 
     uv run python -m evals.outcome            # measure the outcome arm (reps 3)
     uv run python -m evals.outcome --dry-run  # session count + wall-clock, no model calls
@@ -23,10 +23,10 @@ import tempfile
 from datetime import date
 from pathlib import Path
 
-import evals.run as run
 import evals.scores as scores
 import evals.stream as stream
 import scripts.skill_sandbox as sandbox
+from evals.runner import config, diagnose, session
 from scripts._harness_paths import force_utf8_io
 
 REPO = Path(__file__).resolve().parent.parent
@@ -115,7 +115,7 @@ def outcome_check(
 
 
 OUTCOME_MAX_TURNS = 25
-# Higher than run.SESSION_TIMEOUT (180): outcome sessions edit files and may route
+# Higher than config.SESSION_TIMEOUT (180): outcome sessions edit files and may route
 # flow -> doc-sync, so they run longer than an invocation probe.
 OUTCOME_TIMEOUT = 300
 REPS = 3
@@ -142,6 +142,22 @@ def _outcome_targets(only: str | None = None) -> list[tuple[str, sandbox.Scenari
     return picked
 
 
+def _abort(skill: str, rep: int, scenario: sandbox.Scenario, raw, obs, reason: str, msg: str):
+    """Record the session under `diagnose`, then stop the run naming where the record is."""
+    path = diagnose.record(
+        raw,
+        obs,
+        skill=skill,
+        arm="outcome",
+        index=rep,
+        prompt=scenario.prompt,
+        fixture=scenario.name,
+        reason=reason,
+        timeout=OUTCOME_TIMEOUT,
+    )
+    raise SystemExit(f"{msg}\n  record: {path}")
+
+
 def run_outcome(skill: str, scenario: sandbox.Scenario, reps: int, config_dir: Path) -> dict:
     """Run one skill against its golden fixture `reps` times; score each by end-state.
 
@@ -157,12 +173,12 @@ def run_outcome(skill: str, scenario: sandbox.Scenario, reps: int, config_dir: P
     routing, the files it left behind are the outcome. `fired` is a diagnostic only.
 
     Aborts rather than recording a fabricated 0 when a session errored or never loaded the
-    plugin — the same discipline run.measure applies to the invocation arm."""
+    plugin — the same discipline invocation.measure applies to the invocation arm."""
     hits = fired_hits = 0
-    for _ in range(reps):
+    for rep in range(reps):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             built = sandbox.build(scenario, Path(tmp))
-            text, err = run._claude_stream(
+            raw = session._claude_stream(
                 scenario.prompt,
                 None,
                 built,
@@ -173,27 +189,54 @@ def run_outcome(skill: str, scenario: sandbox.Scenario, reps: int, config_dir: P
                 # fixture-scoped prompt, NOT --add-dir -- which also makes REPO writable. cwd and
                 # the prompt are what keep edits inside the fixture; the recipe ran clean across
                 # the spike and the seeding runs.
-                add_dirs=(run.REPO,),
+                add_dirs=(config.REPO,),
                 max_turns=OUTCOME_MAX_TURNS,
                 timeout=OUTCOME_TIMEOUT,
             )
-            obs = stream.observe(text)
+            obs = stream.observe(raw.text)
             if obs.rate_limited:
-                raise run.RateLimited(f"{skill}: rate limit reached mid-outcome-measurement")
+                raise session.RateLimited(f"{skill}: rate limit reached mid-outcome-measurement")
             # ASCII-only in these messages: a SystemExit propagating to a cp949 console must not
             # raise UnicodeEncodeError and bury the diagnostic (Invariant 2).
+            if raw.timed_out:
+                # A killed session left the fixture wherever it stopped: its end-state is about
+                # the timeout, so scoring it would record a 0 that is not about the skill.
+                _abort(
+                    skill,
+                    rep,
+                    scenario,
+                    raw,
+                    obs,
+                    diagnose.TIMEOUT,
+                    f"{skill}: outcome session timed out at {OUTCOME_TIMEOUT}s after "
+                    f"{obs.tool_calls} tool calls (last {diagnose.last_name(obs)}) -- "
+                    f"unmeasurable, refusing to record it.",
+                )
             if obs.errored or not obs.available:
-                raise SystemExit(
+                _abort(
+                    skill,
+                    rep,
+                    scenario,
+                    raw,
+                    obs,
+                    diagnose.ERRORED if obs.errored else diagnose.NO_INIT,
                     f"{skill}: outcome session failed outright or never loaded the plugin -- "
-                    f"refusing to record a 0 that is not about the end-state.{run._tail(err)}"
+                    f"refusing to record a 0 that is not about the end-state."
+                    f"{session._tail(raw.err)}",
                 )
             if skill not in obs.available:
-                # Parity with run.measure: the plugin loaded but this skill was not offered
+                # Parity with invocation.measure: the plugin loaded but this skill was not offered
                 # (frontmatter probably failed to parse). A recorded 0 here would be about the
                 # missing skill, not the end-state -- abort rather than fabricate one.
-                raise SystemExit(
+                _abort(
+                    skill,
+                    rep,
+                    scenario,
+                    raw,
+                    obs,
+                    diagnose.MISSING_SKILL,
                     f"{skill}: the plugin loaded but {skill} was not among its skills -- "
-                    f"its frontmatter probably failed to parse."
+                    f"its frontmatter probably failed to parse.",
                 )
             passed, _failures = sandbox.check_outcome(scenario, built)
             hits += passed
@@ -225,7 +268,7 @@ def main() -> int:
 
     targets = _outcome_targets(args.skill)
     sessions = len(targets) * args.reps
-    minutes = sessions * run.SECONDS_PER_SESSION / 60
+    minutes = sessions * config.SECONDS_PER_SESSION / 60
     print(f"{len(targets)} skill(s), {sessions} outcome sessions, ~{minutes:.0f} min")
     if args.dry_run:
         return 0
@@ -234,12 +277,12 @@ def main() -> int:
     if OUTCOME_SCORES.exists():
         baseline = json.loads(OUTCOME_SCORES.read_text(encoding="utf-8"))
     interrupted = False
-    with run.isolated_config_dir() as config_dir:
+    with session.isolated_config_dir() as config_dir:
         for skill, scenario in targets:
             print(f"measuring outcome: {skill}")
             try:
                 result = run_outcome(skill, scenario, args.reps, config_dir)
-            except run.RateLimited as e:
+            except session.RateLimited as e:
                 print(f"\n{e}", file=sys.stderr)
                 interrupted = True
                 break

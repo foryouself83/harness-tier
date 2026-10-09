@@ -21,6 +21,8 @@ ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
 PLUGIN="${CLAUDE_PLUGIN_ROOT}"
 HARNESS_DIR="${ROOT}/.claude/harness-tier/.harness"   # evidence (research/rationale/plan/critic/manifest), gitignored
 ```
+Each Bash call is a fresh shell: open every later block with these assignments again, or the
+variables it names are empty there.
 Per the harness-tier convention, evidence is collected in a single place — `.claude/harness-tier/.harness/` (no scattering across the root):
 `research/<agent>_<topic>.md` · `rationale.md` · `plan.json` · `critic-report.json` · `manifest.json`.
 Before the first write, **idempotently add** `.claude/harness-tier/.harness/` to `.gitignore` (skip if already present).
@@ -135,8 +137,9 @@ ambiguous, ask (Karpathy, rule 4).
 The convention targets are the **entire stack set finalized by the Step 2.5 reconcile** (including promoted infrastructure) — not the initial stack_map.
 Per the 9-3 split, fill each stack's structure/detailed conventions into both the rules and `docs/code-style/<stack>.md`.
 1. Invoke skill `harness-authoring` to fill templates/ from research + rationale + references.
-   - Inject the 5 required rule blocks (`references/karpathy-principles.md` · `rule-dry-constants.md` ·
-     `rule-version-pinning.md` · `security-rule.md` · `rule-reuse-first.md`) into the CLAUDE.md `harness:baseline`
+   - Inject the 5 required rule blocks (`../harness-authoring/references/karpathy-principles.md` ·
+     `rule-dry-constants.md` · `rule-version-pinning.md` · `security-rule.md` · `rule-reuse-first.md`,
+     all in that folder) into the CLAUDE.md `harness:baseline`
      block (preserve each rule's anchor `<!-- rule:<key> -->`).
    - Fill the technical docs into classified folders. **Author the SRS with the scope summary (Step 1-0) as SSOT** and leave unknown slots as
      "needs confirmation" (fill from research but do not guess). (Order: SRS → merge into research → SDS (Mermaid) → per-stack

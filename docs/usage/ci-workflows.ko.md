@@ -104,12 +104,12 @@ SRS 를 아예 읽지 않기 때문.
   없으면 릴리스 도구가 이미 만든 notes 를 그대로 두는 fail-open. `python-semantic-release`
   템플릿은 여기에 더해 최초 release notes 자체도 `CHANGELOG.md` 에서 끌어오고, 다른
   템플릿은 `--generate-notes` 로 만든 뒤 이 공유 단계로만 그 파일을 반영함.
-- **`branch-naming.yml`** — 자신의 `branch_naming.enable` 아래, 모든 push 에서.
-  고정된 패턴 집합에 안 맞는 브랜치의 push 를 실패시킴: `feature/*`, `fix/*`,
-  `docs/*`, `hotfix/X.Y.Z`, `release/X.Y.Z`, 리터럴 `dev`, 그리고
-  `versioning.branches.stable`/`.prerelease`. 템플릿은 `flow-config.branches.integration`
-  값과 무관하게 `dev` 를 고정 문자열로 박아 넣음 — integration 브랜치명이 정확히
-  `dev` 가 아닌 저장소는 그 브랜치로의 모든 push 가 실패함.
+- **`branch-naming.yml`** — 자신의 `branch_naming.enable` 아래, 모든 브랜치 push 에서
+  (`branches: ["**"]` 가 태그 push 를 뺌 — 빈 `push:` 트리거는 태그도 잡으므로). 고정된
+  패턴 집합에 안 맞는 브랜치의 push 를 실패시킴: `feature/*`, `fix/*`, `docs/*`,
+  `hotfix/*`, `release/X.Y.Z`, `dependabot/*`, `renovate/*` — 또는 설정된 세 브랜치명
+  (`versioning.branches.stable`/`.prerelease`, `flow-config.branches.integration`) 중 하나,
+  패턴이 아니라 리터럴 문자열로 비교됨.
 - **`entropy-check.yml`** — 자신의 `entropy.enable` 아래, `entropy.paths` 에 대해
   `schedule` cron(기본 주간)으로.
 

@@ -14,10 +14,10 @@ suffix deterministically (`finalize`).
 `auto`).
 
 With no arguments: if pyproject's project.version is a prerelease (X.Y.Z-<token>.N), write
-the stable X.Y.Z to pyproject.toml:project.version, .claude-plugin/plugin.json:version and,
-when present, .codex-plugin/plugin.json:version, then print it (exit 0). Otherwise (e.g. a
-hotfix straight to production with no rc) write nothing and exit 1 so the caller falls back
-to plain `semantic-release version`.
+the stable X.Y.Z to pyproject.toml:project.version and, when present,
+.claude-plugin/plugin.json:version and .codex-plugin/plugin.json:version, then print it
+(exit 0). Otherwise (e.g. a hotfix straight to production with no rc) write nothing and exit
+1 so the caller falls back to plain `semantic-release version`.
 
 `--print-only` computes and prints the same stable X.Y.Z without writing anything — same exit
 contract as the no-arg mode (0 with the version on stdout, 1 with nothing written or printed).
@@ -57,14 +57,20 @@ def _prerelease_match(root: Path) -> tuple[Path, str, re.Match[str], str] | None
     return pyproject, text, m, pm.group("core")
 
 
-def _stamp_codex(root: Path, version: str) -> None:
-    """The Codex manifest carries the same version; a host without one is untouched."""
-    codex = root / ".codex-plugin" / "plugin.json"
-    if not codex.exists():
-        return
-    text = codex.read_text(encoding="utf-8")
-    text = re.subn(r'("version"\s*:\s*)"[^"]*"', r'\g<1>"' + version + '"', text, count=1)[0]
-    codex.write_text(text, encoding="utf-8")
+def _stamp(root: Path, pyproject_text: str, version: str) -> None:
+    """Write `pyproject_text`, and `version` into each plugin manifest that exists.
+
+    Every manifest is read before anything is written, so one that cannot be read leaves the
+    tree as it was. A consumer host has neither manifest — both are this repo's own release
+    artifacts, not a PSR concept."""
+    writes = [(root / "pyproject.toml", pyproject_text)]
+    stamp = r'\g<1>"' + version + '"'
+    for manifest in (root / ".claude-plugin/plugin.json", root / ".codex-plugin/plugin.json"):
+        if manifest.exists():
+            text = manifest.read_text(encoding="utf-8")
+            writes.append((manifest, re.sub(r'("version"\s*:\s*)"[^"]*"', stamp, text, count=1)))
+    for path, text in writes:
+        path.write_text(text, encoding="utf-8")
 
 
 def print_only(root: Path) -> str | None:
@@ -77,36 +83,19 @@ def finalize(root: Path) -> str | None:
     found = _prerelease_match(root)
     if found is None:
         return None  # no [project] version, or already stable (hotfix path) → caller falls back
-    pyproject, text, m, core = found
-    pyproject.write_text(text[: m.start("v")] + core + text[m.end("v") :], encoding="utf-8")
-    plugin = root / ".claude-plugin" / "plugin.json"
-    ptext = plugin.read_text(encoding="utf-8")
-    ptext = re.subn(r'("version"\s*:\s*)"[^"]*"', r'\g<1>"' + core + '"', ptext, count=1)[0]
-    plugin.write_text(ptext, encoding="utf-8")
-    _stamp_codex(root, core)
+    _pyproject, text, m, core = found
+    _stamp(root, text[: m.start("v")] + core + text[m.end("v") :], core)
     return core
 
 
 def set_version(root: Path, version: str) -> None:
-    """Write an explicit `version` to pyproject.toml, and to each plugin.json that exists.
-
-    A consumer host rendered from the PSR template has neither .claude-plugin/plugin.json nor
-    .codex-plugin/plugin.json — both are this repo's own release-gating artifacts, not a PSR
-    concept — so writing either is conditional, unlike `finalize()`'s unconditional write for
-    this repo's own release.
-    """
+    """Write an explicit `version` to pyproject.toml, and to each plugin.json that exists."""
     pyproject = root / "pyproject.toml"
     text = pyproject.read_text(encoding="utf-8")
     m = _PROJECT_VERSION.search(text)
     if not m:
         raise ValueError(f"no [project] version found in {pyproject}")
-    pyproject.write_text(text[: m.start("v")] + version + text[m.end("v") :], encoding="utf-8")
-    plugin = root / ".claude-plugin" / "plugin.json"
-    if plugin.exists():
-        ptext = plugin.read_text(encoding="utf-8")
-        ptext = re.subn(r'("version"\s*:\s*)"[^"]*"', r'\g<1>"' + version + '"', ptext, count=1)[0]
-        plugin.write_text(ptext, encoding="utf-8")
-    _stamp_codex(root, version)
+    _stamp(root, text[: m.start("v")] + version + text[m.end("v") :], version)
 
 
 def main(argv: list[str]) -> None:

@@ -30,12 +30,17 @@ cross-shared with JSON/shell. But the *fallback helpers that read those keys*
 
 from __future__ import annotations
 
+import bisect
+import itertools
 import os
 import re
 import subprocess
 import sys
+from collections import Counter
+from collections.abc import Sequence
 from functools import lru_cache
 from pathlib import Path
+from typing import NamedTuple
 
 # ── Path segments under the host write root (root-relative path strings) ──────────
 # CLAUDE.md: all host writes are collected under .claude/harness-tier/. flow_init_setup
@@ -240,10 +245,54 @@ def _git(args: list[str], cwd: str | Path) -> str | None:
 # Read against the MASK below, where every literal region is one quote-delimited NUL run, so a
 # token is plain `\S+` and this pattern states no opinion about quoting — `_shell_regions` is the
 # one place that decides what a quote means. `(?!-)` on the optional argument keeps a `-` token a
-# flag rather than the previous flag's argument. The leading separator is what stops `mygit`.
+# flag rather than the previous flag's argument, and a bare `-` is a token too (`git -C - commit`
+# runs in a directory named `-`). The leading separator is what stops `mygit`.
 
 
-def git_subcommand_re(word: str) -> re.Pattern[str]:
+# The program token alone, and the global-options run that follows it — the two halves of the
+# grammar below, kept apart so a search can skip a `git` that sits inside a run already read.
+_GIT_HEAD = r"(?:^|[\s;&|(`])(?:[^\s;&|()'\"`]*[/\\])?git(?:\.exe)?"
+_GIT_OPTIONS = r"(?:\s+-\S*(?:\s+(?!-)\S+)?)*"
+_GIT_HEAD_RE = re.compile(_GIT_HEAD)
+_GIT_OPTIONS_RE = re.compile(_GIT_OPTIONS)
+
+
+class GitSubcommand:
+    """A compiled ``git … <word>`` grammar with the two calls the gate makes, `search` and
+    `finditer`, returning the matches the regex alone would.
+
+    Tried at every `git`, the regex rescans the options run to its end each time, so a command
+    of `-a git` pairs costs the square of its length — and past the hook timeout there is no
+    verdict at all. A `git` that ends inside the run of one already tried is skipped: it can
+    only be an option or the value of one there, and whatever follows it the earlier start
+    could have read too, so it fails where that one failed.
+    """
+
+    def __init__(self, word: str) -> None:
+        self._re = re.compile(rf"{_GIT_HEAD}({_GIT_OPTIONS})\s+{word}(?=$|[\s;&|)`<>])")
+
+    def finditer(self, string: str, pos: int = 0, endpos: int | None = None):
+        end = len(string) if endpos is None else endpos
+        read_until = -1
+        i = pos
+        while True:
+            head = _GIT_HEAD_RE.search(string, i, end)
+            if head is None:
+                return
+            if head.end() > read_until:
+                m = self._re.match(string, head.start(), end)
+                if m:
+                    yield m
+                    i = max(m.end(), head.start() + 1)
+                    continue
+                read_until = _GIT_OPTIONS_RE.match(string, head.end(), end).end()
+            i = head.start() + 1
+
+    def search(self, string: str, pos: int = 0, endpos: int | None = None):
+        return next(self.finditer(string, pos, endpos), None)
+
+
+def git_subcommand_re(word: str) -> GitSubcommand:
     """A real ``git … <word>`` invocation, with its global-options region as group 1.
 
     One grammar for every subcommand the gate reads, so none of them can drift from the others.
@@ -256,10 +305,7 @@ def git_subcommand_re(word: str) -> re.Pattern[str]:
     at a token boundary, or `git -c commit.gpgsign=false log` reads as a commit and a read-only
     command is denied.
     """
-    return re.compile(
-        rf"(?:^|[\s;&|(`])(?:[^\s;&|()'\"]*[/\\])?"
-        rf"git(?:\.exe)?((?:\s+-\S+(?:\s+(?!-)\S+)?)*)\s+{word}(?=$|[\s;&|)`<>])"
-    )
+    return GitSubcommand(word)
 
 
 _GIT_COMMIT_RE = git_subcommand_re("commit")
@@ -400,7 +446,9 @@ _COMMAND_PREFIX_RE = re.compile(
     + _NOT_SEPARATOR
     + r"*)"
 )
-_PROGRAM_NAME_RE = re.compile(r"(?:[^\s;&|()'\"]*[/\\])?[A-Za-z0-9_.+-]+")
+# The path prefix stops at a backtick, which opens a program position of its own: run across
+# it, a command of backticks rescanned the rest from each one.
+_PROGRAM_NAME_RE = re.compile(r"(?:[^\s;&|()'\"`]*[/\\])?[A-Za-z0-9_.+-]+")
 # What has to stand in front of a reserved word for the word to be one. The `then` in
 # `echo bash and then "…"` is an argument, and reading it as the start of a command makes
 # the quoted text after it a program the scan cannot name — a denial nothing runs.
@@ -431,6 +479,14 @@ def _program_spans(element: str) -> list[tuple[str | None, int, int]]:
     `len(element)`. Later checks read positions from this one walk instead of a second one.
     """
     found: list[tuple[str | None, int, int]] = []
+    # Every separator, found once: searched afresh from each command position, a run of
+    # positions with none after them (a string of backticks) rescanned the rest each time.
+    separators = [m.start() for m in _SEPARATOR_RE.finditer(element)]
+
+    def next_separator(i: int) -> int:
+        k = bisect.bisect_left(separators, i)
+        return separators[k] if k < len(separators) else len(element)
+
     # How far a walk has already resolved. A start landing inside that is a token of the
     # command already read, not a new one — and re-reading from each of them is what made
     # `do do do …` cost a walk per word.
@@ -470,8 +526,7 @@ def _program_spans(element: str) -> list[tuple[str | None, int, int]]:
                 break  # the start opened no command
             name = _PROGRAM_NAME_RE.match(element, i)
             if name is None:
-                sep = _SEPARATOR_RE.search(element, i)
-                found.append((None, i, sep.start() if sep else len(element)))
+                found.append((None, i, next_separator(i)))
                 seen = i
                 break
             text = name.group().rsplit("/", 1)[-1].rsplit(chr(92), 1)[-1]
@@ -486,14 +541,11 @@ def _program_spans(element: str) -> list[tuple[str | None, int, int]]:
                 # assignment reaches inside the program (`LESSOPEN`, `LD_PRELOAD`) and
                 # the exemption was earned by the name alone. Unnamed is what that is —
                 # its range starts at the command position, same as the other None case.
-                sep = _SEPARATOR_RE.search(element, i)
-                found.append((None, i, sep.start() if sep else len(element)))
+                found.append((None, i, next_separator(i)))
             else:
                 args_start = name.end()
-                sep = _SEPARATOR_RE.search(element, args_start)
-                args_end = sep.start() if sep else len(element)
                 text = text[:-4] if text.lower().endswith(".exe") else text
-                found.append((text, args_start, args_end))
+                found.append((text, args_start, next_separator(args_start)))
             seen = i
             break
     return found
@@ -621,10 +673,12 @@ _MASK_TOKEN_RE = re.compile(r"\S+")
 # Characters the scanners name rather than spell: the first three are what a heredoc
 # delimiter must carry for its body to be literal text rather than code.
 SQ_CH, DQ_CH, BS_CH, BT_CH, DOLLAR_CH = chr(39), chr(34), chr(92), chr(96), chr(36)
-# What a backslash quotes: a blank, either quote, itself, and a newline (which joins two
-# lines rather than quoting a character). Everything it precedes outside that set stays an
-# ordinary pair, so a path written with backslash separators keeps them.
-_QUOTED_BY_BACKSLASH = frozenset(" \t\"'\\\n;&|()<>")
+# What a backslash quotes: a blank, either quote, itself, a backtick, and a newline (which
+# joins two lines rather than quoting a character). Everything it precedes outside that set
+# stays an ordinary pair, so a path written with backslash separators keeps them. An escaped
+# backtick opens no substitution: read as one, it pairs with the next real backtick and ends
+# the command it seems to enclose there, dropping the flags git reads after it.
+_QUOTED_BY_BACKSLASH = frozenset(" \t\"'\\\n;&|()<>`")
 # What runs the quoted argument that follows it. Two shapes: a word that takes a command
 # (`eval`, `trap`), and an interpreter's script flag — which has to be preceded by the
 # interpreter, or the same `-c` claims git's own global option and every tool's count
@@ -996,6 +1050,194 @@ def _unquoted_view(command: str, *, keep_heredoc: bool = False) -> str:
     return _QUOTING_RE.sub(lambda m: " " * len(m.group()), "".join(out))
 
 
+# ANSI-C escapes with a fixed meaning; `\x`, `\u`, `\U`, octal and `\c` are decoded apart.
+_ANSI_C_ESCAPES = {
+    "a": "\a",
+    "b": "\b",
+    "e": "\x1b",
+    "E": "\x1b",
+    "f": "\f",
+    "n": "\n",
+    "r": "\r",
+    "t": "\t",
+    "v": "\v",
+    "\\": "\\",
+    "'": "'",
+    '"': '"',
+    "?": "?",
+}
+_ANSI_C_NUMERIC = {"x": (16, 2), "u": (16, 4), "U": (16, 8)}
+_HEX = frozenset("0123456789abcdefABCDEF")
+# Inside double quotes a backslash quotes only these; before anything else it stays.
+_DQ_ESCAPED = frozenset('$`"\\\n')
+# A line continuation, which bash removes before it reads any quote.
+_CONTINUATION_RE = re.compile(r"(?:\\\r?\n)*")
+# What the deleting reading removes: a line continuation, each quote, the `$` that opens an
+# ANSI-C or locale string, and a backslash before anything but a blank. Coarser than bash and
+# unbounded in depth: `eval` nested past the levels below doubles its backslashes each time.
+_QUOTE_REMOVAL_RE = re.compile(r"\\\r?\n|\$(?=['\"])|['\"]|\\(?=\S)")
+# How many times quote removal is applied over the text an interpreter is handed, one quoting
+# level each: `sh -c "eval 'git c\\ommit'"` is three.
+_QUOTE_LEVELS = 4
+
+
+def _ansi_c_end(text: str, i: int) -> int:
+    """The index of the quote closing the `$'…'` body that starts at `i`: a backslash takes the
+    character after it along, the closing quote included, before anything is decoded."""
+    n = len(text)
+    while i < n and text[i] != "'":
+        i += 2 if text[i] == "\\" else 1
+    return min(i, n)
+
+
+def _ansi_c(text: str, i: int) -> tuple[str, int]:
+    """The value of the `$'…'` body starting at `i`, and the index past its closing quote.
+    `git $'\\x63ommit'` runs a commit, so the escapes are decoded rather than left as text. A
+    code point no character carries stays as written."""
+    end = _ansi_c_end(text, i)
+    out = []
+    while i < end:
+        if text[i] != "\\" or i + 1 >= end:
+            out.append(text[i])
+            i += 1
+            continue
+        c = text[i + 1]
+        if c in _ANSI_C_ESCAPES:
+            out.append(_ANSI_C_ESCAPES[c])
+            i += 2
+        elif c in _ANSI_C_NUMERIC:
+            base, width = _ANSI_C_NUMERIC[c]
+            j = i + 2
+            while j < min(end, i + 2 + width) and text[j] in _HEX:
+                j += 1
+            code = int(text[i + 2 : j], base) if j > i + 2 else -1
+            out.append(chr(code) if 0 <= code < 0xD800 or 0xDFFF < code <= 0x10FFFF else text[i:j])
+            i = j
+        elif c in "01234567":
+            j = i + 1
+            while j < min(end, i + 4) and text[j] in "01234567":
+                j += 1
+            out.append(chr(int(text[i + 1 : j], 8) & 0xFF))
+            i = j
+        elif c == "c" and i + 2 < end:
+            out.append(chr(ord(text[i + 2]) & 0x1F))
+            i += 3
+        else:
+            out.append(text[i : i + 2])
+            i += 2
+    return "".join(out), end + 1
+
+
+def _opens_string(text: str, i: int) -> tuple[str, int]:
+    """For a `$` at `i`: the quote that opens an ANSI-C or locale string after it, with any line
+    continuations between skipped, and that quote's index — else ("", i)."""
+    j = _CONTINUATION_RE.match(text, i + 1).end()
+    return (text[j], j) if text[j : j + 1] in ("'", '"') else ("", i)
+
+
+def _remove_quotes(text: str) -> str:
+    """`text` after bash's quote removal: `com''mit`, `c\\ommit`, `$'\\x63ommit'` and a word
+    broken by a line continuation all read `commit`, while a backslash inside double quotes
+    stays where bash keeps it — `"C:\\Git\\bin\\git.exe"` is still a path to git. An
+    unterminated quote runs to the end."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == "\\":
+            if text.startswith("\r\n", i + 1):
+                i += 3
+            elif i + 1 < n:
+                if text[i + 1] != "\n":
+                    out.append(text[i + 1])
+                i += 2
+            else:
+                out.append(c)
+                i += 1
+        elif c == "'":
+            j = text.find("'", i + 1)
+            j = n if j < 0 else j
+            out.append(text[i + 1 : j])
+            i = j + 1
+        elif c == "$" and _opens_string(text, i)[0] == "'":
+            value, i = _ansi_c(text, _opens_string(text, i)[1] + 1)
+            out.append(value)
+        elif c == "$" and _opens_string(text, i)[0] == '"':
+            i = _opens_string(text, i)[1]
+        elif c == '"':
+            i += 1
+            while i < n and text[i] != '"':
+                if text[i] == "\\" and text.startswith("\r\n", i + 1):
+                    i += 3
+                elif text[i] == "\\" and i + 1 < n and text[i + 1] in _DQ_ESCAPED:
+                    if text[i + 1] != "\n":
+                        out.append(text[i + 1])
+                    i += 2
+                else:
+                    out.append(text[i])
+                    i += 1
+            i += 1
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
+def _unquoted_readings(text: str) -> list[str]:
+    """`text` with its quoting removed once per level an interpreter may peel — a script
+    nested in quotes for one (`bash -c 'git c\\ommit'`) is the commit it runs — and once by
+    the deleting reading, for nesting deeper than those levels."""
+    views = [_QUOTE_REMOVAL_RE.sub("", text)]
+    for _ in range(_QUOTE_LEVELS):
+        peeled = _remove_quotes(text)
+        if peeled == text:
+            break
+        views.append(peeled)
+        text = peeled
+    return views
+
+
+def requote_ansi_c(text: str) -> str:
+    """`text` with each unquoted `$'…'` replaced by the single-quoted string it decodes to and
+    each `$"…"` by its plain double-quoted form — the two spellings shlex does not know."""
+    out, i, n = [], 0, len(text)
+    quote = ""
+    while i < n:
+        c = text[i]
+        if quote:
+            if c == "\\" and quote == '"' and i + 1 < n:
+                out.append(text[i : i + 2])
+                i += 2
+                continue
+            if c == quote:
+                quote = ""
+        elif c == "\\" and i + 1 < n:
+            out.append(text[i : i + 2])
+            i += 2
+            continue
+        elif c == "$" and _opens_string(text, i)[0] == "'":
+            value, i = _ansi_c(text, _opens_string(text, i)[1] + 1)
+            out.append("'" + value.replace("'", "'\\''") + "'")
+            continue
+        elif c == "$" and _opens_string(text, i)[0] == '"':
+            i = _opens_string(text, i)[1]
+            continue
+        elif c in "'\"":
+            quote = c
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def _uncommented(command: str) -> str:
+    """`command` with its comments blanked and everything else as written, same length — the
+    base each element's quote removal (:func:`_remove_quotes`) runs over."""
+    out = list(command)
+    for a, b, kind in _shell_regions(command):
+        if kind == "comment":
+            out[a:b] = " " * (b - a)
+    return "".join(out)
+
+
 def _substitutions(masked: str) -> list[tuple[int, int]]:
     """Where each `$( … )`, backtick, and process-substitution `<( … )` / `>( … )` span sits on
     the mask, outermost first. Used ONLY to keep _list_elements from splitting inside one — a
@@ -1053,7 +1295,8 @@ def is_invocation(command: str, word: str) -> bool:
     commit. Behind it sits a net for the case the mask is wrong about — the element of the
     command list runs something other than a reader, so its quoted text (and any heredoc body
     it is handed) may be a script rather than data. The same grammar is then tried over that
-    element read with its quoting rubbed out and its heredoc body kept.
+    element read with its quoting rubbed out and its heredoc body kept, and once more with its
+    quoting deleted, which joins a word split by quotes (`git com''mit`) the way bash does.
 
     The exemption is the list, not the gating: a program nobody listed as read-only
     over-gates, which the user sees and can work around, where a channel nobody listed
@@ -1082,10 +1325,13 @@ def is_invocation(command: str, word: str) -> bool:
     if pattern.search(masked):
         return True
     scripted = _unquoted_view(command, keep_heredoc=True)
+    uncommented = _uncommented(command)
     for a, b in _list_elements(command, masked):
         if _reads_only(masked[a:b]) and not _runs_by_flag(command[a:b], masked[a:b]):
             continue
         if pattern.search(scripted[a:b]):
+            return True
+        if any(pattern.search(view) for view in _unquoted_readings(uncommented[a:b])):
             return True
         names = [n for n, _s, _e in _program_spans(masked[a:b])]
         if (
@@ -1097,6 +1343,166 @@ def is_invocation(command: str, word: str) -> bool:
     return False
 
 
+# git's global options that take the next word as their value.
+_GIT_GLOBAL_WITH_ARG = frozenset(
+    ("-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env")
+)
+
+
+# The subcommands the merge path reads. None of them runs its operands as a command, so a
+# `git …` starting among one's operands — in the same substitution level — is an argument of
+# it that never runs, and is not read as an invocation of its own.
+MERGE_PATH_WORDS = ("merge", "pull", "switch", "checkout")
+
+
+def invocation_words(command: str, word: str) -> list[tuple[int, str | None, list[str], list[str]]]:
+    """(where it starts, its `-C` value, global options, operands) of every ``git … <word>``
+    the command runs, `word` one of :data:`MERGE_PATH_WORDS`.
+
+    Read off the mask, as every other reader here is. A pipeline stage holding a quote or a
+    backslash that :func:`is_invocation` finds a `word` in is read once more by
+    :func:`_split_invocations`, which joins a subcommand split by quoting (`git mer''ge`) the way
+    bash does; the invocations the mask already showed come back from it too and are dropped.
+    Heredoc bodies and comments are blanked first, since a commit message that says `git merge
+    feature/x` is text there exactly as it is on the mask; a simple command shlex cannot split,
+    or one that names git only inside a quoted script, adds nothing. Such an invocation starts
+    where its stage does.
+    """
+    assert word in MERGE_PATH_WORDS, word
+    return [(s, d, g, o) for s, w, d, g, o, _e in live_invocations(command) if w == word]
+
+
+@lru_cache(maxsize=8)
+def live_invocations(command: str) -> tuple[tuple, ...]:
+    """(start, word, `-C` value, global options, operands, where its operands end) of every
+    merge-path invocation, the end None for one read off its split pipeline stage.
+
+    Read once for all four words: an invocation that sits among another's operands is dropped
+    before its own operands are read, so each word of the command is read for one invocation —
+    read for every one, a long run of them cost the square of its length. Dropped only where the
+    other heads its own command: behind `eval`, `watch` or `ssh` the arguments are parsed again,
+    and an escaped `;` among them separates two commands that both run."""
+    pattern = git_subcommand_re(f"({'|'.join(MERGE_PATH_WORDS)})")
+    masked = mask_literals(command)
+    out = []
+    # level → (where the operands of the last one kept there start and end, whether it heads
+    # its command)
+    covered: dict[int, tuple[int, int, bool]] = {}
+    for m in pattern.finditer(masked):
+        level = _level(command, masked, m.end())
+        start, cover_end, heads = covered.get(level.lo, (0, -1, False))
+        if m.start() < cover_end:
+            if heads and not level.risky_between(start, m.start()):
+                continue
+        end = operand_end(command, masked, m.end())
+        if m.start() >= cover_end:
+            covered[level.lo] = (m.end(), end, level.heads_command(m.start()))
+        lead = level.lead(m.start())
+        depth = _reparse_depth(lead, len(lead))
+        reparsed = depth and _reparsed_operands(command, masked, m.end(), end, depth)
+        if reparsed:
+            operands, end = reparsed
+        else:
+            operands = operand_words(command, masked, m.end(), end)
+        out.append(
+            (
+                m.start(),
+                m.group(2),
+                dash_c_value(command, masked, m.start(1), m.end(1)),
+                operand_words(command, masked, m.start(1), m.end(1)),
+                operands,
+                end,
+            )
+        )
+    code, plain = _blank_redirections(command, masked)
+    text = list(code)
+    for a, b, kind in _shell_regions(command):
+        if kind in ("comment", "heredoc"):
+            text[a:b] = " " * (b - a)
+    code = "".join(text)
+    shown = [inv[0] for inv in out]
+    for a, b in _list_elements(command, masked):
+        for sa, sb in _pipeline_stages(plain, a, b):
+            # A stage holding one the mask shows may hold another it does not: `eval git merge a
+            # ';' git mer''ge b`. Read whole, the shown ones come back too and are dropped.
+            if not _HIDES_RE.search(command, sa, sb) or not any(
+                is_invocation(command[sa:sb], w) for w in MERGE_PATH_WORDS
+            ):
+                continue
+            first, last = bisect.bisect_left(shown, sa), bisect.bisect_left(shown, sb)
+            seen = Counter((w, tuple(g), tuple(o)) for _s, w, _d, g, o, _e in out[first:last])
+            for word, global_opts, operands in _split_invocations(code[sa:sb], plain[sa:sb]):
+                key = (word, tuple(global_opts), tuple(operands))
+                if seen[key]:
+                    seen[key] -= 1
+                    continue
+                dirs = [v for f, v in zip(global_opts, global_opts[1:]) if f == "-C"]
+                out.append((sa, word, dirs[-1] if dirs else None, global_opts, operands, None))
+    return tuple(sorted(out, key=lambda inv: inv[0]))
+
+
+# What can split a word so that the mask does not show it: a quote or a backslash.
+_HIDES_RE = re.compile(r"""['"\\]""")
+
+
+def _pipeline_stages(masked: str, a: int, b: int) -> list[tuple[int, int]]:
+    """The stages of the pipeline `masked[a:b]`, split on each `|` the mask leaves standing."""
+    cuts = [m.start() for m in re.finditer(r"(?<!\|)\|(?!\|)", masked[a:b])]
+    bounds = [a, *(a + c for c in cuts), b]
+    return [(s + (1 if i else 0), e) for i, (s, e) in enumerate(zip(bounds, bounds[1:]))]
+
+
+def _split_invocations(text: str, mask: str) -> list[tuple[str, list[str], list[str]]]:
+    """Every ``git [global options] <word> operands…`` in `text` for a word of
+    :data:`MERGE_PATH_WORDS`, as (word, global options, operands), `mask` its mask with
+    redirections blanked. The text is cut only where the mask shows a separator, so a quoted
+    `;`, `>` or `(` stays an argument; a substitution is one word, and the ones inside it are
+    read on their own. A `git` among the operands of one that heads its command is one of them —
+    behind any other word the operands may be parsed again, and are read on."""
+    out = []
+    chars, opaque = list(text), list(mask)
+    for i, e in _substitutions(mask):
+        lo, hi = _substitution_inside(mask, i, e)
+        out += _split_invocations(text[lo:hi], mask[lo:hi])
+        chars[i:e] = opaque[i:e] = OPAQUE_CH * (e - i)
+    text, mask = "".join(chars), "".join(opaque)
+    cuts = [m.start() for m in _COMMAND_BREAK_RE.finditer(mask)]
+    for a, b in zip([0, *(c + 1 for c in cuts)], [*cuts, len(mask)]):
+        out += _command_invocations(list(_shlex_words(text[a:b]) or ()))
+    return out
+
+
+def _command_invocations(words: list[str]) -> list[tuple[str, list[str], list[str]]]:
+    """:func:`_split_invocations` for the words of one simple command."""
+    out = []
+    i = 0
+    indexes: dict[int, _RereadIndex] = {}
+    # whether only words that run a program unparsed stood before word i
+    heads = True
+    while i < len(words):
+        j = i + 1
+        is_git = _program_name(words[i]) in ("git", "git.exe")
+        while is_git and j < len(words) and words[j].startswith("-"):
+            j += 2 if words[j] in _GIT_GLOBAL_WITH_ARG else 1
+        if not is_git or j >= len(words) or words[j] not in MERGE_PATH_WORDS:
+            heads = heads and _runs_unparsed(words[i])
+            i += 1
+            continue
+        depth = _reparse_depth(words, i)
+        if not depth:
+            operands = words[j + 1 :]
+        else:
+            if depth not in indexes:
+                indexes[depth] = _reread_index([(w,) for w in words], depth)
+            span = _reread_span(indexes[depth], j + 1, len(words))
+            # a quote spanning two words: the rest parsed again whole
+            whole = span or (_reread_deep(tuple(words[j + 1 :]), depth)[0] or (), None)
+            operands = list(whole[0])
+        out.append((words[j], words[i + 1 : j], operands))
+        i = len(words) if heads else i + 1
+    return out
+
+
 def operand_words(command: str, masked: str, start: int, end: int) -> list[str]:
     """The words `command[start:end]` holds, read the way the shell splits them.
 
@@ -1105,17 +1511,402 @@ def operand_words(command: str, masked: str, start: int, end: int) -> list[str]:
     shlex then raises on it — which reads as `no merge here` and drops a fail-CLOSED
     verdict. Continuations go too: a `\\` before a newline is not a word.
     """
+    level = _level(command, masked, start)
+    i, j, end = level.region(start, end)
+    if i >= j:
+        return []
+    head, tail = level.piece(i, start, end), level.piece(j - 1, start, end)
+    if head is None or tail is None or level.unsplit[j - 1] - level.unsplit[i + 1] > 0:
+        # a token shlex cannot split alone may be a piece of one word the mask left blanks in
+        # (a quoted heredoc delimiter): read the region whole
+        return list(level.split(start, end) or ())
+    if j - i == 1:
+        return list(head)
+    return [*head, *itertools.chain.from_iterable(level.words[i + 1 : j - 1]), *tail]
+
+
+def _reparsed_operands(
+    command: str, masked: str, start: int, end: int, depth: int
+) -> tuple[list[str], int] | None:
+    """The operands `command[start:end]` holds once they are parsed `depth` more times, and
+    where they end: at the token holding the first separator or comment a second parse leaves
+    standing, else at `end`. None where they will not split."""
+    level = _level(command, masked, start)
+    i, j, end = level.region(start, end)
+    if by_token := level.reparsed(start, end, i, j, depth):
+        return by_token
+    # a quote spanning two tokens: the region parsed again whole
+    words, _cut = _reread_deep(tuple(operand_words(command, masked, start, end)), depth)
+    return (list(words), end) if words is not None else None
+
+
+def _shlex_words(text: str) -> tuple[str, ...] | None:
+    """The words shlex splits `text` into, or None where it cannot. A line continuation is
+    removed first, as bash removes it outside single quotes — shlex keeps it inside double ones
+    and makes a newline of it outside, which a later parse reads as the command's end."""
     import shlex
 
-    text = list(command[start:end])
+    if "\\\n" in text:
+        chars = list(text)
+        for a, b, kind in _shell_regions(text):
+            if kind == "continuation":
+                chars[a:b] = " " * (b - a)
+            elif kind == "quote" and a and text[a - 1] == '"':
+                for m in re.finditer(r"(?<!\\)(?:\\\\)*\\\n", text[a:b]):
+                    chars[a + m.end() - 2 : a + m.end()] = _JOIN_FILL * 2
+        for a, b in _word_joins(text):
+            chars[a:b] = _JOIN_FILL * (b - a)
+        text = "".join(chars)
+    try:
+        return tuple(w.replace(_JOIN_FILL, "") for w in shlex.split(requote_ansi_c(text)))
+    except ValueError:
+        return None
+
+
+# What a line continuation inside a word reads as: no blank, so the word stays one, and a mark
+# the words drop once split. Blanked, `--no\<newline>-ff` read as two words and lost its flag.
+_JOIN_FILL = chr(2)
+
+
+def _word_joins(command: str) -> list[tuple[int, int]]:
+    """The line continuations in `command` that join two pieces of one word."""
+    return [
+        (a, b)
+        for a, b, kind in _shell_regions(command)
+        if kind == "continuation"
+        and 0 < a
+        and b < len(command)
+        and not command[a - 1].isspace()
+        and not command[b].isspace()
+    ]
+
+
+def _reread(words: tuple[str, ...] | None) -> tuple[tuple[str, ...] | None, bool]:
+    """`words` parsed again the way `eval` parses its arguments — up to the first separator or
+    comment, redirections dropped — and whether one of those cut them."""
+    if words is None:
+        return None, False
+    again = " ".join(words)
+    # masked behind a word, as the arguments they are: at a command's start the mask unwraps a
+    # quoted word as a program name, and `';'` would show its `;`
+    masked = mask_literals(": " + again)[2:]
+    text, plain = _blank_redirections(again, masked)
+    stop = len(again)
+    if m := _SEPARATOR_RE.search(plain):
+        stop = m.start()
+    stop = min([stop, *(c for c in _comment_starts(again) if plain[c] != " ")])
+    if any(not r.group("target") for r in _REDIRECTION_RE.finditer(masked, 0, stop)):
+        # its target is a word of the next token: read alone, that word stays an operand
+        return None, False
+    words = _shlex_words(text[:stop])
+    return (words, stop < len(again)) if words is not None else (None, False)
+
+
+def _reread_deep(words: tuple[str, ...] | None, depth: int) -> tuple[tuple[str, ...] | None, bool]:
+    """`words` parsed again `depth` times (:func:`_reread`), and whether any of them cut."""
+    cut = False
+    for _ in range(depth):
+        words, once = _reread(words)
+        cut = cut or once
+    return words, cut
+
+
+def _reparse_depth(words: list[str], end: int) -> int:
+    """How many more times the words of a simple command from its program at `end` on are
+    parsed before that program runs: once per `eval`, `watch` (without `-x`, which runs the
+    command itself) or `ssh` in front of it, each standing as the program of what follows the
+    last — past the options of `watch` and `ssh`, and the host `ssh` connects to."""
+    depth, i = 0, 0
+    while True:
+        while i < end and _runs_unparsed(words[i]):
+            i += 1
+        program = _program_name(words[i]) if i < end else None
+        if program not in _REPARSING_PROGRAMS:
+            return depth
+        short, long = _REPARSING_PROGRAMS[program]
+        i += 1
+        while i < end and words[i].startswith("-"):
+            if program == "watch" and (
+                words[i] == "--exec" or re.fullmatch(r"-[^-]*x.*", words[i])
+            ):
+                return depth
+            option = words[i]
+            if option.startswith("--"):
+                takes = "=" not in option and option in long
+            else:
+                takes = _short_takes_next(option, short)
+            i += 2 if takes else 1
+        if program == "ssh":
+            i += 1
+        depth += 1
+
+
+# Programs that parse the words after them again: the short option letters and long options of
+# each that take the next word as their value.
+_REPARSING_PROGRAMS = {
+    "eval": ("", ()),
+    "watch": ("nq", ("--interval", "--equexit")),
+    "ssh": ("BbcDEeFIiJLlmOoPpQRSWw", ()),
+}
+
+
+def _short_takes_next(tok: str, with_arg: str, owns_rest: str = "") -> bool:
+    """Whether a short-option word such as `-qm` hands the next word to one of its options.
+
+    A bundle is read letter by letter: the first option in `with_arg` takes the attached rest
+    as its value, or the next word when nothing is attached; one in `owns_rest` takes the rest
+    and never the next word."""
+    for i, letter in enumerate(tok[1:], 1):
+        if letter in with_arg:
+            return i == len(tok) - 1
+        if letter in owns_rest:
+            return False
+    return False
+
+
+# What ends the simple command a word belongs to, on a level's mask.
+_COMMAND_BREAK_RE = re.compile(r"[;&|\n\r()`]")
+# A redirection and its target, on a mask. Neither is an operand of the command it sits in,
+# and the `|` of `>|` or the `&` of `>&`/`&>` separates nothing: read as words, `git merge >|o
+# --no-ff fix/x` would merge a source named `>` and lose the flag behind the `|`. A heredoc's
+# `<<`/`<<-` goes with its delimiter, its body being read elsewhere, and a here-string's `<<<`
+# with its word, each one operator: read as a run of `<`, the bare ones have no target and
+# a reread gives up on the merge. A process substitution's `<(` is left alone, as a word. An
+# fd number (`2>`, `{fd}>`) counts only as a word of its own, as bash reads `fix2>o`.
+_REDIRECTION_RE = re.compile(
+    r"(?:(?<![^\s;&|()])(?:[0-9]+|\{[A-Za-z_][A-Za-z0-9_]*\}))?"
+    r"(?:&>>?|>>|>\||<<<|<<-?|[<>]&|<>|>(?!\()|<(?!\())"
+    r"""(?P<target>[ \t]*(?:'[^']*'|"[^"]*"|[^\s;&|()<>'"])+)?"""
+)
+# Words that can stand before a program and run it with its arguments as they are — never
+# parsed again, so a separator quoted among them stays an argument.
+_UNPARSED_PREFIXES = frozenset(
+    ("{", "!", "if", "then", "else", "elif", "do", "while", "until")
+    + ("time", "command", "nohup", "sudo", "builtin")
+)
+
+
+def _blank_redirections(text: str, masked: str) -> tuple[str, str]:
+    """`text` and its mask with every redirection the mask shows, target included, blanked."""
+    t, m = list(text), list(masked)
+    for r in _REDIRECTION_RE.finditer(masked):
+        t[r.start() : r.end()] = m[r.start() : r.end()] = " " * (r.end() - r.start())
+    return "".join(t), "".join(m)
+
+
+_ASSIGNMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=\S*")
+
+
+def _runs_unparsed(word: str) -> bool:
+    """Whether `word`, standing before a program, runs it with its arguments as they are."""
+    return word in _UNPARSED_PREFIXES or bool(_ASSIGNMENT_RE.fullmatch(word))
+
+
+def _program_name(word: str) -> str:
+    """`word` without the directory a path to a program names it under."""
+    return re.split(r"[/\\]", word)[-1]
+
+
+class _RereadIndex(NamedTuple):
+    """Each token's words parsed again some number of times (:func:`_reread_deep`) — one index
+    per number — those words laid end to end with each token's offset into them, and for each
+    token the first one at or after it that a separator or comment cuts or that will not split.
+    Built once for a run of tokens: rebuilt for each invocation behind `eval`, a chain of them
+    cost the square of its length."""
+
+    reread: list[tuple[tuple[str, ...] | None, bool]]
+    flat: list[str]
+    offsets: list[int]
+    stops: list[int]
+
+
+def _reread_index(words: Sequence[tuple[str, ...] | None], depth: int) -> _RereadIndex:
+    """The :class:`_RereadIndex` of tokens whose words are `words`, each parsed `depth` more
+    times — cut where any of those parses leaves a separator or comment standing."""
+    reread = [_reread_deep(w, depth) for w in words]
+    flat: list[str] = []
+    offsets = [0]
+    for parsed, _cut in reread:
+        flat.extend(parsed or ())
+        offsets.append(len(flat))
+    stops = [len(reread)] * (len(reread) + 1)
+    for k in range(len(reread) - 1, -1, -1):
+        parsed, cut = reread[k]
+        stops[k] = k if parsed is None or cut else stops[k + 1]
+    return _RereadIndex(reread, flat, offsets, stops)
+
+
+def _reread_span(index: _RereadIndex, lo: int, hi: int) -> tuple[list[str], int | None] | None:
+    """The words of tokens `[lo, hi)` parsed again, through the first token a separator or
+    comment cuts, and that token — None for none. None where a token will not split alone."""
+    s = min(index.stops[lo], hi) if lo < hi else lo
+    out = index.flat[index.offsets[lo] : index.offsets[s]]
+    if s == hi:
+        return out, None
+    words, _cut = index.reread[s]
+    return ([*out, *words], s) if words is not None else None
+
+
+# What a substitution's text reads as in the words of the command it sits in: one run of
+# characters the shell's output replaces, quote-free and blank-free, so it neither splits the
+# word it is part of nor hands shlex the quotes, comments and heredoc bodies inside it.
+OPAQUE_CH = chr(1)
+
+
+class _Level:
+    """The operand view of one nesting level — the whole command, or the inside of one
+    substitution — with every substitution opened at that level shown as one opaque run.
+
+    Built once per level and read by every invocation in it: a command holding many gives each
+    an operand region that can run to its end, and splitting every region afresh cost the
+    square of its length. Outside quotes a blank on the mask is a blank the shell splits on —
+    quoted text is a blank-free run there — so where every token splits alone, token by token
+    yields the words the whole region does; where one does not, the region is read whole."""
+
+    def __init__(self, command: str, masked: str, k: int) -> None:
+        starts, ends, closes, parents = _substitution_tree(masked)
+        if k < 0:
+            self.lo, self.hi = 0, len(command)
+        else:
+            self.lo, self.hi = _substitution_inside(masked, starts[k], ends[k])
+        mask = list(masked[self.lo : self.hi])
+        text = list(_unblanked_view(command)[self.lo : self.hi])
+        for c in _children(masked).get(k, ()):
+            a, b = starts[c] - self.lo, min(ends[c], self.hi) - self.lo
+            mask[a:b] = text[a:b] = OPAQUE_CH * (b - a)
+        for a, b in _word_joins(command):
+            if self.lo <= a and b <= self.hi and mask[a - self.lo] != OPAQUE_CH:
+                mask[a - self.lo : b - self.lo] = text[a - self.lo : b - self.lo] = _JOIN_FILL * (
+                    b - a
+                )
+        self.text, self.mask = _blank_redirections("".join(text), "".join(mask))
+        tokens = [(m.start() + self.lo, m.end() + self.lo) for m in re.finditer(r"\S+", self.mask)]
+        self.starts = tuple(a for a, _b in tokens)
+        self.ends = tuple(b for _a, b in tokens)
+        self.words = tuple(self.split(a, b) for a, b in tokens)
+        self.unsplit = tuple(itertools.accumulate((w is None for w in self.words), initial=0))
+        self.comments = tuple(
+            a
+            for a in _comment_starts(command)
+            if self.lo <= a < self.hi and self.mask[a - self.lo] != OPAQUE_CH
+        )
+        self.breaks = tuple(m.start() + self.lo for m in _COMMAND_BREAK_RE.finditer(self.mask))
+        self._reread_index: dict[int, _RereadIndex] = {}
+        # a `case` pattern's `)` closes the substitution early on the mask, and what follows it
+        # reads as this level's text though the shell runs it inside
+        self.risky = tuple(
+            starts[c]
+            for c in _children(masked).get(k, ())
+            if re.search(r"\bcase\b", command[starts[c] : ends[c]])
+        )
+
+    def lead(self, start: int) -> list[str]:
+        """The words of its simple command standing before the `git` matched at `start`."""
+        b = bisect.bisect_right(self.breaks, start) - 1
+        lead_start = self.breaks[b] + 1 if b >= 0 else self.lo
+        return self.mask[lead_start - self.lo : start - self.lo].split()
+
+    def heads_command(self, start: int) -> bool:
+        """Whether the `git` matched at `start` is the program of its simple command — nothing
+        but assignments, grouping and words that run it unparsed stand before it."""
+        return all(_runs_unparsed(w) for w in self.lead(start))
+
+    def region(self, start: int, end: int) -> tuple[int, int, int]:
+        """The tokens `[i, j)` the region `[start, end)` touches, and its end on this level."""
+        end = min(end, self.hi)
+        return bisect.bisect_right(self.ends, start), bisect.bisect_left(self.starts, end), end
+
+    def piece(self, k: int, start: int, end: int) -> tuple[str, ...] | None:
+        """Token k's words, read clipped where the region `[start, end)` cuts through it."""
+        if start <= self.starts[k] and self.ends[k] <= end:
+            return self.words[k]
+        return self.split(max(self.starts[k], start), min(self.ends[k], end))
+
+    def reread_index(self, depth: int) -> _RereadIndex:
+        """This level's tokens as one :class:`_RereadIndex` for `depth`, built on first use."""
+        if depth not in self._reread_index:
+            self._reread_index[depth] = _reread_index(self.words, depth)
+        return self._reread_index[depth]
+
+    def reparsed(
+        self, start: int, end: int, i: int, j: int, depth: int
+    ) -> tuple[list[str], int] | None:
+        """:func:`_reparsed_operands` read token by token off the index; None where a token
+        will not split alone."""
+        out: list[str] = []
+        lo = i + (i < j and self.starts[i] < start)
+        hi = max(lo, j - (self.ends[j - 1] > end if i < j else 0))
+        # the tokens the region cuts through are read alone, the ones between off the index
+        for k in itertools.chain(range(i, lo), (None,), range(hi, j)):
+            if k is None:
+                span = _reread_span(self.reread_index(depth), lo, hi)
+                if span is None:
+                    return None
+                out += span[0]
+                if span[1] is not None:
+                    return out, self.ends[span[1]]
+                continue
+            words, cut = _reread_deep(self.piece(k, start, end), depth)
+            if words is None:
+                return None
+            out += words
+            if cut:
+                return out, self.ends[k]
+        return out, end
+
+    def risky_between(self, start: int, end: int) -> bool:
+        """Whether a substitution the mask may have closed early opens in `[start, end)`."""
+        i = bisect.bisect_left(self.risky, start)
+        return i < len(self.risky) and self.risky[i] < end
+
+    def split(self, start: int, end: int) -> tuple[str, ...] | None:
+        """The words `[start, end)` of this level splits into, or None where shlex cannot."""
+        return _shlex_words(self.text[start - self.lo : end - self.lo])
+
+
+@lru_cache(maxsize=16)
+def _levels(command: str, masked: str) -> dict[int, _Level]:
+    """The levels of `command` built so far, by the index of the substitution they are inside."""
+    return {}
+
+
+def _level(command: str, masked: str, start: int) -> _Level:
+    """The level the simple command whose operands begin at `start` belongs to: inside the
+    innermost substitution enclosing `start`, or the whole command."""
+    starts, ends, _closes, parents = _substitution_tree(masked)
+    k = bisect.bisect_left(starts, start) - 1
+    while k >= 0 and ends[k] <= start:
+        k = parents[k]
+    levels = _levels(command, masked)
+    if k not in levels:
+        levels[k] = _Level(command, masked, k)
+    return levels[k]
+
+
+@lru_cache(maxsize=16)
+def _children(masked: str) -> dict[int, list[int]]:
+    """The substitutions each one directly encloses, by index; -1 holds the outermost."""
+    out: dict[int, list[int]] = {}
+    for c, parent in enumerate(_substitution_tree(masked)[3]):
+        out.setdefault(parent, []).append(c)
+    return out
+
+
+@lru_cache(maxsize=16)
+def _unblanked_view(command: str) -> str:
+    """`command` with its continuations and heredoc delimiters blanked, same length. Built once
+    per command: rebuilt for each invocation, a command of many cost the square of its length."""
+    out = list(command)
     for a, b, kind in _shell_regions(command):
         if kind in _BLANKED:
-            for i in range(max(a, start), min(b, end)):
-                text[i - start] = " "
-    try:
-        return shlex.split("".join(text))
-    except ValueError:
-        return []
+            out[a:b] = " " * (b - a)
+    return "".join(out)
+
+
+@lru_cache(maxsize=16)
+def _comment_starts(command: str) -> tuple[int, ...]:
+    """Where each comment in `command` starts, in order."""
+    return tuple(sorted(a for a, _b, kind in _shell_regions(command) if kind == "comment"))
 
 
 def operand_end(command: str, masked: str, start: int, end: int | None = None) -> int:
@@ -1125,13 +1916,50 @@ def operand_end(command: str, masked: str, start: int, end: int | None = None) -
     end of input instead, a later command's flags join this one's and a `--squash` written in a
     trailing comment satisfies the policy row that requires it. Separators are located on the
     MASK, so one inside a message or a heredoc body ends nothing.
+
+    A substitution enclosing the command ends it where it closes, a closing backtick as much as
+    a `)`: read on past it, every merge in a run of backticks took the rest of the command as
+    its operands. One opening among the operands is one word of them, its `;`, `)` and
+    comments included: cut there, `git merge fix/x $(true) --no-ff` lost the flag git reads.
     """
-    stop = len(command) if end is None else end
-    for a, _b, kind in _shell_regions(command):
-        if kind == "comment" and start <= a < stop:
-            stop = a
-    m = _SEPARATOR_RE.search(masked, start, stop)
-    return m.start() if m else stop
+    level = _level(command, masked, start)
+    stop = min(len(command) if end is None else end, level.hi)
+    c = bisect.bisect_left(level.comments, start)
+    if c < len(level.comments) and level.comments[c] < stop:
+        stop = level.comments[c]
+    m = _SEPARATOR_RE.search(level.mask, start - level.lo, stop - level.lo)
+    return m.start() + level.lo if m else stop
+
+
+def _substitution_inside(masked: str, i: int, e: int) -> tuple[int, int]:
+    """Where the text inside the substitution `masked[i:e]` starts and ends: past its `$(` or
+    backtick, and before its closing `)` or backtick when it has one."""
+    closed = e - 1 > i and masked[e - 1] in (")", BT_CH)
+    return i + (1 if masked[i] == BT_CH else 2), e - 1 if closed else e
+
+
+@lru_cache(maxsize=16)
+def _substitution_tree(masked: str) -> tuple[tuple[int, ...], ...]:
+    """(starts, ends, closes, parents) of every substitution on the mask, nested ones included,
+    ordered by start: where it closes is its `)` or backtick, and its parent is the index of the
+    one enclosing it, -1 for none."""
+    found = []
+    pending = [(0, len(masked), -1)]
+    while pending:
+        a, b, parent = pending.pop()
+        for i, e in _substitutions(masked[a:b]):
+            i, e = i + a, e + a
+            lo, hi = _substitution_inside(masked, i, e)
+            found.append((i, e, hi, parent))
+            pending.append((lo, hi, i))
+    found.sort()
+    index = {f[0]: n for n, f in enumerate(found)}
+    return (
+        tuple(f[0] for f in found),
+        tuple(f[1] for f in found),
+        tuple(f[2] for f in found),
+        tuple(index.get(f[3], -1) for f in found),
+    )
 
 
 def _unquote(command: str, masked: str, a: int, b: int) -> str:
@@ -1264,6 +2092,16 @@ def _cd_hop_before_bare_commit(command: str, masked: str) -> bool:
     return False
 
 
+def _net_only_commit(command: str, masked: str) -> bool:
+    """An element whose commit only the :func:`is_invocation` net reads — a script an
+    interpreter is handed, or a word split by quoting. The directory readers above walk the
+    mask, where that commit does not show, so neither its `-C` nor a hop before it is seen."""
+    return any(
+        not _GIT_COMMIT_RE.search(masked[a:b]) and is_invocation(command[a:b], "commit")
+        for a, b in _list_elements(command, masked)
+    )
+
+
 def commit_tree_unresolved(command: str | None) -> bool:
     """Whether the command commits somewhere this cannot name — its invocations disagree, one of
     them names a tree this cannot resolve (an unexpanded `-C` value), or a cd/pushd/popd hop
@@ -1290,7 +2128,7 @@ def commit_tree_unresolved(command: str | None) -> bool:
         answers = _commit_dir_answers(command)
         if len(answers) > 1 or _UNKNOWN_DIR in answers:
             return True
-        return _cd_hop_before_bare_commit(command, masked)
+        return _cd_hop_before_bare_commit(command, masked) or _net_only_commit(command, masked)
     except Exception:
         return False  # FAIL-OPEN: an unreadable command is not one this can claim anything about
 

@@ -101,3 +101,50 @@ def test_no_pattern_is_quadratic_on_a_repeated_token():
             if elapsed > BUDGET_SECONDS:
                 slow.append(f"{who} on {label}: {elapsed:.2f}s")
     assert not slow, slow
+
+
+@pytest.mark.parametrize(
+    "unit",
+    [
+        "git switch dev `git merge --squash feature/x` ",
+        "git switch dev $(git merge --squash feature/x) ",
+        "git switch dev && git merge --squash feature/x; ",
+        "git commit -m x `git merge a` ",
+        "git merge --squash feature/x `true` ",
+        "git merge feature/x 'x y' \"p q\" ",
+        "git merge --squash feature/x git switch dev ",
+        "git -c a=b merge feature/x ",
+        "git pull origin feature/x -c ",
+        "git mer''ge --squash feature/x ",
+    ],
+)
+def test_many_invocations_in_one_command_cost_the_merge_verdict_little(unit):
+    """Invocations sharing one simple command can give each an operand region running to its
+    end. Read afresh per invocation, or the switch targets read afresh per merge, each of these
+    shapes took seconds to minutes at this size; the verdict times out past that, and lets the
+    merge through."""
+    command = unit * 2000
+    vp.live_invocations.cache_clear()
+    vp._levels.cache_clear()
+    start = time.perf_counter()
+    merges = sorted(fgc._merges(command) + fgc._pull_merges(command), key=lambda m: m[0])
+    fgc._merge_targets(command, [s for s, _f, _s in merges])
+    elapsed = time.perf_counter() - start
+    assert merges
+    assert elapsed < BUDGET_SECONDS, f"{len(command)} chars took {elapsed:.2f}s"
+
+
+def test_each_token_is_split_once(monkeypatch):
+    """The level views are what keep the cost linear: splitting grows with the tokens, not
+    with the tokens times the invocations whose regions cover them."""
+    calls = []
+    real = vp._Level.split
+    monkeypatch.setattr(vp._Level, "split", lambda self, *a: calls.append(a) or real(self, *a))
+    for n in (50, 100):
+        command = "git switch dev `git merge --squash feature/x` " * n
+        calls.clear()
+        vp.live_invocations.cache_clear()
+        vp._levels.cache_clear()
+        merges = fgc._merges(command)
+        fgc._merge_targets(command, [s for s, _f, _s in merges])
+        assert len(calls) <= 2 * len(command.split()), (n, len(calls))

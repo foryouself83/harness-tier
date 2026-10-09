@@ -5,7 +5,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from scripts.flow_init_setup import load_deploy_config, render_deploy_workflows
+from scripts.flow_init_setup import (
+    ORCHESTRATOR_HEADER,
+    load_deploy_config,
+    render_deploy_workflows,
+)
 
 PLUGIN = Path(__file__).resolve().parents[1]  # repo root (plugin source)
 
@@ -322,14 +326,15 @@ def test_orchestrator_custom_target(tmp_path: Path):
 
 def test_orchestrator_regenerated_not_preserved(tmp_path: Path):
     """Contrast with test_render_deploy_idempotent_nondestructive: components are preserved
-    (skip-if-exists), but the orchestrator is fully generated/managed and overwritten every
-    render, so config changes (e.g. a new target) are always reflected."""
+    (skip-if-exists), but a generated orchestrator is overwritten every render, so config
+    changes (e.g. a new target) are always reflected."""
     _write_config(tmp_path, _ORCH_CONFIG)
     render_deploy_workflows(tmp_path, PLUGIN)
     wf = tmp_path / ".github" / "workflows" / "deploy.yml"
-    wf.write_text("# stale\n", encoding="utf-8")
+    stale = ORCHESTRATOR_HEADER + "\n# stale\n"
+    wf.write_text(stale, encoding="utf-8")
     render_deploy_workflows(tmp_path, PLUGIN)
-    assert wf.read_text(encoding="utf-8") != "# stale\n"
+    assert wf.read_text(encoding="utf-8") != stale
 
 
 # --- M1: wired-only orchestrator (mapped-but-skipped targets must not dangle) --------------
@@ -389,3 +394,78 @@ def test_render_deploy_flag_renders_only_deploy(tmp_path: Path, monkeypatch):
     )
     assert result.returncode == 0
     assert (tmp_path / ".github" / "workflows" / "deploy-pypi.yml").exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step under a real POSIX shell")
+@pytest.mark.parametrize(
+    "tag, dist_tag",
+    [("v1.2.0-rc.1", ["--tag", "next"]), ("v1.2.0", [])],
+)
+def test_npm_publishes_a_prerelease_under_next(tmp_path: Path, tag, dist_tag):
+    """Published without `--tag`, a prerelease becomes `latest`, the version a bare
+    `npm install` of the package resolves to."""
+    doc = yaml.safe_load(
+        (PLUGIN / "github" / "deploy.npm.workflow.example.yml").read_text(encoding="utf-8")
+    )
+    step = next(s for s in doc["jobs"]["deploy"]["steps"] if s.get("name") == "Publish to npm")
+    log = tmp_path / "npm.log"
+    npm = tmp_path / "npm"
+    npm.write_text('#!/bin/sh\necho "$@" > "$NPM_LOG"\n', encoding="utf-8")
+    npm.chmod(0o755)
+    env = {"PATH": f"{tmp_path}:/usr/bin:/bin", "TAG": tag, "NPM_LOG": str(log)}
+    subprocess.run(["sh", "-e", "-c", step["run"]], env=env, check=True)
+    assert log.read_text(encoding="utf-8").split() == [
+        "publish",
+        "--provenance",
+        "--access",
+        "public",
+        *dist_tag,
+    ]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step under a real POSIX shell")
+@pytest.mark.parametrize("target", ["ghcr", "dockerhub"])
+@pytest.mark.parametrize(
+    "tag, extra",
+    [("v1.2.0-rc.1", []), ("v1.2.0", ["ghcr.io/acme/app:latest"])],
+)
+def test_image_tags_are_lowercase_and_a_prerelease_skips_latest(tmp_path: Path, target, tag, extra):
+    """A registry rejects `ghcr.io/Acme/App`, the name `github.repository` gives an owner
+    spelled with capitals; `latest` is what a bare `docker pull` takes."""
+    _write_config(
+        tmp_path,
+        "deploy:\n  enable: true\n  timeout_minutes: 15\n  targets:\n"
+        f"    - name: img\n      target: {target}\n"
+        '      image: "ghcr.io/Acme/App"\n',
+    )
+    render_deploy_workflows(tmp_path, PLUGIN)
+    doc = yaml.safe_load(
+        (tmp_path / ".github" / "workflows" / "deploy-img.yml").read_text(encoding="utf-8")
+    )
+    steps = doc["jobs"]["deploy"]["steps"]
+    step = next(s for s in steps if s.get("id") == "tags")
+    push = next(s for s in steps if "build-push-action" in str(s.get("uses")))
+    assert push["with"]["tags"] == "${{ steps.tags.outputs.tags }}"
+    out = tmp_path / "out"
+    env = {"PATH": "/usr/bin:/bin", "IMAGE": step["env"]["IMAGE"], "TAG": tag}
+    env["GITHUB_OUTPUT"] = str(out)
+    subprocess.run(["bash", "-e", "-c", step["run"]], env=env, check=True)
+    lines = out.read_text(encoding="utf-8").splitlines()
+    assert lines == ["tags<<EOF", f"ghcr.io/acme/app:{tag}", *extra, "EOF"]
+
+
+def test_maven_central_wires_credentials_and_signing_into_maven():
+    """setup-java names the environment variables its settings.xml reads; a name the deploy
+    step does not set leaves `mvn deploy` unauthenticated or unsigned."""
+    doc = yaml.safe_load(
+        (PLUGIN / "github" / "deploy.maven-central.workflow.example.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    steps = doc["jobs"]["deploy"]["steps"]
+    java = next(s for s in steps if "setup-java" in str(s.get("uses")))["with"]
+    deploy = next(s for s in steps if s.get("name") == "Deploy to Maven Central")
+    assert java["server-id"] == "central"
+    assert java["gpg-private-key"] == "${{ secrets.MAVEN_GPG_PRIVATE_KEY }}"
+    for key in ("server-username-env-var", "server-password-env-var", "gpg-passphrase-env-var"):
+        assert java[key] in deploy["env"], key

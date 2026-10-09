@@ -1,7 +1,7 @@
 import subprocess
 
-import evals.run as run
 import evals.stream as stream
+from evals.runner import capture
 from tests.evals._helpers import FIXTURES, REPO
 
 # ── fixture capture ──────────────────────────────────────────────────────────────────────
@@ -40,7 +40,7 @@ def test_reduce_capture_keeps_only_the_events_observe_reads():
             dropped[3],
         ]
     )
-    assert run.reduce_capture(text).splitlines() == [
+    assert capture.reduce_capture(text).splitlines() == [
         kept_init,
         kept_assistant,
         kept_rate,
@@ -53,14 +53,14 @@ def test_reduce_capture_does_not_rewrite_a_surviving_event():
     normalise key order, spacing and escapes — turning a capture into a rendering of one, and
     quietly ending its ability to catch a parser assumption."""
     odd_spacing = '{"type":"result","subtype":"success",  "num_turns":2,"who":"caf\u00e9"}'
-    assert run.reduce_capture(odd_spacing).splitlines() == [odd_spacing]
+    assert capture.reduce_capture(odd_spacing).splitlines() == [odd_spacing]
 
 
 def test_reduce_capture_drops_a_line_that_is_not_json():
     """A killed process ends mid-line. `stream.observe` tolerates that; a fixture should not
     carry it, because the truncation test appends its own."""
     good = '{"type":"result","subtype":"success"}'
-    assert run.reduce_capture(f'{{"type":"assis\n{good}').splitlines() == [good]
+    assert capture.reduce_capture(f'{{"type":"assis\n{good}').splitlines() == [good]
 
 
 def test_fixture_role_names_the_committed_fixture_a_capture_could_replace():
@@ -71,14 +71,14 @@ def test_fixture_role_names_the_committed_fixture_a_capture_could_replace():
         completed=True,
         tool_calls=4,
     )
-    assert run.fixture_role(invoked, "integration") == "stream-invoked"
+    assert capture.fixture_role(invoked, "integration") == "stream-invoked"
     quiet = stream.Observation(
         fired=[],
         available=["integration"],
         completed=True,
         tool_calls=3,
     )
-    assert run.fixture_role(quiet, "integration") == "stream-quiet"
+    assert capture.fixture_role(quiet, "integration") == "stream-quiet"
 
 
 def test_fixture_role_refuses_a_session_that_would_teach_the_parser_nothing():
@@ -91,13 +91,15 @@ def test_fixture_role_refuses_a_session_that_would_teach_the_parser_nothing():
         errored=True,
         tool_calls=4,
     )
-    assert run.fixture_role(errored, "x") is None, "an outright failure is not a clean observation"
+    assert capture.fixture_role(errored, "x") is None, (
+        "an outright failure is not a clean observation"
+    )
     no_calls = stream.Observation(fired=[], available=["x"], completed=True, tool_calls=0)
-    assert run.fixture_role(no_calls, "x") is None, (
+    assert capture.fixture_role(no_calls, "x") is None, (
         "test_observe_counts_every_tool_call_not_just_skill asserts tool_calls > 0"
     )
     never_loaded = stream.Observation(fired=[], available=[], completed=True, tool_calls=3)
-    assert run.fixture_role(never_loaded, "x") is None, (
+    assert capture.fixture_role(never_loaded, "x") is None, (
         "empty `available` means the plugin never loaded"
     )
 
@@ -106,12 +108,12 @@ def test_capture_writes_beside_the_committed_fixture_never_over_it(tmp_path, mon
     """`fixture_role` checks the conditions it knows about; the committed fixtures satisfy
     seven assertions. A candidate that clears the former has not been checked against the
     latter, so replacing is a human step and this only ever writes `.new`."""
-    monkeypatch.setattr(run, "CAPTURE_FOR", "x")
+    monkeypatch.setattr(capture, "CAPTURE_FOR", "x")
     committed = tmp_path / "stream-quiet.jsonl"
     committed.write_text("ORIGINAL", encoding="utf-8")
     obs = stream.Observation(fired=[], available=["x"], completed=True, tool_calls=3)
 
-    run.maybe_capture(obs, '{"type":"result","subtype":"success"}\n{"type":"user"}', tmp_path)
+    capture.maybe_capture(obs, '{"type":"result","subtype":"success"}\n{"type":"user"}', tmp_path)
 
     assert committed.read_text(encoding="utf-8") == "ORIGINAL"
     written = (tmp_path / "stream-quiet.jsonl.new").read_text(encoding="utf-8")
@@ -125,13 +127,13 @@ def test_capture_is_off_unless_asked_and_keeps_the_first_of_each_role(tmp_path, 
     obs = stream.Observation(fired=[], available=["x"], completed=True, tool_calls=3)
     dest = tmp_path / "stream-quiet.jsonl.new"
 
-    monkeypatch.setattr(run, "CAPTURE_FOR", None)
-    run.maybe_capture(obs, '{"type":"result","subtype":"success"}', tmp_path)
+    monkeypatch.setattr(capture, "CAPTURE_FOR", None)
+    capture.maybe_capture(obs, '{"type":"result","subtype":"success"}', tmp_path)
     assert not dest.exists()
 
-    monkeypatch.setattr(run, "CAPTURE_FOR", "x")
-    run.maybe_capture(obs, '{"type":"result","subtype":"success"}', tmp_path)
-    run.maybe_capture(obs, '{"type":"result","subtype":"LATER"}', tmp_path)
+    monkeypatch.setattr(capture, "CAPTURE_FOR", "x")
+    capture.maybe_capture(obs, '{"type":"result","subtype":"success"}', tmp_path)
+    capture.maybe_capture(obs, '{"type":"result","subtype":"LATER"}', tmp_path)
     assert "LATER" not in dest.read_text(encoding="utf-8")
 
 
@@ -143,7 +145,7 @@ def test_fixture_role_keeps_the_two_fixtures_covering_different_endings():
     capped_but_quiet = stream.Observation(
         fired=[], available=["x"], completed=True, turns_exhausted=True, tool_calls=5
     )
-    assert run.fixture_role(capped_but_quiet, "x") is None
+    assert capture.fixture_role(capped_but_quiet, "x") is None
 
 
 def test_fixture_role_requires_the_measured_skill_to_be_the_one_that_fired():
@@ -161,7 +163,7 @@ def test_fixture_role_requires_the_measured_skill_to_be_the_one_that_fired():
         completed=True,
         tool_calls=4,
     )
-    assert run.fixture_role(other, "integration") is None
+    assert capture.fixture_role(other, "integration") is None
     target = stream.Observation(
         fired=["integration"],
         available=["integration"],
@@ -169,7 +171,7 @@ def test_fixture_role_requires_the_measured_skill_to_be_the_one_that_fired():
         completed=True,
         tool_calls=4,
     )
-    assert run.fixture_role(target, "integration") == "stream-invoked"
+    assert capture.fixture_role(target, "integration") == "stream-invoked"
     # The quiet fixture is skill-bound through `available`, which lists every plugin skill —
     # so it only has to confirm the measured one was on offer.
     quiet = stream.Observation(
@@ -178,8 +180,8 @@ def test_fixture_role_requires_the_measured_skill_to_be_the_one_that_fired():
         completed=True,
         tool_calls=3,
     )
-    assert run.fixture_role(quiet, "integration") == "stream-quiet"
-    assert run.fixture_role(quiet, "performance") is None
+    assert capture.fixture_role(quiet, "integration") == "stream-quiet"
+    assert capture.fixture_role(quiet, "performance") is None
 
 
 def test_capture_preserves_the_trailing_newline_the_fixtures_depend_on():
@@ -187,15 +189,15 @@ def test_capture_preserves_the_trailing_newline_the_fixtures_depend_on():
     to the file's text. Without a trailing newline the appended JSON joins the last `result`
     line and both are dropped as unparseable — so the newline is load-bearing, and asserting on
     a `.strip()`ed value (as the write test does, deliberately, for content) cannot see it."""
-    assert run.reduce_capture('{"type":"result","subtype":"success"}').endswith("}")
+    assert capture.reduce_capture('{"type":"result","subtype":"success"}').endswith("}")
     for name in ("stream-invoked.jsonl", "stream-quiet.jsonl"):
         assert (FIXTURES / name).read_text(encoding="utf-8").endswith("\n"), name
 
 
 def test_capture_writes_a_file_ending_in_a_newline(tmp_path, monkeypatch):
-    monkeypatch.setattr(run, "CAPTURE_FOR", "x")
+    monkeypatch.setattr(capture, "CAPTURE_FOR", "x")
     obs = stream.Observation(fired=[], available=["x"], completed=True, tool_calls=3)
-    run.maybe_capture(obs, '{"type":"result","subtype":"success"}', tmp_path)
+    capture.maybe_capture(obs, '{"type":"result","subtype":"success"}', tmp_path)
     assert (tmp_path / "stream-quiet.jsonl.new").read_text(encoding="utf-8").endswith("\n")
 
 

@@ -5,10 +5,10 @@ with `flow-tiers.yaml` sends a promotion through the whole design->plan->impleme
 pipeline over already-built work. Every copy goes stale together, so `doc-sync` sees no
 drift to report.
 
-Pinned here: both usage-guide tables and risk-tiers Step 2 — the copy `flow-tiers.yaml` names as
-the SSOT, and the one an agent reads, being the only rule injected at SessionStart. Left
-unpinned: the prose restatements under that table and at `/flow`'s Docs and Dev headings,
-which carry a tier per sentence rather than in a grid.
+Pinned here: both usage-guide tables and the risk-tiers git-flow mapping table — the copy
+`flow-tiers.yaml` names as the SSOT, and the one an agent reads, being the only rule injected
+at SessionStart. Left unpinned: the prose restatements under that table and at `/flow`'s Docs
+and Dev headings, which carry a tier per sentence rather than in a grid.
 """
 
 import re
@@ -38,7 +38,8 @@ def _table_superpowers(doc: str) -> dict[str, bool]:
 
 
 def _rule_superpowers() -> dict[str, bool]:
-    """Step 2's table — bold tier names and a worded cell, so it needs its own reader."""
+    """The git-flow mapping table — bold tier names and a worded cell, so it needs its own
+    reader."""
     found: dict[str, bool] = {}
     for line in (ROOT / RULE).read_text(encoding="utf-8").splitlines():
         m = re.match(r"^\|\s*\*\*([A-Za-z]+)\*\*\s*\|\s*(ON|OFF)\b", line)

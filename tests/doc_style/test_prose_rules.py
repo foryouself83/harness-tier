@@ -23,6 +23,8 @@ from tests.doc_style._helpers import (
         ("This previously lived in the hook.", "HIST"),
         ("이전에는 훅이 두 번 돌았다", "HIST"),
         ("Fixed in 51adb2cf.", "SHA"),
+        ("Built from abc1234-dirty.", "SHA"),
+        ("Tagged release-abc1234 for the demo.", "SHA"),
         ("See docs/superpowers/plans/2026-08-06-llm-wiki.md for the rest.", "PLAN"),
         ("- [ ] wire the renderer", "PLAN"),
         ("It is just a marker.", "FILLER"),
@@ -34,6 +36,24 @@ from tests.doc_style._helpers import (
 )
 def test_banned_prose_is_an_error(prose: str, code: str):
     assert code in _codes(Path("doc.md"), prose)
+
+
+@pytest.mark.parametrize(
+    "prose",
+    [
+        "Request 3f2b9c1a-7d4e-4b1a-9c2d-1e5f6a7b8c9d returned 404.",
+        "If something went wrong, rerun with --verbose.",
+        "A date in the past is rejected.",
+        "과거에 만든 파일도 읽음",
+    ],
+)
+def test_ordinary_prose_passes(prose: str):
+    assert _codes(Path("doc.md"), prose) == []
+
+
+def test_front_matter_behind_a_byte_order_mark_is_still_front_matter():
+    text = "﻿---\nauthor: Jane Doe\n---\n\n# Title\n"
+    assert _codes(Path("doc.md"), text) == []
 
 
 def test_a_concessive_connective_is_not_filler():
