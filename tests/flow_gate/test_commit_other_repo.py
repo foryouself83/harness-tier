@@ -2,6 +2,7 @@
 
 import io
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -30,15 +31,30 @@ def repos(tmp_path):
     return main, other, tmp_path / "wt"
 
 
+_CD_ON_WINDOWS = pytest.mark.skipif(os.name == "nt", reason="a Windows cd stays gated")
+
+
 @requires_git
 @pytest.mark.parametrize(
     "command",
-    ["git -C {other} commit -m x", "cd {other} && git commit -m x"],
+    [
+        "git -C {other} commit -m x",
+        pytest.param("cd {other} && git commit -m x", marks=_CD_ON_WINDOWS),
+    ],
 )
 def test_a_commit_in_another_repo_is_not_ours(monkeypatch, capsys, repos, command):
     main, other, _wt = repos
     out = _classify(monkeypatch, capsys, main, command.format(other=other.as_posix()))
     assert "ok=1" in out and "commit=1" not in out
+
+
+@requires_git
+@pytest.mark.skipif(os.name != "nt", reason="Git Bash's cd on Windows alone")
+def test_a_cd_on_windows_stays_gated(monkeypatch, capsys, repos):
+    """Git Bash's cd maps a path through the MSYS mount table, which Python never reads."""
+    main, other, _wt = repos
+    command = f"cd {other.as_posix()} && git commit -m x"
+    assert "commit=1" in _classify(monkeypatch, capsys, main, command)
 
 
 @requires_git
@@ -86,6 +102,39 @@ def test_a_directory_bash_expands_stays_gated(monkeypatch, capsys, repos, name, 
     _init_repo(main / name)
     (main / "o").mkdir()
     assert "commit=1" in _classify(monkeypatch, capsys, main, command.format(d=name))
+
+
+@requires_git
+def test_a_cd_through_dotdot_stays_gated(monkeypatch, capsys, repos):
+    """bash folds `link/..` back to $PWD while git resolves the link, so `..` proves nothing."""
+    main, _other, _wt = repos
+    assert "commit=1" in _classify(monkeypatch, capsys, main, "cd ../other && git commit -m x")
+
+
+@requires_git
+def test_git_C_through_dotdot_is_read_as_git_reads_it(monkeypatch, capsys, repos):
+    """git changes directory physically, as the probe does, so `-C ../other` stays exempt."""
+    main, _other, _wt = repos
+    assert "commit=1" not in _classify(monkeypatch, capsys, main, "git -C ../other commit -m x")
+
+
+@requires_git
+@pytest.mark.skipif(os.name != "nt", reason="Git Bash maps a leading / to its own root on Windows")
+@pytest.mark.parametrize("command", ["git -C {d} commit -m x", "cd {d} && git commit -m x"])
+def test_a_rooted_path_on_windows_stays_gated(monkeypatch, capsys, repos, command):
+    """Python reads `/x` as the cwd's drive, Git Bash as its install root: not one directory."""
+    main, other, _wt = repos
+    rooted = other.as_posix()[len(other.drive) :]
+    assert "commit=1" in _classify(monkeypatch, capsys, main, command.format(d=rooted))
+
+
+@requires_git
+@pytest.mark.skipif(os.name != "nt", reason="a drive-relative path exists on Windows alone")
+def test_a_drive_relative_cd_on_windows_stays_gated(monkeypatch, capsys, repos):
+    """Git Bash reads `cd C:x` from the drive's root, Python from the cwd."""
+    main, _other, _wt = repos
+    command = f"cd {main.drive}other && git commit -m x"
+    assert "commit=1" in _classify(monkeypatch, capsys, main, command, cwd=main.parent)
 
 
 @requires_git
