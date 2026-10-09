@@ -245,13 +245,14 @@ def _git(args: list[str], cwd: str | Path) -> str | None:
 # Read against the MASK below, where every literal region is one quote-delimited NUL run, so a
 # token is plain `\S+` and this pattern states no opinion about quoting — `_shell_regions` is the
 # one place that decides what a quote means. `(?!-)` on the optional argument keeps a `-` token a
-# flag rather than the previous flag's argument. The leading separator is what stops `mygit`.
+# flag rather than the previous flag's argument, and a bare `-` is a token too (`git -C - commit`
+# runs in a directory named `-`). The leading separator is what stops `mygit`.
 
 
 # The program token alone, and the global-options run that follows it — the two halves of the
 # grammar below, kept apart so a search can skip a `git` that sits inside a run already read.
 _GIT_HEAD = r"(?:^|[\s;&|(`])(?:[^\s;&|()'\"`]*[/\\])?git(?:\.exe)?"
-_GIT_OPTIONS = r"(?:\s+-\S+(?:\s+(?!-)\S+)?)*"
+_GIT_OPTIONS = r"(?:\s+-\S*(?:\s+(?!-)\S+)?)*"
 _GIT_HEAD_RE = re.compile(_GIT_HEAD)
 _GIT_OPTIONS_RE = re.compile(_GIT_OPTIONS)
 

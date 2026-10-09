@@ -1243,12 +1243,14 @@ def wiki_check_output() -> None:
 # `cd <dir> && git commit …`, nothing before it, and no character that could start a second
 # command, an expansion or an escape anywhere. A second `-C` stacks onto the first, and
 # `--git-dir`, `GIT_DIR` or a prefix can send the commit back here, so every other shape keeps
-# the commit gated (Invariant #7).
-_UNSAFE_CH = r"\s;&|`$()<>'\"\\"
+# the commit gated (Invariant #7). Blanks are spaces and tabs: a newline starts a second
+# command. The directory is a whitelist: bash rewrites a `~`, glob or brace word (`~+` is
+# $PWD) and `cd` takes a leading `-` as $OLDPWD or an option, where Python reads a name.
+_DIR_WORD = r"(?!-)[\w./:+@%,=-]+"
 _FOREIGN_COMMIT_RE = re.compile(
-    rf"\A\s*(?:cd\s+(?P<cd>[^{_UNSAFE_CH}]+)\s*&&\s*git\s+commit"
-    rf"|git\s+-C\s+(?P<c>[^{_UNSAFE_CH}]+)\s+commit)"
-    r"(?:\s[^;&|`$()<>\\\n]*)?\Z"
+    rf"\A[ \t]*(?:cd[ \t]+(?P<cd>{_DIR_WORD})[ \t]*&&[ \t]*git[ \t]+commit"
+    rf"|git[ \t]+-C[ \t]+(?P<c>{_DIR_WORD})[ \t]+commit)"
+    r"(?:[ \t][^;&|`$()<>\\\n]*)?\Z"
 )
 
 

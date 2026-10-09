@@ -60,6 +60,9 @@ def test_a_commit_in_another_repo_is_not_ours(monkeypatch, capsys, repos, comman
         "cd {other} && git --git-dir={main}/.git --work-tree={main} commit -m x",
         'git -C {other} commit -m "$(git -C {main} commit -m y)"',
         "git -C {other} commit -m x --git-dir={main}/.git",
+        "git -C {other} commit -m x\ngit commit -am y",  # bash splits at the newline
+        "cd {other} && git commit -m x\ngit commit -am y",
+        "git -C {other} commit\ngit commit -am y",
     ],
 )
 def test_a_commit_not_proven_elsewhere_stays_gated(monkeypatch, capsys, repos, command):
@@ -71,6 +74,18 @@ def test_a_commit_not_proven_elsewhere_stays_gated(monkeypatch, capsys, repos, c
         main=main.as_posix(),
     )
     assert "commit=1" in _classify(monkeypatch, capsys, main, spelled)
+
+
+@requires_git
+@pytest.mark.parametrize("name", ["~+", "~-", "~", "~root", "[o]", "{o,p}", "-", "--", "-P"])
+@pytest.mark.parametrize("command", ["git -C {d} commit -am x", "cd {d} && git commit -am x"])
+def test_a_directory_bash_expands_stays_gated(monkeypatch, capsys, repos, name, command):
+    """`~+` is $PWD to bash and a literal sub-repo to Python; `[o]` globs to a plain `o`;
+    `cd -` is $OLDPWD and `cd --` or `cd -P` alone is $HOME."""
+    main, _other, _wt = repos
+    _init_repo(main / name)
+    (main / "o").mkdir()
+    assert "commit=1" in _classify(monkeypatch, capsys, main, command.format(d=name))
 
 
 @requires_git

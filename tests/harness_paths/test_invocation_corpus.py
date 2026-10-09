@@ -187,6 +187,12 @@ RUNS_A_COMMIT = [
     ("git $'commit' -m x", "commit"),
     ("git -C /tmp/wt com''mit -m x", "commit"),
     ("cd /tmp/wt && git c\\ommit -m x", "commit"),
+    # `-C` takes the next word whatever it starts with: `-` is a directory named `-`
+    ("git -C - commit -m x", "commit"),
+    ("git -C -x -C - merge --no-ff dev", "merge"),
+    # an option that takes any word as its value takes a `-C` too, so `commit` stays the word
+    ("git --namespace -C commit -m x", "commit"),
+    ("git --work-tree -C commit -m x", "commit"),
     ("git mer''ge --no-ff dev", "merge"),
     ("git com$'mit' -m x", "commit"),
     ('git com$"mit" -m x', "commit"),
