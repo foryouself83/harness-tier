@@ -200,6 +200,9 @@ do not go looking for a skill behind either — none exists; the hook runs the c
    (brainstorm → plan → implement → verify → review; each skill self-triggers).
    Feed the resolved request from Phase 0 in as the task.
 4. Apply the project overlays `superpowers` does not know about:
+   - **Spec and plan commit as Docs, the code as Dev** — before the first code edit, commit
+     the spec and plan under a `docs:<branch>` marker (`doc-sync` → `commit`), then write
+     `dev:<branch>` back. Under `dev` that commit waits on a review of code not yet written.
    - **Implementation minimalism** — right after the plan, before writing code,
      climb the reuse-before-build ladder (YAGNI → codebase → stdlib → native →
      dependency → one line → minimum code) and stop at the earliest rung. Detail
