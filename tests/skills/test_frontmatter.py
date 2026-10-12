@@ -1,3 +1,4 @@
+import json
 import re
 from pathlib import Path
 
@@ -47,6 +48,21 @@ def test_frontmatter_parses_and_only_uses_spec_fields(skill: Path):
     assert not unknown, f"{skill.parent.name}: fields absent from the official spec: {unknown}"
 
 
+def _known_agents() -> set[str]:
+    """Built-ins per the skills reference, plus this plugin's agents/ under the name the plugins
+    reference gives them: "an agent `reviewer` in plugin `deploy-tools` appears as
+    `deploy-tools:reviewer`". The bare file stem names no agent."""
+    plugin = json.loads((REPO / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    own = {f"{plugin['name']}:{p.stem}" for p in (REPO / "agents").glob("*.md")}
+    return {"Explore", "Plan", "general-purpose"} | own
+
+
+def test_a_plugin_agent_is_named_with_its_plugin_prefix():
+    stem = next((REPO / "agents").glob("*.md")).stem
+    assert f"harness-tier:{stem}" in _known_agents()
+    assert stem not in _known_agents()
+
+
 @pytest.mark.parametrize("skill", SKILLS, ids=SKILL_IDS)
 def test_fork_fields_come_as_a_cluster_and_name_a_real_agent(skill: Path):
     """`agent` and `background` do nothing without `context: fork`, and every one of them
@@ -67,11 +83,7 @@ def test_fork_fields_come_as_a_cluster_and_name_a_real_agent(skill: Path):
             f"{skill.parent.name}: context={data['context']!r}; `fork` is the only value "
             f"the spec defines"
         )
-        # Built-ins per the official reference, plus this plugin's own auto-discovered
-        # agents/ — a plugin skill may name either, and nothing else exists to name.
-        known = {"Explore", "Plan", "general-purpose"} | {
-            p.stem for p in (REPO / "agents").glob("*.md")
-        }
+        known = _known_agents()
         agent = data.get("agent", "general-purpose")
         assert agent in known, f"{skill.parent.name}: agent={agent!r} is not one of {sorted(known)}"
         # `background` defaults to true, and a backgrounded fork returns after the turn that
