@@ -43,8 +43,8 @@ Four tiers, two axes:
 ## Input
 
 - **$ARGUMENTS** — a free-text request. If empty, ask the user what the task is.
-- Carry that request text forward as *the task* for every later phase — it is the
-  explicit input to `brainstorming` and the reference for the commit scope.
+- Carry that request text forward as *the task* for every later phase — the task Phase 3
+  hands to `superpowers:using-superpowers`, and the reference for the commit scope.
 
 ## Phase 1 — Classify the task (Docs or Dev)
 
@@ -196,13 +196,16 @@ do not go looking for a skill behind either — none exists; the hook runs the c
    front matter and nothing blocks** — a file carrying none is no node, so the gate has
    nothing to compare and the area stays out of the wiki in silence. That is the likelier
    slip, and it is on you rather than the gate.
-3. **Enter `superpowers:using-superpowers`** — it drives the pipeline automatically
-   (brainstorm → plan → implement → verify → review; each skill self-triggers).
-   Feed the resolved request from Phase 0 in as the task.
+3. **Invoke skill `superpowers:using-superpowers`** — its injected text is a reminder, not
+   execution: the pipeline starts only on the invocation, which picks the entry skill by task
+   and chains the rest. Never open `brainstorming` or any other stage yourself before it.
+   Feed the request from Input in as the task.
 4. Apply the project overlays `superpowers` does not know about:
    - **Spec and plan commit as Docs, the code as Dev** — before the first code edit, commit
      the spec and plan under a `docs:<branch>` marker (`doc-sync` → `commit`), then write
      `dev:<branch>` back. Under `dev` that commit waits on a review of code not yet written.
+     The swap is mechanical, not a reclassification: the Dev tier Phase 2 confirmed still
+     holds, so write `dev:<branch>` back without asking the user again.
    - **Implementation minimalism** — right after the plan, before writing code,
      climb the reuse-before-build ladder (YAGNI → codebase → stdlib → native →
      dependency → one line → minimum code) and stop at the earliest rung. Detail

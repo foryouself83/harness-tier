@@ -243,6 +243,25 @@ def test_a_fifo_where_a_manifest_belongs_does_not_hang(tmp_path, side):
     assert _notice(result) is None
 
 
+@pytest.mark.skipif(
+    not hasattr(os, "geteuid") or os.geteuid() == 0,  # type: ignore[attr-defined]
+    reason="POSIX permissions, and root reads a mode-000 file anyway",
+)
+@pytest.mark.parametrize("side", ["loaded", "published"])
+def test_an_unreadable_manifest_stays_silent(tmp_path, side):
+    """`-f` passes a file the hook cannot read, and the failed redirection would print
+    `Permission denied` onto the stderr of a hook that runs before the session does."""
+    plugin = _plugins_root(tmp_path)
+    manifest = (plugin / ".claude-plugin" if side == "loaded" else _market(plugin)) / "plugin.json"
+    manifest.chmod(0)
+    try:
+        result = _run(plugin)
+    finally:
+        manifest.chmod(0o644)
+    assert _notice(result) is None
+    assert result.stderr == "", result.stderr
+
+
 def test_stdin_that_never_closes_does_not_hang(tmp_path):
     """The hook reads stdin, so a pipe that is never written to must time out, not block
     session start."""
