@@ -146,17 +146,20 @@ def _modules(host: Path) -> list[Path]:
     return [p for p, rel in zip(found, rels) if rel not in ignored]
 
 
-def collect(host: Path, keep_imports=frozenset()) -> list[InstructionDoc]:
+def collect(host: Path, keep_imports=frozenset(), found=None) -> list[InstructionDoc]:
     """ROOT_FILES in order, then rules, then modules, each group sorted by path.
 
     `keep_imports` names files whose `@import` lines stay literal — a renderer passes its own
     target, so a CLAUDE.md that imports it does not pull the rendered output back in.
+    `found` is `sources(host)` when the caller already listed them.
     """
     if yaml is None:
         raise ModuleNotFoundError("No module named 'yaml'", name="yaml")
     host = host.resolve()
     keep = {Path(p).resolve() for p in keep_imports}
-    return [_doc(kind, path, host, keep) for kind, path in sources(host)]
+    if found is None:
+        found = sources(host)
+    return [_doc(kind, path, host, keep) for kind, path in found]
 
 
 # The plugin's own rules an older /flow-init copied in (RULES_DEST in flow_init_setup.py), left

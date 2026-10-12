@@ -273,3 +273,19 @@ def test_a_malformed_source_never_crashes_render_check_or_remove(tmp_path, kind)
                 os.chmod(bad, 0o644)
             except OSError:
                 pass
+
+
+@pytest.mark.parametrize("call", ["render", "check"])
+def test_render_and_check_list_the_sources_once(tmp_path, monkeypatch, call):
+    # Listing walks the whole host tree and shells out to `git check-ignore`; the link check and
+    # the parse read the same list.
+    from scripts.harness import instructions as model
+    from tests.harness.codex._instructions import _sample
+
+    _sample(tmp_path)
+    calls = []
+    real = model.sources
+    monkeypatch.setattr(model, "sources", lambda host: calls.append(host) or real(host))
+    monkeypatch.setattr(codex, "_model", lambda: model)
+    getattr(codex, call)(tmp_path)
+    assert len(calls) == 1

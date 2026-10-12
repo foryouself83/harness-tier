@@ -49,8 +49,9 @@ Codex only when you pick "flow-config.yaml values" from its reconfigure menu. Ei
 `PreToolUse` hook in the host's `.codex/hooks.json` — a separate registration from Claude's
 own, in `.claude/settings.json`.
 **Windows also needs Git for Windows**: the gate's Windows wrapper looks for Git's bundled
-`bash.exe` next to `git.exe` or under `%ProgramFiles%\Git`, and without it **denies every
-commit and merge** rather than passing them through unchecked.
+`bash.exe` in the install `git.exe` belongs to (scoop's, through its shim) or under
+`%ProgramFiles%\Git`, and without it **denies every commit and merge** rather than passing
+them through unchecked.
 
 The registered command finds the gate through `$(git rev-parse --show-toplevel)`, expanded by
 the shell Codex runs hooks in; a shell that does not expand `$(…)` (fish before 3.4, tcsh) runs

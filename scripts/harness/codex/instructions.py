@@ -61,18 +61,22 @@ def _model():
     return _import("harness.instructions", "scripts.harness.instructions")
 
 
-def _collect(host: Path, keep: set):
+def _collect(host: Path, keep: set, found=None):
     model = _model()
     try:
-        return model.collect(host, keep_imports=keep)
+        return model.collect(host, keep_imports=keep, found=found)
     except ModuleNotFoundError as exc:
         raise MissingModule(exc.name) from exc
 
 
-def _source_rels(host: Path) -> list[str]:
-    """Every Claude source's repo-relative path, listed without reading or parsing any."""
+def _sources(host: Path):
+    """Every Claude source as (kind, path), listed without reading or parsing any."""
+    return _model().sources(host.resolve())
+
+
+def _source_rels(host: Path, found) -> list[str]:
     root = host.resolve()
-    return [path.relative_to(root).as_posix() for _, path in _model().sources(root)]
+    return [path.relative_to(root).as_posix() for _, path in found]
 
 
 def _rule_index(doc) -> str:
@@ -153,15 +157,15 @@ def _size(text: str) -> int:
     return len(text.encode("utf-8"))
 
 
-def _collect_docs(host: Path):
-    """Every Claude source, parsed. A source that cannot be read or decoded raises here, into the
-    caller's one error boundary."""
-    return _collect(host, {host / TARGET})
+def _collect_docs(host: Path, found):
+    """Every Claude source in `found`, parsed. A source that cannot be read or decoded raises
+    here, into the caller's one error boundary."""
+    return _collect(host, {host / TARGET}, found)
 
 
 def _plan(host: Path, docs) -> tuple[str | None, str | None, list[str]]:
     """(current text, desired text, notes); None text means the file does not exist. `docs` is
-    `_collect_docs(host)`."""
+    `_collect_docs(host, found)`."""
     path = host / TARGET
     current = path.read_bytes().decode("utf-8") if path.is_file() else None
     if not docs:
@@ -266,10 +270,11 @@ def render(host: Path) -> list[str]:
     if _is_multiply_linked(path):
         return [_linked_note()]
     try:
-        reverse = _reverse_shared_source(host, _source_rels(host))
+        found = _sources(host)
+        reverse = _reverse_shared_source(host, _source_rels(host, found))
         if reverse:
             return [_reverse_shared_note(reverse)]
-        current, desired, notes = _plan(host, _collect_docs(host))
+        current, desired, notes = _plan(host, _collect_docs(host, found))
         if desired == current:
             return [f"  [=] {TARGET} Codex 지침 블록 최신", *notes]
         if desired is None:
@@ -298,10 +303,11 @@ def check(host: Path) -> tuple[bool, str]:
     if _is_multiply_linked(host / TARGET):
         return True, _linked_note()
     try:
-        reverse = _reverse_shared_source(host, _source_rels(host))
+        found = _sources(host)
+        reverse = _reverse_shared_source(host, _source_rels(host, found))
         if reverse:
             return True, _reverse_shared_note(reverse)
-        current, desired, _ = _plan(host, _collect_docs(host))
+        current, desired, _ = _plan(host, _collect_docs(host, found))
     except MissingModule as exc:
         return False, f"{TARGET} 점검 불가: {_missing(exc)}"
     except (OSError, ValueError) as exc:
@@ -323,7 +329,7 @@ def remove(host: Path) -> str:
     if _is_multiply_linked(path):
         return f"  [=] {TARGET} 가 다른 파일과 연결되어 있어 건드리지 않음 (skip)"
     try:
-        reverse = _reverse_shared_source(host, _source_rels(host))
+        reverse = _reverse_shared_source(host, _source_rels(host, _sources(host)))
         verified = True
     except (MissingModule, OSError, ValueError):
         # Removal reads only AGENTS.md's own bytes, so sources that cannot be listed do not

@@ -26,7 +26,7 @@ uv run python -m evals.outcome                 # measure the outcome arm
 
 A falling eval number re-measures that skill to confirm it, doubling its sessions over what
 `--dry-run` advertised. ShellCheck every `*.sh` change **in WSL**: a shell bug hides as FAIL-OPEN
-on the Windows hook runtime, and the CRLF worktree floods ShellCheck with CR errors.
+on the Windows hook runtime. A `.sh` checks out LF; other text files are CRLF in the worktree.
 
 ## Conventions
 
@@ -43,11 +43,12 @@ on the Windows hook runtime, and the CRLF worktree floods ShellCheck with CR err
 - **A test file past 500 lines becomes a folder** `tests/<what it covers>/`, every file under
   the cap, with an `__init__.py` — without it, the day two packages share a basename, pytest
   **aborts the session**. A file under the cap stays flat.
-- **The dev host is Windows, CI is ubuntu** — `core.autocrlf=true` and no `.gitattributes`:
-  every tracked text file is CRLF in the worktree, LF in the blob. **Never digest a tracked
-  file's raw bytes** (local `pytest` green, CI red, in silence); normalize CRLF inside every new
-  digest. Check shell, PATH, shebangs, file modes and path separators in **WSL** before a push.
-  `/flow-init` copies byte-for-byte: consumers get CRLF `.sh` until the checkout is renormalized.
+- **The dev host is Windows, CI is ubuntu** — `core.autocrlf=true`, and `.gitattributes` pins
+  only `*.sh` (LF) and `*.cmd` (CRLF): every other tracked text file is CRLF in the worktree, LF
+  in the blob. **Never digest a tracked file's raw bytes** (local `pytest` green, CI red, in
+  silence); normalize CRLF inside every new digest. Check shell, PATH, shebangs, file modes and
+  path separators in **WSL** before a push. `/flow-init` copies byte-for-byte, so a `.sh` lands
+  in the host LF; the host's own checkouts then follow its `core.autocrlf`.
 - **Mutation-test a fix, and assert the mutation applied** — a no-op edit reads as verified. Apply
   it in Python with `assert old in text`, never `sed -i`; revert with `git checkout --` from an
   already-clean tree. Assert the baseline is green where the battery runs, or every mutation

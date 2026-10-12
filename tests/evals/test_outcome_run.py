@@ -7,7 +7,7 @@ import pytest
 import evals.outcome as outcome
 import evals.scores as scores
 import scripts.skill_sandbox as sandbox
-from evals.runner import session
+from evals.runner import config, session
 from tests.evals._helpers import OTHER_MODEL, raw
 
 _DOC_SYNC = sandbox.BY_NAME["doc-sync-drift"]
@@ -240,3 +240,25 @@ def test_committed_outcome_baseline_is_never_stale_or_zero():
             skill, baseline.get(skill), outcome.outcome_sha(skill, scenario), scenario
         )
         assert v.level in ("ok", "warn"), v.message
+
+
+def test_run_outcome_hands_the_session_a_copy_of_the_plugin(monkeypatch):
+    # bypassPermissions makes every directory the session is given writable, so the plugin it
+    # loads is a snapshot of the working tree: an edit there never reaches the live repo.
+    seen = []
+    inner = _fake_doc_sync_session(writes_9090=True, fires=True)
+
+    def fake(prompt, fixture, workdir, config_dir, **kw):
+        seen.append(kw)
+        plugin = kw.get("plugin_dir", config.REPO)
+        assert plugin.resolve() != config.REPO.resolve()  # before writing: never the live repo
+        assert kw["add_dirs"] == (plugin,)
+        (plugin / "skills" / "doc-sync" / "SKILL.md").write_text("clobbered\n", encoding="utf-8")
+        return inner(prompt, fixture, workdir, config_dir, **kw)
+
+    monkeypatch.setattr(session, "_claude_stream", fake)
+    live = config.REPO / "skills" / "doc-sync" / "SKILL.md"
+    before = live.read_bytes()
+    outcome.run_outcome("doc-sync", sandbox.BY_NAME["doc-sync-drift"], reps=1, config_dir=Path("."))
+    assert live.read_bytes() == before
+    assert seen

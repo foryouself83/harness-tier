@@ -1045,6 +1045,12 @@ def validate_plan(root: Path, plan: dict) -> dict:
     return {"ok": not any(i["severity"] == "high" for i in issues), "issues": issues}
 
 
+def _lf(text: str) -> str:
+    # Text mode writes each "\n" as the platform line end, so a "\r\n" kept in plan JSON
+    # would land on Windows as "\r\r\n"; a stray "\r" reads back as a line break anyway.
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def apply_plan(root: Path, plan: dict) -> dict:
     report = {"created": [], "skipped": [], "updated": [], "conflicts": []}
     for entry in plan.get("files", []):
@@ -1052,18 +1058,18 @@ def apply_plan(root: Path, plan: dict) -> dict:
         target = root / rel
         action = entry.get("action", "create")
         if action == "marker_upsert":
-            upsert_marker_block(target, entry["marker_id"], entry.get("content", ""))
+            upsert_marker_block(target, entry["marker_id"], _lf(entry.get("content", "")))
             report["updated"].append(rel)
         elif action == "create":
             if target.exists():
                 report["conflicts"].append(rel)  # no overwrite
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(entry.get("content", ""), encoding="utf-8")
+            target.write_text(_lf(entry.get("content", "")), encoding="utf-8")
             report["created"].append(rel)
         elif action == "lens_upsert":
             stack = entry["stack"]
-            lenses = [(x["lens"], x["body"]) for x in entry.get("lenses", [])]
+            lenses = [(x["lens"], _lf(x["body"])) for x in entry.get("lenses", [])]
             if not target.exists():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(build_bp_section(stack, lenses).rstrip() + "\n", encoding="utf-8")

@@ -126,6 +126,39 @@ def test_apply_idempotent_rerun(tmp_path):
     assert snapshot == after  # same content on re-run
 
 
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"path": "a.md", "action": "create", "content": "Title\r\n=====\r\nbody\r\n"},
+        {"path": "a.md", "action": "create", "content": "Title\r\r\n=====\rbody\r"},
+        {"path": "a.md", "action": "marker_upsert", "marker_id": "m", "content": "l1\r\nl2\r\n"},
+        {
+            "path": "a.md",
+            "action": "lens_upsert",
+            "stack": "go",
+            "lenses": [{"lens": "performance", "body": "### Performance\r\n- p\r\n"}],
+        },
+    ],
+    ids=["create", "create-stray-cr", "marker_upsert", "lens_upsert"],
+)
+def test_apply_writes_plan_text_without_a_carriage_return(tmp_path, monkeypatch, entry):
+    # Text mode writes every "\n" as the platform line end, so a "\r\n" carried in plan JSON
+    # lands on Windows as "\r\r\n" — a blank line under a setext heading. Capturing what
+    # reaches the writer pins that on every platform, not only where os.linesep is "\r\n".
+    written = []
+    original = hs.Path.write_text
+
+    def spy(self, data, *args, **kwargs):
+        written.append(data)
+        return original(self, data, *args, **kwargs)
+
+    monkeypatch.setattr(hs.Path, "write_text", spy)
+    hs.apply_plan(tmp_path, {"files": [entry]})
+    assert written, "apply_plan wrote nothing"
+    assert not any("\r" in text for text in written)
+    assert b"\r\r" not in (tmp_path / "a.md").read_bytes()
+
+
 def test_main_detect_outputs_json(tmp_path, capsys):
     (tmp_path / "app.py").write_text("x=1\n", encoding="utf-8")
     rc = hs.main(["detect", "--root", str(tmp_path)])

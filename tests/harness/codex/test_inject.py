@@ -26,7 +26,8 @@ def _run(*args, env=None):
 def _lf(text: str) -> str:
     """`Path.read_text()` normalizes CRLF/CR to LF; the hook's `cat`-then-escape path does not, so
     a byte comparison between the two needs the same normalization on both sides — this repo
-    checks tracked files out as CRLF on Windows (`core.autocrlf=true`, no `.gitattributes`)."""
+    checks tracked files out as CRLF on Windows (`core.autocrlf=true`; `.gitattributes` pins only
+    `*.sh` and `*.cmd`)."""
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 

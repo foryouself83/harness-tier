@@ -26,7 +26,8 @@
    - **Docs** — 편집 → `/doc-sync` → `/commit`.
    - **Dev** — `superpowers` 파이프라인(설계 → 계획 → 구현 → 검증) → `/doc-sync` →
      `review_checklist` 와 변경된 모든 public 심볼의 호출자를 기준으로 한 도메인 리뷰 →
-     `/commit`. 리뷰는 편집이 그것을 무효화하므로 마지막에 돌림.
+     `/commit`. 리뷰는 편집이 그것을 무효화하므로 마지막에 돌림. spec·plan 은 Docs 로 먼저,
+     코드는 Dev 로 커밋함.
 6. **머지** — 브랜치 흐름의 [머지 전략](tiers-and-gates.ko.md#머지-전략)대로, 또는
    `merge_workflow.pull_request` 에 `daily` 가 있으면 PR 을 엶.
 7. **증거 정리** — 머지 뒤, 또는 PR 이 머지된 뒤.
