@@ -2,6 +2,30 @@
 
 <!-- version list -->
 
+## v0.4.5-rc.1 (2026-10-12)
+
+### Bug Fixes
+
+- Check scripts out in their interpreter's eol
+  ([`7661d1f`](https://github.com/foryouself83/harness-tier/commit/7661d1f2851281f7483f7e62fd423f23695d18a6))
+
+- **codex**: Find Git Bash through a scoop shim
+  ([`567ca76`](https://github.com/foryouself83/harness-tier/commit/567ca7670450b30a1c35fb6f2223793f60ddb93e))
+
+- **codex**: Read config.toml keys as TOML does
+  ([`f269db9`](https://github.com/foryouself83/harness-tier/commit/f269db9525fdb089a3e572ecaae2c9867394d66a))
+
+### Features
+
+- **flow**: Commit spec and plan as docs tier
+  ([`6bf300d`](https://github.com/foryouself83/harness-tier/commit/6bf300d7cbeb92c7abaabad62c262b0cf37b7ad5))
+
+### Performance Improvements
+
+- **codex**: List instruction sources once
+  ([`aa92fe7`](https://github.com/foryouself83/harness-tier/commit/aa92fe75224be120f675d8314447d54e0cdfbba2))
+
+
 ## v0.4.4 (2026-10-09)
 
 ### Features
