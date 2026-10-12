@@ -18,6 +18,8 @@ through session._claude_stream.
 import argparse
 import hashlib
 import json
+import shutil
+import subprocess
 import sys
 import tempfile
 from datetime import date
@@ -158,6 +160,23 @@ def _abort(skill: str, rep: int, scenario: sandbox.Scenario, raw, obs, reason: s
     raise SystemExit(f"{msg}\n  record: {path}")
 
 
+def _plugin_snapshot(dest: Path) -> Path:
+    """Copy every tracked or untracked, non-ignored file of the working tree — uncommitted edits
+    are what a re-measure is for — into `dest`."""
+    listed = subprocess.run(
+        ["git", "-C", str(config.REPO), "ls-files", "-z", "-co", "--exclude-standard"],
+        capture_output=True,
+        check=True,
+    ).stdout.decode("utf-8")
+    for rel in filter(None, listed.split("\0")):
+        src = config.REPO / rel
+        if src.is_file():  # a tracked file deleted in the working tree is listed but absent
+            target = dest / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, target)
+    return dest
+
+
 def run_outcome(skill: str, scenario: sandbox.Scenario, reps: int, config_dir: Path) -> dict:
     """Run one skill against its golden fixture `reps` times; score each by end-state.
 
@@ -178,18 +197,17 @@ def run_outcome(skill: str, scenario: sandbox.Scenario, reps: int, config_dir: P
     for rep in range(reps):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             built = sandbox.build(scenario, Path(tmp))
+            # --add-dir on the plugin is what lets the session load it, and bypassPermissions
+            # makes it writable: hand over a working-tree snapshot, never the live repo.
+            plugin = _plugin_snapshot(Path(tmp) / "_plugin")
             raw = session._claude_stream(
                 scenario.prompt,
                 None,
                 built,
                 config_dir,
                 permission_mode="bypassPermissions",
-                # The verified recipe (spike 32-b): --add-dir REPO is what lets the session load
-                # the plugin. The write boundary is cwd (the throwaway `built` fixture) plus the
-                # fixture-scoped prompt, NOT --add-dir -- which also makes REPO writable. cwd and
-                # the prompt are what keep edits inside the fixture; the recipe ran clean across
-                # the spike and the seeding runs.
-                add_dirs=(config.REPO,),
+                add_dirs=(plugin,),
+                plugin_dir=plugin,
                 max_turns=OUTCOME_MAX_TURNS,
                 timeout=OUTCOME_TIMEOUT,
             )

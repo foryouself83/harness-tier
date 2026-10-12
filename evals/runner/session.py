@@ -114,6 +114,7 @@ def _claude_stream(
     *,
     permission_mode: str | None = None,
     add_dirs: tuple[Path, ...] = (),
+    plugin_dir: Path | None = None,
     max_turns: int = config.MAX_TURNS,
     timeout: int = config.SESSION_TIMEOUT,
 ) -> Raw:
@@ -126,8 +127,8 @@ def _claude_stream(
     The keyword-only tail exists for the outcome arm and defaults to reproduce the scored
     command byte-for-byte: run_session passes none of them, so the invocation measurement is
     unchanged. outcome.run_outcome passes `permission_mode="bypassPermissions"`,
-    `add_dirs=(REPO,)`, a higher `max_turns`, and a longer `timeout` so the session can
-    edit files and run to a natural end."""
+    a `plugin_dir` snapshot it also passes as `add_dirs`, a higher `max_turns`, and a longer
+    `timeout` so the session can edit files and run to a natural end."""
     if fixture:
         # build() creates workdir/<scenario> and returns it — run *there*. Staying in the
         # parent would put the agent in a directory holding a single subdirectory, which is
@@ -146,7 +147,7 @@ def _claude_stream(
         "--model",
         scores.MODEL,
         "--plugin-dir",
-        str(config.REPO),
+        str(plugin_dir or config.REPO),
     ]
     if restricted:
         # The diagnostic arm. With no other tool on offer the agent cannot quietly do the
