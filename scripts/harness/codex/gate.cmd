@@ -2,7 +2,8 @@
 setlocal
 set "GB="
 for /f "delims=" %%G in ('where git 2^>nul') do if not defined GB if exist "%%~dpG..\bin\bash.exe" set "GB=%%~dpG..\bin\bash.exe"
-if not defined GB for /f "delims=" %%G in ('where git 2^>nul') do if not defined GB if exist "%%~dpG..\..\bin\bash.exe" set "GB=%%~dpG..\..\bin\bash.exe"
+if not defined GB for /f "delims=" %%G in ('where git 2^>nul') do if not defined GB if exist "%%~dpG..\..\cmd\git.exe" if exist "%%~dpG..\..\bin\bash.exe" set "GB=%%~dpG..\..\bin\bash.exe"
+if not defined GB for /f "delims=" %%G in ('where git 2^>nul') do if not defined GB if exist "%%~dpG..\apps\git\current\bin\bash.exe" set "GB=%%~dpG..\apps\git\current\bin\bash.exe"
 if not defined GB if exist "%ProgramFiles%\Git\bin\bash.exe" set "GB=%ProgramFiles%\Git\bin\bash.exe"
 if defined GB "%GB%" "%~dp0gate.sh"
 if defined GB exit /b %errorlevel%

@@ -43,8 +43,9 @@ Claude Code 에서 처음 설정한 호스트의 재실행도 포함함. Claude 
 "flow-config.yaml values" 를 고를 때만 Codex 를 추가함. 어느 쪽이든 `flow-config.yaml` 의
 `harnesses` 에 `codex` 가 들어가고, 호스트의 `.codex/hooks.json` 에 `Bash` `PreToolUse`
 훅으로 게이트를 등록함 — `.claude/settings.json` 의 Claude 쪽 등록과는 별개임.
-**Windows 도 Git for Windows 가 필요**: 게이트의 Windows 래퍼는 `git.exe` 옆이나
-`%ProgramFiles%\Git` 아래에서 Git 이 번들한 `bash.exe` 를 찾고, 없으면 조용히 통과시키는 대신 **모든 커밋과 머지를 막음**.
+**Windows 도 Git for Windows 가 필요**: 게이트의 Windows 래퍼는 `git.exe` 가 속한 설치(scoop
+shim 이면 scoop 의 Git)나 `%ProgramFiles%\Git` 아래에서 Git 이 번들한 `bash.exe` 를 찾고, 없으면 조용히
+통과시키는 대신 **모든 커밋과 머지를 막음**.
 
 등록된 명령은 Codex 가 훅을 실행하는 셸이 펼치는 `$(git rev-parse --show-toplevel)` 로
 게이트를 찾음; `$(…)` 를 펼치지 않는 셸(3.4 미만 fish, tcsh)에서는 게이트가 전혀 돌지 않음.

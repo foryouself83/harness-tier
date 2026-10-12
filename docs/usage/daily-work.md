@@ -26,7 +26,8 @@ The first step of every task that ends in a commit — code or docs. It:
    - **Docs** — edit → `/doc-sync` → `/commit`.
    - **Dev** — the `superpowers` pipeline (design → plan → implement → verify) → `/doc-sync` →
      domain review against `review_checklist` and the callers of every changed public symbol →
-     `/commit`. The review runs last because an edit voids it.
+     `/commit`. The review runs last because an edit voids it. Spec and plan commit first as
+     Docs, the code as Dev.
 6. **Merges** by the branch flow's [merge strategy](tiers-and-gates.md#merge-strategy), or opens
    a pull request when `merge_workflow.pull_request` includes `daily`.
 7. **Clears the evidence** — after the merge, or after the pull request merges.

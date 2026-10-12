@@ -1,4 +1,5 @@
-"""Codex reads the deny JSON, not exit 2 (Windows pwsh rewrites 2 to 1), so the wrapper turns the runner's 2 into 0."""  # noqa: E501
+"""Codex reads the deny JSON, not exit 2 (Windows pwsh rewrites 2 to 1), so the wrapper turns
+the runner's 2 into 0."""
 
 import json
 import os
@@ -171,6 +172,8 @@ def test_cmd_finds_git_bash_from_a_mingw64_git(tmp_path, wrapper):
     install = tmp_path / "Git"
     (install / "mingw64" / "bin").mkdir(parents=True)
     (install / "mingw64" / "bin" / "git.exe").write_bytes(b"")
+    (install / "cmd").mkdir()
+    (install / "cmd" / "git.exe").write_bytes(b"")
     (install / "bin").mkdir()
     cmd_exe = Path(os.environ["SystemRoot"]) / "System32" / "cmd.exe"
     shutil.copyfile(cmd_exe, install / "bin" / "bash.exe")
@@ -180,6 +183,95 @@ def test_cmd_finds_git_bash_from_a_mingw64_git(tmp_path, wrapper):
     shutil.copyfile(source, host / wrapper)
     env = {k: v for k, v in os.environ.items() if k.upper() != "PATH"}
     env["PATH"] = f"{install / 'mingw64' / 'bin'};{Path(os.environ['SystemRoot']) / 'System32'}"
+    run = subprocess.run(
+        ["cmd", "/d", "/c", str(host / wrapper), "x.sh"],
+        env=env,
+        input=b"exit 7\r\n",
+        capture_output=True,
+    )
+    assert run.returncode == 7, run.stdout
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="cmd wrapper is Windows-only")
+@pytest.mark.parametrize("wrapper", ["gate.cmd", "run-hook.cmd"])
+def test_cmd_skips_a_bash_two_levels_above_a_git_shim(tmp_path, wrapper):
+    # A shim directory (scoop's `shims\git.exe`) is no Git install, so the `bin\bash.exe` two
+    # levels above it is someone else's. Only a root holding `cmd\git.exe` is Git for Windows.
+    shims = tmp_path / "scoop" / "shims"
+    shims.mkdir(parents=True)
+    (shims / "git.exe").write_bytes(b"")
+    (tmp_path / "bin").mkdir()
+    cmd_exe = Path(os.environ["SystemRoot"]) / "System32" / "cmd.exe"
+    shutil.copyfile(cmd_exe, tmp_path / "bin" / "bash.exe")
+    source = WRAP_CMD if wrapper == "gate.cmd" else REPO / "hooks" / "codex" / "run-hook.cmd"
+    host = tmp_path / "host"
+    host.mkdir()
+    text = source.read_text(encoding="utf-8")
+    (host / wrapper).write_text(
+        text.replace("%ProgramFiles%", str(tmp_path / "none")), encoding="utf-8"
+    )
+    env = {k: v for k, v in os.environ.items() if k.upper() != "PATH"}
+    env["PATH"] = f"{shims};{Path(os.environ['SystemRoot']) / 'System32'}"
+    run = subprocess.run(
+        ["cmd", "/d", "/c", str(host / wrapper), "x.sh"],
+        env=env,
+        input=b"exit 7\r\n",
+        capture_output=True,
+    )
+    assert run.returncode != 7, run.stdout
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="cmd wrapper is Windows-only")
+@pytest.mark.parametrize("wrapper", ["gate.cmd", "run-hook.cmd"])
+def test_cmd_finds_scoops_git_bash_through_its_shim(tmp_path, wrapper):
+    # scoop puts git.exe on PATH as `shims\git.exe` and installs Git itself under
+    # `apps\git\current\`.
+    scoop = tmp_path / "scoop"
+    (scoop / "shims").mkdir(parents=True)
+    (scoop / "shims" / "git.exe").write_bytes(b"")
+    bash_dir = scoop / "apps" / "git" / "current" / "bin"
+    bash_dir.mkdir(parents=True)
+    shutil.copyfile(Path(os.environ["SystemRoot"]) / "System32" / "cmd.exe", bash_dir / "bash.exe")
+    source = WRAP_CMD if wrapper == "gate.cmd" else REPO / "hooks" / "codex" / "run-hook.cmd"
+    host = tmp_path / "host"
+    host.mkdir()
+    text = source.read_text(encoding="utf-8")
+    (host / wrapper).write_text(
+        text.replace("%ProgramFiles%", str(tmp_path / "none")), encoding="utf-8"
+    )
+    env = {k: v for k, v in os.environ.items() if k.upper() != "PATH"}
+    env["PATH"] = f"{scoop / 'shims'};{Path(os.environ['SystemRoot']) / 'System32'}"
+    run = subprocess.run(
+        ["cmd", "/d", "/c", str(host / wrapper), "x.sh"],
+        env=env,
+        input=b"exit 7\r\n",
+        capture_output=True,
+    )
+    assert run.returncode == 7, run.stdout
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="cmd wrapper is Windows-only")
+@pytest.mark.parametrize("wrapper", ["gate.cmd", "run-hook.cmd"])
+def test_cmd_falls_back_to_program_files_past_a_shim_without_git(tmp_path, wrapper):
+    # A shim whose neighbours hold no Git must not claim the slot the ProgramFiles install fills.
+    shims = tmp_path / "scoop" / "shims"
+    shims.mkdir(parents=True)
+    (shims / "git.exe").write_bytes(b"")
+    program_files = tmp_path / "pf"
+    (program_files / "Git" / "bin").mkdir(parents=True)
+    shutil.copyfile(
+        Path(os.environ["SystemRoot"]) / "System32" / "cmd.exe",
+        program_files / "Git" / "bin" / "bash.exe",
+    )
+    source = WRAP_CMD if wrapper == "gate.cmd" else REPO / "hooks" / "codex" / "run-hook.cmd"
+    host = tmp_path / "host"
+    host.mkdir()
+    text = source.read_text(encoding="utf-8")
+    (host / wrapper).write_text(
+        text.replace("%ProgramFiles%", str(program_files)), encoding="utf-8"
+    )
+    env = {k: v for k, v in os.environ.items() if k.upper() != "PATH"}
+    env["PATH"] = f"{shims};{Path(os.environ['SystemRoot']) / 'System32'}"
     run = subprocess.run(
         ["cmd", "/d", "/c", str(host / wrapper), "x.sh"],
         env=env,

@@ -2,6 +2,28 @@
 
 <!-- version list -->
 
+## v0.4.5 (2026-10-12)
+
+### Features
+
+- **flow**: A spec or plan commits first under a docs-tier marker, before the code work it
+  describes, instead of waiting on a review of code not yet written
+
+### Bug Fixes
+
+- **plugin**: `*.sh` scripts check out LF and `*.cmd` CRLF under any `core.autocrlf`, so a gate
+  hook no longer fails open on Linux bash; scaffolded plan text keeps single line endings on
+  Windows
+- **codex**: Git Bash is found through a scoop shim, and a `bin\bash.exe` two levels above an
+  unrelated `git` is no longer picked
+- **codex**: `config.toml` trust keys decode as TOML does, so a key spelled with `\u` escapes
+  reads as trusted
+
+### Performance Improvements
+
+- **codex**: Instruction sources are listed once per render, check and remove
+
+
 ## v0.4.4 (2026-10-09)
 
 ### Features

@@ -82,9 +82,8 @@ skills:
     expect_why: >-
       drift and consistency asks use its own words.
     happy:
-      # app/server.py is the file the doc-sync-drift fixture actually ships — the prompt
-      # used to name src/settings.py, which does not exist there, and the agent's first
-      # turns went to discovering that instead of reaching for the skill.
+      # Name a file the doc-sync-drift fixture ships (app/server.py): a missing one sends the
+      # agent's first turns to discovering that instead of reaching for the skill.
       - I renamed the config keys in app/server.py — check the docs still match.
       - Are the docs in this repo consistent with each other?
       - This module has no local CLAUDE.md.

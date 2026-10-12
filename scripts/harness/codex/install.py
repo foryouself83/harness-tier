@@ -249,14 +249,40 @@ def toml_key(key: str) -> str:
     return '"' + _BASIC_ESCAPED.sub(escape, key) + '"'
 
 
+_BASIC_ESCAPE = re.compile(r"\\(u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8}|.|\Z)", re.S)
+_RAW_CONTROL = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")
+_SIMPLE_ESCAPES = {"b": "\b", "t": "\t", "n": "\n", "f": "\f", "r": "\r", '"': '"', "\\": "\\"}
+
+
+def _basic_unescape(text: str) -> str | None:
+    """A TOML basic string's value, or None for an escape or raw control character TOML
+    rejects."""
+    if _RAW_CONTROL.search(text):
+        return None
+    invalid = []
+
+    def decode(m: re.Match) -> str:
+        code = m.group(1)
+        if code in _SIMPLE_ESCAPES:
+            return _SIMPLE_ESCAPES[code]
+        if len(code) > 1:
+            value = int(code[1:], 16)
+            if value <= 0x10FFFF and not 0xD800 <= value <= 0xDFFF:
+                return chr(value)
+        invalid.append(code)
+        return ""
+
+    out = _BASIC_ESCAPE.sub(decode, text)
+    return None if invalid else out
+
+
 def trust_notes(host: Path, codex_home: Path | None = None) -> list[str]:
     """Warnings, never failures: both remedies are the user's to apply. Reads, never writes.
 
     A heuristic reader, not a TOML parser (no `tomllib` on 3.8-3.10): any input this cannot
     make sense of — a missing file, a non-UTF-8 config, odd bracket nesting — falls back to
     "not trusted" rather than raising or guessing trusted. That includes a basic-string key
-    carrying any escape but `\\\\` and `\\"`, such as the `\\u` spelling `toml_key` gives a
-    control character.
+    carrying an escape TOML rejects.
     """
     home = codex_home or Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
     notes = []
@@ -270,7 +296,9 @@ def trust_notes(host: Path, codex_home: Path | None = None) -> list[str]:
         name = m.group(2)
         if m.group(1) == '"':
             # A basic string escapes its backslashes; a literal (single-quoted) one does not.
-            name = re.sub(r'\\([\\"])', r"\1", name)
+            name = _basic_unescape(name)
+            if name is None:
+                continue
         same = name.lower() == key.lower() if os.name == "nt" else name == key
         if same and re.search(r'^\s*trust_level\s*=\s*"trusted"', m.group(3), re.M):
             trusted = True

@@ -197,11 +197,16 @@ def test_trust_notes_accepts_double_quoted_keys(tmp_path):
     host = tmp_path / "Host2"
     host.mkdir()
     key = _stored_key(host)
-    (home / "config.toml").write_text(
-        f'[projects."{key}"]\ntrust_level = "trusted"\n', encoding="utf-8"
-    )
+    config = f'[projects."{key}"]\ntrust_level = "trusted"\n'
+    # Unescaped, a Windows path's "\U…" is an invalid escape: TOML, and so Codex, rejects the
+    # file. The verdict follows the parser's.
+    try:
+        expect_trusted = key in tomllib.loads(config)["projects"]
+    except tomllib.TOMLDecodeError:
+        expect_trusted = False
+    (home / "config.toml").write_text(config, encoding="utf-8")
     notes = install.trust_notes(host, home)
-    assert not any("trusted" in n and "[!]" in n for n in notes)
+    assert (not any("[!]" in n for n in notes)) is expect_trusted
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="case-insensitive path matching is nt-only")
@@ -229,6 +234,63 @@ def test_trust_notes_unescapes_basic_string_keys(tmp_path):
     )
     notes = install.trust_notes(host, home)
     assert not any("trusted" in n and "[!]" in n for n in notes), notes
+
+
+def _unicode_spelled(key: str, wide: bool) -> str:
+    return "".join(f"\\U{ord(c):08X}" if wide else f"\\u{ord(c):04x}" for c in key)
+
+
+@pytest.mark.parametrize("wide", [False, True])
+def test_trust_notes_decodes_unicode_escaped_keys_as_toml_does(tmp_path, wide):
+    home = tmp_path / "codexhome"
+    home.mkdir()
+    host = tmp_path / "Host6"
+    host.mkdir()
+    config = f'[projects."{_unicode_spelled(_stored_key(host), wide)}"]\ntrust_level = "trusted"\n'
+    assert _stored_key(host) in tomllib.loads(config)["projects"]
+    (home / "config.toml").write_text(config, encoding="utf-8")
+    assert not any("[!]" in n for n in install.trust_notes(host, home))
+
+
+@pytest.mark.parametrize(
+    "spelled",
+    [
+        r"C:\\Work",
+        r"a\"b",
+        r"\b\t\n\f\r",
+        r"\u0041\U0001F600",
+        r"\u00e9\u00E9",
+        r"C:\Work",
+        r"\x41",
+        r"\u004",
+        r"\uD800",
+        r"\U00110000",
+        "trailing\\",
+        "raw\ttab",
+        "raw\x01ctl",
+        "raw\x7fdel",
+        "raw\x1fus",
+    ],
+)
+def test_basic_unescape_agrees_with_tomllib(spelled):
+    try:
+        want = tomllib.loads(f'k = "{spelled}"')["k"]
+    except tomllib.TOMLDecodeError:
+        want = None
+    assert install._basic_unescape(spelled) == want
+
+
+def test_trust_notes_reads_an_invalid_escape_as_untrusted(tmp_path):
+    home = tmp_path / "codexhome"
+    home.mkdir()
+    host = tmp_path / "Host7"
+    host.mkdir()
+    escaped = _stored_key(host).replace("\\", "\\\\")
+    spelled = escaped[:-1] + "\\" + escaped[-1]  # "\7": TOML rejects it, a lax reader drops "\"
+    (home / "config.toml").write_text(
+        f'[projects."{spelled}"]\ntrust_level = "trusted"\n', encoding="utf-8"
+    )
+    assert any("[!]" in n for n in install.trust_notes(host, home))
 
 
 def test_hook_remains_ignores_an_extra_top_level_key_without_a_gate(tmp_path):
