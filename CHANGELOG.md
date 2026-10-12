@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v0.4.6-rc.1 (2026-10-12)
+
+### Bug Fixes
+
+- Quiet unreadable manifests, skip drive links
+  ([`911a5bc`](https://github.com/foryouself83/harness-tier/commit/911a5bcf5e72d65979557283bebc07c193f7fefd))
+
+- **flow**: Keep confirmed Dev tier on swap back
+  ([`a7d815f`](https://github.com/foryouself83/harness-tier/commit/a7d815ff2a75d42fbd7f3fc02e09ec08a4aa780c))
+
+- **flow**: Route the task via superpowers entry
+  ([`41edcc0`](https://github.com/foryouself83/harness-tier/commit/41edcc046380dcce60c8e1f889bd69ebd34d429d))
+
+
 ## v0.4.5 (2026-10-12)
 
 ### Features
