@@ -163,7 +163,13 @@ jobs:
           fi
           git commit -m "chore(release): pin marketplace sha [skip ci]" \
             -m "Pin source.sha to the commit just released (which carries the plugin.json version)."
-          git push origin HEAD:main
+          # A remote that moved since checkout rejects the push: rebase onto it, bounded.
+          for attempt in 1 2 3; do
+            git push origin HEAD:main && break
+            [ "$attempt" -lt 3 ] || exit 1
+            sleep $((attempt * 5))
+            git pull --rebase origin main
+          done
 
       - name: Sync uv.lock to released version
         if: ${{ steps.sr.outputs.released == 'true' }}
@@ -177,7 +183,13 @@ jobs:
           fi
           git commit -m "chore(release): sync uv.lock [skip ci]" \
             -m "Align uv.lock's project version with the released version (semantic-release only bumps pyproject/plugin.json)."
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+          # A remote that moved since checkout rejects the push: rebase onto it, bounded.
+          for attempt in 1 2 3; do
+            git push origin "HEAD:${GITHUB_REF_NAME}" && break
+            [ "$attempt" -lt 3 ] || exit 1
+            sleep $((attempt * 5))
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+          done
 
       - name: Create GitHub Release
         if: ${{ steps.sr.outputs.released == 'true' }}
