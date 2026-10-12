@@ -204,6 +204,8 @@ do not go looking for a skill behind either — none exists; the hook runs the c
    - **Spec and plan commit as Docs, the code as Dev** — before the first code edit, commit
      the spec and plan under a `docs:<branch>` marker (`doc-sync` → `commit`), then write
      `dev:<branch>` back. Under `dev` that commit waits on a review of code not yet written.
+     The swap is mechanical, not a reclassification: the Dev tier Phase 2 confirmed still
+     holds, so write `dev:<branch>` back without asking the user again.
    - **Implementation minimalism** — right after the plan, before writing code,
      climb the reuse-before-build ladder (YAGNI → codebase → stdlib → native →
      dependency → one line → minimum code) and stop at the earliest rung. Detail
