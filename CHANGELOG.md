@@ -2,6 +2,18 @@
 
 <!-- version list -->
 
+## v0.4.6 (2026-10-13)
+
+### Bug Fixes
+
+- **flow**: The task goes to `superpowers:using-superpowers` in Phase 3; nothing opens
+  `brainstorming` before it, and the Dev tier confirmed in Phase 2 holds across the
+  spec-and-plan docs-marker swap without asking again
+- **hooks**: An unreadable plugin manifest no longer prints `Permission denied` at session start
+- **harness-init**: A drive-relative link (`C:../x.md`) reads as outside the repo and is never
+  opened
+
+
 ## v0.4.5 (2026-10-12)
 
 ### Features

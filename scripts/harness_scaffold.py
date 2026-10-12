@@ -707,7 +707,8 @@ _MD_LINK_RE = re.compile(
 # GitHub line references, not anchors. A `.md` target carries them (a spec here cites
 # `SKILL.md#L153`).
 _LINE_FRAGMENT_RE = re.compile(r"^L\d+(-L\d+)?$")
-_WIN_ABS_RE = re.compile(r"[a-zA-Z]:[\\/]")
+# Any drive prefix, separator or not: a drive-relative `C:../x.md` resolves outside root too.
+_WIN_ABS_RE = re.compile(r"[a-zA-Z]:")
 OPS_ANCHOR_RE = re.compile(r"<!--\s*ops-conventions\s*-->")
 OPS_MAX_LINES = 3
 # Sentinel for dict.get(key, _NO_WIKI_ID): tells "key absent" (not a wiki node) apart from a
