@@ -267,8 +267,7 @@ def test_every_skill_declares_its_expectation():
 
 def test_the_committed_baseline_passes_the_gate():
     """The gate itself, applied to the file that gets committed. Fail is the only hard
-    state; warns surface through pytest's warning summary (integration and flow warn today —
-    both measured significantly below their declared expectation). The warn set is
+    state; warns surface through pytest's warning summary. The warn set is
     deliberately NOT pinned: a ratchet-approved dip adds a warn, an improvement removes one,
     an --accept'ed drop still warns — and a suite that turns red on any of those teaches
     people to edit the test instead of reading the warning. Warn is information; the ratchet
