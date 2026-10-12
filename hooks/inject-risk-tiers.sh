@@ -108,7 +108,8 @@ manifest_pair() {  # <file> -> manifest_name, manifest_version: the FIRST of eac
   # one does not shadow it — which is the real manifest's layout.
   local line
   manifest_name="" manifest_version=""
-  while IFS= read -r line || [ -n "$line" ]; do
+  # `-f` passes a file the hook cannot read; the failed redirection must not reach stderr.
+  { while IFS= read -r line || [ -n "$line" ]; do
     if [ -z "$manifest_name" ] &&
        [[ $line =~ \"name\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]]; then
       manifest_name="${BASH_REMATCH[1]}"
@@ -118,7 +119,7 @@ manifest_pair() {  # <file> -> manifest_name, manifest_version: the FIRST of eac
       manifest_version="${BASH_REMATCH[1]}"
     fi
     [ -n "$manifest_name" ] && [ -n "$manifest_version" ] && break
-  done < "$1"
+  done < "$1"; } 2>/dev/null
 }
 
 safe_token() {  # <var> <value>: the value, or nothing when it holds anything but a name/version char
