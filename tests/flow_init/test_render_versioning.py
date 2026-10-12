@@ -224,8 +224,13 @@ def test_reads_the_trailer_rejects_computation_without_consumption():
         "            if ! git diff --cached --quiet -- CHANGELOG.md; then\n"
         '              git commit --amend --no-edit && git tag -f "v$NEXT"\n'
         "            fi\n"
-        '            git push origin HEAD:"$REF_NAME"\n'
-        '            git push origin "v$NEXT"\n'
+        "            # Transient failures only, never a rebase: the version and notes came from"
+        " this tree.\n"
+        "            for attempt in 1 2 3; do\n"
+        '              git push --atomic origin HEAD:"$REF_NAME" "v$NEXT" && break\n'
+        '              [ "$attempt" -lt 3 ] || exit 1\n'
+        "              sleep $((attempt * 5))\n"
+        "            done\n"
         "          fi\n"
     )
     assert old in psr_body, "apply block text drifted — update this pin alongside it"

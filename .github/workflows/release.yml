@@ -104,8 +104,12 @@ jobs:
             if ! git diff --cached --quiet -- CHANGELOG.md; then
               git commit --amend --no-edit && git tag -f "v$NEXT"
             fi
-            git push origin HEAD:"$REF_NAME"
-            git push origin "v$NEXT"
+            # Transient failures only, never a rebase: the version and notes came from this tree.
+            for attempt in 1 2 3; do
+              git push --atomic origin HEAD:"$REF_NAME" "v$NEXT" && break
+              [ "$attempt" -lt 3 ] || exit 1
+              sleep $((attempt * 5))
+            done
           fi
           AFTER="$(git rev-parse HEAD)"
           [ "$BEFORE" != "$AFTER" ] && echo "released=true" >> "$GITHUB_OUTPUT" || echo "no release"
@@ -135,8 +139,12 @@ jobs:
             [ -f .codex-plugin/plugin.json ] && git add .codex-plugin/plugin.json
             git commit -m "chore(release): $STABLE [skip ci]"
             git tag "v$STABLE"
-            git push origin HEAD:main
-            git push origin "v$STABLE"
+            # Transient failures only, never a rebase: the version and notes came from this tree.
+            for attempt in 1 2 3; do
+              git push --atomic origin HEAD:main "v$STABLE" && break
+              [ "$attempt" -lt 3 ] || exit 1
+              sleep $((attempt * 5))
+            done
           else
             echo "no prerelease to finalize (hotfix) — plain compute"
             semantic-release version --commit --tag --push --changelog --no-vcs-release
