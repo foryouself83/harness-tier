@@ -1,0 +1,88 @@
+<!-- Wiki front matter for this doc. Fill every {{…}} below, then delete this comment line
+     so the "---" that follows becomes the literal first line of the generated file
+     (wiki_graph.py only recognizes front matter starting at byte 0 — leaving this comment
+     in place keeps the file harmlessly outside the wiki, same as a plain markdown file). -->
+---
+# wiki_id: derive mechanically from this file's output path relative to the wiki root, the
+# same way wiki-init Step 5 does (e.g. docs/sds/README.md -> sds.readme). Never hand-pick a
+# slug — this template is cloned once per design area, and a hand-picked value repeated
+# across clones collides on id.
+wiki_id: {{ID}}
+title: <design area>
+tags: [sds]
+# sources: the code paths this design describes.
+#   - greenfield `{}` / brownfield the real paths — a guessed path is worse than none.
+#   - `--verify` warns on an absent or valueless key, never on `{}`.
+#   - doc-sync Mode W `--unmapped` lists the empty ones and fills them once code exists.
+sources: {}
+---
+# {{PROJECT_NAME}} Software Design Specification (SDS)
+
+## Stack / Framework
+{{FRAMEWORK}} {{VERSION}} — {{STACK_SUMMARY}}  <!-- Sources: {{SOURCES}} -->
+
+## Structure Diagram
+```mermaid
+{{MERMAID_DIAGRAM}}
+```
+<!-- Component/module relationships (at least 1). Only turn confirmed facts into nodes (no speculative nodes). Add a data-flow diagram if possible. -->
+
+## Folder Structure
+{{FOLDER_MAP}}
+
+## Module Overview
+<!-- Take each node in the structure diagram down one level into an implementation unit (architecture = nodes, SDS = the nodes' contracts).
+     Confirmed facts only — no speculation. If there are class/type details, include them in the interface (no separate section).
+     If it is a single module, list only 1 (YAGNI).
+     **Decomposition axis**: for procedural, data-pipeline, or functional projects, use processing stages / data flow
+     as the primary unit instead of modules (rename to "processing stages" and list in flow order). Use modules only for projects where module boundaries are natural. -->
+#### {{MODULE_NAME}}
+- Implemented requirements: [FR-PAYMENT-001](../srs/payment.md#fr-payment-001) <!-- The SRS FRs
+  this module satisfies (link via each FR anchor in its area file, serving as the standard
+  Requirements Matrix). **Infrastructure/cross-cutting modules (logging, config, DB adapters) get
+  "no FR mapping"** — no forced mappings or dead links. -->
+- Responsibility: {{MODULE_RESPONSIBILITY}}  <!-- One sentence. Single responsibility — if an "and" appears, consider splitting. -->
+- Provided interface: {{MODULE_PROVIDED_IF}}  <!-- The public API/functions/endpoints exposed externally (input→output, errors). Omit internal-only ones. -->
+- Required interface: {{MODULE_REQUIRED_IF}}  <!-- The external contracts needed to operate (= concretization of dependencies). Both other internal modules and external systems (third-party APIs, services, DBs, message brokers, etc.). If none, "none". -->
+- Owned data: {{MODULE_DATA}}  <!-- Core data structures/tables it owns/mutates. If not applicable, "N/A". -->
+
+## NFR Realization
+<!-- Bridge each measurable SRS §6 NFR to the design that satisfies it — this is the missing "requirement → design → verification"
+     link (FRs are traced per-module above via "Implemented requirements"; NFRs are traced here). For each NFR: which module/design
+     decision serves it + a link to the verification SSOT. Cross-cutting NFRs need not map to a single module. Confirmed facts only.
+     If there is no measurable NFR, omit (YAGNI). -->
+{{NFR_REALIZATION}}
+<!-- Format — - [Performance](../srs/README.md#nfr-perf) (p95<200ms): served by {{module/decision}}; verified in [performance.md](../verification/performance.md).
+     Point at a single NFR item instead of the whole axis when the design satisfies only that one:
+     [NFR-PERF-001](../srs/README.md#nfr-perf-001). -->
+
+## Data Design
+<!-- Write only when there is a DB/persistent store. If none, omit this section (YAGNI). Schema details are owned by code/migrations
+     as the SSOT — here, only module↔data linkage, transaction boundaries, and key entity relationships (no duplication). -->
+{{DATA_DESIGN}}
+
+## UI Flow
+<!-- Write only when there is a UI. If none, omit this section (YAGNI). Screen transitions, states, key actions. Do not include screenshots (flow only). -->
+{{UI_FLOW}}
+
+## Integration Points (contracts between components)
+<!-- Write only when there are component pairs that communicate across a boundary (process/origin/host/auth). For a single process, omit this section (YAGNI). -->
+{{INTEGRATION_CONTRACTS}}
+<!-- For each communicating pair: reachability (does the hostname/route resolve in the deployment topology) · identity/origin (do issuer and origin
+     match from both the browser's and the internal perspective) · policy continuity (do security headers/CSP not block the declared flow, and are they preserved across all response
+     paths) · credential provisioning (is an app-specific account created) · global-config blast radius (does a global policy not constrain the
+     declared heavy path against intent). Confirmed facts only, with source links. -->
+
+## Stack Reconcile Decisions
+<!-- The SSOT for design rationale (harness-rules 10-1). One line each for the stacks (including infrastructure) promoted/rejected in research, with reasons —
+     a version-controlled decision outlet (only the core decisions as a doc, not a duplicate of the gitignored `.harness/rationale.md`).
+     If there are no promotions/rejections, omit this section. -->
+{{STACK_RECONCILE}}
+
+## Requirements Coverage
+<!-- Bidirectional completeness check that closes the one-way module→FR link: confirm **every** SRS FR is implemented by at least one
+     module above, and every measurable NFR is realized (above). List any FR/NFR with **no** mapping as an explicit gap — never drop it
+     silently (a silently missing FR = a feature dropped at design time). -->
+{{REQUIREMENTS_COVERAGE}}
+<!-- Format — Covered: FR-PAYMENT-001…FR-PAYMENT-006 · NFR-perf · NFR-security.  Gaps:
+     FR-PAYMENT-007 (no module yet — needs design). -->

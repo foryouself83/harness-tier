@@ -1,0 +1,215 @@
+# Harness Generation Rules
+
+> This rule is NOT auto-injected (unlike risk-tiers.md). It is the SSOT that the
+> `/harness-init` and `harness-authoring` skills defer to and read at run time.
+
+## Safety
+1. **Verify → plan → preview → confirm → write.** No file is written before it is previewed and confirmed.
+2. **No overwriting.** Existing files get only marker-block upserts (a dedicated region). Creation happens only when the file is absent.
+3. **harness-init does not commit** (that is /flow's responsibility).
+4. **When ambiguous, ask** (Karpathy). If the framework cannot be detected or there is a conflict, ask the user.
+4-1. **Merged-copy cleanup**: after a successful apply, remove the intermediate copies that were merged into docs (`.harness/research/`, etc.)
+   with `harness_scaffold.py cleanup`. Audit evidence (`plan.json`, `manifest.json`,
+   `critic-report.json`, `rationale.md`) is preserved. FAIL-OPEN (a cleanup failure does not block the flow).
+   **Link guard (FAIL-SAFE)**: document source links point at the merged location `docs/research/` and do not
+   reference `.harness/`. Before removing, cleanup checks whether docs reference `.harness/research`, and if a
+   reference exists it holds off on removal and warns (to avoid broken links).
+
+## Deliverables
+5. **`.md` by default**; real configuration (bandit, CI, pre-commit, real folders, actual `==` pins) is opt-in per item.
+5-1. **Skill helper folders**: when creating a skill, if its role warrants references/examples, include `references/`·`examples/` alongside it (YAGNI — not forced for simple skills).
+5-2. **Write only what the artifact cannot say itself** — binds every generated comment, docstring,
+   `.md`, and rule file.
+   - **Comments·docstrings**: the purpose plus the contract that is not evident from the code. Drop a
+     parameter list that only restates the signature.
+   - **No ornamental structure**: no numbered index, nested section scaffolding, or divider bars the
+     content does not need. A schema this file mandates (SRS §-numbering, code-style lens blocks) is
+     content, not ornament.
+   - **Never restate what the next line already says.**
+   - **No change history, migration note, or before-and-after narration** — the commit owns that
+     ([commit-discipline.md](commit-discipline.md)).
+   - **Rule files** (`CLAUDE.md`, `.claude/rules/**`) carry the rule in force, never the one it replaced.
+   - **Markdown**: terse lists over prose; one fact in one place and a link everywhere else (rule 7).
+6. **The five mandatory rules are always injected**: Karpathy's 4 principles + DRY/constants + `==` version pinning + security + **reuse-first**
+   ([rule-reuse-first.md](../skills/harness-authoring/references/rule-reuse-first.md)).
+   **Load-path guarantee** — CLAUDE.md body / explicit import (`.claude/rules/` alone is not enough). The anchor `<!-- rule:<key> -->`
+   (key: `karpathy`·`dry-constants`·`version-pinning`·`security`·`reuse-first`) is **owned by the claude-md template** and
+   placed before each rule slot in the baseline marker block. Do not put anchors in the rule reference body files (no duplication).
+7. **No duplication (SSOT for the whole harness)** — two facets: (a) *component* —
+   no duplicate generation (check functional duplication by name+description);
+   (b) *content* — every fact lives in **one SSOT** and other places **link** it,
+   never restate it ("one fact, one place"). This governs authored **rules**
+   too: before adding a rule, search the existing rules/docs for the fact and link
+   it instead of repeating. `rule.template.md` and `authoring-spec.md` defer here.
+7-1. **SSOT axes are named separately** — requirement and design **text** lives in the repo's
+   documents (`docs/srs/` · `docs/sds/`); **status, approval and assignee** live in the
+   external tracker. Each axis names exactly one authority. No two-way automatic merge.
+8. **Technical docs (folders by category)**: `docs/README.md` (overall index, done last) · `docs/srs/`
+   (`README.md` = common sections + non-functional requirements + area index, `<area>.md` = functional
+   requirements; done first) · `docs/sds/` (structure + **Mermaid required**; when a component communicates
+   across a boundary (process/origin/host/auth), include an **integration-point contract** section) ·
+   `docs/code-style/` (per-stack `<stack>.md`, no code snippets, one toolchain-config set) ·
+   `docs/research/` (merged in, source links) · `docs/onboarding/` (run/debug + links to key docs, done last) ·
+   `docs/verification/performance.md` (per-stack performance SSOT — N+1 · profiler · query plan · API load; confirmed stacks only, no empty sections) ·
+   `docs/verification/integration.md` (per-stack integration-verification SSOT — web = Playwright · non-web = human-in-the-loop; confirmed stacks only, no empty sections).
+   The entry document is `README.md`. Structural conventions are rules, behavioral style is docs — **one fact, one place**.
+   **Every document cites its reference sources as links.**
+8-1. **SRS scope-clarification gate (no guessing)**: for SRS deliverables, parse the received prompt
+   **before** research and SRS writing to fix the development scope. For the SRS's mandatory slots (purpose · goals/non-goals · core functional
+   requirements · target users/scenarios · key constraints), ask about **every blank + ambiguous item** — ask the user (structured choice) —
+   **ambiguous = unmeasurable · multiply interpretable · scope unclear** (e.g. "fast" · "user-friendly"). Keep asking **until it is measurable
+   and single-interpretation**, but do not re-ask what is already clear (ambiguity is a sign of incomplete requirements analysis —
+   resolve it at the SRS stage). Fix as well what the **classification axes** are (domain etc. as primary; user roles/subdomains etc. as secondary) and the **depth
+   (2nd–3rd level)** — ask which axes apply, and for axes that do not apply, do not delete them from the SRS but leave them as "N/A — reason"
+   (distinguishing them from omissions — isomorphic to 9-2). If still unknown after asking, mark it "needs confirmation" in the SRS
+   (no fabrication — rule 4). The produced **scope summary** is the single input source for research · rationale · SRS.
+   **The SRS is written for readers who do not write code**, so the gate also fixes its words: a thing the prompt
+   names two ways ("login" · "sign-in") is multiply interpretable — ask which term is canonical — and every
+   domain term and abbreviation lands in the scope summary with its meaning, as the SRS Glossary's input.
+   Requirements state what a user or the business observes, never the implementation (that is the SDS's).
+   The authoring half — Glossary section, one term per thing — is `tech-doc-guide.md`'s SRS section.
+   **Brownfield goes through this gate too** — it still gets only a skeleton, with unresolved slots marked "needs
+   confirmation", and code analysis is an input to scope, never a source of requirements. **FRs are never
+   reverse-engineered from existing code**: code says what the system does, not what anyone wanted, so an FR inferred
+   from behavior describes current behaviour wearing a requirement's clothes — that is rule 4 violated, not satisfied.
+   Requirements arrive incrementally, as a person states them.
+8-2. **Technical docs are wiki nodes**: every generated technical doc (rule 8's `docs/` categories — not
+   `.claude/rules/<framework>-conventions.md`, which lives outside the wiki root and is never a node) opens
+   with mandatory YAML front matter (`wiki_id`, `title`; id-derivation mechanics are
+   [wiki-init](../skills/wiki-init/SKILL.md)'s SSOT — not restated here). One concept per file: if a doc
+   grows past ~400 lines or covers two subjects, split it and link the halves with `related`. This is rule 7
+   (SSOT) applied to documentation — a fact lives in one node and the rest link to it. Write front matter
+   **whether or not the project has a wiki installed**: without one it is inert metadata, and it removes any
+   ordering dependency between `/harness-init` and `/wiki-init`. Never write `used_by` or `defects` — those
+   are generated from `depends_on` and `affects`, and a template that shipped either would break a
+   consumer's first commit.
+9. **No command generation**: no deliverable is created under `.claude/commands/` (revfactory alignment).
+
+## Operational conventions
+
+9-1. **Operational-concern checklist (no omissions · open list)**: for the detected stack, researcher/
+   code-analyzer **review all** of the following *concern axes* (language/framework agnostic). It is not a closed floor
+   but a **common set of starting axes** — researcher adds more per the stack's characteristics.
+   Error/exception handling · logging (debugging-oriented: level rules · debugging context · structured/searchable · no secrets/PII) ·
+   configuration · secrets · env · observability (metrics/tracing) · health check/readiness · graceful shutdown ·
+   input validation · authentication/authorization · retry/timeout · circuit breaker · data migration/schema evolution ·
+   rate limiting.
+9-2. **Emit is evidence-based**: coverage is mandatory, but each axis is **emitted only when the concern exists**
+   for that stack (do not force health check/shutdown onto a static site). When applicability is **uncertain**, do not fabricate — ask the user in the Step 6
+   preview (over-generation guard — FAIL-OPEN leans "skip + ask").
+9-3. **Directive is a rule, the flesh is a doc**: operational directives (1–3 line instructions) go in the `<!-- ops-conventions -->`
+   anchor section of `.claude/rules/<framework>-conventions.md`; the standard details · mappings · anti-patterns ·
+   examples · **source URLs (SSOT)** · alternatives go in the "Operational concerns" section of `docs/code-style/<stack>.md`.
+   The rule links the doc and does not duplicate the same fact (one fact, one place).
+9-4. **Standard selection (avoid over-asserting)**: for brownfield, code-analyzer detects the standard used in the code and states it.
+   For greenfield/undecided, researcher **auto-adopts the currently recommended latest standard (without asking)**, but puts the concrete
+   standard name **in the doc** only as "recommended (changeable) + source + alternatives", and puts only the category directive in the rule.
+9-5. **Security-axis escalation path**: for axes that need enforcement, like secrets · authentication/authorization · input validation, do not stop at a one-line
+   directive — propose the **real-configuration opt-in** from harness-init Step 1 (secret scanner · linter)
+   (only with consent). No "policy" enforcement illusion — real enforcement comes from detection tools.
+9-6. **Every confirmed stack is a convention target (reuse artifact ≠ stack)**: *every* stack confirmed via reconcile (10-1) receives
+   conventions (structure/detail SSOT separation follows 9-3 — no duplication here). In particular, infrastructure (DB · cache · queue ·
+   container/image · CI/CD · IaC · cloud) tends to end as a mere reuse artifact, so if conventions (best practices · anti-patterns · operational axes)
+   **do exist**, promote it to a stack (otherwise leave it as a reuse candidate only — 9-2 evidence-based).
+9-7. **Quality-lens taxonomy (best-practice perspectives · open list · applicability-gated)**: the `docs/code-style/<stack>.md`
+   **Best Practices** section is organized **by quality lens**, not as one flat bullet list. Researcher/code-analyzer **review all** of the
+   following *coding-quality perspectives* (isomorphic to 9-1 — a common starting set, not a closed floor; add more per the stack's characteristics):
+   **correctness/robustness** (edge cases · invariants · failure handling in code) · **UX** (loading/disabled/optimistic states ·
+   duplicate-action guards · user-facing error/empty states — UI-facing stacks) · **accessibility (a11y)** (semantics · keyboard · ARIA · contrast —
+   UI stacks) · **performance** (re-render · N+1 · caching · memoization · payload/bundle — the perf-conscious *coding* practice) · **security**
+   (input validation · authz at call sites · injection/escaping · secret handling) · **maintainability/testability** (module boundaries ·
+   dependency direction · test seams) · **cross-cutting/integration** (idempotency = front guard + server idempotency · cross-layer consistency ·
+   contract adherence at call sites) · **i18n/l10n** (multi-locale products). Emit each lens **only when it applies** to the stack
+   (9-2 evidence-based — no UX/a11y lens on a headless backend, no cross-cutting lens on a single-process app); uncertain applicability is asked in
+   the Step 6 preview, never fabricated.
+9-8. **Lens boundaries (one fact, one place — 9-3 · rule 7)**: a lens carries the *coding* guidance only and **links** the SSOT that owns the rest —
+   never duplicates it. **performance** lens ↔ `docs/verification/performance.md` (measurement/profiling tools). **cross-cutting/integration** lens ↔
+   `docs/sds` Integration Points (the boundary contract) + `docs/verification/integration.md` (E2E verification). **security** lens ↔ the 9-1
+   secrets/authn/input-validation operational axis + the 9-5 scanner opt-in (the runtime directive + enforcement). **9-1 vs lenses**: 9-1 = runtime
+   operational behavior in production; lenses = authoring-time code quality — where a name overlaps (security), the *directive* lives once in the
+   `<!-- ops-conventions -->` rule section and the lens references it.
+
+## Multi-agent / critique
+10. **Research fans out as subagents** — Dispatch subagent `harness-researcher` (+ `harness-code-analyzer` for brownfield), dispatched in parallel and fanned in.
+    On Claude Code with agent teams enabled (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`), a team may run them instead, with cross-talk (optional).
+    Never emulate a team with tools the build does not offer. Network/dispatch failures are FAIL-OPEN (warn + selection), not fabricated.
+    **Fan-in write ownership** — sub-agents **return** their findings as their final message; the
+    **leader** persists each to `.harness/research/<agent>_<topic>.md` under a **leader-assigned
+    unique topic** (sub-agents do not write these files — parallel dispatch cannot collide on a
+    filename, and the read-only code-analyzer needs no write access).
+    **Partial fan-in** — after fan-in the leader verifies each expected output is present and non-empty, marking any missing/empty area **"needs confirmation"** (a legitimate "insufficient sample" is distinguished from a lost dispatch; FAIL-OPEN covers total failure, this covers the partial state).
+10-1. **Stack-inventory reconcile (converge before freeze — omission guard)**: `stack_map` is *provisionally*
+    fixed during the interview, and the stacks (including infrastructure) surfaced by research (researcher's autonomous expansion · off-the-shelf solutions · stack-compatibility matrix)
+    are merged into `stack_map` **before** authoring. Stacks whose conventions do exist (infrastructure is especially easy to miss)
+    are promoted to convention targets (9-6), and because a newly promoted stack was not dispatched as (layer, stack) in the first fan-out,
+    run **targeted follow-up research** (a full sweep of that stack's ops_axes) to fill in its
+    conventions — **the re-dispatch input must include the first pass's frozen stack-compatibility
+    matrix / ceiling, and any version pick stays within it** (12-2; a fresh follow-up agent cannot
+    see the first pass's matrix otherwise). Repeat **until the stack set is stable**
+    (usually once), **then re-validate the whole merged set against the global ceiling as a single
+    authoritative matrix before freezing** (the Step 5 critic cross-checks that one matrix, not
+    divergent per-dispatch ones). **Do not grow the stack set by guessing** — only what has
+    discovery evidence. The promote/reject decisions and reasons are **recorded** by authoring,
+    one line each,
+    in `docs/sds/README.md` (confirmed by the user in the preview alongside the other deliverables) —
+    a version-controlled decision record (not a rationale duplicate).
+11. **Write the rationale**: after synthesizing research, `.harness/rationale.md` (per-deliverable generation rationale · adopted patterns · reuse recommendations · sources).
+12. **Lightweight critique**: `validate` (deterministic structure) → `harness-critic` (quality · coherence · reuse violations · no command generation).
+    At most 2 rewrites; the remainder is stated as "unresolved" in the preview/report (no blocking).
+12-1. **Version compatibility (`version-compat`) — two axes**: (a) **config-authoring coherence** — treat the toolchain as one set and
+    verify the deliverables against the official authoring for the detected actual version (build ↔ config, e.g. `tsc -b` ↔ references).
+    (b) **runtime-combination compatibility** — do the components that go onto one runtime together (app framework ↔ plugin/starter/
+    engine/image) form the **latest set that is GA-compatible together**, and does the recommended off-the-shelf artifact
+    **do provide** the assumed feature. **When building**, do not infer the config; **replicate the official scaffolder
+    output** of the detected framework as the baseline (the config counterpart of reuse-first). researcher collects the config method per version
+    and autonomously expands the items the framework's characteristics require.
+12-2. **Latest ≠ independently latest (ceiling first)**: **when selecting a version** (greenfield · undecided · intentional upgrade)
+    researcher does not pick each component's independent latest separately. Identify the **anchor (ceiling)
+    dependency** that caps the platform major, and pick the latest version set that anchor **supports as GA** (if they are not GA-compatible together, step down to the latest one to arrive;
+    do not pin the core to a prerelease/unpublished dependency). Leave a **stack-compatibility
+    matrix** (component → version → ceiling constraint → source) in the output. 9-4's "auto-adopt the latest standard" applies only within this ceiling constraint.
+    (Checking whether brownfield's *detected* version combination is GA-compatible is not optional but detection, so it is handled by 12-1(b) —
+    `harness-researcher` procedure 7-1 · critique-guide(B) cite this selection part.)
+
+## Version/release convention research
+
+13. **Release-tool research (per detected stack)**: during Step 2 research, investigate the standard release tool of the detected stack and propose
+    `flow-config.versioning.release_tool`·`version_files` candidates.
+    Default candidates per stack:
+    - Python → `python-semantic-release`
+    - Node/TypeScript → `semantic-release`
+    - Rust → `cargo-release`
+    - Go → `goreleaser`
+    - Java/Kotlin → `JReleaser` (or Gradle `axion-release-plugin`)
+    - C# → `GitVersion`
+    - Scala → `sbt-release` (sbt plugin)
+    - C++/PHP/Ruby/Swift → no single ecosystem-standard tool — researcher proposes per project
+    - Other → researcher investigates the ecosystem standard and proposes with rationale
+    (if the stack is absent or uncertain, do not fabricate — leave it "needs confirmation" — rule 4).
+13-1. **Generate `commit-versioning-guide` (technical doc)**: in Step 4 authoring, generate
+    `docs/operations/commit-versioning-guide.md`. Contents:
+    - Conventional Commits + SemVer basics (source URL required)
+    - The detected stack's release-tool config (version files · changelog · CI hook — "needs confirmation" if the stack is undecided)
+    - **0.x projects** recommendation: `major_on_zero=false` + annotated tags (prevent accidental 1.0.0 promotion)
+    - Version-check commands (e.g. `git describe --tags`, per-tool dry-run commands)
+    - **The tier itself defers to [risk-tiers.md](risk-tiers.md), the message format to
+      [commit-discipline.md](commit-discipline.md)** — do not emit either directly here.
+    Document sources link to `docs/research/` (do not reference `.harness/` paths, harness-rules 4-1·8).
+13-2. **Opt-in branching (whether flow is detected)**:
+    - **flow not detected** — propose the release-tool config (CI workflow · hooks, etc.) as opt-in
+      (create the real config files only with user consent — same as rule 5's real-configuration opt-in).
+    - **flow detected** — since `/flow-init` renders workflows such as `flow-config.contract_test`,
+      do not duplicate-create the release-tool real config. Generating the `commit-versioning-guide` document proceeds always,
+      regardless of whether flow is detected (it is within the code-style + convention doc scope — not a rule 14 defer target).
+
+## flow coexistence
+14. **When flow is detected (.claude/harness-tier/config/flow-config.yaml)**, process · merge · PR
+    discipline defer to [risk-tiers.md](risk-tiers.md), commit message discipline to
+    [commit-discipline.md](commit-discipline.md). The harness emits only code-style + framework
+    conventions.
+14-1. **Pre-check tools and folder structure are an SSOT guide (enforcement is flow's job)**: the harness records, in the `docs/code-style/<stack>.md`
+    toolchain-config section, a per-language/stack list of pre-check tools (lint/format/typecheck/import_lint/security/test runner) and
+    the tests/ folder structure as SSOT — `/flow-init` references this when drafting `flow-config.modules[].checks`.
+    But the harness only *guides* (tech-stack information); the actual gate enforcement (running/blocking checks) is
+    flow's job (an extension of the rule 14 defer). Do not change `harness_scaffold.py`'s stack_map/scaffold logic here.
+15. **Do not touch settings.json hooks** (not a gate). Security lives only in workflow/pre-commit files.

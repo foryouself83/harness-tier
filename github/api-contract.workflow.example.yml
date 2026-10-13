@@ -1,0 +1,40 @@
+# harness-tier contract test — output rendered by /flow-init from flow-config.contract_test.
+# Even if edited directly, re-running /flow-init does not overwrite it but only reports it as "manual review".
+# Trigger branches come from contract_test.branches (collaboration branches only; feature/* excluded).
+name: api-contract
+
+on:
+  push:
+    branches: [__HARNESS_BRANCHES__]
+  pull_request:
+    branches: [__HARNESS_BRANCHES__]
+
+permissions:
+  contents: read
+  # schemathesis/action comments its coverage summary on the pull request.
+  pull-requests: write
+
+jobs:
+  api-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Start API server (docker compose)
+        run: docker compose -f "__HARNESS_COMPOSE_FILE__" up -d
+
+      - name: Wait for health
+        run: |
+          timeout __HARNESS_HEALTH_TIMEOUT__ sh -c \
+            'until curl -sf "__HARNESS_HEALTH_URL__"; do sleep 2; done'
+
+      - name: Contract test (schemathesis)
+        uses: __HARNESS_ACTION_REF__
+        with:
+          schema: "__HARNESS_SCHEMA__"
+          base-url: "__HARNESS_BASE_URL__"
+
+      - name: Teardown
+        if: always()
+        run: docker compose -f "__HARNESS_COMPOSE_FILE__" down

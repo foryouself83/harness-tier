@@ -1,0 +1,21 @@
+---
+# wiki_id follows the same path-derived rule as every other node (wiki-init Step 5): this
+# file ships to docs/onboarding/README.md, so `onboarding.readme` — not a hand-picked
+# `onboarding`, which would collide the moment the project also gains a docs/onboarding.md.
+wiki_id: onboarding.readme
+title: Onboarding
+tags: [onboarding]
+---
+# {{PROJECT_NAME}} Onboarding
+
+## Run
+{{RUN_COMMANDS}}
+
+## Branches / Workflow
+{{BRANCH_FLOW}}
+
+## Debug
+{{DEBUG_NOTES}}
+
+## Key Documents (read in this order if you are new)
+{{KEY_DOC_LINKS}}  <!-- SRS→SDS→code-style→research links. -->

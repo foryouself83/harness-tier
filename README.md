@@ -1,0 +1,209 @@
+# harness-tier
+
+**English** · [한국어](README.ko.md)
+
+**A Claude Code plugin that scales AI process rigor to the risk of the task.**
+
+Light for a one-line doc fix, heavy for core business-logic changes. Ships with **Teams
+notifications** for team collaboration.
+
+> 📖 Per-skill usage, settings, troubleshooting, and update/removal live in
+> **[USAGE.md](USAGE.md)**.
+
+## Core idea
+
+Running the heavy AI pipeline (design → plan → implement → verify → review) **the same way on
+every change** drags excessive process into fixing a typo. harness-tier does the opposite:
+
+> **Scale the weight of the process to the risk.**
+
+Three design choices follow.
+
+1. **Risk classification → tier-specific process** — `/flow` splits an incoming task by **code
+   vs. no code** (Docs / Dev), then runs only that tier's process and quality gates. The riskier
+   the change, the more checks it clears before it can commit.
+2. **Enforced by a gate, not by documentation** — discipline that lives only in docs is not
+   followed. A **commit hook** enforces it: a commit that skipped `/flow` classification carries
+   no tier marker and is **blocked (fail-closed)**.
+3. **A harness you build once and port** — branch names, test commands, and every other
+   repo-specific value sit in a config file, so a new repo picks the setup up with one
+   `/flow-init`. The gate is **language-agnostic** (Go/JS/Java/C++/C#/Rust repos behave the same).
+
+## Why harness-tier?
+
+**Quality cannot silently erode.** AI writes code faster than anyone keeps it disciplined: tests
+get skipped, docs drift, a "quick fix" ships unreviewed. harness-tier binds the checks a change
+needs to its risk tier and **enforces them at commit time**, so a risky change cannot land
+without clearing them.
+
+Most Claude Code plugins pick one lane. harness-tier works on a different axis — it decides *how
+much* process each change needs, and enforces it:
+
+| Aspect | Methodology plugins (e.g. [`superpowers`](https://github.com/obra/superpowers)) | Guardrail / security plugins | **harness-tier** |
+|--------|--------------------------------------------------------------------------------|------------------------------|------------------|
+| Optimizes for | *How* to build well — TDD, debugging, spec-driven planning | Blocking dangerous actions, scanning for vulnerabilities | *How much* process a change needs |
+| Applied to each task | The same ceremony every time | The same checks every time | **Scaled to the risk tier** |
+| Enforcement | Advisory | Blocks specific actions | **Commit gate — an unclassified commit is blocked (fail-closed)** |
+
+It does not compete with these — its Dev tier **runs on `superpowers`**, and it sits alongside
+guardrail plugins. On that methodology layer it adds the governance they leave out: **generate
+the harness → enforce the right process → keep docs and CI in sync → evolve from how you
+work**.
+
+| Capability | What you get |
+|------------|--------------|
+| **Risk-tier classification, enforced** | A Docs change still clears `doc-sync`, `wiki` and `doc-style`; a Dev change additionally clears design, review, and tests. A commit hook blocks anything that skipped `/flow` classification, and stays enforced when you commit from a `git worktree` (as the Dev pipeline often does). |
+| **Project-harness scaffolding** | `/harness-init` fingerprints your stack — **12 languages and their frameworks** ([supported list](docs/usage/project-harness.md#auto-detected-languages-and-frameworks)) — and generates a tailored `CLAUDE.md` **plus auto-loaded `.claude/rules/`** (an optional `paths` glob loads a rule only for the files it matches) and per-topic technical docs, from live web research plus a read of your code. By default it writes only `.md` files, never overwriting yours; with per-item consent it also scaffolds folder structure, CI, and security tooling. |
+| **Quality gates in one file** | lint · static analysis · import-linting · tests · security scans, declared per module in a single `flow-config.yaml` — **modules, branches, and CI jobs extend freely**. **Language-agnostic**: the gate runs the commands you configure, a new repo inherits the setup with one `/flow-init`, and only the active tier's checks run. REST API contract tests are a separate opt-in CI workflow, not a module check. |
+| **A review that cannot skip a file** | The `review` gate takes its file list from **`git` itself** — every changed file is reviewed and the count stated, so a large changeset never gets the treatment where an agent reviews some files and drops the rest. It then resolves the **callers of every changed public symbol** via the language server, `grep` as fallback, because that is where a regression lands and the diff never shows it. An independent review agent judges against your own `review_checklist`. |
+| **A living SSOT for docs** | `/doc-sync` diffs code and docs together — code changes propagate into the related markdown, doc changes are harmonized across the doc set, and `doc_style_check.py` proves the rewrite dropped no heading, code block, URL, or inline-code span. |
+| **Skills that are measured, not assumed** | A skill the model never reaches for is a procedure that never runs. The skills the model invokes on its own are measured in real headless Claude Code sessions: prompts that should reach a skill do, and prompts that should not, don't. An outcome arm then checks that a reached skill carries its procedure through. CI fails once a measured skill's description or fixture — in the outcome arm, its body too — moves without a re-measure, and a statistically significant drop in hit rate is refused as the new score unless accepted with a recorded reason. |
+| **CI that writes itself** | `/flow-init` renders ready-to-run GitHub Actions from your config: a unit-test safety net, API contract tests, an E2E safety net, semantic-versioning releases that bump and tag from your Conventional Commits, opt-in prose verification, plus branch-naming and entropy checks (`/wiki-init` adds wiki verification once a wiki exists, and an SRS adds requirement-integrity verification) — every job timeout-capped. |
+| **Deployment on top of release** | `/harness-deployments` adds publishing to the artifact-less release: detect the stack, ask what to ship where, and render the CI — an orchestrator `release.yml` calls in the **same run** (no cross-workflow trigger, no PAT) that fans out to per-target components (PyPI · npm · Maven Central/Gradle · NuGet · crates.io · GHCR · Docker Hub, plus authored app deploys) with per-target least-privilege permissions. |
+| **A harness that learns from you** | `harness-insight` aggregates your Claude Code activity, surfaces the instructions you keep repeating as **harness candidates**, and prunes stale memory. |
+| **Team notifications built in** | A Microsoft Teams channel is pinged when the workflow waits on your input, or at any checkpoint you choose. |
+
+## Requirements
+
+For the gate to work **without silently no-op'ing**, you need the following. `/flow-init` checks
+and (with your consent) installs most of them.
+
+| Item | Level | Without it |
+|------|-------|------------|
+| `bash` + coreutils (`timeout`, `cat`, `grep`, `sed`, `awk`, `head`) | Required | The gate silently no-ops (use Git Bash on Windows) |
+| **Python ≥ 3.8** + **PyYAML** | Required | Commits are **blocked** (prevents silent non-enforcement) |
+| `pre-commit` | Recommended | Commit-message lint (gitlint), push notify, and language-agnostic file checks (whitespace, newlines, YAML validation, etc.) are skipped — per-module lint/static/test still run via the flow gate |
+| **`superpowers`** plugin | Required for Dev work | `/flow` stops at the Dev tier and guides installation |
+| `gh` (authenticated) | Recommended for PR mode | `/flow-init`'s branch-ruleset check and `/release-commit`'s token-write check skip in silence |
+
+## Installation
+
+### 1. Install the dependencies first
+
+**Python ≥ 3.8** — via your OS package manager (skip if already present).
+
+The hooks call `python3`. On Windows, install the Python install manager, which provides
+that command; a python.org or `Python.Python.3.x` install provides only `python`, and
+`python3` then opens the Microsoft Store instead of running.
+
+```bash
+# Windows
+winget install 9NQ7512CXL7T -e --accept-package-agreements --disable-interactivity
+py install 3.12
+# macOS
+brew install python@3.12
+# Debian/Ubuntu
+sudo apt install python3 python3-pip
+```
+
+**PyYAML + pre-commit** — these must land in the **same `python3`** the gate hook calls, so
+install with `python3 -m pip` (a venv-only `uv add` can be invisible to the hook).
+
+```bash
+python3 -m pip install pyyaml pre-commit
+```
+
+**[`superpowers`](https://github.com/obra/superpowers) plugin** — the Dev-tier implementation
+pipeline relies on it.
+
+```
+/plugin marketplace add anthropics/claude-plugins-official
+/plugin install superpowers@claude-plugins-official
+```
+
+### 2. Install the plugin
+
+```
+/plugin marketplace add foryouself83/harness-tier
+/plugin install harness-tier@harness-tier
+```
+
+> A public repo, so install and auto-update need no authentication.
+
+**Codex CLI** installs the same plugin under its own marketplace command
+(`codex plugin marketplace add foryouself83/harness-tier`, then `/plugins`), with its own
+project-trust and hook-approval steps and a few behavior differences — see
+[Codex](docs/usage/codex.md).
+
+### 3. `/harness-init` — generate the project harness
+
+Creates a `CLAUDE.md`, rules, and technical docs tailored to your project. **On a brand-new
+project, start here** — the manual belongs in place before the gate is wired up. Skip it if you
+already have a well-formed `CLAUDE.md`.
+
+### 4. `/flow-init` — wire up governance
+
+An interactive wizard generates the config file, registers the commit gate, checks the pre-commit
+hooks, registers auto-update, and wires up Teams. Safe to re-run. Finally:
+
+```bash
+pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre-push
+```
+
+Then start day-to-day work with **`/flow <task description>`**.
+
+> Harness files (config, scripts, gate evidence) are gathered under a single
+> **`.claude/harness-tier/`** directory; a few files whose location another tool fixes
+> (`.claude/settings.json`, `.pre-commit-config.yaml`, `.gitignore`, `CLAUDE.md`,
+> `.github/workflows/`) sit where that tool looks for them. Full layout in
+> [Getting started](docs/usage/getting-started.md).
+
+## What's included
+
+| Kind | Item | Role |
+|------|------|------|
+| Skill | `/flow` | Classify risk → run the tier's workflow → record gate evidence |
+| Skill | `/flow-init` | Setup/update wizard (initial setup + re-sync/reconfigure on re-run, preserving config) |
+| Skill | `/flow-uninstall` | Remove harness-tier's host-side wiring |
+| Skill | `/harness-init` | Framework detection + research/verification to generate a harness (`.md` by default, no overwrite) |
+| Skill | `/wiki-init` | Build docs into a knowledge graph, no embeddings — front-matter-driven, setup wizard |
+| Skill | `/commit` | Author and issue one commit — type choice, 50/72, staging; `/flow` and `/release-commit` call it at every commit step |
+| Skill | `/release-commit` | Run one promotion end to end — integration→staging→production: the gates, the bump level, the merge shape the release CI needs, the back-merge |
+| Skill | `/doc-sync` | Code ↔ doc synchronization + doc-set consistency + lossless-rewrite verification |
+| Skill | `/prose-review` | Prose discipline over comments, docstrings and documents — the pattern half and the judgement half, then a lossless-rewrite proof |
+| Skill | `/harness-insight` | Aggregate Claude Code activity over a period + insight report |
+| Skill | `/harness-deployments` | Layer deployment (registry publish / container image / app deploy) on the release workflow — detect → ask → render deploy CI (opt-in, after `/flow-init`) |
+| Skills | `/playwright-scaffold` · `/integration` · `/performance` | E2E scaffold / integration & performance checks (non-enforcing manual skills) |
+| Skills | `/design-srs` · `/design-sds` · `/design-architecture` · `/design-api` · `/design-erd` · `/design-table` | Requirement and design documents → `.docx` deliverables, ids and cross-references machine-checked (user-invoked only) |
+| Skill | `harness-authoring` | Generation engine `/harness-init` invokes internally — not called directly |
+| Agents | `harness-researcher` · `harness-code-analyzer` · `harness-critic` | Research / code analysis / output verification for harness generation |
+| Rule | `risk-tiers` | The single source of truth for risk classification and the per-tier workflow — injected every session |
+| Rule | `doc-style` | The single source of truth for prose discipline in docs, comments, and docstrings — a SessionStart hook injects its write-time essentials |
+| Rule | `commit-discipline` | Commit message format and the type → version table — `/commit` reads it |
+| Rules | `gate-mechanics` · `merge-strategy` · `promotion` · `harness-rules` | Per-gate mechanism, branch-flow merge rules, promotion procedure, generation conventions — read on demand |
+| Hooks | SessionStart · Notification · PostToolUse(edit) | Risk-tiers rule injection (+ a prose-discipline summary, skipped only while a leftover host copy of `doc-style` still exists), plus a stale-build warning · Teams alerts · voids the review/doc-sync evidence an edit outdated |
+| Host-registered gate | `PreToolUse`(commit·merge) | `/flow-init` writes this into the **host's** `.claude/settings.json` — not a plugin hook — for deny-enforcement reliability |
+
+> **Release CI token** — the rendered release workflow runs on the default `GITHUB_TOKEN` out of
+> the box (grant Actions write permission); a `RELEASE_TOKEN` secret is an opt-in escalation.
+> Details in
+> [Promotion and release → Release token write permission](docs/usage/promotion-and-release.md#release-token-write-permission).
+
+## What it runs and sends
+
+- **Hooks run locally.** Bash and Python scripts inside the plugin: rule injection at session
+  start, gate-evidence invalidation after an edit, and the commit gate `/flow-init` registers.
+  Only the Teams notification hook reaches the network, and only once you register a webhook.
+- **Outbound calls happen only where you configure them:** a Teams card to the webhook URLs you
+  register ([Teams](docs/usage/teams.md)), and diagram rendering through the
+  `design_docs.renderer` URL in `flow-config.yaml` (`https://kroki.io` in the example).
+- **Generated CI workflows** run in your repository's GitHub Actions with your own secrets
+  (`GITHUB_TOKEN` against `api.github.com`, a registry token against that registry). The plugin
+  never reads a credential from your machine.
+
+## Update & removal
+
+- **Update** — a plugin update does not change the host's copied scripts. Re-run `/flow-init` to
+  re-sync (config and webhooks are preserved). Codex hosts set up before the Codex plugin stopped
+  carrying session hooks need that re-run to get them back.
+- **Removal** — ⚠️ **Always run `/flow-uninstall` before `/plugin uninstall`.** The cleanup tool
+  lives inside the plugin, so removing the plugin first leaves the host-side settings
+  uncleanable.
+
+> The detailed update/removal procedure and manual cleanup are in
+> [Update and removal](docs/usage/update-and-removal.md).
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE); third-party licenses in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

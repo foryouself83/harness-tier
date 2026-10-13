@@ -1,0 +1,24 @@
+# Weekly code entropy check (informational — all steps continue-on-error). Rendered by /flow-init.
+name: entropy-check
+
+on:
+  schedule:
+    - cron: "__HARNESS_ENTROPY_SCHEDULE__"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  entropy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: File size audit (>500 lines)
+        continue-on-error: true
+        run: |
+          echo "## Files exceeding 500 lines"
+          find __HARNESS_ENTROPY_PATHS__ -type f -not -path "*/.git/*" \
+            -exec wc -l {} + 2>/dev/null \
+            | awk '$1 > 500 && $2 != "total" { print }' | sort -rn | head -50

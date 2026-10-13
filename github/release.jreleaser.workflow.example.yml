@@ -1,0 +1,115 @@
+# Release (Java/Kotlin, JReleaser) — rendered by /flow-init from flow-config.versioning.
+# JReleaser natively creates the tag + GitHub Release + changelog in one step, but — unlike
+# semantic-release/python-semantic-release — it does NOT derive patch/minor/major from
+# Conventional Commits (verified against jreleaser.org docs; version is always external input).
+# So the bump level comes from the same `Release-Level: major|minor|patch` commit trailer the
+# `/release-commit` staging-bump step already writes (default: patch when absent).
+# Assumes a `jreleaser.yml` already exists in the repo (owner/repo, changelog, and
+# `release.github.prerelease.pattern` config) — harness-init proposes one during research;
+# see docs/operations/commit-versioning-guide.md.
+# Version is tag-based (no version file rewrite) — same SSOT model as the Go/goreleaser template.
+# Auth: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }} (falls back to GITHUB_TOKEN when unset).
+name: release
+
+on:
+  push:
+    branches: [__HARNESS_STABLE__, __HARNESS_PRERELEASE__]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    outputs:
+      tag: ${{ steps.exposetag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Compute next version
+        id: ver
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          HARNESS_SCRIPTS: .claude/harness-tier/scripts
+          AUTO_LEVEL: patch
+        run: |
+          LEVEL="$(git log -1 --pretty=%B | sed -nE 's/^Release-Level:[[:space:]]*(major|minor|patch)[[:space:]]*$/\1/Ip' | head -1)"
+          LEVEL="${LEVEL:-patch}"
+          CURRENT="$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo 0.0.0)"
+          if [ "$REF_NAME" = "__HARNESS_PRERELEASE__" ]; then
+            # >>> next-version (shared by every release workflow; tests/release_level pins it)
+            git fetch --tags --force --quiet origin || true
+            NEXT="$(python3 "$HARNESS_SCRIPTS/bump_version.py" next \
+              --message "$(git log -1 --pretty=%B)" \
+              --tags "$(git tag --list)" \
+              --auto-level "${AUTO_LEVEL:-}")" || exit 1
+            echo "next version: $NEXT"
+            # <<< next-version
+          else
+            NEXT="$(python3 .claude/harness-tier/scripts/bump_version.py finalize --current "$CURRENT" || true)"
+            if [ -n "$NEXT" ]; then
+              STABLE="$NEXT"
+              # >>> finalize-guard (shared by every release workflow; tests/release_level pins it)
+              if git rev-parse -q --verify "refs/tags/v$STABLE" >/dev/null; then
+                echo "::error::v$STABLE already exists — a hotfix shipped this base. Re-promote staging with Release-Level: patch (or higher) before releasing." >&2
+                exit 1
+              fi
+              LATEST_STABLE="$(git tag --list 'v*' | sed -n 's/^v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$/\1/p' | sort -V | tail -n 1)"
+              if [ -n "$LATEST_STABLE" ] && [ "$(printf '%s\n%s\n' "$LATEST_STABLE" "$STABLE" | sort -V | tail -n 1)" != "$STABLE" ]; then
+                echo "::error::v$STABLE is below the latest release v$LATEST_STABLE — a hotfix shipped a higher base, so finalizing would downgrade. Re-promote staging with Release-Level: patch (or higher) before releasing." >&2
+                exit 1
+              fi
+              # <<< finalize-guard
+            else
+              NEXT="$(python3 .claude/harness-tier/scripts/bump_version.py bump --current "$CURRENT" --level "$LEVEL")"
+            fi
+          fi
+          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
+      - name: JReleaser full-release
+        env:
+          JRELEASER_GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          # `--project-version` is only a `release --auto-config` flag, not `full-release` (no
+          # such option there) — the env var is JReleaser's documented JRELEASER_<KEY> override
+          # for `project.version` and is picked up without a CLI flag.
+          JRELEASER_PROJECT_VERSION: ${{ steps.ver.outputs.version }}
+        uses: jreleaser/release-action@v2
+        with:
+          arguments: full-release
+
+      - name: Expose released tag
+        id: exposetag
+        run: |
+          # JReleaser tags through the GitHub API: until a fetch, the checkout's newest tag is
+          # the previous release.
+          git fetch --tags --force --quiet origin
+          echo "tag=$(git describe --tags --abbrev=0)" >> "$GITHUB_OUTPUT"
+      - name: Stable release notes from CHANGELOG
+        if: ${{ github.ref_name == '__HARNESS_STABLE__' && steps.exposetag.outputs.tag != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          HARNESS_SCRIPTS: .claude/harness-tier/scripts
+          TAG: ${{ steps.exposetag.outputs.tag }}
+        run: |
+          # >>> release-notes (shared by every release workflow; tests/release_level pins it)
+          if python3 "$HARNESS_SCRIPTS/changelog_section.py" extract --version "${TAG#v}" > stable-notes.md; then
+            gh release edit "$TAG" --notes-file stable-notes.md \
+              || echo "::warning::could not replace the $TAG release notes with its CHANGELOG section"
+          else
+            echo "no stable ${TAG} section in CHANGELOG.md — keeping the release notes as created"
+          fi
+          # <<< release-notes
+
+  # __HARNESS_DEPLOY_BEGIN__ (managed by /harness-deployments · /flow-init — do not edit inside)
+  # __HARNESS_DEPLOY_END__

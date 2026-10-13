@@ -1,0 +1,26 @@
+{
+  "name": "harness-tier",
+  "version": "0.4.8",
+  "description": "harness-tier risk-tiered workflow + Teams notification harness",
+  "author": { "name": "foryouself83" },
+  "homepage": "https://github.com/foryouself83/harness-tier",
+  "repository": "https://github.com/foryouself83/harness-tier",
+  "license": "Apache-2.0",
+  "keywords": ["workflow", "commit-gate", "code-review", "git-flow"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "harness-tier",
+    "shortDescription": "Risk-tiered dev workflow gate",
+    "longDescription": "harness-tier scales process rigor to the risk of a change. $flow classifies a task as Docs or Dev and runs only that tier's skills, and a commit gate that $flow-init registers in the project's .codex/hooks.json blocks a commit that skipped the classification or its gates. Branch names, test commands and checks live in one config file, so the same setup ports to any language and repository.",
+    "developerName": "foryouself83",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "websiteURL": "https://github.com/foryouself83/harness-tier",
+    "defaultPrompt": [
+      "Set up harness-tier in this repo with $flow-init",
+      "Classify this change and run its tier with $flow"
+    ],
+    "logo": "./assets/icon.png",
+    "composerIcon": "./assets/icon.png"
+  }
+}

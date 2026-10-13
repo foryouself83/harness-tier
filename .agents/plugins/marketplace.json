@@ -1,0 +1,20 @@
+{
+  "name": "harness-tier",
+  "interface": {
+    "displayName": "harness-tier"
+  },
+  "plugins": [
+    {
+      "name": "harness-tier",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

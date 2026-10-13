@@ -1,0 +1,287 @@
+# flow risk-tier environment configuration template
+# The project team copies this to the host's .claude/harness-tier/config/flow-config.yaml and fills in the values.
+# (The real file is git-tracked — every developer sharing the repo uses the same settings.)
+# Team-specific configuration template for harness-tier risk-tiered workflow
+
+branches:
+  # Integration branch that features merge into (usually dev or develop)
+  integration: dev
+
+  # QA promotion branch (usually stage or staging)
+  staging: stage
+
+  # Production release branch (typically main)
+  production: main
+
+# How work reaches its target branch. Only the flows listed here go through a PR; the rest
+# stay direct merges. An empty list (the default) = all direct — the existing behaviour.
+#   daily     — feature/* · fix/* → integration
+#   promotion — integration → staging, staging → production, and hotfix/* → production
+#               (the production ruleset governs every merge into that branch)
+# A PR replaces the local `git merge`, so that flow's merge_strategy gate does not fire.
+# Enforce the merge method server-side with a GitHub Ruleset instead — /flow-init reads the
+# current state and reports what to apply (it never changes repo settings). A ruleset targets
+# the DESTINATION branch, so on integration it only guarantees "no merge commit"; which of
+# squash (feature/*) or rebase (fix/*) is used stays discipline — say so on the PR.
+# Commit discipline (gitlint · tier gates) is unaffected: commits are still made locally.
+# Either ruleset MUST carry a bypass actor: promotion for the release automation (else the
+# chore(release) push is blocked and releases stop), daily for the post-release back-merge
+# push (else the released tag never returns to integration). See rules/promotion.md.
+merge_workflow:
+  pull_request: []
+
+# Per-module pre-checks (monorepo — when each module uses a different language/toolset). A single-stack project is expressed as one module too.
+# Enforced by the layer-2 flow gate (Claude-session commits only — terminal/CI commits bypass it, same as every runtime gate).
+# Each key under `checks` is ONE check; its VALUE is either a command string or an extended form
+#   { run: <cmd>, when: every-commit | promotion }.  Add your OWN keys freely (license, sbom, secret-scan, …).
+#   - string value → command; timing defaults by key name (`security` → promotion, else every-commit).
+#   - dict value   → declare timing with `when` (NOT `on` — YAML parses a bare `on` key as boolean true).
+#   Also do NOT name a check key `on`/`off`/`yes`/`no`/`true`/`false` — YAML reads those keys as booleans.
+# Timing → gate → scope (derived, not chosen separately):
+#   every-commit → `precommit` gate, CHANGED modules (dev/staging/release, every commit).
+#   promotion    → `security-scan` gate, ALL modules (staging/release promotion only).
+# Timing is bound to that gate EXISTING in the tier — the docs tier has neither, so custom checks never run on a docs commit.
+# /flow-init drafts these values by referring to the harness docs SSOT, and a human edits them.
+modules:
+  - name: api
+    path: services/api/
+    checks:
+      lint:        "ruff check services/api"
+      static:      "uv run pyright services/api"
+      import_lint: "uv run lint-imports --config services/api/.importlinter"
+      test:        "uv run pytest services/api"
+      security:    "uv run bandit -r services/api --severity-level medium"
+      # custom checks (host-defined) — add your own keys with explicit timing:
+      license:                                          # runs every commit, on changed modules
+        run: "uv run pip-licenses --fail-on 'GPL'"
+        when: every-commit
+      sbom:                                             # runs only on staging/release promotion, all modules
+        run: "uv run cyclonedx-py environment -o sbom.json"
+        when: promotion
+  - name: web
+    path: services/web/
+    checks:
+      lint:   "npm --prefix services/web run lint"
+      static: "npm --prefix services/web run typecheck"
+      test:   "npm --prefix services/web test"
+
+# What the Dev `review` gate judges every changed file against. These five come from
+# skills/flow/references/dev-overlays.md; a team appends its own rather than dropping one.
+review_checklist:
+  - "regression tests pass"
+  - "cross-service contract validity"
+  - "DB transaction & migration safety"
+  - "async task idempotency & queue routing"
+  - "API error conventions"
+
+# The host's own commit/versioning document, which /harness-init generates. The `commit` skill
+# reads it and prefers its project-specific facts (scope vocabulary, 0.x policy, and whether the
+# release tool reads the Release-Level trailer) over its own generic ones. That document's other
+# subject — which files carry the version, how the changelog is filtered — belongs to the release
+# CI, not to writing a commit. Message FORMAT is not negotiable here either:
+# rules/commit-discipline.md owns the 50/72 rule and the type table whether or not this file exists.
+# Deliberately top-level, not under `versioning:`: a project with `versioning.enable: false`
+# still commits. Empty value or a missing file → the skill runs on commit-discipline alone.
+commit_guide: docs/operations/commit-versioning-guide.md
+
+# Documentation sync (doc-sync)
+doc_sync:
+  # Index document (placed at the project root)
+  index: CLAUDE.md
+
+  # Documentation directories to sync (glob patterns)
+  dirs:
+    - "docs/"
+    - ".claude/rules/"
+
+  # Per-service local CLAUDE.md (glob pattern)
+  service_docs: "services/*/CLAUDE.md"
+
+# LLM Wiki (no embeddings). Absent or enable:false → the wiki gate does nothing.
+# doc-sync generates graph.yaml; the commit gate is read-only — it verifies, never generates.
+# /wiki-init sets this key, and offers .github/workflows/wiki-verify.yml at the same time —
+# /flow-init renders no wiki workflow, having no graph to point one at.
+wiki:
+  enable: false
+  root: docs/                # wiki root. same tree as harness-init output
+  index: docs/index.md       # graph entry point (orphan determination baseline)
+  max_lines: 400              # one file, one concept lint. 0 = off
+  context_lines: 2000         # --neighbors default budget (lines). ~20k tokens
+  defect_rule_threshold: 3    # same tag firing N times → Rule promotion warn. 0 = off
+
+# Prose discipline (rules/doc-style.md). Absent or enable:false -> the doc-style gate does nothing.
+# The commit gate only warns, on the files a commit changes; .github/workflows/doc-style.yml holds
+# the verdict, over the paths listed here — so enable:false is not a lighter check, it is none.
+# One flag for both: /flow-init renders that workflow only when this is true, and the check
+# script empties its own path list when it is false, so flipping it back silences a rendered
+# workflow without deleting it.
+doc_style:
+  enable: false
+  # Repo-root-relative globs: `*` and `?` stop at `/`, a whole-segment `**` spans any number
+  # of directories (none included), a trailing `**` is the subtree. Name `**/*.py`·`**/*.sh`
+  # too to cover comments and docstrings.
+  paths: ["**/*.md"]
+  # Globs kept out of scope — a subtree is `dir/**`, its direct children `dir/*`.
+  # The checker already carries CHANGELOG.md and the superpowers trees, and what you add
+  # here joins them rather than replacing them. A release tool regenerates the changelog from
+  # commit subjects, so a subject carrying a banned word would make CI red with no edit that
+  # could fix it; a plan record is checklist lines and pointers into its own path, which is
+  # what the PLAN rule bans. Put vendored docs and other generated output here.
+  exclude: []
+
+# REST API contract testing (CI only — GitHub Actions). No REST API → enable:false → not installed.
+# /flow-init reads these values and renders .github/workflows/api-contract.yml.
+contract_test:
+  enable: true
+  # Branches this workflow runs on (both push/PR). List them explicitly — extend freely.
+  # GitHub Actions branch-filter syntax can be used as-is (e.g. 'release/**').
+  # Usually collaboration/promotion branches. Do not include feature/* (exclude heavy verification).
+  branches: [dev, stage, main]
+  # Pinned via a web check at setup time (avoid stale tools). CI runs deterministically with this pinned value.
+  tool: schemathesis
+  action_ref: "schemathesis/action@v3"   # major pin
+  # OpenAPI spec location (server URL path or in-repo file path)
+  schema: "http://localhost:8000/openapi.json"
+  base_url: "http://localhost:8000"
+  # Server startup = docker compose
+  server:
+    compose_file: "docker-compose.yml"
+    health_url: "http://localhost:8000/health"
+    health_timeout: 60                    # seconds
+
+# End-to-end CI safety net (CI only — GitHub Actions). Playwright suites only; no browser
+# front end → enable:false → not installed. /flow-init copies .github/workflows/e2e.yml as-is
+# (no tokens): it is a starting point you own and edit, and a later plugin fix does not reach
+# a file you already have. It blocks nothing — see docs/usage/ci-workflows.md "E2E
+# safety net" before making it a
+# required status check. NOTE: this flag is a RENDER switch. Setting it back to false leaves
+# an already-rendered e2e.yml running; delete that file to stop it.
+e2e:
+  enable: false
+
+# Semantic versioning/release (downstream = a regular package). /flow-init uses these values to
+# render .github/workflows/ (same pattern as api-contract). If unused, enable:false → not installed.
+# release_tool is filled in by harness-init research to match the stack.
+# CI auth: the rendered release workflow references RELEASE_TOKEN || GITHUB_TOKEN, so it runs on
+# the default GITHUB_TOKEN (just grant repo Actions write permission). Add a RELEASE_TOKEN repo
+# secret only to escalate (bypass branch protection / trigger downstream); unset → falls back to
+# GITHUB_TOKEN, no workflow edit needed.
+versioning:
+  enable: true
+  # Release tool per stack (proposed by harness-init research; candidates: rules/harness-rules.md
+  # §13). Ready-made CI templates under github/ (case-insensitive match) exist for:
+  # python-semantic-release | semantic-release(node) | jreleaser(java/kotlin) | gitversion(c#) |
+  # cargo-release(rust). Other stacks (Go/Scala/C++/PHP/Ruby/Swift/...) get a researched candidate
+  # + commit-versioning-guide doc, but the CI workflow itself is opt-in/manual until a template
+  # is added under github/.
+  release_tool: python-semantic-release
+  # Target file:field for version bump (per stack). python: pyproject.toml:project.version / node: package.json:version
+  version_files: ["pyproject.toml:project.version"]
+  branches:
+    stable: main        # stable release
+    prerelease: stage   # rc prerelease (empty string if none)
+  branch_naming:
+    enable: true
+  entropy:
+    enable: true
+    schedule: "0 0 * * 5"   # weekly cron (UTC)
+    paths: ["src/"]          # paths for complexity/file-size measurement
+
+# Unit-test CI safety net (CI only — GitHub Actions). The local flow gate (layer 2) runs unit
+# tests only on Claude-session commits; contributors committing directly from the terminal, via
+# CI, or straight on GitHub bypass that gate. /flow-init reads this block and renders
+# .github/workflows/unit-test.yml so unit tests run in CI too (same pattern as api-contract).
+# No CI unit tests wanted → enable:false → not installed.
+# NOTE: this is NOT derived from modules[] — the local gate and CI run in different execution
+# contexts, so the CI job set is declared independently here (self-contained jobs[]).
+unit_test:
+  enable: true
+  # Branches this workflow runs on (both push/PR). Usually collaboration/promotion branches.
+  # Do not include feature/* if you want to keep feature-branch pushes light.
+  branches: [dev, stage, main]
+  # Per-job wall-clock cap (minutes) — applied to every matrix job. Default 10.
+  timeout_minutes: 10
+  # One entry per language/module to test, rendered into a GitHub Actions strategy.matrix.include:
+  #   name:     matrix display name (free-form).
+  #   language: python | node | java | go | rust → uses that official setup action (setup-python,
+  #             setup-node, setup-java, setup-go, dtolnay/rust-toolchain). Any other value → no
+  #             official setup action; the `setup` command below prepares the runtime.
+  #   version:  runtime version passed to the official setup action (e.g. '3.12', '20', '21').
+  #   setup:    shell command to install deps / prepare the runtime (runs for every job when set).
+  #   test:     shell command that runs the unit tests.
+  jobs:
+    - name: api
+      language: python
+      version: "3.12"
+      setup: "pip install uv && uv sync"
+      test: "uv run pytest"
+    - name: web
+      language: node
+      version: "20"
+      setup: "npm ci"
+      test: "npm test"
+
+# Deployment (CI only — GitHub Actions). Layered ON TOP of versioning: release mints the tag,
+# deploy consumes it in the SAME run — release.yml calls deploy.yml via workflow_call, so there is
+# no cross-workflow trigger and no admin PAT. Set up by /harness-deployments (detect → Q&A → render).
+# enable:false → not installed. See docs/operations/deploy-guide.md.
+#
+# PRINCIPLE: config holds only NON-DERIVABLE values. The optional fields below are filled with
+# derived defaults by the renderer when omitted; the skill DETECTS build_tool and writes it. Only
+# enable / name / target / order / auth / custom-permissions are truly human-chosen.
+deploy:
+  enable: false
+  # timeout_minutes: 15            # optional (default 15) — component (executing) job timeout
+  # order: [pypi, api-image]       # optional — listed names run sequentially via needs:; omit → all parallel
+  # One entry per target → component .github/workflows/deploy-<name>.yml, wired by the deploy.yml orchestrator.
+  #   target: pypi | npm | maven-central | nuget | cratesio | ghcr | dockerhub | custom
+  targets:
+    - name: pypi                   # required — job id (unit_test rule: blank → job-1, job-2 …)
+      target: pypi                 # required — which registry/image/custom (selects the template)
+      # auth: oidc                 # optional — oidc | token (default per target; pypi/npm → oidc)
+      # version: "3.12"            # optional — runtime version (setup-* version); omit → template default
+      # build: "uv build"          # optional — artifact build command; omit → stack default
+    # - name: api-image
+    #   target: ghcr
+    #   image: "ghcr.io/OWNER/REPO/api"        # optional — omit → ghcr.io/${{ github.repository }}
+    #   context: "services/api"                # optional — omit → "."
+    #   dockerfile: "services/api/Dockerfile"  # optional — omit → <context>/Dockerfile
+    # - name: central
+    #   target: maven-central
+    #   build_tool: gradle          # required (skill detects: build.gradle→gradle, pom.xml→maven, build.sbt→sbt)
+    #   version: "21"               # optional — JDK
+    #   publish: "./gradlew publishAndReleaseToMavenCentral --no-configuration-cache"
+    #   # publish — required for build_tool gradle/sbt (no default; §6.4). maven uses its pom's
+    #   # central-publishing-maven-plugin config via the template's `mvn deploy` (no publish field).
+    # - name: ecs                   # long-tail — the skill authors deploy-ecs.yml from references
+    #   target: custom
+    #   workflow: ./.github/workflows/deploy-ecs.yml      # required
+    #   permissions: { contents: read, id-token: write }  # required — orchestrator uses verbatim
+    #   with: { cluster: prod }     # optional — extra inputs to the component (tag is always passed)
+
+# Gate evidence. The review and doc-sync markers are voided by any edit, so passing is a
+# fixpoint: a fix made after either passed would otherwise commit against evidence earned
+# over code no reviewer saw. false stops an edit from voiding them: the older order, where a
+# small edit after a review costs no re-run and commits unreviewed. /flow still clears them
+# after the commit/merge, but these markers are not branch-bound, so a task that ends without
+# that step leaves them standing for whatever runs next.
+gate_evidence:
+  invalidate_on_edit: true
+
+# Design deliverables (/design-srs · /design-sds · /design-architecture · /design-api ·
+# /design-erd · /design-table). /flow-init seeds `templates` once and never overwrites it:
+# edit those files and every later check and .docx follows the edit.
+design_docs:
+  templates: .claude/harness-tier/templates/design-docs
+  docs: docs/deliverables              # <doc>.md the skills write (SRS/SDS stay in docs/srs, docs/sds)
+  output: docs/deliverables/results    # <doc>.docx
+  # Diagram source is POSTed here, so the design leaves the host; point it at a
+  # self-hosted Kroki to keep it inside.
+  renderer: https://kroki.io
+  base_docx: null                      # a company .docx whose styles the output uses
+  gitignore_output: false              # true → /flow-init adds `output` to .gitignore
+
+# Agent harnesses the commit gate is installed into. Claude Code is always included, so
+# [claude] and an absent key are the same host. /flow-init adds codex when it runs inside
+# Codex CLI: [claude, codex] also registers the gate in .codex/hooks.json.
+harnesses: [claude]

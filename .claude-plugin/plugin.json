@@ -1,0 +1,12 @@
+{
+  "name": "harness-tier",
+  "version": "0.4.8",
+  "description": "harness-tier risk-tiered workflow + Teams notification harness",
+  "author": { "name": "foryouself83" },
+  "homepage": "https://github.com/foryouself83/harness-tier",
+  "repository": "https://github.com/foryouself83/harness-tier",
+  "license": "Apache-2.0",
+  "keywords": ["workflow", "commit-gate", "code-review", "git-flow"],
+  "icon": "./assets/icon.png",
+  "hooks": "./hooks/claude/hooks.json"
+}

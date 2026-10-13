@@ -1,0 +1,134 @@
+<!-- Wiki front matter for this doc. Fill every {{…}} below, then delete this comment line
+     so the "---" that follows becomes the literal first line of the generated file
+     (wiki_graph.py only recognizes front matter starting at byte 0 — leaving this comment
+     in place keeps the file harmlessly outside the wiki, same as a plain markdown file). -->
+---
+# wiki_id: derive mechanically from this file's output path relative to the wiki root, the
+# same way wiki-init Step 5 does (e.g. docs/srs/README.md -> srs.readme). Never hand-pick a
+# slug — this file is the project's single SRS index; a mechanical id keeps it aligned
+# with every other generated doc's id instead of one guessed by hand.
+wiki_id: {{ID}}
+title: SRS Index
+tags: [srs]
+# sources is optional — requirements rarely map to specific code paths; uncomment only if
+# this SRS genuinely does, else leave it deleted.
+# sources:
+#   src/path/to/code.py: null
+---
+# {{PROJECT_NAME}} Software Requirements Specification (SRS)
+
+> The SSOT for what the system must do (requirements). Write this first. Sources: {{SOURCES}}
+>
+> **This file is the index**: it holds the sections common to the whole SRS — overview, goals,
+> glossary, users and roles, customer requirements, non-functional requirements, constraints. §5
+> Functional Requirements lives one file per requirement area (`<area>.md`, cloned from
+> `srs-area.template.md`) — see the area index at §5.
+>
+> **Split into two levels**: customer requirements (§4) need not be measurable, but must clearly state what is wanted
+> ("would be nice if it were convenient" ✗ → "supports cards and simple/express payment" ✓). Functional requirements (§5, FR) must be measurable and single-interpretation
+> ("fast" ✗ → "search results appear within 2 seconds of pressing Search" ✓). If something is ambiguous or unknown, do not invent it — mark it `needs confirmation` (harness-rules 8-1).
+>
+> **Written for readers who are not developers**: planners, customers and QA read this document
+> too. State what a user or the business observes, never how the system achieves it — "optimize
+> the query with a DB index" is an SDS decision, not a requirement. Every domain term and
+> abbreviation is defined once in the Glossary, and the document names each thing by that one
+> term everywhere ("login" in one FR and "sign-in" in the next reads as two features).
+
+<!-- Ids are issued, never chosen — by a human or a model:
+     python3 .claude/harness-tier/scripts/srs_check.py --next-id <file> --kind <KIND> [--scope <axis>]
+     An area file's ids carry its stem; this index's ids carry no area. The KIND set is open —
+     it is whatever a document already anchors. -->
+
+## Glossary
+<!-- Mandatory, and first: a reader meets a term here before any requirement uses it. Define
+     every domain term, business term and abbreviation the SRS uses, in words a non-developer
+     understands. One entry per term, alphabetical; a synonym readers may bring along is named
+     in the entry and never used elsewhere in the SRS. Give each entry an `<a id="term-xxx">`
+     anchor (`--next-id <this file> --kind TERM`) so an area file can link the term where a
+     reader needs its definition. A term changed here is changed in every document that uses
+     it, in the same edit. -->
+{{GLOSSARY}}
+<!-- Format — - <a id="term-001"></a>**Express payment** Paying with a card saved on a
+     previous purchase, without re-entering its number. Not "quick pay" or "one-click". -->
+
+## 1. Overview / Purpose
+{{PRODUCT_PURPOSE}}
+
+## 2. Goals / Non-goals
+- Goals: {{GOALS}}
+- Non-goals (YAGNI): {{NON_GOALS}}
+
+## 3. Users / Scenarios
+{{USERS_AND_SCENARIOS}}  <!-- List classified by user role (linked to the permission axis in §5).
+                              If there is a single role, state "N/A — single user". -->
+
+### 3.1 User Role Classification
+{{USER_ROLES}}  <!-- One line per role, each with an `<a id="role-xxx">` anchor and covering its
+                     responsibilities and access scope. An area file's §5 links a role anchor
+                     only when its level-2 axis IS that role — a sub-area axis gets plain text,
+                     since a forced link invents a role that does not exist. Format —
+                     - <a id="role-001"></a>**Admin** Full access; manages billing and users.
+                     If there is no role distinction, state "N/A — reason". -->
+
+## 4. Customer Requirements (C, non-measurable)
+<!-- State clearly what the customer/stakeholder wants — measurable acceptance criteria and implementation approach belong to §5 FR and the SDS.
+     No vague sentiments ("would be nice if it were convenient"); be explicit about what will be provided. Give each C an `<a id="c-xxx">` anchor
+     so an area file's §5 FR can back-reference it with `(← [C-xxx](README.md#c-xxx))` (the origin of customer-requirement→FR traceability).
+     If there is no external customer/stakeholder (personal/internal tool), leave "N/A — single stakeholder" and go straight to §5 (no empty ceremony). -->
+{{CUSTOMER_REQUIREMENTS}}
+<!-- Format — - <a id="c-001"></a>**C-001** Payment supports cards and simple/express payment. -->
+
+## 5. Functional Requirements
+<!-- One file per requirement area, cloned from srs-area.template.md. The file stem IS the
+     area key, and every FR in it carries that stem uppercased. Splitting here rather than
+     later is deliberate: the SDS links each FR anchor, so a split after the fact breaks
+     those links. -->
+{{AREA_INDEX}}
+<!-- Format — - [Payment](payment.md) — card and express payment -->
+
+## 6. Non-functional Requirements
+<!-- Fixed sub-axes (aligned to ISO/IEC 25010). For each axis give a **priority [P0/P1/P2]** and a **measurable, verifiable
+     criterion** ("fast" ✗ → "95% of searches show results within 2 seconds" ✓), or leave "N/A — reason" (no blanks).
+     Lead with what a user observes; a technical measure (p95, rps, RTO) may follow it as the
+     measurement condition, and the Glossary defines it. Each axis carries an `<a id="nfr-xxx">` anchor
+     so the SDS "NFR Realization" section can back-trace which design satisfies it (the requirement→design→verification chain).
+     **How a criterion is verified is owned by `docs/verification/*` (performance.md · integration.md) as SSOT — link there;
+     do not restate the procedure here (no duplication). -->
+
+### 6.1 <a id="nfr-perf"></a>Performance
+{{NFR_PERFORMANCE}}  <!-- [P0/P1/P2] Throughput, latency (p50/p95), concurrency.
+     Verify → docs/verification/performance.md. Format —
+     - <a id="nfr-perf-001"></a>**NFR-PERF-001** [P0] Search results appear within 2 seconds
+       of pressing Search, for 95% of searches (p95) with 100 users searching at once.
+     The section anchor is the axis; the item anchor is the individual requirement. An axis
+     added as §6.8 yields NFR-<its stem>-NNN with no other change. -->
+
+### 6.2 <a id="nfr-security"></a>Security
+{{NFR_SECURITY}}  <!-- [P0/P1/P2] Authentication/authorization, encryption, secrets, vulnerability criteria. -->
+
+### 6.3 <a id="nfr-availability"></a>Availability / Reliability
+{{NFR_AVAILABILITY}}  <!-- [P0/P1/P2] SLA, recovery objectives (RTO/RPO), fault tolerance. -->
+
+### 6.4 <a id="nfr-scalability"></a>Scalability
+{{NFR_SCALABILITY}}  <!-- [P0/P1/P2] Response to increased load, horizontal/vertical scaling criteria. -->
+
+### 6.5 <a id="nfr-accessibility"></a>Accessibility
+{{NFR_ACCESSIBILITY}}  <!-- [P0/P1/P2] WCAG level, etc. If there is no UI, "N/A". -->
+
+### 6.6 <a id="nfr-maintainability"></a>Maintainability
+{{NFR_MAINTAINABILITY}}  <!-- [P0/P1/P2] Test coverage, documentation, module boundary criteria. -->
+
+### 6.7 <a id="nfr-compatibility"></a>Compatibility
+{{NFR_COMPATIBILITY}}  <!-- [P0/P1/P2] Supported OS/browser/runtime, API version policy. -->
+
+## 7. Constraints / Assumptions
+<!-- Environment, technology, and regulatory constraints imposed on the system from the
+     outside, not something the system performs. A data-retention or PII rule is
+     measurable, so it belongs in §5 as an FR instead ("Personal data is deleted 90 days after
+     account deletion. Acceptance: none of a deleted account's personal data remains
+     after 90 days"). An externally mandated
+     interface belongs here — "must integrate via legacy system X's SOAP API v1.2" is
+     imposed from outside, not performed by the system, and stating it as an FR leaves
+     it with no acceptance criteria. Give each item an `<a id="con-xxx">` anchor. -->
+{{CONSTRAINTS_ASSUMPTIONS}}
+<!-- Format — - <a id="con-001"></a>**CON-001** Must integrate via legacy system X's SOAP API v1.2. -->

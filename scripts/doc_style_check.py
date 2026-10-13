@@ -1,0 +1,865 @@
+#!/usr/bin/env python3
+"""Prose gate: style lint over docs and code comments, plus a lossless rewrite check.
+
+Two independent jobs, one file because both read the same prose:
+
+- ``--lint`` flags prose that [rule-doc-style] bans (history narration, plan-record
+  pointers, filler, Korean ``~다`` endings, over-long lines). Runs as a flow-gate stage
+  and in CI.
+- ``--verify`` proves a rewrite dropped nothing. Markdown keeps its headings, fenced
+  blocks, URLs and inline code; source keeps its code byte-for-byte once comments and
+  docstrings are stripped. Invoked by ``doc-sync`` after it rewrites a document.
+"""
+
+from __future__ import annotations
+
+import argparse
+import ast
+import io
+import os
+import re
+import subprocess
+import sys
+import tokenize
+from collections import Counter
+from functools import lru_cache
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+try:
+    from _harness_paths import config_path, force_utf8_io, host_root  # direct (sibling)
+except ImportError:
+    from scripts._harness_paths import (  # package (test/dev)
+        config_path,
+        force_utf8_io,
+        host_root,
+    )
+
+# Any indent, not CommonMark's 0-3: a fence inside a list item is indented past that, and
+# reading its body as prose is how an indented code block turns into false lint errors.
+# The indent is captured because it also decides what CLOSES the block — see _closes.
+FENCE = re.compile(r"^(\s*)(`{3,}|~{3,})(.*)$")
+HEADING = re.compile(r"^(#{1,6})\s+(.*)")
+BULLET = re.compile(r"^\s*[-*+]\s+", re.MULTILINE)
+URL = re.compile(r"https?://[^\s)>\]]+")
+INLINE_CODE = re.compile(r"`[^`]+`")
+LINK_TARGET = re.compile(r"\]\([^)]*\)")
+PATH_LIKE = re.compile(r"(?:\./|\.\./|/|[A-Za-z]:\\)[\w\-/\\.]+|[\w\-.]+[/\\][\w\-/\\.]+")
+# 7+ hex chars carrying BOTH a letter and a digit: a commit sha, never an English word
+# (`deadbeef` has no digit) and never a plain number (`20240115`, a byte count).
+SHA = re.compile(r"\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{7,40}\b")
+# Its groups are hex runs SHA would read as shas, so the default mask blanks the whole UUID.
+UUID = re.compile(r"\b[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\b")
+# A filename followed by a line number. The extension whitelist is the rule: without it
+# `12:30`, `localhost:8000` and a YAML `key: 3` all read as anchors. The space after the colon
+# splits the two readings: with none it is an anchor whatever follows, with one it is an anchor
+# only when no word follows the number — so a release note reading
+# `CHANGELOG.md: 12 entries landed` stays the sentence it is. The number excludes a leading
+# zero and stops at six digits: a real line number carries neither, but YAML's int coercion
+# does — `src/a.py: 0123456` records int 42798, not a pointer to line 123456.
+ANCHOR = re.compile(
+    r"[\w.\-/\\]*[\w\-]\."
+    r"(?:py|sh|bash|md|ya?ml|json|toml|ts|tsx|js|jsx|mjs|cjs|go|rs|java|rb|kt|swift|dart|"
+    r"c|h|cc|cpp|hpp|cs|php|sql|html|css|scss|vue|svelte|tf|xml|ini|cfg)"
+    r"\s*:(?:[1-9]\d{0,5}(?!\d)"
+    r"|[ \t]+[1-9]\d{0,5}(?!\d)(?![ \t]*[^\W\d_]))",
+    re.IGNORECASE,
+)
+
+MAX_LINE = 100
+
+# Under TYPE_CHECKING, so nothing evaluates it: an alias on the right of `=` at module level
+# IS evaluated at import, where annotations are deferred, and `tuple[...]` needs python 3.9.
+# The gate's runtime floor is 3.8 (check-deps.sh), and a TypeError raised here takes
+# flow_gate_check.py down with it — which fails OPEN, letting an unclassified commit through.
+if TYPE_CHECKING:
+    Finding = tuple[str, int, str, str]  # (severity, line number, rule code, message)
+
+
+# ---------- Prose extraction ----------
+
+
+def _closes(opener: re.Match, candidate: re.Match) -> bool:
+    """Whether `candidate` ends the block `opener` began.
+
+    Same char, at least as long, no info string — and indented no further than the opener,
+    the part that matters once any indent may open a fence: a deeper ``` inside a block is
+    content, and reading it as the closer both leaks that content into prose AND leaves an
+    unclosed fence that swallows the rest of the document, hiding real violations.
+    CommonMark allows the closer up to three spaces further in; keep that slack.
+    """
+    return (
+        candidate.group(2)[0] == opener.group(2)[0]
+        and len(candidate.group(2)) >= len(opener.group(2))
+        and not candidate.group(3).strip()
+        and len(candidate.group(1)) <= len(opener.group(1)) + 3
+    )
+
+
+# What each mask mode blanks, and the list `lint_text` loops over to build one masked line
+# per mode. Spelled a second time there, a mode present in only one of the two raises KeyError
+# on the first prose line the gate reads.
+MASK_PATTERNS = {
+    "default": (INLINE_CODE, LINK_TARGET, URL, UUID),
+    "links": (INLINE_CODE, URL),
+    "code": (LINK_TARGET, URL),
+}
+
+
+def _mask(line: str, mode: str = "default") -> str:
+    """Blank out spans a prose rule must never read: code, URLs, link targets, and UUIDs.
+
+    Three modes, because two rules need to see what the default hides. ``links`` serves
+    PLAN: a backticked ``docs/superpowers/plans/`` NAMES the banned pattern, where a link
+    to one IS the pointer the rule bans. ``code`` serves ANCHOR: a line anchor is nearly
+    always written inside backticks, so blanking code would switch that rule off.
+    """
+    for pattern in MASK_PATTERNS[mode]:
+        line = pattern.sub(lambda m: " " * len(m.group(0)), line)
+    return line
+
+
+def markdown_prose(text: str) -> list[tuple[int, str]]:
+    """Numbered prose lines, fenced blocks and front matter removed. Masking is per rule."""
+    lines = (text[1:] if text.startswith("\ufeff") else text).split("\n")
+    out: list[tuple[int, str]] = []
+    opener = None
+    start = 0
+    if lines and lines[0].strip() == "---":  # YAML front matter
+        for i in range(1, len(lines)):
+            if lines[i].strip() == "---":
+                start = i + 1
+                break
+    for i in range(start, len(lines)):
+        line = lines[i]
+        m = FENCE.match(line)
+        if opener is not None:
+            if m and _closes(opener, m):
+                opener = None
+            continue
+        if m:
+            opener = m
+            continue
+        out.append((i + 1, line))
+    return out
+
+
+def python_prose(text: str) -> list[tuple[int, str]]:
+    """Numbered prose lines from `#` comments and every docstring."""
+    out: list[tuple[int, str]] = []
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+            if tok.type == tokenize.COMMENT and not tok.string.startswith("# type:"):
+                out.append((tok.start[0], tok.string.lstrip("#").strip()))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        pass
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return sorted(out)
+    nodes = [tree] + [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    ]
+    for node in nodes:
+        doc = ast.get_docstring(node, clean=False)
+        if not doc:
+            continue
+        base = node.body[0].lineno  # the docstring expression itself
+        for offset, line in enumerate(doc.split("\n")):
+            out.append((base + offset, line))
+    return sorted(out)
+
+
+def shell_prose(text: str) -> list[tuple[int, str]]:
+    """Numbered prose lines from `#` comments, minus shebang and tool directives."""
+    out: list[tuple[int, str]] = []
+    for i, line in enumerate(text.split("\n"), 1):
+        stripped = line.strip()
+        if not stripped.startswith("#") or stripped.startswith("#!"):
+            continue
+        body = stripped.lstrip("#").strip()
+        if body.startswith(("shellcheck ", "noqa", "-*-")):
+            continue
+        out.append((i, body))
+    return out
+
+
+def prose_of(path: Path, text: str) -> list[tuple[int, str]]:
+    if path.suffix == ".md":
+        return markdown_prose(text)
+    if path.suffix == ".py":
+        return python_prose(text)
+    if path.suffix in (".sh", ".bash"):
+        return shell_prose(text)
+    return []
+
+
+# ---------- Style rules ----------
+
+# Everything a writer puts in front of a line's text: a list bullet, a quote mark, a heading
+# or comment `#`, an ordinal, an emphasis run. `^\s*` absorbs none of them, so a rule anchored
+# at the line head reads them as text and misses the label or key right behind them.
+_HEAD_MARKER = re.compile(r"^[ \t]*(?:[-+]\s|>\s?|#+\s?|\d+[.)]\s|\*{1,2}|_{1,2})")
+
+
+def _strip_head(line: str) -> str:
+    """The line's text, with those marks and the indent before it gone.
+
+    One helper for two rules: META's field label and TRAP's box keys both decide what a line
+    head is, and a head that means one thing to one of them and another to the other is how a
+    box reports keys missing that sit on the very next line.
+    """
+    while True:
+        shorter = _HEAD_MARKER.sub("", line, count=1)
+        if shorter == line:
+            return line.lstrip()
+        line = shorter
+
+
+BANNED = (
+    (
+        "HIST",
+        "error",
+        re.compile(
+            r"\b(previously|formerly|historically|back then|"
+            r"at the time|for months|turned out|has since)\b"
+            # `used to` narrates; `is used to` is the passive of "use".
+            r"|(?<!is )(?<!are )(?<!was )(?<!were )(?<!be )(?<!been )(?<!being )\bused to\b"
+            r"|이전에는|예전에|원래는|였다가|바뀌었",
+            re.IGNORECASE,
+        ),
+        "history narration — state the rule in force, not how it got there",
+    ),
+    (
+        "SHA",
+        "error",
+        SHA,
+        "commit sha in prose — a squash merge can make it unreachable",
+    ),
+    (
+        "PLAN",
+        "error",
+        re.compile(r"docs/superpowers/(plans|specs)/|^\s*[-*]\s*\[[ xX]\]\s"),
+        "implementation-plan record — shipped prose carries the fact, not a pointer to it",
+    ),
+    (
+        "FILLER",
+        "error",
+        re.compile(
+            r"\b(just|really|basically|actually|simply|essentially|obviously|"
+            r"in order to|make sure to|be sure to|needless to say|"
+            r"it is worth noting|keep in mind|of course)\b"
+            # Connectives only where they join sentences: `however small` is a
+            # concession, `However,` is filler.
+            r"|\b(however|furthermore|moreover|additionally|in addition)\s*,",
+            re.IGNORECASE,
+        ),
+        "filler — drop it, the sentence keeps its meaning",
+    ),
+    (
+        "ENDING",
+        "error",
+        re.compile(r"[가-힣]다[.]|[가-힣]다\s*$"),
+        "`~다` ending — use a nominal ending",
+    ),
+    (
+        "CLAIM",
+        "warning",
+        re.compile(
+            # Hedged magnitudes only. A bare number is a measurement or a bound as often as
+            # it is a guess, and no pattern separates those — that half is the judgement
+            # rules/doc-style.md states and this cannot make.
+            r"\b(approximately|roughly)\b"
+            r"|[0-9.]+\s*[%x]\s*(faster|slower|cheaper|larger|smaller)\b"
+            # `약` needs a digit after it AND no Hangul before it. Korean offers no word
+            # boundary, and the digit alone is not the guard it looks like: 계약·요약·절약
+            # each end in that syllable, so `계약 3건` reads as a hedge without the lookbehind.
+            r"|(?<![가-힣])약\s*[0-9]|대략|[0-9.]+\s*배\s*[빠느]",
+            re.IGNORECASE,
+        ),
+        "magnitude nobody measured — give the direction, or the figure with its conditions",
+    ),
+    (
+        "ANCHOR",
+        "error",
+        ANCHOR,
+        "line-number anchor — name the file; the number is false after the next insert",
+    ),
+    (
+        "META",
+        "error",
+        re.compile(
+            # `@author` and friends anywhere; a field LABEL only at the head of the line, which
+            # `_strip_head` has already cleared of a bullet, a quote mark or a bold run —
+            # the shapes a markdown document records revision metadata in.
+            #
+            # The label alone does not decide it. `Created`, `Modified` and `History` are
+            # ordinary words, and what separates the field from the definition is the VALUE: a
+            # field carries a date, a version, a name or an identifier; a definition carries a
+            # clause, and English cannot state one without a function word gluing its pieces
+            # together (`the`, `is`, `from`, `per`…). So the value reads as a clause on finding
+            # one of those words in it, spaced after the colon or not (`Modified:files…`
+            # carries one all the same), never on the case of its first letter — `Created: A
+            # new worktree` is a clause whatever case `A` is in.
+            #
+            # An article is glue too, but only away from `author`, and only when a word
+            # follows it. A name field has no clause an article could be rescuing, so
+            # `An Nguyen` and `A Smith` stay names there. Elsewhere the word after the
+            # article is the whole test: an initial carries a period instead
+            # (`Created: A. Smith`), and a value cut short carries nothing (`History: a`,
+            # trailing blank or not).
+            r"@(author|since|date)\b"
+            r"|^author\s*:(?![*_]*\s*.*\b(?:the|is|are|was|were|be|been|being|will|now|"
+            r"per|from|of|to|in|on|at|and|or)\b)"
+            r"|^(created|modified|updated|last updated|revision|history|changelog)"
+            r"\s*:(?![*_]*\s*.*\b(?:the|is|are|was|were|be|been|being|will|now|"
+            r"per|from|of|to|in|on|at|and|or|(?:an|a)(?=\s+\S))\b)"
+            r"|^(작성자|작성일|수정일|변경\s*이력|수정\s*이력)\s*[:：]",
+            re.IGNORECASE,
+        ),
+        "revision metadata — git holds the history, the date and the name",
+    ),
+)
+
+# Which spans each rule reads. Anything unlisted takes the default mask (see :func:`_mask`).
+MASK_MODE = {"PLAN": "links", "ANCHOR": "code"}
+# Which rules are matched against the line's text rather than its raw start. PLAN must never
+# join them: the bullet `_strip_head` removes is part of the checklist item PLAN matches on.
+HEAD_ANCHORED = frozenset({"META"})
+
+# Language-invariant literals, not translatable: they are what this rule parses, not prose it
+# judges. Each key is matched at the head of its own line, after `_strip_head` — a key never
+# sits on the same line as the marker, and matching at the head keeps a mid-sentence mention
+# like "the Trigger: field" from satisfying a box it is not part of.
+TRAP_MARKER = re.compile(r"CRITICAL TRAP\s*:")
+# A leading backtick is optional: once a marker has made the box real, a key styled as inline
+# code (`` `Trigger:` a cp949 host``) is still the key — see _trap_findings for the mask that
+# keeps it visible.
+TRAP_KEYS = (
+    ("Trigger:", re.compile(r"`?Trigger\s*:")),
+    ("Symptom:", re.compile(r"`?Symptom\s*:")),
+)
+
+
+def _blocks(entries: list) -> list:
+    """Runs of consecutive non-blank prose lines; each entry starts ``(lineno, raw, ...)`` —
+    whatever a caller carries past those two (mask variants for :func:`_trap_findings`) is
+    never read here.
+
+    A blank line ends a run, and so does a gap in the numbering: one comment and the next
+    are two boxes, and reading them as one would let a marker borrow the keys below it.
+    Blankness is judged on the RAW line, never a masked one: a line holding nothing but an
+    inline-code span masks to spaces, and ending the run there would split a box in half and
+    report the keys under it missing.
+    """
+    out: list = []
+    for entry in entries:
+        lineno, raw = entry[0], entry[1]
+        if not raw.strip():
+            continue
+        if out and lineno == out[-1][-1][0] + 1:
+            out[-1].append(entry)
+        else:
+            out.append([entry])
+    return out
+
+
+def _trap_findings(entries: list) -> list:
+    """The one rule a single line cannot answer: the box is three lines or it is not a box.
+
+    A block is the outer unit, but two boxes can share one unbroken comment run — back-to-back
+    ``CRITICAL TRAP`` lines with no blank line or numbering gap between them. So within a block
+    each marker owns the lines from itself up to the NEXT marker (or the block's end), and only
+    that range is searched for its keys — a marker never borrows keys that belong to the box
+    after it, and each finding reports its own marker's line rather than the block's first one.
+
+    The marker is read on the default mask, so naming it inside backticks stays exempt exactly
+    as it is for every other rule — a doc that only quotes ``CRITICAL TRAP:`` is not a box. A
+    key is read on the "code" mask instead: the box around it is already real once a marker is
+    found, so a key styled as inline code is still the key, not a doc quoting one. Both go
+    through :func:`_strip_head`, so a key behind a bullet or a comment mark is the key it
+    plainly is.
+    """
+    findings = []
+    for block in _blocks(entries):
+        marker_idxs = [i for i, entry in enumerate(block) if TRAP_MARKER.search(entry[2])]
+        for pos, start in enumerate(marker_idxs):
+            end = marker_idxs[pos + 1] if pos + 1 < len(marker_idxs) else len(block)
+            owned = block[start:end]
+            marker = owned[0][0]
+            heads = [_strip_head(entry[3]) for entry in owned]
+            missing = [
+                name
+                for name, pattern in TRAP_KEYS
+                if not any(pattern.match(head) for head in heads)
+            ]
+            if missing:
+                message = f"CRITICAL TRAP box is missing {' and '.join(missing)}"
+                findings.append(("error", marker, "TRAP", message))
+    return findings
+
+
+def lint_text(path: Path, text: str) -> list[Finding]:
+    findings: list[Finding] = []
+    entries: list[tuple[int, str, str, str]] = []
+    for lineno, raw in prose_of(path, text):
+        masked = {mode: _mask(raw, mode) for mode in MASK_PATTERNS}
+        entries.append((lineno, raw, masked["default"], masked["code"]))
+        if not raw.strip():
+            continue
+        for code, severity, pattern, message in BANNED:
+            target = masked[MASK_MODE.get(code, "default")]
+            m = pattern.search(_strip_head(target) if code in HEAD_ANCHORED else target)
+            if m:
+                hit = m.group(0).strip() or masked["default"].strip()
+                findings.append((severity, lineno, code, f"{message} — {hit!r}"))
+        line = masked["default"]
+        if len(line) > MAX_LINE and "|" not in line:
+            findings.append(
+                ("warning", lineno, "LONG", f"prose line is {len(line)} chars (cap {MAX_LINE})")
+            )
+    findings.extend(_trap_findings(entries))
+    return findings
+
+
+def lint_paths(paths: list[Path]) -> list[tuple[Path, list[Finding]]]:
+    out = []
+    for path in paths:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        findings = lint_text(path, text)
+        if findings:
+            out.append((path, findings))
+    return out
+
+
+# ---------- Lossless verify ----------
+
+
+def headings(text: str) -> list[tuple[str, str]]:
+    found = (HEADING.match(line) for line in text.split("\n"))
+    return [(m.group(1), m.group(2).strip()) for m in found if m]
+
+
+def code_blocks(text: str) -> list[str]:
+    """Fenced blocks, closing fence matched per CommonMark. Unclosed fences are skipped."""
+    blocks: list[str] = []
+    lines = text.split("\n")
+    i = 0
+    while i < len(lines):
+        m = FENCE.match(lines[i])
+        if not m:
+            i += 1
+            continue
+        block = [lines[i]]
+        i += 1
+        closed = False
+        while i < len(lines):
+            close = FENCE.match(lines[i])
+            block.append(lines[i])
+            i += 1
+            if close and _closes(m, close):
+                closed = True
+                break
+        if closed:
+            blocks.append("\n".join(block))
+    return blocks
+
+
+def inline_codes(text: str) -> Counter[str]:
+    body = text
+    for block in code_blocks(text):
+        body = body.replace(block, "")
+    return Counter(m.group(0) for m in INLINE_CODE.finditer(body))
+
+
+def _docstring_starts(text: str) -> set[tuple[int, int]]:
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return set()
+    starts = set()
+    for node in [tree] + list(ast.walk(tree)):
+        if not isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        if ast.get_docstring(node, clean=False) is not None:
+            expr = node.body[0]
+            starts.add((expr.lineno, expr.col_offset))
+    return starts
+
+
+SKIP_TOKENS = frozenset(
+    {
+        tokenize.COMMENT,
+        tokenize.NL,
+        tokenize.NEWLINE,
+        tokenize.INDENT,
+        tokenize.DEDENT,
+        tokenize.ENDMARKER,
+    }
+)
+
+
+def _shell_code(line: str) -> str:
+    """The line minus a trailing comment, quotes respected."""
+    quote = ""
+    for i, ch in enumerate(line):
+        if quote:
+            if ch == quote:
+                quote = ""
+        elif ch in "'\"":
+            quote = ch
+        elif ch == "#" and (i == 0 or line[i - 1].isspace()):
+            return line[:i]
+    return line
+
+
+def strip_prose(path: Path, text: str) -> str:
+    """The file's code with comments and docstrings gone — what a prose rewrite must not touch."""
+    if path.suffix == ".py":
+        skip = _docstring_starts(text)
+        try:
+            kept = [
+                f"{tok.type}:{tok.string}"
+                for tok in tokenize.generate_tokens(io.StringIO(text).readline)
+                if tok.type not in SKIP_TOKENS
+                and not (tok.type == tokenize.STRING and tok.start in skip)
+            ]
+        except (tokenize.TokenError, IndentationError):
+            return text
+        return "\n".join(kept)
+    kept_lines = []
+    for line in text.split("\n"):
+        if line.strip().startswith("#") and not line.strip().startswith("#!"):
+            continue
+        code = _shell_code(line).rstrip()
+        if code:
+            kept_lines.append(code)
+    return "\n".join(kept_lines)
+
+
+def verify_markdown(before: str, after: str) -> list[Finding]:
+    findings: list[Finding] = []
+    h1, h2 = headings(before), headings(after)
+    if len(h1) != len(h2):
+        findings.append(("error", 0, "HEADING", f"heading count {len(h1)} -> {len(h2)}"))
+    elif h1 != h2:
+        findings.append(("warning", 0, "HEADING", "heading text or order changed"))
+    if code_blocks(before) != code_blocks(after):
+        findings.append(("error", 0, "CODE", "fenced code blocks not preserved exactly"))
+    lost_urls = set(URL.findall(before)) - set(URL.findall(after))
+    if lost_urls:
+        findings.append(("error", 0, "URL", f"URLs lost: {sorted(lost_urls)}"))
+    c1, c2 = inline_codes(before), inline_codes(after)
+    lost_code = {k: n - c2[k] for k, n in c1.items() if c2[k] < n}
+    if lost_code:
+        findings.append(("error", 0, "INLINE", f"inline code lost: {sorted(lost_code)}"))
+    b1 = len(BULLET.findall(before))
+    b2 = len(BULLET.findall(after))
+    if b1 and abs(b1 - b2) / b1 > 0.15:
+        findings.append(("warning", 0, "BULLET", f"bullet count {b1} -> {b2}"))
+    lost_paths = set(PATH_LIKE.findall(before)) - set(PATH_LIKE.findall(after))
+    if lost_paths:
+        findings.append(("warning", 0, "PATH", f"paths lost: {sorted(lost_paths)[:10]}"))
+    return findings
+
+
+def verify(path: Path, before: str, after: str) -> list[Finding]:
+    if path.suffix == ".md":
+        return verify_markdown(before, after)
+    if strip_prose(path, before) != strip_prose(path, after):
+        return [("error", 0, "CODE", "code changed — a prose rewrite must leave it byte-identical")]
+    return []
+
+
+DEFAULT_GLOBS = ("**/*.md",)
+REVIEW_GLOBS = ("**/*.md", "**/*.py", "**/*.sh")
+# The carve-outs the rule states with no condition on them: a CHANGELOG a release tool
+# regenerates from commit subjects, and the superpowers record trees whose lines ARE what
+# PLAN bans. A host's own `exclude` is added to these rather than replacing them — a host
+# whose list predates an entry never receives it, because `/flow-init` leaves a host-owned
+# config alone, and its CI then goes red with no edit that could clear it.
+DEFAULT_EXCLUDES = (
+    "**/CHANGELOG.md",
+    "docs/superpowers/**",
+    ".superpowers/**",
+)
+# Directory NAMES, matched at any depth. A vendored tree is never the repo's own prose, and
+# these hold whatever a consumer's `paths` says — a glob would need every one of them
+# spelled `**/node_modules/**` to reach as far.
+NEVER_LINTED = frozenset({".git", "node_modules", ".venv", "vendor"})
+# GitHub's issue and pull request templates, by file name and by directory name, matched in any
+# case at any depth: a template's checklist is the form a contributor fills in, which PLAN
+# would reject.
+GITHUB_FORM_FILES = frozenset({"pull_request_template.md", "issue_template.md"})
+GITHUB_FORM_DIRS = frozenset({"pull_request_template", "issue_template"})
+
+
+def _segment_re(seg: str) -> str:
+    """One path segment of a glob as regex source. ``*`` and ``?`` stay inside the segment."""
+    out = []
+    i = 0
+    while i < len(seg):
+        char = seg[i]
+        if char == "*":
+            out.append("[^/]*")
+        elif char == "?":
+            out.append("[^/]")
+        elif char == "[":
+            end = seg.find("]", i + 1)
+            if end == -1:
+                out.append(re.escape(char))
+            else:
+                # A backslash or a `[` inside the class has to reach the regex escaped —
+                # a bare `[` there is legal but warns about a nested set.
+                body = seg[i + 1 : end].replace("\\", "\\\\").replace("[", "\\[")
+                body = ("^" + body[1:]) if body.startswith("!") else body
+                out.append("[" + body + "]")
+                i = end
+        else:
+            out.append(re.escape(char))
+        i += 1
+    return "".join(out)
+
+
+@lru_cache(maxsize=512)
+def _glob_re(pattern: str) -> re.Pattern:
+    """A ``paths``/``exclude`` glob compiled to a regex over a root-relative posix path.
+
+    ``*``/``?`` stop at ``/``; a whole-segment ``**`` spans any number of directories,
+    including none, so ``docs/**/*.md`` covers ``docs/a.md`` as well as ``docs/x/b.md``;
+    a trailing ``**`` is the whole subtree.
+
+    This is the ONLY reader of a glob in this module — :func:`config_paths` walks the tree
+    and asks the same question rather than handing the pattern to ``Path.glob``. Two
+    readers is how the hook and CI came to disagree about a consumer's own ``paths``, and
+    ``Path.glob`` cannot be the second one anyway: what a trailing ``**`` matches changed
+    in 3.13, and it is case-insensitive on Windows and not on the Linux runner.
+
+    A pattern that cannot compile raises ``ValueError`` — the CLI turns that into an exit
+    code, the hook fails open on it, exactly as for a config that does not parse.
+    """
+    parts = pattern.split("/")
+    out = []
+    for at, seg in enumerate(parts):
+        if seg == "**":
+            out.append(".*" if at == len(parts) - 1 else "(?:[^/]+/)*")
+        else:
+            out.append(_segment_re(seg) + ("/" if at < len(parts) - 1 else ""))
+    try:
+        return re.compile("".join(out) + r"\Z")
+    except re.error as exc:
+        raise ValueError(f"doc_style glob {pattern!r} is not usable: {exc}")
+
+
+def _match(rel: str, pattern: str) -> bool:
+    """Whether the root-relative posix path `rel` matches a `paths`/`exclude` glob."""
+    return bool(_glob_re(pattern).match(rel))
+
+
+# The `doc_style` block as it looks to a reader, for the one question that has to be answered
+# about a file YAML could not load: did this repo opt in at all. The quotes are optional in
+# YAML and change nothing about the key, so a repo that spelled it `"doc_style":` asked for
+# this as plainly as one that did not — missing it would hand that repo the silence the
+# raise exists to prevent.
+_OPTED_IN_RE = re.compile(r"^[ \t]*['\"]?doc_style['\"]?[ \t]*:", re.M)
+
+
+def scope_rules(root: Path) -> tuple[tuple[str, ...], tuple[str, ...]] | None:
+    """(paths, exclude) from flow-config's ``doc_style`` block. None when absent or off.
+
+    Absent config is the common case in a repo that never opted in, so it reads as "nothing
+    to lint" rather than an error — CI stays green there without a second guard. A config that
+    is PRESENT, malformed, and holds a ``doc_style`` key is the opposite case and raises: read as
+    "off", one typo would take layer 3 down with no red job to say so. Malformed WITHOUT that key
+    reads as absent — a repo that never enabled this does not get a red build out of a typo
+    elsewhere in a file doc-style does not own. It is a plain ``ValueError`` and not
+    a ``SystemExit`` so that the hook's ``except Exception`` still catches it — the CLI is
+    where it becomes an exit code, the commit gate has to FAIL OPEN (Invariant #1).
+    """
+    try:
+        text = config_path(root).read_text(encoding="utf-8")
+    except OSError:
+        return None
+    import yaml
+
+    try:
+        data = yaml.safe_load(text) or {}
+    except yaml.YAMLError as exc:
+        # Raise only for a repo that asked for this. An unparseable file cannot say whether it
+        # holds a `doc_style` block, so the raw text is asked instead: without one, the repo
+        # never opted in and a feature it never enabled may not turn its build red over a typo
+        # somewhere else in a file doc-style does not own. With one, the original reasoning
+        # stands — silence there would take layer 3 down with no red job to say so.
+        if not _OPTED_IN_RE.search(text):
+            return None
+        raise ValueError(f"flow-config.yaml does not parse — doc-style cannot run: {exc}")
+    cfg = data.get("doc_style") if isinstance(data, dict) else None
+    if not isinstance(cfg, dict) or not cfg.get("enable"):
+        return None
+    excluded = DEFAULT_EXCLUDES + tuple(cfg.get("exclude") or ())
+    return tuple(cfg.get("paths") or DEFAULT_GLOBS), tuple(dict.fromkeys(excluded))
+
+
+def in_scope(root: Path, paths: list[Path], fail_open: bool = True) -> list[Path]:
+    """The subset of ``paths`` the config puts in scope. [] when it is absent or off.
+
+    Both arms of the gate read their scope here, so a ``paths``/``exclude`` written for CI
+    cannot be ignored by the hook, and the hook cannot warn about a file CI would never look
+    at. ``fail_open`` is what separates them: a config or glob that does not parse reads as
+    no scope for the commit gate (Invariant #1) and raises for the CLI, where a red job is
+    the whole point.
+    """
+    try:
+        rules = scope_rules(root)
+        if rules is None:
+            return []
+        globs, excluded = rules
+        for pattern in tuple(globs) + tuple(excluded):
+            _glob_re(pattern)  # compile every pattern before any path is judged
+    except ValueError:
+        if fail_open:
+            return []
+        raise
+    return _filter(root, paths, globs, excluded)
+
+
+def review_scope(root: Path, paths: list[Path]) -> list[Path]:
+    """The subset of ``paths`` a prose review covers: the config's scope, or every file this
+    checker reads prose from where ``doc_style`` is off, absent or unreadable — the rule binds
+    shipped ``.md`` and code comments whether or not the lint gate runs."""
+    try:
+        rules = scope_rules(root)
+        if rules is not None:
+            for pattern in rules[0] + rules[1]:
+                _glob_re(pattern)
+    except ValueError:
+        rules = None
+    globs, excluded = rules if rules is not None else (REVIEW_GLOBS, DEFAULT_EXCLUDES)
+    return _filter(root, paths, globs, excluded)
+
+
+def _is_github_form(rel: Path) -> bool:
+    if rel.name.lower() in GITHUB_FORM_FILES:
+        return True
+    return any(part.lower() in GITHUB_FORM_DIRS for part in rel.parts[:-1])
+
+
+def _filter(root: Path, paths: list[Path], globs, excluded) -> list[Path]:
+    root_resolved = root.resolve()
+    out = []
+    for path in paths:
+        try:
+            rel = path.resolve().relative_to(root_resolved)
+        except (ValueError, OSError):
+            continue
+        if not NEVER_LINTED.isdisjoint(rel.parts) or _is_github_form(rel):
+            continue
+        posix = rel.as_posix()
+        if any(_match(posix, rule) for rule in excluded):
+            continue
+        if any(_match(posix, glob) for glob in globs):
+            out.append(path)
+    return out
+
+
+def config_paths(root: Path) -> list[Path]:
+    """Every file in the repo the ``doc_style`` block puts in scope — the CI arm.
+
+    Walks the tree and hands every file to the same :func:`in_scope` the hook uses, so the
+    two arms answer from one function over one matcher. Handing the globs to ``Path.glob``
+    instead is what let them disagree: it reads a trailing ``**`` differently across python
+    versions (3.12 yields directories only, and CI pins 3.12) and matches case-insensitively
+    on Windows. A malformed config or glob becomes the exit code here, where red is the point.
+    """
+    try:
+        if scope_rules(root) is None:
+            return []
+        found = []
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in NEVER_LINTED]
+            found += [Path(dirpath) / name for name in filenames]
+        return sorted(in_scope(root, found, fail_open=False))
+    except ValueError as exc:
+        raise SystemExit(str(exc))
+
+
+def git_head_text(root: Path, path: Path) -> str | None:
+    try:
+        rel = path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return None  # outside the repo — no HEAD side to compare against
+    try:
+        out = subprocess.run(
+            ["git", "show", f"HEAD:{rel}"],
+            cwd=root,
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    return out.stdout.decode("utf-8", "replace") if out.returncode == 0 else None
+
+
+# ---------- Reporting ----------
+
+
+def report(items: list[tuple[Path, list[Finding]]], root: Path) -> int:
+    errors = 0
+    for path, findings in items:
+        try:
+            name = path.resolve().relative_to(root.resolve()).as_posix()
+        except ValueError:
+            name = str(path)
+        for severity, lineno, code, message in findings:
+            errors += severity == "error"
+            where = f"{name}:{lineno}" if lineno else name
+            print(f"{where}: {severity.upper()} {code}: {message}", file=sys.stderr)
+    return errors
+
+
+def main(argv: list[str] | None = None) -> int:
+    force_utf8_io()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--lint", nargs="*", metavar="PATH")
+    parser.add_argument("--verify", nargs=2, metavar=("BEFORE", "AFTER"))
+    parser.add_argument("--verify-git", nargs="+", metavar="PATH")
+    parser.add_argument("--lint-config", action="store_true")
+    parser.add_argument("--scope", nargs="*", metavar="PATH")
+    parser.add_argument("--root", default=None)
+    args = parser.parse_args(argv)
+
+    root = Path(args.root) if args.root else host_root()
+
+    if args.verify:
+        before, after = (Path(p) for p in args.verify)
+        findings = verify(
+            after, before.read_text(encoding="utf-8"), after.read_text(encoding="utf-8")
+        )
+        return 1 if report([(after, findings)], root) else 0
+
+    if args.verify_git:
+        items = []
+        for raw in args.verify_git:
+            path = Path(raw)
+            before = git_head_text(root, path)
+            if before is None:
+                continue  # new file — nothing to lose
+            items.append((path, verify(path, before, path.read_text(encoding="utf-8"))))
+        return 1 if report(items, root) else 0
+
+    if args.scope is not None:
+        for path in review_scope(root, [Path(p) for p in args.scope]):
+            print(path.resolve().relative_to(root.resolve()).as_posix())
+        return 0
+
+    paths = config_paths(root) if args.lint_config else [Path(p) for p in (args.lint or [])]
+    return 1 if report(lint_paths(paths), root) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

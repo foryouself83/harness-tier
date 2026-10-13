@@ -1,0 +1,147 @@
+---
+name: commit
+description: "Use when a commit message has to be written or a commit issued — the Conventional Commits type, subject, body, staging, a subject that is too long, or the `Release-Level` trailer. A freehand message misses the 50/72 limit and the rule that a consumer-facing `.md` is `feat`/`fix`, never `docs`/`chore`. It never stands in for /flow on a development request."
+argument-hint: "[tier · bump level · what changed]"
+---
+
+# Commit — author and issue one commit
+
+**Source of truth**: [`commit-discipline.md`](../../rules/commit-discipline.md) owns the
+message format, the type-to-version table, and the language rule. Nothing injects it — read it
+before Step 1. This skill does not restate it; it is the procedure that applies it to one
+concrete commit.
+
+## Input
+
+- **$ARGUMENTS** — the tier, a hint at what changed, and on a staging promotion the bump
+  level (`major`/`minor`/`patch`) that `/release-commit` asked the user for. The level
+  arrives here or not at all: nothing on disk carries it, `.flow/bump.done` being an empty
+  marker. Everything else is derivable — with no arguments, read `git status` and the diff.
+
+## Host commit guide (optional, and it wins on stack facts)
+
+`flow-config.commit_guide` names the host's own commit/versioning document — `/harness-init`
+generates one at `docs/operations/commit-versioning-guide.md`. When that file exists, read it
+and take its **project-specific facts** over this skill's generic ones: the scope vocabulary
+this repo uses in practice, its 0.x policy, and whether its release tool reads the
+`Release-Level` trailer or derives the bump from the commits itself. Its remaining subject —
+which files carry the version, how the changelog is filtered — belongs to the release CI, not
+to writing a commit.
+
+```bash
+guide=$(python3 -c "import pathlib,yaml
+p = pathlib.Path('.claude/harness-tier/config/flow-config.yaml')
+print((yaml.safe_load(p.read_text(encoding='utf-8')) or {}).get('commit_guide', '') if p.exists() else '')" 2>/dev/null)
+if [ -n "$guide" ] && [ -f "$guide" ]; then cat "$guide"; else echo "no host guide"; fi
+```
+
+No config, no slot, or no such file → `no host guide`, which is a normal answer, not a
+failure: `commit-discipline.md` alone then governs. The `if` is what makes it one — a `&&` chain
+exits 1 on the common no-config path and reads as a broken step. The host guide never
+relaxes the format either way: the 50/72 rule and the type table stay as written there.
+
+## Step 1 — Stage only what this commit is about
+
+```bash
+git status --short
+```
+
+Stage the affected paths by name. Never `git add -A` or `git add .` — one unrelated file swept
+in makes the subject a lie about the diff, and the gate reads the same staged set you do.
+`.claude/harness-tier/.flow/` is gitignored evidence; it never belongs in a commit.
+
+A commit finishing an **open merge** has nothing to select here: `git merge --no-ff --no-commit`
+already staged the whole merged set, `git add` only adds to that, and git refuses a
+`git commit <pathspec>` mid-merge. Add only what a gate demanded on top — a rebuilt `graph.yaml`.
+
+## Step 2 — Pick the type
+
+The type-to-version table in `commit-discipline.md` decides. Two traps cost a release when
+missed:
+
+- **A consumer-facing `.md` change is `feat` or `fix`, never `docs`.** `docs` and `chore` do not
+  bump the version, so they never propagate to a consumer. Only developer-only docs stay `docs`.
+- **A squash merge carries the highest-priority type** among the commits it bundles.
+
+## Step 3 — Draft
+
+`type(scope): description`, a blank line, `-` bullets one sentence each, a blank line, footers.
+Scope comes from the host guide's vocabulary when it has one, otherwise the module or area the
+diff touches. The body says what and why; the commit *is* the history entry, so it carries no
+account of earlier rounds of the same work.
+
+## Step 4 — Verify, then issue
+
+One block: a heredoc cannot survive into a second one, and a check the agent runs *after*
+committing is a check that changed nothing. On a staging promotion the `Release-Level` trailer
+of Step 5 goes **into this heredoc**, below a blank line — this step issues the commit, so a
+trailer left for the step after it lands nowhere.
+
+```bash
+msg=$(cat <<'EOF'
+<type>(<scope>): <subject, replacing this whole heredoc>
+
+- <what changed, and the reason it had to>
+EOF
+)
+python3 -c 'import sys
+t = sys.argv[1].splitlines()
+sub = t[0] if t else ""
+merge = sub.startswith("Merge")
+bad = ["the heredoc is still the template"] if not t or "<" in sub else []
+bad += [f"subject is {len(sub)} chars > 50"] if len(sub) > 50 and not merge else []
+bad += [f"line {n} is {len(x)} chars > 72" for n, x in enumerate(t[1:], 2) if len(x) > 72]
+if bad:
+    sys.exit("REWRITE — " + "; ".join(bad))' "$msg"   && printf '%s
+' "$msg" | git -C . commit -F -
+```
+
+Three things block here, all in the one block on purpose. A template subject still carrying
+`<` aborts — left runnable it would pass the length check, satisfy gitlint, and land as a real
+commit. Over 50 means rewrite the subject, and a non-ASCII character counts as one, which is what
+Python's `len` already measures. One subject is exempt: a title beginning with capital `Merge`,
+the only form gitlint reads as a merge and the only one it drops the type and 50-char checks
+for ([`promotion.md`](../../rules/promotion.md) Merge commit messages) — a promotion merge
+title carrying its source branch runs past 50 routinely. The template `<` check and the 72-char
+body limit still bind it. And `-C` keeps the worktree
+inside the command rather than in prose beside it: a bare `git commit` after a separate `cd` can
+leave the gate checking the main repo, since `--classify` reads the `git -C` the command
+carries. Write that path **literally** — `.` for the main repo, the worktree's own path
+when the work lives in one. A shell variable in the flag's own place is the
+trap: the hook is handed the command *before* the shell expands it, and
+the gate's invocation grammar needs the token after `git` to start with `-`. A variable that
+supplies the flag itself is not one, so the command reads as something that is not a commit
+and every gate behind it is skipped without a word. A variable used as a
+flag's *argument* is fine — it is the flag that has to be literal.
+
+The commit prompt itself is deliberately left unapproved — it is the mechanical backstop behind
+the tier gate.
+
+## Step 5 — Promotion commits only: the `Release-Level` trailer
+
+A staging promotion on a host whose release workflow reads the trailer ends with a blank line
+and `Release-Level: <choice>`, the choice taken from `$ARGUMENTS`: `auto`, `continue`,
+`patch`, `minor` or `major`. Write it whatever the choice, `auto` included — an absent trailer
+runs as `auto` too, but only a written one records that the level was asked. Spell it exactly:
+any other value, an empty one, two different ones, or `continue` with no pending rc fails the
+release run rather than falling back to a derived bump.
+
+`continue` cuts the next rc of the pending series (`1.1.0-rc.2` → `1.1.0-rc.3`); a forced
+level on a re-promotion bumps the base again and skips `X.Y.Z` as a stable release
+([`promotion.md`](../../rules/promotion.md) Staging). `/release-commit` passes no level where
+the workflow reads no trailer, and then the commit takes none. A **production** commit never
+takes a level; the finalize step is deterministic.
+
+## Guardrails
+
+1. **Never `--no-verify`.** A blocked commit is the gate working. Read its reason and satisfy
+   it; bypassing it is what the gate exists to prevent.
+2. **One commit, one subject.** If the staged set needs two subjects, it is two commits.
+3. **This skill never issues the merge.** The Merge strategy belongs to `/flow` for the
+   day-to-day rows and to `/release-commit` for a promotion, several of them hook-enforced. A
+   promotion reaches Step 4 with its merge already open (`--no-ff --no-commit`), so the commit
+   issued there is what writes that merge commit — do not abort it to write a plain one.
+4. **Never spell a CI-skip marker in the message.** GitHub reads `[skip ci]` anywhere in the
+   pushed head commit's message, body included, and creates **no workflow run** for that push:
+   every CI layer is off for the change, and the absence of a run reports as nothing at all.
+   A message that has to discuss one names it in prose — "a skip-ci marker".

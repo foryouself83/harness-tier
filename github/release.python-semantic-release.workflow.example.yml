@@ -1,0 +1,198 @@
+# Semantic release (Python/python-semantic-release) — rendered by /flow-init from flow-config.versioning.
+# Standard semantic-release: version bump + tag + GitHub Release. The release commit is [skip ci].
+# Prerequisite: repo Settings → Actions → Workflow permissions = "Read and write".
+# Auth: every checkout/step references ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}.
+# By default the release runs on the auto-provided GITHUB_TOKEN — RELEASE_TOKEN is OPTIONAL:
+# when that repo secret is unset the expression falls back to GITHUB_TOKEN automatically
+# (ensure Settings → Actions → Workflow permissions = Read and write). Add RELEASE_TOKEN (a
+# fine-grained PAT, Contents+Workflows: RW) only to escalate — bypass branch protection or
+# trigger downstream workflows; no YAML edit needed, the fallback picks it up.
+# How to grant: see the generated docs/operations/commit-versioning-guide.md.
+# The detailed semantic-release config ([tool.semantic_release]) lives in the project's pyproject (see commit-versioning-guide).
+# Prerelease branch pushes read a `Release-Level: auto|continue|patch|minor|major` commit
+# trailer; no trailer means auto (semantic-release derives the level), and any other value is
+# applied deterministically as the version bump_version.py computes.
+# A forced level stamps pyproject [project] version, plugin.json, and .codex-plugin/plugin.json
+# when present (finalize_prerelease.py --set); other version_variables/version_toml targets are
+# stamped by PSR itself, auto-path only.
+# Stable branch pushes rc-strip via the shipped .claude/harness-tier/scripts/finalize_prerelease.py, which targets
+# pyproject.toml, plugin.json and .codex-plugin/plugin.json when present; other stacks fall back
+# to plain compute on the stable branch.
+name: release
+
+on:
+  push:
+    branches: [__HARNESS_STABLE__, __HARNESS_PRERELEASE__]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    outputs:
+      tag: ${{ steps.exposetag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      # GitPython 3.1.60 is the single release without Actor.name_email_regex, which releases in
+      # python-semantic-release's own `>=10,<11` range read at config load; 3.1.61 carries it
+      # again and PSR's `gitpython~=3.0` already bars the 4.0 removal. Excluding that one version
+      # covers the whole range without freezing the dependency behind an upper bound.
+      - name: Install python-semantic-release
+        run: pip install "python-semantic-release>=10,<11" "GitPython!=3.1.60"
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Semantic release — prerelease rc (forced level from trailer)
+        id: sr_pre
+        if: ${{ github.ref_name == '__HARNESS_PRERELEASE__' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          HARNESS_SCRIPTS: .claude/harness-tier/scripts
+          AUTO_LEVEL: ""
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          # >>> next-version (shared by every release workflow; tests/release_level pins it)
+          git fetch --tags --force --quiet origin || true
+          NEXT="$(python3 "$HARNESS_SCRIPTS/bump_version.py" next \
+            --message "$(git log -1 --pretty=%B)" \
+            --tags "$(git tag --list)" \
+            --auto-level "${AUTO_LEVEL:-}")" || exit 1
+          echo "next version: $NEXT"
+          # <<< next-version
+          # $NEXT already reflects any Release-Level: trailer (bump_version.py, block above).
+          BEFORE="$(git rev-parse HEAD)"
+          if [ "$NEXT" = "auto" ]; then
+            semantic-release version --commit --tag --push --changelog --no-vcs-release
+          else
+            python "$HARNESS_SCRIPTS/finalize_prerelease.py" --set "$NEXT"
+            git add pyproject.toml
+            [ -f .claude-plugin/plugin.json ] && git add .claude-plugin/plugin.json
+            [ -f .codex-plugin/plugin.json ] && git add .codex-plugin/plugin.json
+            git commit -m "chore(release): $NEXT [skip ci]"
+            git tag "v$NEXT"
+            semantic-release changelog || true
+            git add CHANGELOG.md 2>/dev/null || true
+            if ! git diff --cached --quiet -- CHANGELOG.md; then
+              git commit --amend --no-edit && git tag -f "v$NEXT"
+            fi
+            # Transient failures only, never a rebase: the version and notes came from this tree.
+            for attempt in 1 2 3; do
+              git push --atomic origin HEAD:"$REF_NAME" "v$NEXT" && break
+              [ "$attempt" -lt 3 ] || exit 1
+              sleep $((attempt * 5))
+            done
+          fi
+          AFTER="$(git rev-parse HEAD)"
+          if [ "$BEFORE" != "$AFTER" ]; then echo "released=true" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Release — stable finalize (rc-strip) or hotfix compute
+        id: sr_stable
+        if: ${{ github.ref_name == '__HARNESS_STABLE__' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          BEFORE="$(git rev-parse HEAD)"
+          FINALIZE=".claude/harness-tier/scripts/finalize_prerelease.py"
+          if [ -f "$FINALIZE" ] && STABLE="$(python "$FINALIZE" --print-only)"; then
+            # >>> finalize-guard (shared by every release workflow; tests/release_level pins it)
+            if git rev-parse -q --verify "refs/tags/v$STABLE" >/dev/null; then
+              echo "::error::v$STABLE already exists — a hotfix shipped this base. Re-promote staging with Release-Level: patch (or higher) before releasing." >&2
+              exit 1
+            fi
+            LATEST_STABLE="$(git tag --list 'v*' | sed -n 's/^v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$/\1/p' | sort -V | tail -n 1)"
+            if [ -n "$LATEST_STABLE" ] && [ "$(printf '%s\n%s\n' "$LATEST_STABLE" "$STABLE" | sort -V | tail -n 1)" != "$STABLE" ]; then
+              echo "::error::v$STABLE is below the latest release v$LATEST_STABLE — a hotfix shipped a higher base, so finalizing would downgrade. Re-promote staging with Release-Level: patch (or higher) before releasing." >&2
+              exit 1
+            fi
+            # <<< finalize-guard
+            python "$FINALIZE"
+            git add pyproject.toml
+            [ -f .claude-plugin/plugin.json ] && git add .claude-plugin/plugin.json
+            [ -f .codex-plugin/plugin.json ] && git add .codex-plugin/plugin.json
+            git commit -m "chore(release): $STABLE [skip ci]"
+            git tag "v$STABLE"
+            # Transient failures only, never a rebase: the version and notes came from this tree.
+            for attempt in 1 2 3; do
+              git push --atomic origin HEAD:__HARNESS_STABLE__ "v$STABLE" && break
+              [ "$attempt" -lt 3 ] || exit 1
+              sleep $((attempt * 5))
+            done
+          else
+            semantic-release version --commit --tag --push --changelog --no-vcs-release
+          fi
+          AFTER="$(git rev-parse HEAD)"
+          if [ "$BEFORE" != "$AFTER" ]; then echo "released=true" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Aggregate release result
+        id: sr
+        run: |
+          if [ "${{ steps.sr_pre.outputs.released }}" = "true" ] || [ "${{ steps.sr_stable.outputs.released }}" = "true" ]; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        if: ${{ steps.sr.outputs.released == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          TAG="$(git describe --tags --abbrev=0)"
+          PRERELEASE=""
+          [ "$REF_NAME" = "__HARNESS_PRERELEASE__" ] && PRERELEASE="--prerelease"
+          # Release body = the CHANGELOG.md section(s) for the version being released
+          # (semantic-release default path; grouped by type). For a clean body, exclude
+          # plumbing types via [tool.semantic_release.changelog] exclude_commit_patterns
+          # (chore/ci/refactor/style/test/build-non-deps/merge). awk keeps every LEADING
+          # section whose "## vX.Y.Z" core equals the tag core and drops the headers (merges
+          # multiple rc's into the stable body), then stops at the first older version. A
+          # top-section core mismatch / stale / missing changelog → empty → auto-notes
+          # fallback; `|| true` keeps errexit+pipefail from aborting the step. Custom
+          # changelog_file? adjust the path.
+          TCORE="$(printf '%s' "$TAG" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+          awk -v core="$TCORE" '/^## /{v=""; if (match($0,/[0-9]+\.[0-9]+\.[0-9]+/)) v=substr($0,RSTART,RLENGTH); if (v!=core) exit; seen=1; next} seen{print}' CHANGELOG.md > release-body.md 2>/dev/null || true
+          if [ -n "$TCORE" ] && [ -s release-body.md ] && grep -q '[^[:space:]]' release-body.md; then
+            gh release create "$TAG" --title "$TAG" --notes-file release-body.md $PRERELEASE
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes $PRERELEASE
+          fi
+
+      - name: Expose released tag
+        id: exposetag
+        run: |
+          if [ "${{ steps.sr.outputs.released }}" = "true" ]; then
+            echo "tag=$(git describe --tags --abbrev=0)" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Stable release notes from CHANGELOG
+        if: ${{ github.ref_name == '__HARNESS_STABLE__' && steps.exposetag.outputs.tag != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          HARNESS_SCRIPTS: .claude/harness-tier/scripts
+          TAG: ${{ steps.exposetag.outputs.tag }}
+        run: |
+          # >>> release-notes (shared by every release workflow; tests/release_level pins it)
+          if python3 "$HARNESS_SCRIPTS/changelog_section.py" extract --version "${TAG#v}" > stable-notes.md; then
+            gh release edit "$TAG" --notes-file stable-notes.md \
+              || echo "::warning::could not replace the $TAG release notes with its CHANGELOG section"
+          else
+            echo "no stable ${TAG} section in CHANGELOG.md — keeping the release notes as created"
+          fi
+          # <<< release-notes
+
+  # __HARNESS_DEPLOY_BEGIN__ (managed by /harness-deployments · /flow-init — do not edit inside)
+  # __HARNESS_DEPLOY_END__
