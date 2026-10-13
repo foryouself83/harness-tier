@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.4.7-rc.1 (2026-10-13)
+
+### Bug Fixes
+
+- **release**: Retry release pushes, tag atomic
+  ([`20a432e`](https://github.com/foryouself83/harness-tier/commit/20a432e8f40dbf72cc606aa98638c72141f7d1ae))
+
+
 ## v0.4.6 (2026-10-13)
 
 ### Bug Fixes
