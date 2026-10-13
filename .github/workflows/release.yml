@@ -1,6 +1,6 @@
 # Semantic version release — on main(stable)/stage(rc) push, parse feat/fix to bump the version.
-# Tightly coupled: plugin.json version is the update-gating SSOT. The main release immutably pins
-# the marketplace source.sha to the release commit (pin-to-parent). The release commit uses [skip ci] to
+# Tightly coupled: plugin.json version is the update-gating SSOT. The main release rebuilds
+# the `plugin` branch from the release commit and immutably pins both marketplaces' sha to it. The release commit uses [skip ci] to
 # prevent loops. The pin/Release steps run only when an actual release occurred (HEAD changed).
 # Prerequisite: repo Settings → Actions → Workflow permissions = "Read and write".
 name: release
@@ -159,18 +159,52 @@ jobs:
             echo "released=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Pin marketplace sha to release commit (main only)
+      # Consumers install from the `plugin` branch, whose root is the plugin alone: the plugin
+      # directories' validators read every file a source names, and tests/CI are not the plugin.
+      - name: Publish the plugin branch (main only)
+        id: dist
         if: ${{ github.ref_name == 'main' && steps.sr.outputs.released == 'true' }}
         run: |
-          RELEASE_SHA="$(git rev-parse HEAD)"   # the release commit semantic-release made (includes the plugin.json version)
-          python .github/scripts/pin-marketplace-sha.py "$RELEASE_SHA"
-          git add .claude-plugin/marketplace.json
+          SRC_SHA="$(git rev-parse HEAD)"   # the release commit (carries the plugin.json version)
+          VERSION="$(python3 -c 'import json; print(json.load(open(".claude-plugin/plugin.json"))["version"])')"
+          DIST="$RUNNER_TEMP/plugin-dist"
+          ZIP="$RUNNER_TEMP/harness-tier-codex-$VERSION.zip"
+          python3 .github/scripts/plugin_dist.py build "$DIST" --codex-zip "$ZIP"
+          WT="$RUNNER_TEMP/plugin-wt"
+          # Exit 2 is "no such branch"; any other failure must not start a fresh orphan history.
+          rc=0; git ls-remote --exit-code --heads origin plugin >/dev/null || rc=$?
+          case "$rc" in
+            0) git fetch --quiet origin plugin && git worktree add -B plugin "$WT" FETCH_HEAD ;;
+            2) git worktree add --orphan -b plugin "$WT" ;;
+            *) echo "::error::cannot read origin's plugin branch (ls-remote exit $rc)"; exit 1 ;;
+          esac
+          find "$WT" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -a "$DIST/." "$WT/"
+          git -C "$WT" add -A
+          if git -C "$WT" diff --cached --quiet; then
+            echo "plugin branch already matches v$VERSION"
+          else
+            git -C "$WT" commit -m "chore(release): plugin $VERSION" -m "Built from $SRC_SHA."
+          fi
+          for attempt in 1 2 3; do
+            git -C "$WT" push origin plugin && break
+            [ "$attempt" -lt 3 ] || exit 1
+            sleep $((attempt * 5))
+          done
+          echo "sha=$(git -C "$WT" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+
+      - name: Pin both marketplaces to the plugin branch (main only)
+        if: ${{ steps.dist.outputs.sha != '' }}
+        run: |
+          python3 .github/scripts/plugin_dist.py pin "${{ steps.dist.outputs.sha }}"
+          git add .claude-plugin/marketplace.json .agents/plugins/marketplace.json
           if git diff --cached --quiet; then
             echo "marketplace sha already current"
             exit 0
           fi
           git commit -m "chore(release): pin marketplace sha [skip ci]" \
-            -m "Pin source.sha to the commit just released (which carries the plugin.json version)."
+            -m "Pin both marketplaces to the plugin-branch commit built from this release."
           # A remote that moved since checkout rejects the push: rebase onto it, bounded.
           for attempt in 1 2 3; do
             git push origin HEAD:main && break
@@ -226,6 +260,13 @@ jobs:
           else
             gh release create "$TAG" --title "$TAG" --generate-notes $PRERELEASE
           fi
+
+      # OpenAI's plugin directory takes a ZIP upload, not a repository.
+      - name: Attach the Codex directory package (main only)
+        if: ${{ steps.dist.outputs.zip != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: gh release upload "$(git describe --tags --abbrev=0)" "${{ steps.dist.outputs.zip }}" --clobber
 
       - name: Stable release notes from CHANGELOG
         if: ${{ github.ref_name == 'main' && steps.sr.outputs.released == 'true' }}

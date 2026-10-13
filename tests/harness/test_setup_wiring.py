@@ -87,6 +87,39 @@ def test_codex_setup_registers_both(tmp_path):
     assert settings["hooks"]["PreToolUse"]
 
 
+def test_codex_setup_installs_the_session_hooks_it_registers(tmp_path):
+    """The Codex package ships no lifecycle hooks; the host hooks.json names copies under
+    .claude/harness-tier/, which must run as they do from the plugin root."""
+    _cfg(tmp_path, "harnesses: [claude, codex]\n")
+    assert fis.run_setup(tmp_path, PLUGIN)
+    hooks = json.loads((tmp_path / ".codex/hooks.json").read_text(encoding="utf-8"))["hooks"]
+    assert hooks["SessionStart"] and hooks["PostToolUse"]
+    root = tmp_path / ".claude/harness-tier"
+    for rel in (
+        "hooks/inject-risk-tiers.sh",
+        "hooks/invalidate-gate-markers.sh",
+        "hooks/codex/run-hook.cmd",
+        "rules/risk-tiers.md",
+        "rules/harness-tools/codex.md",
+        "scripts/harness/codex/hook_io.py",
+    ):
+        assert (root / rel).read_bytes() == (PLUGIN / rel).read_bytes(), rel
+
+
+def test_uninstall_removes_the_codex_session_hooks(tmp_path):
+    _cfg(tmp_path, "harnesses: [claude, codex]\n")
+    fis.run_setup(tmp_path, PLUGIN)
+    assert fis.run_uninstall(tmp_path)
+    assert not (tmp_path / ".codex/hooks.json").exists()
+    assert not (tmp_path / ".claude/harness-tier").exists()
+
+
+def test_claude_only_setup_copies_no_session_hooks(tmp_path):
+    assert fis.run_setup(tmp_path, PLUGIN)
+    assert not (tmp_path / ".claude/harness-tier/hooks").exists()
+    assert not (tmp_path / ".claude/harness-tier/rules").exists()
+
+
 def test_codex_setup_relays_trust_notes(tmp_path, capsys):
     _cfg(tmp_path, "harnesses: [claude, codex]\n")
     fis.run_setup(tmp_path, PLUGIN)

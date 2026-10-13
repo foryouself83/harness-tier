@@ -313,7 +313,7 @@ def test_voiding_two_trees_names_each_gate_once(tmp_path: Path):
     assert "voided the review, doc-sync gate evidence" in context, context
 
 
-HOOKS_JSON = REPO / "hooks" / "hooks.json"
+HOOKS_JSON = REPO / "hooks" / "claude" / "hooks.json"
 
 EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 

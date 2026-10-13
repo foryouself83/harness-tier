@@ -6,10 +6,11 @@ from pathlib import Path
 import pytest
 
 import scripts.teams_alert as ta
+from scripts.harness.codex import install as codex_install
 
 ROOT = Path(__file__).resolve().parents[2]
-CLAUDE = json.loads((ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
-CODEX = json.loads((ROOT / "hooks" / "codex" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
+CLAUDE = json.loads((ROOT / "hooks" / "claude" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
+CODEX = {event: [entry] for event, entry in codex_install.SESSION_ENTRIES.items()}
 
 
 @pytest.mark.parametrize("hooks", [CLAUDE, CODEX], ids=["claude", "codex"])
