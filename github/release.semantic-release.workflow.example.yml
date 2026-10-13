@@ -90,7 +90,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "v$NEXT" -m "release v$NEXT (Release-Level)"
-          git push origin "v$NEXT"
+          # Transient failures only, never a rebase: the version came from this tree.
+          for attempt in 1 2 3; do
+            git push origin "v$NEXT" && break
+            [ "$attempt" -lt 3 ] || exit 1
+            sleep $((attempt * 5))
+          done
           gh release create "v$NEXT" --title "v$NEXT" --generate-notes --prerelease
           echo "released=true" >> "$GITHUB_OUTPUT"
           echo "tag=v$NEXT" >> "$GITHUB_OUTPUT"
