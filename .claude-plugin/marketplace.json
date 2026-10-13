@@ -2,14 +2,25 @@
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "harness-tier",
   "description": "harness-tier Claude Code plugin marketplace",
-  "owner": { "name": "foryouself83", "email": "foryouself83@gmail.com", "url": "https://github.com/foryouself83" },
+  "owner": {
+    "name": "foryouself83",
+    "email": "foryouself83@gmail.com",
+    "url": "https://github.com/foryouself83"
+  },
   "plugins": [
     {
       "name": "harness-tier",
       "description": "harness-tier risk-tiered workflow + Teams notification harness",
-      "author": { "name": "foryouself83" },
+      "author": {
+        "name": "foryouself83"
+      },
       "category": "workflow",
-      "source": { "source": "github", "repo": "foryouself83/harness-tier", "sha": "63ab0fe5485884a974521bc3789cc82c0608091a" }
+      "source": {
+        "source": "github",
+        "repo": "foryouself83/harness-tier",
+        "ref": "plugin",
+        "sha": "db5964080c22b4b7bcc2c83842567e102ed135a2"
+      }
     }
   ]
 }

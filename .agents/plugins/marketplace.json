@@ -9,8 +9,8 @@
       "source": {
         "source": "url",
         "url": "https://github.com/foryouself83/harness-tier.git",
-        "ref": "main",
-        "sha": "63ab0fe5485884a974521bc3789cc82c0608091a"
+        "ref": "plugin",
+        "sha": "db5964080c22b4b7bcc2c83842567e102ed135a2"
       },
       "policy": {
         "installation": "AVAILABLE",
