@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.4.7 (2026-10-13)
+
+### Bug Fixes
+
+- **release**: A release commit and its tag push in one `git push --atomic`,
+  retried up to three attempts, so a transient push failure no longer
+  leaves a released branch without its tag; the python-semantic-release,
+  semantic-release and gitversion templates push the same way
+- **release**: The marketplace-sha pin and uv.lock sync pushes retry up
+  to three attempts, rebasing onto a remote that moved, instead of
+  failing the release run on one rejection
+
+
 ## v0.4.6 (2026-10-13)
 
 ### Bug Fixes

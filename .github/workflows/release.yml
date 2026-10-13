@@ -104,8 +104,12 @@ jobs:
             if ! git diff --cached --quiet -- CHANGELOG.md; then
               git commit --amend --no-edit && git tag -f "v$NEXT"
             fi
-            git push origin HEAD:"$REF_NAME"
-            git push origin "v$NEXT"
+            # Transient failures only, never a rebase: the version and notes came from this tree.
+            for attempt in 1 2 3; do
+              git push --atomic origin HEAD:"$REF_NAME" "v$NEXT" && break
+              [ "$attempt" -lt 3 ] || exit 1
+              sleep $((attempt * 5))
+            done
           fi
           AFTER="$(git rev-parse HEAD)"
           [ "$BEFORE" != "$AFTER" ] && echo "released=true" >> "$GITHUB_OUTPUT" || echo "no release"
@@ -135,8 +139,12 @@ jobs:
             [ -f .codex-plugin/plugin.json ] && git add .codex-plugin/plugin.json
             git commit -m "chore(release): $STABLE [skip ci]"
             git tag "v$STABLE"
-            git push origin HEAD:main
-            git push origin "v$STABLE"
+            # Transient failures only, never a rebase: the version and notes came from this tree.
+            for attempt in 1 2 3; do
+              git push --atomic origin HEAD:main "v$STABLE" && break
+              [ "$attempt" -lt 3 ] || exit 1
+              sleep $((attempt * 5))
+            done
           else
             echo "no prerelease to finalize (hotfix) — plain compute"
             semantic-release version --commit --tag --push --changelog --no-vcs-release
@@ -163,7 +171,13 @@ jobs:
           fi
           git commit -m "chore(release): pin marketplace sha [skip ci]" \
             -m "Pin source.sha to the commit just released (which carries the plugin.json version)."
-          git push origin HEAD:main
+          # A remote that moved since checkout rejects the push: rebase onto it, bounded.
+          for attempt in 1 2 3; do
+            git push origin HEAD:main && break
+            [ "$attempt" -lt 3 ] || exit 1
+            sleep $((attempt * 5))
+            git pull --rebase origin main
+          done
 
       - name: Sync uv.lock to released version
         if: ${{ steps.sr.outputs.released == 'true' }}
@@ -177,7 +191,13 @@ jobs:
           fi
           git commit -m "chore(release): sync uv.lock [skip ci]" \
             -m "Align uv.lock's project version with the released version (semantic-release only bumps pyproject/plugin.json)."
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+          # A remote that moved since checkout rejects the push: rebase onto it, bounded.
+          for attempt in 1 2 3; do
+            git push origin "HEAD:${GITHUB_REF_NAME}" && break
+            [ "$attempt" -lt 3 ] || exit 1
+            sleep $((attempt * 5))
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+          done
 
       - name: Create GitHub Release
         if: ${{ steps.sr.outputs.released == 'true' }}

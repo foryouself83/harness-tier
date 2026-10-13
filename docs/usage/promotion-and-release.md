@@ -186,5 +186,8 @@ with no `RELEASE_TOKEN` secret it runs on the default `GITHUB_TOKEN`.
    repository secret `RELEASE_TOKEN`. No workflow edit is needed.
 
 The rendered workflows have no token preflight: a read-only token fails at the push.
+Each release push the workflow issues itself retries up to 3 times on a transient failure and
+never rebases; where it pushes a release commit, commit and tag go up in one atomic push, so a
+failed release leaves neither on the remote.
 `/release-commit` runs `check-token-write.sh` during a Staging promotion and warns first when
 it can tell.
