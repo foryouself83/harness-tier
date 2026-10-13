@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v0.4.9 (2026-10-13)
+
+### Bug Fixes
+
+- **dist**: The gate parser's comments describe the pipe and
+  process-substitution cases in prose, so the plugin directory's scan
+  no longer reports a download-and-execute pattern in the plugin.
+
+
 ## v0.4.8 (2026-10-13)
 
 ### Features
