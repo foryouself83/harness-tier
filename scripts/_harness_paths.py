@@ -651,8 +651,8 @@ _QUOTING_RE = re.compile(r"\\?[\"'`]")
 # Where one element of a command list ends. The net reads ONE element: an interpreter in
 # another element does not make this one's quoted text a script, and reading the whole
 # string instead denies every read-only command that runs beside a python or a bash.
-# A pipe is NOT a boundary — `printf '…' | bash` puts the script in the element before its
-# interpreter.
+# A pipe is NOT a boundary — piping text into an interpreter puts the script in the element
+# before that interpreter.
 _LIST_SEPARATOR_RE = re.compile(r"&&|\|\||[;\n]")
 # A heredoc introducer. The delimiter is ONE WORD — quoted and unquoted pieces concatenated,
 # ending at a blank or a metacharacter, exactly as the shell reads it — and group 2 is that word
@@ -1241,7 +1241,7 @@ def _uncommented(command: str) -> str:
 def _substitutions(masked: str) -> list[tuple[int, int]]:
     """Where each `$( … )`, backtick, and process-substitution `<( … )` / `>( … )` span sits on
     the mask, outermost first. Used ONLY to keep _list_elements from splitting inside one — a
-    `;` in `bash <(echo; …)` is not a list boundary. _SUBSTITUTION_RE (the reads-only check) is
+    `;` inside a process substitution is not a list boundary. _SUBSTITUTION_RE (the reads-only check) is
     separate and unchanged: a `<(…)`'s output is a filename, not a command, so `cat <(…)` stays
     a reader."""
     spans, i, n = [], 0, len(masked)
