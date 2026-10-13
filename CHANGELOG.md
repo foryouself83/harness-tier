@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.4.8-rc.1 (2026-10-13)
+
+### Features
+
+- **dist**: Ship a plugin-only tree for both hosts
+  ([`e848dc7`](https://github.com/foryouself83/harness-tier/commit/e848dc72a58e35420d5ebb041c68fefc5a221cb1))
+
+
 ## v0.4.7 (2026-10-13)
 
 ### Bug Fixes
