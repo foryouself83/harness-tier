@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.4.9-rc.1 (2026-10-13)
+
+### Bug Fixes
+
+- **dist**: Word parser comments without shell samples
+  ([`0f0fa36`](https://github.com/foryouself83/harness-tier/commit/0f0fa36b6bf5604211e380b4aa3f883e5d73655e))
+
+
 ## v0.4.8 (2026-10-13)
 
 ### Features
