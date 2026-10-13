@@ -369,13 +369,16 @@ def copy_artifacts(plugin: Path, host: Path, harnesses=("claude",)) -> list[str]
 def _copy_root_files(plugin: Path, host: Path, harnesses) -> list[str]:
     """HARNESS_ROOT_FILES and HARNESS_ROOT_DIRS, under HARNESS_DIR at their plugin path."""
     rels = [rel for name in harnesses for rel in HARNESS_ROOT_FILES.get(name, [])]
+    report = []
     for name in harnesses:
         for top in HARNESS_ROOT_DIRS.get(name, []):
             found = sorted((plugin / top).rglob("*.md")) if (plugin / top).is_dir() else []
             if not found:
                 rels.append(top)
-            rels.extend(p.relative_to(plugin).as_posix() for p in found)
-    report = []
+                continue
+            shipped = [p.relative_to(plugin).as_posix() for p in found]
+            rels.extend(shipped)
+            report.extend(_drop_unshipped(host, top, set(shipped)))
     for rel in rels:
         src = plugin / rel
         if not src.is_file():
@@ -391,6 +394,33 @@ def _copy_root_files(plugin: Path, host: Path, harnesses) -> list[str]:
             report.append(f"  [!] 복사 실패({_why(exc)}): {rel}")
             continue
         report.append(f"  [+] 복사: {rel}")
+    return report
+
+
+def _drop_unshipped(host: Path, top: str, shipped: set[str]) -> list[str]:
+    """A rule the plugin stopped shipping, removed from the host copy: the session hook names
+    that directory as where the linked rules live, so a leftover reads as one in force."""
+    base = host / HARNESS_DIR
+    here = base / top
+    try:
+        # Real path, not containment: a committed link at any level of the path would turn this
+        # onto whatever directory it names, and a deletion there cannot be undone.
+        if Path(os.path.realpath(here)) != Path(os.path.realpath(host)) / HARNESS_DIR / top:
+            return []
+        olds = sorted(here.rglob("*.md")) if here.is_dir() else []
+    except OSError:
+        return []
+    report = []
+    for old in olds:
+        rel = old.relative_to(base).as_posix()
+        if rel in shipped or old.is_symlink():
+            continue
+        try:
+            old.unlink()
+        except OSError as exc:
+            report.append(f"  [!] 삭제 실패({_why(exc)}): {rel}")
+            continue
+        report.append(f"  [-] 삭제: {rel} (플러그인에서 빠짐)")
     return report
 
 
@@ -1634,6 +1664,18 @@ def _gate_problems(host: Path, plugin: Path, harnesses=("claude",)) -> list[str]
     problems.extend(_claude.problems(host))
     if "codex" in harnesses:
         problems.extend(harness.installer("codex").problems(host))
+        hooks_missing = [
+            Path(rel).name
+            for rel in HARNESS_ROOT_FILES["codex"]
+            if not _installed(host, plugin, f"{HARNESS_DIR}/{rel}", rel)
+        ]
+        if hooks_missing:
+            problems.append(
+                "Codex 세션 훅이 실행하는 파일이 호스트에 없거나 손상됐습니다("
+                + ", ".join(hooks_missing)
+                + ") — 편집 후에도 게이트 증거가 무효화되지 않습니다."
+                " 위 [!] 를 해결한 뒤 /flow-init 를 다시 실행하세요."
+            )
     return problems
 
 
