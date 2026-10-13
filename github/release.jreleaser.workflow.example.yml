@@ -38,8 +38,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-      - name: Install JReleaser CLI
-        run: curl -sSfL https://jreleaser.org/setup.sh | sh
       - name: Compute next version
         id: ver
         env:
@@ -86,7 +84,9 @@ jobs:
           # such option there) — the env var is JReleaser's documented JRELEASER_<KEY> override
           # for `project.version` and is picked up without a CLI flag.
           JRELEASER_PROJECT_VERSION: ${{ steps.ver.outputs.version }}
-        run: jreleaser full-release
+        uses: jreleaser/release-action@v2
+        with:
+          arguments: full-release
 
       - name: Expose released tag
         id: exposetag

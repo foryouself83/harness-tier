@@ -19,7 +19,7 @@ def _injected_session_text() -> str:
     Narrowing that matcher would end the help while both files still named the skills, so this
     returns "" in that case — the reverse check then reports the caveat as stale, which is what
     it would be."""
-    hooks = json.loads((REPO / "hooks/hooks.json").read_text(encoding="utf-8"))
+    hooks = json.loads((REPO / "hooks/claude/hooks.json").read_text(encoding="utf-8"))
     registered = any(
         "startup" in (entry.get("matcher") or "")
         and any("inject-risk-tiers" in h.get("command", "") for h in entry.get("hooks") or [])

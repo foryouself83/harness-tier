@@ -13,6 +13,11 @@ import re
 from pathlib import Path
 
 try:
+    from _harness_paths import HARNESS_DIR
+except ImportError:
+    from scripts._harness_paths import HARNESS_DIR
+
+try:
     from harness.gate_spec import GATE
     from harness.jsonfile import load_json_object, why, write_json, write_or_remove
 except ImportError:
@@ -37,6 +42,36 @@ GATE_HOOK = {
 GATE_ENTRY = {"matcher": "Bash", "hooks": [GATE_HOOK]}
 MARKER = ("harness-tier", "harness/codex/gate")
 ALLOWED_TOP = {"description", "hooks"}
+
+# The session hooks live here, not in the plugin: OpenAI's plugin directory refuses a package
+# that carries lifecycle hooks. /flow-init copies the scripts under HARNESS_DIR/hooks/.
+_HOOKS_ROOT = f"$(git rev-parse --show-toplevel)/{HARNESS_DIR}/hooks"
+
+
+def _session_hook(script: str, timeout: int, **extra) -> dict:
+    return {
+        "type": "command",
+        "command": f'bash "{_HOOKS_ROOT}/{script}" --harness codex',
+        "commandWindows": f'& "{_HOOKS_ROOT}/codex/run-hook.cmd" {script} --harness codex',
+        "timeout": timeout,
+        **extra,
+    }
+
+
+SESSION_ENTRIES = {
+    "SessionStart": {
+        "matcher": "startup|resume|clear|compact|fork",
+        "hooks": [_session_hook("inject-risk-tiers.sh", 30, additionalContextLimit=0)],
+    },
+    "PostToolUse": {
+        "matcher": "apply_patch|Bash",
+        "hooks": [_session_hook("invalidate-gate-markers.sh", 10)],
+    },
+}
+SESSION_SCRIPTS = {
+    event: entry["hooks"][0]["command"].split("/hooks/", 1)[1].split('"', 1)[0]
+    for event, entry in SESSION_ENTRIES.items()
+}
 
 # Codex's own matcher grammar (sourced from codex-rs): a matcher spelled only with [A-Za-z0-9_|]
 # is an exact `|`-separated list of tool names; anything else — including a comma, a hyphen or a
@@ -188,6 +223,143 @@ def unregister(host: Path) -> str:
     return "  [-] Codex 커밋 게이트 해제 (.codex/hooks.json)"
 
 
+def _is_session(hook: object, event: str) -> bool:
+    return (
+        isinstance(hook, dict)
+        and isinstance(hook.get("command"), str)
+        and "harness-tier" in hook["command"]
+        and f"/hooks/{SESSION_SCRIPTS[event]}" in hook["command"]
+    )
+
+
+def _load_session(host: Path) -> tuple[dict | None, str | None]:
+    data, err = load_json_object(_path(host), ".codex/hooks.json")
+    if data is None:
+        return None, err
+    if set(data) - ALLOWED_TOP:
+        return None, (
+            "  [!] .codex/hooks.json 에 description·hooks 외 키가 있어 Codex 가 파일 전체를"
+            " 읽지 않습니다 — 수동 확인 필요"
+        )
+    hooks = data.get("hooks", {})
+    if not isinstance(hooks, dict) or any(
+        not isinstance(hooks.get(event, []), list) for event in SESSION_ENTRIES
+    ):
+        return None, "  [!] .codex/hooks.json hooks 형식 비정상 — 세션 훅 미등록(수동 확인)"
+    return data, None
+
+
+def register_session(host: Path) -> str:
+    """Register the SessionStart and PostToolUse hooks. Skip one already present; repair a
+    stale one in place, so its position — part of what /hooks approval keys on — stays."""
+    data, err = _load_session(host)
+    if data is None:
+        return err
+    changed = added = False
+    for event, want in SESSION_ENTRIES.items():
+        entries = data.setdefault("hooks", {}).setdefault(event, [])
+        ours = [
+            h
+            for e in entries
+            if isinstance(e, dict) and isinstance(e.get("hooks"), list)
+            for h in e["hooks"]
+            if _is_session(h, event)
+        ]
+        if not ours:
+            entries.append(copy.deepcopy(want))
+            changed = added = True
+            continue
+        for h in ours:
+            if h != want["hooks"][0]:
+                h.clear()
+                h.update(copy.deepcopy(want["hooks"][0]))
+                changed = True
+        for e in entries:
+            if (
+                isinstance(e, dict)
+                and e.get("hooks") == want["hooks"]
+                and e.get("matcher") != want["matcher"]
+            ):
+                e["matcher"] = want["matcher"]
+                changed = True
+    if not changed:
+        return "  [=] Codex 세션 훅 이미 등록됨 (skip)"
+    try:
+        _path(host).parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return f"  [!] .codex 를 만들지 못했습니다({why(exc)}) — 수동 확인 필요"
+    failed = write_json(_path(host), data, host)
+    if failed:
+        return failed
+    verb = "등록" if added else "보정"
+    return (
+        f"  [+] Codex 세션 훅 {verb} (SessionStart·PostToolUse, .codex/hooks.json — Codex 의"
+        " /hooks 에서 승인해야 실행)"
+    )
+
+
+def unregister_session(host: Path) -> str:
+    if not _path(host).is_file():
+        return "  [=] Codex 세션 훅 없음 (skip)"
+    data, err = _load_session(host)
+    if data is None:
+        return err
+    hooks = data.setdefault("hooks", {})
+    removed = 0
+    for event in SESSION_ENTRIES:
+        kept_entries = []
+        for e in hooks.get(event, []):
+            if isinstance(e, dict) and isinstance(e.get("hooks"), list):
+                before = len(e["hooks"])
+                e["hooks"] = [h for h in e["hooks"] if not _is_session(h, event)]
+                removed += before - len(e["hooks"])
+                if before and not e["hooks"] and set(e) == {"matcher", "hooks"}:
+                    continue
+            kept_entries.append(e)
+        if kept_entries:
+            hooks[event] = kept_entries
+        else:
+            hooks.pop(event, None)
+    if not removed:
+        return "  [=] Codex 세션 훅 없음 (skip)"
+    if not hooks and set(data) <= {"hooks"} and not _path(host).is_symlink():
+        data.clear()
+    failed, dropped = write_or_remove(_path(host), data, host, ".codex/hooks.json")
+    if failed:
+        return failed
+    if dropped:
+        return "  [-] Codex 세션 훅 해제 (.codex/hooks.json 삭제 — 남은 훅 없음)"
+    return "  [-] Codex 세션 훅 해제 (.codex/hooks.json)"
+
+
+def session_hooks_remain(host: Path) -> bool:
+    try:
+        raw = _path(host).read_bytes().decode("utf-8", "replace")
+    except OSError:
+        return False
+    return "harness-tier" in raw and any(f"/hooks/{s}" in raw for s in SESSION_SCRIPTS.values())
+
+
+def _session_problems(data: dict) -> list[str]:
+    hooks = data.get("hooks", {})
+    missing = [
+        event
+        for event, want in SESSION_ENTRIES.items()
+        if not any(
+            isinstance(e, dict)
+            and isinstance(e.get("hooks"), list)
+            and want["hooks"][0] in e["hooks"]
+            for e in (hooks.get(event, []) if isinstance(hooks, dict) else [])
+        )
+    ]
+    if not missing:
+        return []
+    return [
+        f"Codex 세션 훅({'·'.join(missing)})이 .codex/hooks.json 에 없습니다 — 규칙 주입·게이트"
+        " 증거 무효화가 동작하지 않습니다. /flow-init 를 다시 실행하세요."
+    ]
+
+
 def problems(host: Path) -> list[str]:
     data, _err = _load(host)
     if data is None:
@@ -195,6 +367,7 @@ def problems(host: Path) -> list[str]:
             ".codex/hooks.json 을 읽지 못해 Codex 커밋 게이트를 확인할 수 없습니다 — 위 [!] 를"
             " 해결한 뒤 /flow-init 를 다시 실행하세요."
         ]
+    session = _session_problems(data)
     # A gate hook sitting under a matcher that never reaches Bash is not the gate, regardless
     # of how faithfully its command string matches — same tri-state reading as the Claude
     # installer's matcher check: only a matcher this can prove misses Bash disqualifies it.
@@ -206,10 +379,11 @@ def problems(host: Path) -> list[str]:
         for e in _entries(data)
     )
     if firing:
-        return []
+        return session
     return [
         "Codex 커밋 게이트가 .codex/hooks.json 에 없습니다 — 위 [!] 를 해결한 뒤 /flow-init 를"
-        " 다시 실행하세요."
+        " 다시 실행하세요.",
+        *session,
     ]
 
 

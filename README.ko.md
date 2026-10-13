@@ -171,10 +171,23 @@ pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre
 > [승격과 릴리스 → 릴리스 토큰 쓰기 권한](docs/usage/promotion-and-release.ko.md#릴리스-토큰-쓰기-권한)
 > 참고.
 
+## 실행하고 내보내는 것
+
+- **훅은 로컬에서만 실행됨.** 플러그인 안의 Bash·Python 스크립트: 세션 시작 시 규칙 주입,
+  편집 후 게이트 증거 무효화, `/flow-init` 이 등록하는 커밋 게이트. 네트워크에 접속하는 훅은
+  Teams 알림 훅뿐이고, 웹훅을 등록한 뒤에만 접속함.
+- **외부 호출은 사용자가 설정한 곳에만 감:** 사용자가 등록한 웹훅 URL
+  ([Teams](docs/usage/teams.ko.md))로 보내는 Teams 카드, `flow-config.yaml` 의 `design_docs.renderer` URL
+  (예시는 `https://kroki.io`)을 통한 다이어그램 렌더링.
+- **생성된 CI 워크플로**는 저장소의 GitHub Actions 에서 사용자 자신의 시크릿으로 실행됨
+  (`api.github.com` 에 대한 `GITHUB_TOKEN`, 레지스트리에 대한 그 레지스트리 토큰). 플러그인은
+  사용자 머신의 자격 증명을 읽지 않음.
+
 ## 갱신·제거
 
 - **갱신** — 플러그인이 업데이트돼도 호스트의 스크립트 사본은 자동으로 바뀌지 않음.
-  `/flow-init` 을 다시 실행하면 재동기화됨(설정값·웹훅은 보존).
+  `/flow-init` 을 다시 실행하면 재동기화됨(설정값·웹훅은 보존). Codex 플러그인이 세션 훅을
+  담던 버전으로 설정한 Codex 호스트는 이 재실행으로 세션 훅을 되찾음.
 - **제거** — ⚠️ **`/plugin uninstall` 전에 반드시 `/flow-uninstall` 을 먼저 실행할 것.** 정리
   도구가 플러그인 안에 있어, 플러그인을 먼저 지우면 호스트에 남은 설정을 자동으로 치울 수 없음.
 

@@ -2,6 +2,23 @@
 
 <!-- version list -->
 
+## v0.4.8 (2026-10-13)
+
+### Features
+
+- **dist**: Consumers install a plugin-only tree from the `plugin`
+  branch; each main release rebuilds it, pins both the Claude Code and
+  Codex marketplaces to it, and attaches a hook-free Codex package for
+  OpenAI's plugin directory.
+- **codex**: `/flow-init` registers the SessionStart and PostToolUse
+  hooks in the host's `.codex/hooks.json` (the Codex plugin carries no
+  lifecycle hook), fails setup when a hook script is missing, and drops
+  host copies of retired rules. Codex hosts re-run `$flow-init` after
+  updating; `$flow` stops until they do.
+- **plugin**: listing icon, Codex listing fields, and a README section
+  on what the plugin runs and sends.
+
+
 ## v0.4.7 (2026-10-13)
 
 ### Bug Fixes

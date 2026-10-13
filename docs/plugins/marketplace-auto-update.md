@@ -16,12 +16,25 @@ If any one is missing, the background update is silently skipped (no error, no p
   `source.sha`, so a reinstall is triggered **only when this sha string changes**.
 - Because it is a **public repository**, the background fetch needs no separate authentication (token · credential helper).
 
-## Release — automatic sha pin (distributor)
+## Release — the plugin branch and its pin (distributor)
 
-`marketplace.json`'s `source.sha` is the effective pin, and consumer auto-update triggers a reinstall only when this sha
-changes (§2). On every main push, `release.yml`'s `pin-marketplace-sha.py`
-automatically updates and commits the sha to the released commit.
+Consumers install from the `plugin` branch, whose root is the plugin alone
+(`.github/scripts/plugin_dist.py` holds the shipped list): Anthropic's and OpenAI's directory
+validators read every file a plugin source names, and tests, CI and evals are not the plugin. On
+a main release `release.yml` rebuilds that branch from the release commit, then pins
+`source.sha` in both `.claude-plugin/marketplace.json` and `.agents/plugins/marketplace.json`
+to the new branch commit, with `ref: plugin`. Until the first such release both name the same
+main commit — Claude's with no `ref`, Codex's with `ref: main`: a `ref` naming a branch that does
+not exist yet would break every install in between.
 
 - **Prerequisite**: repository Settings → Actions → Workflow permissions = **Read and write** (see [Promotion and release → Release token write permission](../usage/promotion-and-release.md#release-token-write-permission)).
-- If the Action is off or when updating manually: commit · push the code → confirm the sha with `git rev-parse HEAD` →
-  update `marketplace.json`'s `source.sha` to that value · commit · push.
+- If the Action is off or when updating by hand:
+  `python3 .github/scripts/plugin_dist.py build <dir>` → commit `<dir>` as the `plugin` branch ·
+  push → `python3 .github/scripts/plugin_dist.py pin <that sha>` → commit · push main.
+
+## Directory submissions
+
+- **Anthropic** — repository `foryouself83/harness-tier`, tracked branch `plugin`, plugin path
+  empty (the branch root). The directory follows the branch for new versions.
+- **OpenAI** — upload the `harness-tier-codex-<version>.zip` attached to the GitHub release. It
+  carries no lifecycle hook; `/flow-init` registers the Codex session hooks in the host.

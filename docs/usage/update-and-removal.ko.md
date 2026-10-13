@@ -47,7 +47,7 @@
 - `.gitignore` 의 harness-tier 줄 — 단 `.teams-webhooks.local.json` 은 남김: 어느 깊이에서나
   일치하므로 웹훅 비밀 파일이 커밋되는 것을 아직 막고 있을 수 있음;
 - `CLAUDE.md` 의 `harness-tier:teams` 블록;
-- `.codex/hooks.json` 의 Codex 게이트와 `AGENTS.md` 의 관리 지침 블록 — `harnesses` 에
+- `.codex/hooks.json` 의 Codex 세션 훅·게이트와 `AGENTS.md` 의 관리 지침 블록 — `harnesses` 에
   `codex` 가 아직 남아있는지와 무관함;
 - `.claude/harness-tier/` — 스크립트, 설정, 증거, 팀 공유 `teams-webhooks.json` 포함
   두 웹훅 파일 전부, 그리고 `templates/` 의 설계 문서 템플릿과 거기 한 편집까지 — 남기려면
@@ -81,8 +81,10 @@
    `bash "${CLAUDE_PROJECT_DIR:-.}/.claude/harness-tier/scripts/precommit-runner.sh"` 인
    `hooks.PreToolUse` 훅만 — 그것만 — 지우고, `extraKnownMarketplaces.harness-tier` 도
    지움. `.codex/hooks.json` 에서는 `command` 에 `harness-tier` 와 `harness/codex/gate` 를
-   둘 다 담은 `PreToolUse` 훅만 — 그것만 — 지움. 그 결과 항목의 `hooks` 목록이 비고 항목에
-   `matcher` 와 `hooks` 외의 것이 없을 때만 그 `PreToolUse` 항목을 지움. 그 뒤 `hooks` 가
+   둘 다 담은 `PreToolUse` 훅, `command` 에 `harness-tier/hooks/inject-risk-tiers.sh` 를 담은
+   `SessionStart` 훅, `harness-tier/hooks/invalidate-gate-markers.sh` 를 담은 `PostToolUse`
+   훅만 — 그것만 — 지움. 그 결과 항목의 `hooks` 목록이 비고 항목에 `matcher` 와 `hooks` 외의
+   것이 없을 때만 그 항목을 지움. 그 뒤 `hooks` 가
    비고 파일에 다른 최상위 키가 없을 때만 파일 자체를 지움 — 다른 훅은 그대로 둠.
 3. `.gitignore` 에서 `.claude/harness-tier/.flow/`, `.claude/harness-tier/scripts/**/__pycache__/`
    를 지움. `.teams-webhooks.local.json` 은 저장소에 그런 파일이 남아 있는 동안 유지함.

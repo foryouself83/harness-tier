@@ -119,6 +119,12 @@ mkdir -p .claude/harness-tier/.flow
 echo "<tier>:$(git branch --show-current)" > .claude/harness-tier/.flow/tier   # docs | dev
 ```
 
+**On Codex, the session hooks come first.** The Codex plugin carries no lifecycle hook;
+`/flow-init` registers them in `.codex/hooks.json`. When that file does not name
+`harness-tier/hooks/invalidate-gate-markers.sh`, stop and have the user run `$flow-init`:
+without that hook an edit after a review leaves the review's evidence standing, and the
+commit passes on it.
+
 ## Phase 3 — Dispatch
 
 Record each completed gate as `.claude/harness-tier/.flow/<gate>.done`. `precommit`

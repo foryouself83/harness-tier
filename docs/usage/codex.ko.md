@@ -2,7 +2,7 @@
 
 [English](codex.md) · **한국어** · [사용 설명서](../../USAGE.ko.md)
 
-harness-tier 의 플러그인 훅과 커밋 게이트는 Claude Code 뿐 아니라 Codex CLI 에도 설치됨. 이
+harness-tier 의 스킬·세션 훅·커밋 게이트는 Claude Code 뿐 아니라 Codex CLI 에도 설치됨. 이
 페이지는 [기본 설치](../../README.ko.md#설치) 이후 Codex 호스트에 추가로 필요한 것과, 동작이
 다른 지점을 다룸.
 
@@ -18,31 +18,36 @@ codex plugin add harness-tier@harness-tier
 
 ## 프로젝트 신뢰
 
-프로젝트 신뢰는 `.codex/hooks.json` 의 커밋 게이트를 포함해 `.codex/` 아래 전부를 좌우함:
-신뢰하지 않는 프로젝트는 그 디렉터리 전체를 경고 없이 무시함. 플러그인 자체 훅은 프로젝트
-신뢰 밖에 있어, 신뢰하지 않는 프로젝트에도 세션 시작 규칙은 주입되지만 커밋 게이트는 꺼진 채임 —
-세션은 커밋이 막힌다고 읽지만 실제로는 막히지 않음. Codex TUI 에서 폴더를
-신뢰하거나, `config.toml` 의 `[projects]` 아래 그 경로에 `trust_level = "trusted"` 를
-설정함. 신뢰는 훅 승인과는 별개 관문 — 플러그인 자체 훅이든 프로젝트 훅이든 비관리 훅은
-`/hooks` 에서 승인해야만 실행되고, 바뀐 훅은 재승인이 필요함.
+프로젝트 신뢰는 `.codex/` 아래 전부를 좌우하고, harness-tier 의 훅은 모두
+`.codex/hooks.json` 에 있음: 신뢰하지 않는 프로젝트는 그 디렉터리 전체를 경고 없이 무시함 —
+세션 시작 규칙도, 마커 무효화도, 커밋 게이트도 없음. Codex TUI 에서 폴더를 신뢰하거나,
+`config.toml` 의 `[projects]` 아래 그 경로에 `trust_level = "trusted"` 를 설정함. 신뢰는 훅
+승인과는 별개 관문 — 비관리 훅은 `/hooks` 에서 승인해야만 실행되고, 바뀐 훅은 재승인이 필요함.
 
 ## `/hooks` 에서 훅 승인
 
 Codex 가 승인하지 않은 훅은 없는 것처럼 동작함: 세션 시작 시 risk-tiers 주입, 편집마다의
 마커 무효화, 커밋 게이트 자체가 모두 막는 대신 조용히 넘어감. `/hooks` 를 열어
 `harness-tier` 의 항목을 승인한 뒤에야 기댈 수 있음. 승인은 훅의 내용 — 명령 문자열·이벤트·
-matcher·플랫폼 변형 — 과 파일 안의 위치에 매여 있어, 플러그인 갱신이 그중 하나를 바꾸면
-재승인이 필요하고, `.codex/hooks.json` 의 항목을 옮기거나 순서를 바꿔도 마찬가지임: 게이트
+matcher·플랫폼 변형 — 과 파일 안의 위치에 매여 있어, `/flow-init` 재동기화가 그중 하나를
+바꾸면 재승인이 필요하고, `.codex/hooks.json` 의 항목을 옮기거나 순서를 바꿔도 마찬가지임: 게이트
 앞에 끼워 넣은 자체 항목은 재승인 전까지 게이트를 침묵시킴. 무관한 플러그인 변경은 필요 없음.
 
-## `/flow-init` 으로 커밋 게이트 활성화
+## `/flow-init` 으로 훅과 커밋 게이트 활성화
+
+Codex 플러그인에는 lifecycle 훅이 없음 — OpenAI 플러그인 디렉터리가 훅을 담은 패키지를
+받지 않음 — 그래서 `/flow-init` 실행 전 Codex 세션은 스킬만 있고 세션 시작 규칙은 없음.
+`/flow-init` 은 호스트의 `.codex/hooks.json` 에 `SessionStart`·`PostToolUse` 훅을 등록하고,
+그 훅은 `.claude/harness-tier/` 아래에 복사한 훅 스크립트와 `rules/` 를 실행함. Codex
+플러그인이 훅을 직접 담던 버전으로 설정한 호스트는 플러그인 갱신으로 그 훅을 잃음:
+`$flow-init` 을 다시 실행함.
 
 Codex 안에서 실행한 `/flow-init` 은 묻지 않고 게이트를 Codex 에도 설치함 — 매 실행에서,
 Claude Code 에서 처음 설정한 호스트의 재실행도 포함함. Claude Code 에서 실행하면 첫 실행은
 `.codex/` 디렉터리를 찾거나 사용자가 Codex 를 언급할 때 묻고, 이후 실행은 재설정 메뉴에서
 "flow-config.yaml values" 를 고를 때만 Codex 를 추가함. 어느 쪽이든 `flow-config.yaml` 의
-`harnesses` 에 `codex` 가 들어가고, 호스트의 `.codex/hooks.json` 에 `Bash` `PreToolUse`
-훅으로 게이트를 등록함 — `.claude/settings.json` 의 Claude 쪽 등록과는 별개임.
+`harnesses` 에 `codex` 가 들어가고, 호스트의 `.codex/hooks.json` 에 세션 훅과 함께 `Bash`
+`PreToolUse` 훅으로 게이트를 등록함 — `.claude/settings.json` 의 Claude 쪽 등록과는 별개임.
 **Windows 도 Git for Windows 가 필요**: 게이트의 Windows 래퍼는 `git.exe` 가 속한 설치(scoop
 shim 이면 scoop 의 Git)나 `%ProgramFiles%\Git` 아래에서 Git 이 번들한 `bash.exe` 를 찾고, 없으면 조용히
 통과시키는 대신 **모든 커밋과 머지를 막음**.

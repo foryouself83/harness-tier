@@ -111,7 +111,7 @@ def test_unregister_keeps_a_file_with_user_hooks(tmp_path):
 def test_problems_names_a_missing_registration(tmp_path):
     assert any(".codex/hooks.json" in p for p in install.problems(tmp_path))
     install.register(tmp_path)
-    assert install.problems(tmp_path) == []
+    assert not [p for p in install.problems(tmp_path) if "커밋 게이트" in p]
 
 
 def test_problems_treats_a_non_firing_matcher_as_not_registered(tmp_path):
@@ -125,7 +125,7 @@ def test_problems_treats_an_exact_name_list_naming_bash_as_registered(tmp_path):
     (tmp_path / ".codex").mkdir()
     entry = {"matcher": "Read|Bash", "hooks": [install.GATE_HOOK]}
     (tmp_path / HOOKS).write_text(json.dumps({"hooks": {"PreToolUse": [entry]}}), encoding="utf-8")
-    assert install.problems(tmp_path) == []
+    assert not [p for p in install.problems(tmp_path) if "커밋 게이트" in p]
 
 
 @pytest.mark.parametrize(
@@ -150,7 +150,7 @@ def test_register_moves_a_gate_hook_out_of_a_non_firing_matcher(tmp_path):
     entries = data["hooks"]["PreToolUse"]
     assert {"matcher": "Read", "hooks": []} in entries
     assert install.GATE_ENTRY in entries
-    assert install.problems(tmp_path) == []
+    assert not [p for p in install.problems(tmp_path) if "커밋 게이트" in p]
 
 
 def test_register_leaves_an_undecided_matcher_alone_and_appends_its_own(tmp_path):

@@ -146,10 +146,11 @@ and posts it as deny JSON instead of an exit code. Three differences:
 - **An unapproved hook never fires.** The risk-tiers injection, the marker invalidation and
   the commit gate all skip in silence until `/hooks` approves them
   ([hook approval](codex.md#approve-the-hooks-in-hooks)).
-- **An untrusted project silently drops the commit gate.** `.codex/hooks.json` is ignored
-  wholesale when the project is untrusted, while the plugin's own SessionStart hook still
-  injects the rules — the session reads that commits are gated, and they are not
-  ([project trust](codex.md#trust-the-project)).
+- **An untrusted project silently drops every hook.** `.codex/hooks.json` is ignored wholesale
+  when the project is untrusted: no rules at session start, no marker invalidation, no commit
+  gate ([project trust](codex.md#trust-the-project)). A session with no rules on a trusted
+  project has not run `$flow-init` since the Codex plugin stopped carrying the hooks
+  ([`/flow-init`](codex.md#enable-the-hooks-and-the-commit-gate-with-flow-init)).
 - **Windows without Git Bash is blocked, not skipped.** The gate's Windows wrapper denies
   every commit and merge when it cannot find Git's bundled `bash.exe`, rather than the no-op
   under "missing shell tools" [above](#the-gate-does-nothing).

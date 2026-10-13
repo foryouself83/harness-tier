@@ -59,13 +59,16 @@ on the Windows hook runtime. A `.sh` checks out LF; other text files are CRLF in
 
 ## Folder structure
 
-`agents/`, `hooks/hooks.json`, `skills/` are **auto-discovered**: adding a component is a new file.
+`agents/`, `skills/` are **auto-discovered**, and `hooks/claude/hooks.json` is declared in
+`plugin.json`: adding a component is a new file. **Consumers install the `plugin` branch**, a
+plugin-only tree `.github/scripts/plugin_dist.py` builds at release; a file the plugin reads at
+runtime that its `SHIP` list misses is absent there (`tests/test_plugin_dist.py`).
 
 ```text
-.claude-plugin/  plugin manifest · self-exposed marketplace entry (immutable sha pin); .codex-plugin/ · .agents/ mirror this for Codex
+.claude-plugin/  plugin manifest · marketplace entry pinned to the plugin branch; .codex-plugin/ · .agents/ mirror this for Codex
 .claude/         this file and dev-only rules for this repo: authoring guidance, and what loads rules/ here — never ships
 agents/          subagents the skills dispatch
-hooks/           SessionStart · PostToolUse · Notification hooks — the commit gate is not one; codex/ registers the same pair for Codex
+hooks/           SessionStart · PostToolUse · Notification scripts (claude/hooks.json) — the commit gate is not one; Codex runs the pair from the host's .codex/hooks.json
 skills/          one directory per slash command
 rules/           shipped SSOTs: tier discipline (+ on-demand parts), harness generation, prose
 scripts/         gate + setup scripts; the host copy lists are flow_init_setup.py COPY_FILES/HARNESS_COPY_FILES; harness/<name>/ holds each harness's own installer
