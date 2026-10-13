@@ -180,8 +180,22 @@ HARNESS_COPY_FILES: dict[str, list[str]] = {
         "scripts/harness/instructions.py",
         "scripts/harness/codex/__init__.py",
         "scripts/harness/codex/instructions.py",
+        "scripts/harness/codex/hook_io.py",
     ],
 }
+# Files a harness runs from the host's own hook file, copied under HARNESS_DIR at the path they
+# hold in the plugin: each script finds its rules and helpers relative to itself, so the copy
+# keeps the plugin's layout. Codex: its plugin ships no lifecycle hooks (OpenAI's directory
+# refuses a package that does), so its SessionStart and PostToolUse hooks run these copies.
+HARNESS_ROOT_FILES: dict[str, list[str]] = {
+    "codex": [
+        "hooks/inject-risk-tiers.sh",
+        "hooks/invalidate-gate-markers.sh",
+        "hooks/codex/run-hook.cmd",
+    ],
+}
+# Directories copied whole, every `*.md` under them, the same way.
+HARNESS_ROOT_DIRS: dict[str, list[str]] = {"codex": ["rules"]}
 
 
 def _dest_rel(rel: str) -> Path:
@@ -322,6 +336,7 @@ def copy_artifacts(plugin: Path, host: Path, harnesses=("claude",)) -> list[str]
             missed.add(rel)
             continue
         report.append(f"  [+] 복사: {dest_name}")
+    report.extend(_copy_root_files(plugin, host, harnesses))
     # The policy file goes to config/ (a host-owned dir, but this file alone is plugin-owned·SSOT).
     tiers_src = plugin / TIERS_FILENAME
     try:
@@ -348,6 +363,34 @@ def copy_artifacts(plugin: Path, host: Path, harnesses=("claude",)) -> list[str]
         report.append(f"  [!] {TIERS_FILENAME} 복사 실패({_why(exc)}) — 수동 확인 필요")
         return report
     report.append(f"  [+] 복사: {TIERS_FILENAME} → config/")
+    return report
+
+
+def _copy_root_files(plugin: Path, host: Path, harnesses) -> list[str]:
+    """HARNESS_ROOT_FILES and HARNESS_ROOT_DIRS, under HARNESS_DIR at their plugin path."""
+    rels = [rel for name in harnesses for rel in HARNESS_ROOT_FILES.get(name, [])]
+    for name in harnesses:
+        for top in HARNESS_ROOT_DIRS.get(name, []):
+            found = sorted((plugin / top).rglob("*.md")) if (plugin / top).is_dir() else []
+            if not found:
+                rels.append(top)
+            rels.extend(p.relative_to(plugin).as_posix() for p in found)
+    report = []
+    for rel in rels:
+        src = plugin / rel
+        if not src.is_file():
+            report.append(f"  [!] 소스 없음, skip: {rel}")
+            continue
+        try:
+            dest = _host_target(host, host / HARNESS_DIR / rel)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, dest)
+            if dest.suffix == ".sh":
+                _make_executable(dest)
+        except OSError as exc:
+            report.append(f"  [!] 복사 실패({_why(exc)}): {rel}")
+            continue
+        report.append(f"  [+] 복사: {rel}")
     return report
 
 
@@ -1525,6 +1568,7 @@ def register_gates(host: Path, harnesses: list[str]) -> list[str]:
         mod = harness.installer(name)
         out.append(mod.register(host))
         if name == "codex":
+            out.append(mod.register_session(host))
             out.extend(mod.trust_notes(host))
     return out
 
@@ -1541,6 +1585,8 @@ def codex_leftovers(host: Path, harnesses: list[str]) -> list[str]:
         hooks = (host / ".codex" / "hooks.json").read_text(encoding="utf-8")
         if all(word in hooks for word in harness.installer("codex").MARKER):
             left.append(".codex/hooks.json 게이트 훅")
+        if harness.installer("codex").session_hooks_remain(host):
+            left.append(".codex/hooks.json 세션 훅")
     except Exception:  # noqa: BLE001 — a note, never a reason to lose the step
         pass
     try:
@@ -1792,6 +1838,10 @@ def run_uninstall(host: Path) -> bool:
         # uninstall means gone, not "gone unless the config forgot to mention it". Resolved
         # INSIDE the step (not once above) so a Codex packaging failure costs only this one
         # step — not, uncaught, every host's Claude gate removal along with it.
+        # Before the gate: the gate's own removal drops the file once nothing else is in it.
+        _step(
+            "[Codex 세션 훅 해제]", lambda: [harness.installer("codex").unregister_session(host)]
+        ),
         _step("[Codex 게이트 해제]", lambda: [harness.installer("codex").unregister(host)]),
         _step("[마켓 등록 해제]", lambda: [unregister_marketplace(host)]),
         _step("[gitignore 정리]", lambda: [remove_gitignore_lines(host)]),

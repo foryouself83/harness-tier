@@ -16,7 +16,7 @@ def _release_text() -> str:
     return (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
 
 
-_RETRIED_PUSH_STEPS = ("Pin marketplace sha", "Sync uv.lock")
+_RETRIED_PUSH_STEPS = ("Pin both marketplaces", "Sync uv.lock")
 
 
 def _push_loop(step_prefix: str) -> str:

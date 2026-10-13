@@ -13,12 +13,12 @@
   "doc-sync": {
     "fired_hits": 3,
     "fired_rate": 1.0,
-    "measured_at": "2026-10-12",
+    "measured_at": "2026-10-13",
     "model": "claude-sonnet-5",
     "outcome_hits": 3,
     "outcome_n": 3,
     "outcome_pass_rate": 1.0,
-    "outcome_sha": "c46ea31ce619",
+    "outcome_sha": "4d23b5d162ac",
     "reps": 3
   },
   "wiki-init": {

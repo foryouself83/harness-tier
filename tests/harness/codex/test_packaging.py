@@ -1,6 +1,7 @@
-"""Codex needs its own manifest, marketplace entry and hooks file — a root plugin.json or a
-hooks path without "./" makes Codex fall back to auto-registering hooks/hooks.json (the Claude
-one), silently disabling every hook this plugin ships for Codex."""
+"""Codex needs its own manifest and marketplace entry, and its package carries no lifecycle hook:
+OpenAI's plugin directory refuses one that does, so the session hooks are the host's
+(`scripts/harness/codex/install.py`). Codex discovers `hooks/hooks.json` on its own, so the
+Claude hooks file sits elsewhere."""
 
 import json
 import re
@@ -14,17 +15,27 @@ from tests.invalidate_gate_markers._helpers import BASH  # a repo-visible bash (
 REPO = Path(__file__).resolve().parents[3]
 CODEX = json.loads((REPO / ".codex-plugin/plugin.json").read_text(encoding="utf-8"))
 CLAUDE = json.loads((REPO / ".claude-plugin/plugin.json").read_text(encoding="utf-8"))
-HOOKS = json.loads((REPO / "hooks/codex/hooks.json").read_text(encoding="utf-8"))
 
 
 def test_versions_and_names_match():
     assert CODEX["name"] == CLAUDE["name"] and CODEX["version"] == CLAUDE["version"]
 
 
-def test_hooks_field_points_at_the_codex_file():
-    # Absent, "[]", or a path without "./" makes Codex auto-register the Claude hooks/hooks.json.
-    assert CODEX["hooks"] == "./hooks/codex/hooks.json"
+def test_codex_package_declares_and_discovers_no_hooks():
+    assert "hooks" not in CODEX
+    assert not (REPO / "hooks/hooks.json").exists(), "Codex would register the Claude hooks"
+    assert CLAUDE["hooks"] == "./hooks/claude/hooks.json"
     assert CODEX["skills"] == "./skills/"
+
+
+def test_codex_listing_fields_fit_the_directory_limits():
+    ui = CODEX["interface"]
+    assert len(ui["displayName"]) <= 30 and len(ui["shortDescription"]) <= 30
+    assert 0 < len(ui["longDescription"]) <= 4000 and len(ui["developerName"]) <= 80
+    assert len(ui["defaultPrompt"]) <= 3 and all(len(p) <= 128 for p in ui["defaultPrompt"])
+    for key in ("logo", "composerIcon"):
+        assert ui[key].startswith("./") and (REPO / ui[key]).is_file(), key
+    assert CLAUDE["icon"] == ui["logo"]
 
 
 def test_no_root_plugin_json():
@@ -35,19 +46,8 @@ def test_no_root_plugin_json():
 def test_marketplace_lists_the_plugin():
     mk = json.loads((REPO / ".agents/plugins/marketplace.json").read_text(encoding="utf-8"))
     (entry,) = mk["plugins"]
-    assert entry["name"] == CODEX["name"] and entry["source"] == {"source": "url", "url": "./"}
-
-
-def test_codex_hooks_file_shape_is_pinned():
-    assert set(HOOKS) <= {"description", "hooks"}
-    (start,) = HOOKS["hooks"]["SessionStart"]
-    (post,) = HOOKS["hooks"]["PostToolUse"]
-    assert start["hooks"][0]["additionalContextLimit"] == 0
-    assert post["matcher"] == "apply_patch|Bash"
-    for h in (start["hooks"][0], post["hooks"][0]):
-        assert h["command"].startswith('bash "${PLUGIN_ROOT}/hooks/')
-        assert h["command"].endswith("--harness codex")
-        assert h["commandWindows"].startswith('& "${PLUGIN_ROOT}/hooks/codex/run-hook.cmd" ')
+    assert entry["name"] == CODEX["name"]
+    assert entry["policy"] == {"installation": "AVAILABLE", "authentication": "ON_INSTALL"}
 
 
 def test_cmd_files_have_no_labels():
@@ -75,3 +75,10 @@ def test_run_hook_cmd_runs_a_real_hook_script_through_cmd_exe():
     out = json.loads(result.stdout.decode("utf-8"))
     assert out["hookSpecificOutput"]["hookEventName"] == "SessionStart"
     assert "additionalContext" in out["hookSpecificOutput"]
+
+
+def test_flow_stops_a_codex_host_without_the_session_hooks():
+    """A Codex host set up while the plugin carried the hooks loses them on update; the router
+    every task enters is the one place that still runs, so it names the check and the remedy."""
+    text = (REPO / "skills/flow/SKILL.md").read_text(encoding="utf-8")
+    assert "harness-tier/hooks/invalidate-gate-markers.sh" in text and "$flow-init" in text

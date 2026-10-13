@@ -60,7 +60,7 @@ TRACKED_FILE = CONFIG_DIR / "teams-webhooks.json"
 LOCAL_FILE = CONFIG_DIR / ".teams-webhooks.local.json"
 LOCAL_CHANNELS = {"personal"}  # channels stored in the gitignored local file
 # Seconds, per call: urlopen's applies to each socket wait, not the whole post. Sized so a post
-# finishes inside the Notification hook's timeout in hooks/hooks.json, which kills it unsent.
+# finishes inside the Notification hook's timeout in hooks/claude/hooks.json, which kills it unsent.
 GIT_TIMEOUT = 2
 POST_TIMEOUT = 5
 

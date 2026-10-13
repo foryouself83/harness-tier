@@ -32,7 +32,10 @@ allowed-tools: Bash(k6 run *) Bash(touch .claude/harness-tier/.flow/doc-sync.don
 
 Never end a rule in a path glob (`…/.flow/*`): the `*` crosses path separators including
 `..`, so it pre-approves the command against any path on disk while reading as a
-directory scope. Marker sets are finite — enumerate them exactly.
+directory scope. Marker sets are finite — enumerate them exactly. Nor end one in an argument
+`*` after a relative script path (`Bash(python3 .claude/…/x.py --flag *)`): Anthropic's plugin
+directory holds the version for review (`ALLOWED_TOOLS_BROAD`), since the path names whatever
+file sits there.
 
 Two limits decide where this is even possible:
 

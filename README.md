@@ -179,10 +179,23 @@ Then start day-to-day work with **`/flow <task description>`**.
 > Details in
 > [Promotion and release → Release token write permission](docs/usage/promotion-and-release.md#release-token-write-permission).
 
+## What it runs and sends
+
+- **Hooks run locally.** Bash and Python scripts inside the plugin: rule injection at session
+  start, gate-evidence invalidation after an edit, and the commit gate `/flow-init` registers.
+  Only the Teams notification hook reaches the network, and only once you register a webhook.
+- **Outbound calls happen only where you configure them:** a Teams card to the webhook URLs you
+  register ([Teams](docs/usage/teams.md)), and diagram rendering through the
+  `design_docs.renderer` URL in `flow-config.yaml` (`https://kroki.io` in the example).
+- **Generated CI workflows** run in your repository's GitHub Actions with your own secrets
+  (`GITHUB_TOKEN` against `api.github.com`, a registry token against that registry). The plugin
+  never reads a credential from your machine.
+
 ## Update & removal
 
 - **Update** — a plugin update does not change the host's copied scripts. Re-run `/flow-init` to
-  re-sync (config and webhooks are preserved).
+  re-sync (config and webhooks are preserved). Codex hosts set up before the Codex plugin stopped
+  carrying session hooks need that re-run to get them back.
 - **Removal** — ⚠️ **Always run `/flow-uninstall` before `/plugin uninstall`.** The cleanup tool
   lives inside the plugin, so removing the plugin first leaves the host-side settings
   uncleanable.

@@ -48,7 +48,8 @@ It removes:
 - the harness-tier lines from `.gitignore`, except `.teams-webhooks.local.json`: it matches at
   any depth, so it may still keep a webhook secret out of a commit;
 - the `harness-tier:teams` block from `CLAUDE.md`;
-- the Codex gate from `.codex/hooks.json` and the managed instructions block from `AGENTS.md`
+- the Codex session hooks and gate from `.codex/hooks.json` and the managed instructions block
+  from `AGENTS.md`
   — whether or not `codex` is still listed under `harnesses`;
 - `.claude/harness-tier/` — scripts, config, evidence, both webhook files, the team-shared
   `teams-webhooks.json` included, and the design-doc templates under `templates/`, your edits
@@ -87,9 +88,11 @@ leaves it untouched, and still ends on `정리 완료.`
 2. In `.claude/settings.json`, remove the `hooks.PreToolUse` hook whose command is
    `bash "${CLAUDE_PROJECT_DIR:-.}/.claude/harness-tier/scripts/precommit-runner.sh"` — only
    that hook — and `extraKnownMarketplaces.harness-tier`. In `.codex/hooks.json`, remove the
-   `PreToolUse` hook whose `command` contains both `harness-tier` and `harness/codex/gate` —
-   only that hook. Drop its `PreToolUse` entry only if that emptied the entry's `hooks` list
-   and the entry holds nothing but `matcher` and `hooks`. Delete the file only if `hooks` is
+   `PreToolUse` hook whose `command` contains both `harness-tier` and `harness/codex/gate`, the
+   `SessionStart` hook whose `command` contains `harness-tier/hooks/inject-risk-tiers.sh`, and
+   the `PostToolUse` hook whose `command` contains `harness-tier/hooks/invalidate-gate-markers.sh`
+   — only those hooks. Drop an entry only if that emptied its `hooks` list and the entry holds
+   nothing but `matcher` and `hooks`. Delete the file only if `hooks` is
    then empty and the file has no other top-level key; any other hook stays.
 3. Remove `.claude/harness-tier/.flow/` and `.claude/harness-tier/scripts/**/__pycache__/`
    from `.gitignore`. Keep `.teams-webhooks.local.json` while any such file is left in the repo.
