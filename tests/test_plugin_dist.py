@@ -220,3 +220,17 @@ def test_an_unreadable_plugin_branch_never_starts_a_new_history():
     text = (REPO / ".github/workflows/release.yml").read_text(encoding="utf-8")
     assert "2) git worktree add --orphan -b plugin" in text
     assert re.search(r"\*\) echo \"::error::cannot read origin's plugin branch.*exit 1", text)
+
+
+def test_consumer_docs_link_only_to_files_the_tree_carries(dist):
+    link = re.compile(r"\]\(([^)#\s]+)(?:#[^)]*)?\)")
+    pages = [*dist.glob("README*.md"), *dist.glob("USAGE*.md"), *(dist / "docs/usage").glob("*.md")]
+    broken = [
+        f"{page.relative_to(dist).as_posix()} -> {target}"
+        for page in pages
+        for target in link.findall(page.read_text(encoding="utf-8"))
+        if "://" not in target
+        and not target.startswith("mailto:")
+        and not (page.parent / target).exists()
+    ]
+    assert broken == []

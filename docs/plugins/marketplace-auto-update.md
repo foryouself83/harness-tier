@@ -23,9 +23,9 @@ Consumers install from the `plugin` branch, whose root is the plugin alone
 validators read every file a plugin source names, and tests, CI and evals are not the plugin. On
 a main release `release.yml` rebuilds that branch from the release commit, then pins
 `source.sha` in both `.claude-plugin/marketplace.json` and `.agents/plugins/marketplace.json`
-to the new branch commit, with `ref: plugin`. A marketplace still names a main commit with no
-`ref` until the first such release: a `ref` naming a branch that does not exist yet would break
-every install in between.
+to the new branch commit, with `ref: plugin`. Until the first such release both name the same
+main commit — Claude's with no `ref`, Codex's with `ref: main`: a `ref` naming a branch that does
+not exist yet would break every install in between.
 
 - **Prerequisite**: repository Settings → Actions → Workflow permissions = **Read and write** (see [Promotion and release → Release token write permission](../usage/promotion-and-release.md#release-token-write-permission)).
 - If the Action is off or when updating by hand:

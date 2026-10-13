@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -112,6 +113,56 @@ def test_uninstall_removes_the_codex_session_hooks(tmp_path):
     assert fis.run_uninstall(tmp_path)
     assert not (tmp_path / ".codex/hooks.json").exists()
     assert not (tmp_path / ".claude/harness-tier").exists()
+
+
+def test_setup_fails_when_a_codex_session_hook_script_is_missing(tmp_path, monkeypatch):
+    """A hook registered over a script the copy never wrote exits 127: an edit after a review
+    then leaves the review's evidence standing."""
+    _cfg(tmp_path, "harnesses: [claude, codex]\n")
+    real = fis.shutil.copyfile
+
+    def flaky(src, dest, *a, **kw):
+        if Path(dest).name == "invalidate-gate-markers.sh":
+            raise OSError("locked")
+        return real(src, dest, *a, **kw)
+
+    monkeypatch.setattr(fis.shutil, "copyfile", flaky)
+    assert not fis.run_setup(tmp_path, PLUGIN)
+
+
+def test_resync_drops_a_rule_the_plugin_no_longer_ships(tmp_path):
+    _cfg(tmp_path, "harnesses: [claude, codex]\n")
+    fis.run_setup(tmp_path, PLUGIN)
+    stale = tmp_path / ".claude/harness-tier/rules/retired.md"
+    stale.write_text("old\n", encoding="utf-8")
+    fis.run_setup(tmp_path, PLUGIN)
+    assert not stale.exists()
+    assert (tmp_path / ".claude/harness-tier/rules/risk-tiers.md").is_file()
+
+
+@pytest.mark.parametrize("link", ["rules", ""])
+def test_resync_never_deletes_through_a_linked_directory(tmp_path, link):
+    """The repo is untrusted input: a committed link at the rules directory, or at the
+    harness directory above it, must not turn the stale-rule cleanup onto the host's docs."""
+    _cfg(tmp_path, "harnesses: [claude, codex]\n")
+    docs = tmp_path / "docs"
+    (docs / "rules").mkdir(parents=True)
+    mine = docs / "rules" / "mine.md" if not link else docs / "mine.md"
+    mine.write_text("mine\n", encoding="utf-8")
+    at = tmp_path / ".claude/harness-tier" / link if link else tmp_path / ".claude/harness-tier"
+    if not link:
+        (docs / "config").mkdir()
+        (docs / "config/flow-config.yaml").write_text(
+            "harnesses: [claude, codex]\n", encoding="utf-8"
+        )
+        shutil.rmtree(at)
+    at.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.symlink(docs, at, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    fis.run_setup(tmp_path, PLUGIN)
+    assert mine.read_text(encoding="utf-8") == "mine\n"
 
 
 def test_claude_only_setup_copies_no_session_hooks(tmp_path):

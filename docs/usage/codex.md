@@ -87,8 +87,8 @@ macOS is read from Codex's source, not measured; Windows is measured.
 Run [`/flow-uninstall`](update-and-removal.md#flow-uninstall--remove-host-side-wiring) first —
 it removes the Codex session hooks and gate from `.codex/hooks.json` and the managed block
 from `AGENTS.md` in the same run as its Claude-side cleanup, whether or not `codex` is still
-listed under `harnesses`. Dropping `codex` from `harnesses` alone removes nothing — `/flow-init` then
-reports what is left. Then remove the plugin itself, headlessly or from the TUI:
+listed under `harnesses`. Dropping `codex` from `harnesses` alone removes nothing —
+`/flow-init` then reports what is left. Then remove the plugin itself, headlessly or from the TUI:
 
 ```
 codex plugin remove harness-tier@harness-tier
