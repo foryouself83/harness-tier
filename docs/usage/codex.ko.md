@@ -63,6 +63,9 @@ Codex 가 열어 둔 셸 세션에 입력한 명령(`write_stdin`)은 `PreToolUs
 - **질문**은 구조화된 선택지 대신 채팅의 번호 선택지로 옴 — Plan 모드에서만 예외로
   `request_user_input` 이 대신 뜸.
 - **스킬은 `/이름` 대신 `$이름` 으로 실행** — `$flow <작업>` 이 일상 작업 라우터를 시작함.
+- **`/ux-review` 의 외부 리뷰어는 격리가 약함.** Codex 는 고객·심사원 역할의 subagent 에도
+  프로젝트·사용자 `AGENTS.md` 를 넘기므로, 캡처와 함께 프로젝트 규칙을 읽게 됨; 리포트에
+  그 사실을 적음.
 - **Teams 알림과 `harness-insight` 는 Claude 전용.** Codex 에는 발송할 `Notification` 훅
   이벤트가 없고, `harness-insight` 가 모을 Claude Code 트랜스크립트도 없음.
 - **프로젝트 지침은 `AGENTS.md` 로 렌더됨.** Codex 는 `CLAUDE.md` 나 `.claude/rules/` 를

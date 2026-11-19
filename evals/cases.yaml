@@ -342,3 +342,25 @@ skills:
       - Rename the helper to fetch_orders.
       - Why is this endpoint slow?
       - Merge my branch into dev.
+
+  ux-review:
+    fixture: empty-web
+    expect_invoke: 0.70
+    expect_why: >-
+      usability, "confusing" and "easier to use" asks name the outcome the description leads
+      with, and no other skill claims it.
+    happy:
+      - Users say the signup screen is confusing — review the UX.
+      - Review this app's UI for usability problems before we ship.
+      - Make this page easier to use.
+      - Is the checkout flow intuitive for a first-time user?
+      - Do a UX and accessibility pass on the new settings screen.
+    negative:
+      # integration and playwright-scaffold share the browser vocabulary; performance shares
+      # "the page is bad"; the last two are UI edits with nothing to review.
+      - prompt: Run the Playwright tests.
+        fixture: custom-testdir
+      - Set up the first Playwright test for this app.
+      - The page loads slowly — profile it.
+      - Change the primary button color to #2563eb.
+      - Add a dark mode toggle to the header.

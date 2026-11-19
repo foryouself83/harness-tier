@@ -2,7 +2,7 @@
 
 **English** · [한국어](manual-verification.ko.md) · [Usage guide](../../USAGE.md)
 
-Three skills you call yourself, when you need them — none is a gate, and none runs
+Four skills you call yourself, when you need them — none is a gate, and none runs
 automatically before a promotion.
 
 ## `/integration`
@@ -76,3 +76,31 @@ invoked by `/integration` rather than directly.
    it without asking.
 
 It only writes files — running the suite is `/integration`'s job.
+
+## `/ux-review`
+
+```text
+/ux-review [flow or URL] [--full]
+```
+
+Reviews a web app's screens from three seats and applies only the fixes you pick. The session
+is the **owner**: it knows the code and the design system. Two isolated subagents know
+nothing but the capture: the **customer** tries the flow's task like a first-time user, and the
+**auditor** judges the screens against a checklist built from Nielsen's heuristics, WCAG 2.2 AA,
+the laws of UX, form and microcopy research.
+
+- **Scope** — with no argument, the screens your branch's diff touches, uncommitted files
+  included, listed from the repository root. With no UI file in the diff it asks which flow to
+  review; for a changed file whose screen is uncertain, it asks which screens to cover. `--full`
+  reviews every primary flow with one auditor per checklist section.
+- **Capture** — Playwright screenshots (desktop 1280×800, mobile 390×844), an accessibility
+  snapshot, and an `@axe-core/playwright` scan. Neither package is installed without your yes, and
+  `ariaSnapshot` needs Playwright 1.49 or later, so an older install gets an upgrade offer.
+  Declining Playwright, or having no base URL to capture, drops to a static review of the
+  component source with no customer.
+- **What it asks you** — installs, the task line of each flow, a `storageState` file or test
+  account for screens behind a login, and which findings to fix.
+- **Output** — `report.md` and every capture under `.claude/harness-tier/ux-review/<run>/` at
+  the repository root, ignored by git through that directory's own `.gitignore`. Fixes stay in
+  the working tree: commit them through `/flow`. Changed screens get one re-check by a fresh
+  customer.

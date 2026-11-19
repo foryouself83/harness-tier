@@ -15,7 +15,7 @@ Harness-tier skills name actions (`vocabulary.md` beside this file). On Codex th
   the skill's name (`$flow <text>`), or the user's request when the skill runs without one.
 - **Dispatch subagent `<role>`:** call `spawn_agent` with `fork_turns: "none"` (V2) or
   `fork_context: false` (V1), passing the text of `agents/<role>.md` followed by the task as the
-  message. Without a subagent tool, do the work inline.
+  message. Without a subagent tool, do the work inline unless the skill names its own fallback.
 - **Track steps:** use `update_plan` when available, else a checklist in chat.
 - **Plugin root:** Codex does not substitute `${CLAUDE_PLUGIN_ROOT}` inside skills. Replace it with
   the directory two levels above the `SKILL.md` you are following.

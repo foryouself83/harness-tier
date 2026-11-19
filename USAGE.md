@@ -18,7 +18,7 @@ page and a Korean twin under [`docs/usage/`](docs/usage/); `doc-sync` keeps ever
 | [Deployments](docs/usage/deployments.md) | `/harness-deployments` |
 | [CI workflows](docs/usage/ci-workflows.md) | Every workflow `/flow-init` can render, and its switch |
 | [Project harness](docs/usage/project-harness.md) | `/harness-init` (with the language table) · `/wiki-init` · `harness-insight` |
-| [Manual verification](docs/usage/manual-verification.md) | `/integration` · `/performance` · `playwright-scaffold` |
+| [Manual verification](docs/usage/manual-verification.md) | `/integration` · `/performance` · `playwright-scaffold` · `/ux-review` |
 | [Design deliverables](docs/usage/design-docs.md) | `/design-srs` · `/design-sds` · `/design-architecture` · `/design-api` · `/design-erd` · `/design-table` |
 | [Codex](docs/usage/codex.md) | Installing and trusting the plugin in Codex, hook approval, what differs from Claude Code |
 | [Teams](docs/usage/teams.md) | Webhook setup, when each channel fires |

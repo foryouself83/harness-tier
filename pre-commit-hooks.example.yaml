@@ -46,9 +46,13 @@ repos:
       - id: check-merge-conflict
       - id: check-case-conflict
       - id: check-executables-have-shebangs
+        stages: [pre-commit]
       - id: check-shebang-scripts-are-executable
+        stages: [pre-commit]
       - id: end-of-file-fixer
+        stages: [pre-commit]
       - id: trailing-whitespace
+        stages: [pre-commit]
       - id: mixed-line-ending
         args: [--fix=lf]
 
@@ -69,7 +73,8 @@ repos:
 default_language_version:
   python: python3
 
-# Static analysis/hygiene only at commit time (at the push stage only teams-notify-push runs via stages)
+# Static analysis/hygiene only at commit time; hooks whose manifest also declares push pin
+# stages: [pre-commit], since a manifest stages overrides default_stages.
 default_stages: [pre-commit]
 
 minimum_pre_commit_version: '3.0.0'

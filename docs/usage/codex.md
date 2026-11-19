@@ -70,6 +70,9 @@ macOS is read from Codex's source, not measured; Windows is measured.
 - **Questions** arrive as numbered options in chat, not a structured picker, except in Plan
   mode, where `request_user_input` offers one instead.
 - **A skill runs as `$name`**, not `/name` — `$flow <task>` starts the day-to-day router.
+- **`/ux-review`'s outsiders are less isolated.** Codex passes the project and user
+  `AGENTS.md` to the subagents that play the customer and the auditor, so they read your
+  project's rules along with the capture; the report says so.
 - **Teams notifications and `harness-insight` are Claude-only.** Codex has no `Notification`
   hook event to post from, and no Claude Code transcript for `harness-insight` to aggregate.
 - **Project instructions render into `AGENTS.md`.** Codex never reads `CLAUDE.md` or
