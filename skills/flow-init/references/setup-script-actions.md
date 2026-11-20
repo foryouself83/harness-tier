@@ -37,8 +37,8 @@ The script performs the following, idempotently:
 - **Checks** the static-analysis hooks: **creates** `.pre-commit-config.yaml` from the
   example if absent (the `local` hooks are Python defaults to swap); if it **already
   exists, does NOT auto-merge** (a PyYAML round-trip would strip the team's
-  comments/formatting) — instead **detects missing repos/hooks by `id` and reports
-  them** for the user to add manually.
+  comments/formatting) — instead **detects missing repos/hooks by `id`, and hooks whose
+  `stages` differ from the example, and reports them** for the user to fix manually.
 - **Appends** missing `.gitignore` lines (the gate-evidence `.flow/` directory, the personal
   webhook file, and the copied scripts' `__pycache__/`), skipping any already present —
   including one spelled with a leading `/` or without the trailing `/`, which still covers the

@@ -135,6 +135,37 @@ def test_check_precommit_reports_stale_owned_entry(tmp_path: Path):
     assert any("entry 가 현재 경로와 다릅니다" in line for line in report)
 
 
+def _example_text() -> str:
+    return (PLUGIN / "pre-commit-hooks.example.yaml").read_text(encoding="utf-8")
+
+
+def test_check_precommit_reports_stage_drift_on_existing_hooks(tmp_path: Path):
+    # a host copied before the example pinned stages has every hook id, so only a stages
+    # comparison tells it those hooks still run at pre-push
+    pinned = "        stages: [pre-commit]\n"
+    example = _example_text().replace("\r\n", "\n")
+    assert example.count(pinned) == 4
+    (tmp_path / ".pre-commit-config.yaml").write_text(
+        example.replace(pinned, ""), encoding="utf-8"
+    )
+    report = check_precommit(PLUGIN, tmp_path)
+    drift = [line for line in report if "stages" in line]
+    for hook in (
+        "check-executables-have-shebangs",
+        "check-shebang-scripts-are-executable",
+        "end-of-file-fixer",
+        "trailing-whitespace",
+    ):
+        assert any(hook in line for line in drift), (hook, report)
+    assert not any("mixed-line-ending" in line for line in drift), report
+
+
+def test_check_precommit_current_example_has_no_stage_drift(tmp_path: Path):
+    (tmp_path / ".pre-commit-config.yaml").write_text(_example_text(), encoding="utf-8")
+    report = check_precommit(PLUGIN, tmp_path)
+    assert report == ["  [=] pre-commit 훅 이미 충족 (변경 없음)"], report
+
+
 def test_main_setup_then_uninstall_dispatch(tmp_path: Path, monkeypatch):
     # argparse dispatch + run_setup order (copy→register) end-to-end
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))

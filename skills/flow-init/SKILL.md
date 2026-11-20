@@ -419,8 +419,8 @@ is written down and enforced nowhere, and `wiki-verify.yml` is not rendered here
    (`git config --global`, `~`-level files).
 2. **Idempotent** — `flow_init_setup.py` skips existing settings.json hooks and
    .gitignore lines (match-then-skip); pre-commit config is created-if-absent, else
-   only **reported** (missing hooks listed, never auto-merged — preserves the team's
-   comments/format); interactive steps confirm before overwrite.
+   only **reported** (missing hooks and `stages` drift listed, never auto-merged — preserves
+   the team's comments/format); interactive steps confirm before overwrite.
 3. **Secrets discipline** — webhook URLs stay in the gitignored
    `.claude/harness-tier/config/.teams-webhooks.local.json`; the tracked
    `teams-webhooks.json` carries the watched branch names. A branch URL is committed only

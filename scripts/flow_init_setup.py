@@ -10,7 +10,8 @@ place, subdivided by purpose:
 setup (default) idempotently applies the following:
   - Copy the gate scripts to .claude/harness-tier/scripts/, the policy flow-tiers.yaml to config/
   - Register the commit gate in hooks.PreToolUse of .claude/settings.json (fix up if path changes)
-  - Static-analysis hooks: create .pre-commit-config.yaml if absent, else report missing items
+  - Static-analysis hooks: create .pre-commit-config.yaml if absent, else report missing hooks and
+    hooks whose stages differ from the example
   - Add missing lines to .gitignore (skip if duplicated)
 
 uninstall (--uninstall) is the inverse of setup (host cleanup):
@@ -610,16 +611,27 @@ def check_precommit(plugin: Path, host: Path) -> list[str]:
         return ["  [!] .pre-commit-config.yaml 형식이 예상과 다릅니다 — 수동 확인 필요"]
     by_url = {r.get("repo"): r for r in (cur.get("repos") or []) if isinstance(r, dict)}
     missing: list[str] = []
+    drift: list[str] = []
     for exrepo in ex.get("repos", []):
         url = exrepo.get("repo")
         target = by_url.get(url)
         if target is None:
             missing.append(f"repo {url} (전체)")
             continue
-        have = {h.get("id") for h in (target.get("hooks") or []) if isinstance(h, dict)}
-        missing += [
-            f"{url}#{h.get('id')}" for h in exrepo.get("hooks", []) if h.get("id") not in have
-        ]
+        have = {h.get("id"): h for h in (target.get("hooks") or []) if isinstance(h, dict)}
+        for h in exrepo.get("hooks", []):
+            cur_hook = have.get(h.get("id"))
+            if cur_hook is None:
+                missing.append(f"{url}#{h.get('id')}")
+            elif "stages" in h and cur_hook.get("stages") != h["stages"]:
+                drift.append(
+                    f"        - {url}#{h.get('id')}: stages {cur_hook.get('stages', '(없음)')}"
+                    f" → {h['stages']}"
+                )
+    # A hook already present but with other stages runs at a different moment than the
+    # example intends (a manifest's stages override default_stages), and no id is missing.
+    if drift:
+        drift.insert(0, "  [!] 예시와 stages 가 다른 훅 — 직접 수정하세요:")
     # entry-path drift of the harness-tier-owned hook — when a plugin update moves a script's
     # location, the existing entry points at a different path than the current one, so
     # pre-push breaks. Do not auto-fix (preserve comments/formatting); only report.
@@ -631,14 +643,16 @@ def check_precommit(plugin: Path, host: Path) -> list[str]:
             f"  [!] '{OWNED_HOOK_ID}' entry 가 현재 경로와 다릅니다: {cur_entry}",
             f"        → '{ex_entry}' 로 직접 수정하세요(스크립트 위치 변경).",
         ]
-    if not missing:
+    if not missing and not drift:
         return ["  [=] pre-commit 훅 이미 충족 (변경 없음)", *stale]
+    if not missing:
+        return [*drift, *stale]
     out = [
         "  [i] .pre-commit-config.yaml 가 이미 있어 자동 병합하지 않음(주석/포맷 보존).",
         "  [i] 아래 빠진 항목을 pre-commit-hooks.example.yaml 참고해 직접 추가하세요:",
     ]
     out += [f"        - {m}" for m in missing]
-    return out + stale
+    return out + drift + stale
 
 
 # ── uninstall (cleanup) — the inverse of setup ─────────────────────────────────

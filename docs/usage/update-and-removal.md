@@ -25,7 +25,8 @@ A re-run, with `flow-config.yaml` present:
 Rendered workflows are created only when absent. A workflow already in `.github/workflows/`
 is reported and left untouched, so a template fix in a new plugin version does not reach it —
 delete the file and re-run `/flow-init` to take the new template. The same holds for
-`.pre-commit-config.yaml`, whose missing hooks are reported, not added. The exceptions are the
+`.pre-commit-config.yaml`: missing hooks, and hooks whose `stages` differ from the
+example, are reported, not changed. The exceptions are the
 `deploy.yml` orchestrator and the managed deploy block in `release.yml`, which are regenerated
 on every run. A `deploy.yml` that does not open with the generated header is the host's own:
 it is reported and left untouched, and `release.yml`'s wiring is withheld along with it — the
