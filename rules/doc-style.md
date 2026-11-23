@@ -7,8 +7,17 @@ applies the judgement. The checker reads `flow-config.doc_style.paths` (default 
 pull request templates, `docs/superpowers/` and `.superpowers/`; a project's `exclude` adds
 to those.
 
-**Write the fact in force. Nothing else** — not how it got here, what it was, which plan
-proposed it, or an apology for its shape.
+**Write the fact in force. Nothing else** — not how it got here, what it was, what it will
+be, which plan proposed it, or an apology for its shape.
+
+## Planned work
+
+A doc or a comment states what exists now. A step not yet built, a flag not yet shipped, a
+`TODO` leaves it and goes to a plan under `docs/superpowers/plans/`, with no pointer back
+(`PLAN` bans one). `flow-config.doc_style.future: true` adds the `FUTURE` warning on explicit
+markers (`TODO` · `FIXME` · `TBD` · `not yet implemented` · `on the roadmap` · `추후` ·
+`향후` · `예정`); off by default. A sentence describing what does not exist, with no marker,
+is judgement.
 
 ## Banned (`--lint` errors)
 

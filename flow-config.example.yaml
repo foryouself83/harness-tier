@@ -128,6 +128,9 @@ doc_style:
   # could fix it; a plan record is checklist lines and pointers into its own path, which is
   # what the PLAN rule bans. Put vendored docs and other generated output here.
   exclude: []
+  # true adds the FUTURE warning on planned-work markers (TODO, 추후, not yet implemented…).
+  # Warns only, and only the boolean true turns it on.
+  future: false
 
 # REST API contract testing (CI only — GitHub Actions). No REST API → enable:false → not installed.
 # /flow-init reads these values and renders .github/workflows/api-contract.yml.

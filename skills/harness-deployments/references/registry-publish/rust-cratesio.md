@@ -31,7 +31,9 @@
   least one manual/token publish before the GitHub repo can be linked as a Trusted Publishing
   target on the crate settings screen. Bootstrap with `CARGO_REGISTRY_TOKEN`, then switch to OIDC
   from the following releases.
-- At registration, owner/repo and the workflow filename must be specified in the crates.io UI, and support for CI providers other than GitHub Actions is still limited (GitLab/CircleCI are on the roadmap).
+- At registration, owner/repo and the workflow filename must be specified in the crates.io UI.
+  This template targets GitHub Actions; another CI provider's support is the crates.io
+  Trusted Publishing doc's to state (SSOT below).
 
 ## Corresponding template
 `github/deploy.cratesio.workflow.example.yml` — the registry+rust combination is statically rendered by `/flow-init --render-deploy`.

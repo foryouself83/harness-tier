@@ -132,6 +132,7 @@ The prose check against [`rules/doc-style.md`](../../rules/doc-style.md).
 | `enable` | Turns on the commit-time check and the `doc-style.yml` workflow together |
 | `paths` | Repo-relative globs in scope, `["**/*.md"]` by default; add `**/*.py` · `**/*.sh` for comments |
 | `exclude` | Globs kept out, added to what the checker always skips |
+| `future` | `true` adds the `FUTURE` warning on planned-work markers; `false` by default ([Planned work](../../rules/doc-style.md#planned-work)) |
 
 The checker always skips every `CHANGELOG.md`, GitHub's issue and pull request templates,
 `docs/superpowers/` and `.superpowers/`; `exclude` adds to them and cannot remove one.

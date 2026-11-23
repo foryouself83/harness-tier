@@ -93,8 +93,8 @@ no `wiki_id`.
 The one gate that never blocks. When `flow-config.doc_style.enable` is true, it lints the files
 the commit changes that `paths` and `exclude` put in scope, and reports **error**-level findings
 — history narration, plan-record pointers, filler, Korean `~다` endings and the rest of the
-banned list in [`rules/doc-style.md`](../../rules/doc-style.md). The `LONG` and `CLAIM` warnings
-appear only in `doc_style_check.py --lint` and in CI.
+banned list in [`rules/doc-style.md`](../../rules/doc-style.md). The `LONG` and `CLAIM` warnings,
+and `FUTURE` when `doc_style.future` is on, appear only in `doc_style_check.py --lint` and in CI.
 
 The verdict belongs to the `doc-style.yml` workflow, which sees the whole tree. The hook and CI
 read the scope through one function, so an `exclude` holds in both. A `flow-config.yaml` that

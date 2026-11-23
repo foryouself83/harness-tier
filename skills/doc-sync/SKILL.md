@@ -147,6 +147,10 @@ Check every target; track the index by following its links.
    wholesale — port the delta.
    Nothing else catches this: a translation drifts silently, staying valid
    markdown while describing a version of the product that no longer exists.
+7. **Planned work** — does a doc or a comment describe what the code does not hold yet (a
+   planned step, an unshipped flag, a `TODO`)? Delete it there and record it in a plan under
+   `docs/superpowers/plans/`, never linked back
+   ([`doc-style.md`](../../rules/doc-style.md) Planned work).
 
 ### Action
 

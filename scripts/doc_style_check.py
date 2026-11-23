@@ -323,6 +323,20 @@ BANNED = (
     ),
 )
 
+# Opt-in (`doc_style.future`), so it sits outside BANNED. Explicit markers only: an unmarked
+# sentence describing what does not exist yet is the judgement half of rules/doc-style.md.
+FUTURE = (
+    "FUTURE",
+    "warning",
+    re.compile(
+        r"\b(TODO|FIXME|TBD)\b"
+        r"|(?i:\b(?:on the roadmap|coming soon|not yet (?:implemented|supported|available)"
+        r"|(?:is|are) planned|in a (?:future|later) (?:release|version))\b)"
+        r"|추후|향후|차후|예정(?!대로)"
+    ),
+    "planned work in current prose — delete it here, record it under docs/superpowers/plans/",
+)
+
 # Which spans each rule reads. Anything unlisted takes the default mask (see :func:`_mask`).
 MASK_MODE = {"PLAN": "links", "ANCHOR": "code"}
 # Which rules are matched against the line's text rather than its raw start. PLAN must never
@@ -401,15 +415,16 @@ def _trap_findings(entries: list) -> list:
     return findings
 
 
-def lint_text(path: Path, text: str) -> list[Finding]:
+def lint_text(path: Path, text: str, future: bool = False) -> list[Finding]:
     findings: list[Finding] = []
     entries: list[tuple[int, str, str, str]] = []
+    rules = BANNED + (FUTURE,) if future else BANNED
     for lineno, raw in prose_of(path, text):
         masked = {mode: _mask(raw, mode) for mode in MASK_PATTERNS}
         entries.append((lineno, raw, masked["default"], masked["code"]))
         if not raw.strip():
             continue
-        for code, severity, pattern, message in BANNED:
+        for code, severity, pattern, message in rules:
             target = masked[MASK_MODE.get(code, "default")]
             m = pattern.search(_strip_head(target) if code in HEAD_ANCHORED else target)
             if m:
@@ -424,14 +439,14 @@ def lint_text(path: Path, text: str) -> list[Finding]:
     return findings
 
 
-def lint_paths(paths: list[Path]) -> list[tuple[Path, list[Finding]]]:
+def lint_paths(paths: list[Path], future: bool = False) -> list[tuple[Path, list[Finding]]]:
     out = []
     for path in paths:
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        findings = lint_text(path, text)
+        findings = lint_text(path, text, future)
         if findings:
             out.append((path, findings))
     return out
@@ -705,6 +720,19 @@ def scope_rules(root: Path) -> tuple[tuple[str, ...], tuple[str, ...]] | None:
     return tuple(cfg.get("paths") or DEFAULT_GLOBS), tuple(dict.fromkeys(excluded))
 
 
+def future_rule(root: Path) -> bool:
+    """Whether ``doc_style.future`` is the boolean ``true``. Anything unreadable reads as off:
+    the rule only warns, so a broken config costs the warning and nothing else."""
+    try:
+        import yaml
+
+        data = yaml.safe_load(config_path(root).read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    cfg = data.get("doc_style") if isinstance(data, dict) else None
+    return isinstance(cfg, dict) and cfg.get("future") is True
+
+
 def in_scope(root: Path, paths: list[Path], fail_open: bool = True) -> list[Path]:
     """The subset of ``paths`` the config puts in scope. [] when it is absent or off.
 
@@ -858,7 +886,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     paths = config_paths(root) if args.lint_config else [Path(p) for p in (args.lint or [])]
-    return 1 if report(lint_paths(paths), root) else 0
+    return 1 if report(lint_paths(paths, future_rule(root)), root) else 0
 
 
 if __name__ == "__main__":

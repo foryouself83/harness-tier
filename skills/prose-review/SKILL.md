@@ -52,6 +52,9 @@ No pattern answers these. Read each comment, docstring and paragraph the paths c
   validated bound or a type could carry is a comment that should not exist. Propose the
   check, not a better sentence.
 - **Is it self-evident?** A comment restating its own identifier is noise.
+- **Does it describe something that does not exist yet?** A planned step, an unshipped
+  flag, a sentence the code cannot back today. Delete it and record it under
+  `docs/superpowers/plans/`; `FUTURE` catches only the marked cases, where the host opts in.
 - **Is a number a measurement or a contract?** Anything else is a guess wearing a figure —
   give the direction instead.
 - **Is it as short as it can be?** Nominal endings, no connective padding.

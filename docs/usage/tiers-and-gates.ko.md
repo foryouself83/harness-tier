@@ -88,8 +88,8 @@ staging 커밋이 막힘.
 절대 차단하지 않는 유일한 게이트. `flow-config.doc_style.enable` 이 켜져 있으면 `paths` 와
 `exclude` 가 정한 범위 안에서 커밋이 바꾼 파일을 린트하고 **error** 등급 발견만 보고함 —
 히스토리 서술, 계획 문서 포인터, 필러, 한국어 `~다` 종결 등
-[`rules/doc-style.md`](../../rules/doc-style.md) 의 금지 목록. `LONG`·`CLAIM` 경고는
-`doc_style_check.py --lint` 와 CI 에서만 보임.
+[`rules/doc-style.md`](../../rules/doc-style.md) 의 금지 목록. `LONG`·`CLAIM` 경고와
+`doc_style.future` 가 켜진 때의 `FUTURE` 는 `doc_style_check.py --lint` 와 CI 에서만 보임.
 
 최종 판정은 전체 트리를 보는 `doc-style.yml` 워크플로가 가짐. 훅과 CI 는 같은 함수로 범위를
 읽으므로 `exclude` 는 양쪽에 함께 적용됨. `flow-config.yaml` 이 파싱되지 않으면 "꺼짐"이
