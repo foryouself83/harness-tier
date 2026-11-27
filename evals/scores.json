@@ -176,6 +176,23 @@
       "restricted": 0.8,
       "truncated": 0.0,
       "truncated_quiet": 0.0
+    },
+    "ux-review": {
+      "description_sha": "8fd1ca578a13",
+      "false_fire": 0.0,
+      "false_hits": 0,
+      "false_n": 15,
+      "fixture_sha": "3e030cb7abb0",
+      "invoke_hits": 10,
+      "invoke_n": 15,
+      "invoke_rate": 0.67,
+      "lost_to": {},
+      "measured_at": "2026-11-27",
+      "model": "claude-sonnet-5",
+      "reps": 3,
+      "restricted": 0.6,
+      "truncated": 0.0,
+      "truncated_quiet": 0.0
     }
   }
 }

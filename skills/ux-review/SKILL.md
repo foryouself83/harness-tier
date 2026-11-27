@@ -1,6 +1,6 @@
 ---
 name: ux-review
-description: Use when a web UI's usability is in question — users get stuck or confused on a screen or flow, a UI change needs a UX or accessibility review before it ships, or someone asks to make an interface easier to use. Reviewed only from the builder's own context, a screen passes while a first-time user still trips on it.
+description: Use when someone asks whether a web UI is usable or intuitive — a screen users find confusing, a multi-step task like signup or checkout a first-time user might not get through, a UX or accessibility pass before shipping, or a request to make a page easier to use. Review before any fix is written. Judged only from the builder's own context, a screen passes while a first-time user still trips on it.
 argument-hint: "[flow or URL] [--full]"
 ---
 
